@@ -64,8 +64,8 @@ final class InjectionAdapterTests: XCTestCase {
     func testInsertChunksLongTextIntoSeparateEventPairs() {
         let poster = RecordingPoster()
         let injector = TextInjector(poster: poster)
-        let chunks = injector.insert(TestInsertItem.o5Text)
-        XCTAssertEqual(chunks, 2)
+        let outcome = injector.insert(TestInsertItem.o5Text)
+        XCTAssertEqual(outcome.posted, 2)
         XCTAssertEqual(poster.batches.count, 2)
         XCTAssertEqual(poster.batches.map { unicode(of: $0[0]) }, ["ABCDEFGHIJKLMNOPQRST", "UVWXYZ0123"])
     }
@@ -75,6 +75,35 @@ final class InjectionAdapterTests: XCTestCase {
         XCTAssertTrue(TextInjector(poster: poster).insertUnchunked(TestInsertItem.o5Text))
         XCTAssertEqual(poster.batches.count, 1)
         XCTAssertEqual(unicode(of: poster.batches[0][0]), TestInsertItem.o5Text)
+    }
+
+    func testInsertStopsAtFirstFailedChunk() {
+        let poster = RecordingPoster()
+        var built = 0
+        let injector = TextInjector(poster: poster, buildTextEvents: { chunk in
+            built += 1
+            // Chunk 2 of 3 fails to build.
+            return built == 2 ? [] : TextInjector.makeTextEvents(chunk)
+        })
+        let text = String(repeating: "a", count: 20) + String(repeating: "b", count: 20) + "c"
+        let outcome = injector.insert(text)
+        XCTAssertEqual(outcome, InsertOutcome(posted: 1, total: 3))
+        XCTAssertFalse(outcome.complete)
+        XCTAssertEqual(built, 2, "third chunk must never be attempted")
+        XCTAssertEqual(poster.batches.count, 1)
+    }
+
+    func testInsertReportsCompleteWhenAllChunksPosted() {
+        let outcome = TextInjector(poster: RecordingPoster()).insert(TestInsertItem.o5Text)
+        XCTAssertEqual(outcome, InsertOutcome(posted: 2, total: 2))
+        XCTAssertTrue(outcome.complete)
+    }
+
+    func testFocusReadSkippedForOwnProcessUntrustedOrNoApp() {
+        XCTAssertTrue(FocusMonitor.shouldReadFocus(trusted: true, pid: 200, ownPID: 100))
+        XCTAssertFalse(FocusMonitor.shouldReadFocus(trusted: true, pid: 100, ownPID: 100))
+        XCTAssertFalse(FocusMonitor.shouldReadFocus(trusted: false, pid: 200, ownPID: 100))
+        XCTAssertFalse(FocusMonitor.shouldReadFocus(trusted: true, pid: 0, ownPID: 100))
     }
 
     func testBackspaceAndReturnPostOnePairEach() {

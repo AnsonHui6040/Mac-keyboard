@@ -32,6 +32,12 @@ final class FocusMonitor: ObservableObject {
         return valueSettable
     }
 
+    /// No AX reads when untrusted, with no frontmost app, or when we are frontmost ourselves: the Receiver's own
+    /// windows are never an injection target (and reading them would risk an AX call back into this process).
+    nonisolated static func shouldReadFocus(trusted: Bool, pid: Int32, ownPID: Int32) -> Bool {
+        trusted && pid != 0 && pid != ownPID
+    }
+
     // MARK: Lifecycle
 
     func start() {
@@ -71,7 +77,7 @@ final class FocusMonitor: ObservableObject {
 
         var element: AXUIElement?
         var editable = false
-        if trusted, pid != 0 {
+        if Self.shouldReadFocus(trusted: trusted, pid: pid, ownPID: ProcessInfo.processInfo.processIdentifier) {
             (element, editable) = Self.readFocus(pid: pid)
         }
 

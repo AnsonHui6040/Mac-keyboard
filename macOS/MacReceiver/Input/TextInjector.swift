@@ -15,6 +15,13 @@ struct HIDEventPoster: EventPosting {
     }
 }
 
+/// Result of a chunked insert. `complete` is false when a chunk failed to build and posting stopped there.
+struct InsertOutcome: Equatable {
+    let posted: Int
+    let total: Int
+    var complete: Bool { posted == total }
+}
+
 /// Types text into the focused Mac app as unicode keyboard events.
 /// Never logs the text itself; only lengths and counts.
 @MainActor
@@ -24,9 +31,14 @@ final class TextInjector {
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "inject")
 
     private let poster: EventPosting
+    private let buildTextEvents: (String) -> [CGEvent]
 
-    init(poster: EventPosting = HIDEventPoster()) {
+    init(
+        poster: EventPosting = HIDEventPoster(),
+        buildTextEvents: @escaping (String) -> [CGEvent] = TextInjector.makeTextEvents
+    ) {
         self.poster = poster
+        self.buildTextEvents = buildTextEvents
     }
 
     // MARK: Building (no side effects)
@@ -59,13 +71,18 @@ final class TextInjector {
 
     // MARK: Posting
 
-    /// Posts `text` split by `UnicodeChunker`. Returns the number of chunks posted.
+    /// Posts `text` split by `UnicodeChunker`. Stops at the first chunk that cannot be built, so the target never
+    /// gets text with a hole in the middle.
     @discardableResult
-    func insert(_ text: String) -> Int {
+    func insert(_ text: String) -> InsertOutcome {
+        let chunks = UnicodeChunker.chunks(text)
         var posted = 0
-        for chunk in UnicodeChunker.chunks(text) where postChunk(chunk) { posted += 1 }
-        Self.log.info("insert length \(text.utf16.count, privacy: .public) chunks \(posted, privacy: .public)")
-        return posted
+        for chunk in chunks {
+            guard postChunk(chunk) else { break }
+            posted += 1
+        }
+        Self.log.info("insert length \(text.utf16.count, privacy: .public) chunks \(posted, privacy: .public) of \(chunks.count, privacy: .public)")
+        return InsertOutcome(posted: posted, total: chunks.count)
     }
 
     /// Posts `text` as a single event with no chunking, to measure the per-event limit. Returns whether it was posted.
@@ -80,7 +97,7 @@ final class TextInjector {
     func returnKeyPress() { postKey(Self.returnKey) }
 
     private func postChunk(_ chunk: String) -> Bool {
-        let events = Self.makeTextEvents(chunk)
+        let events = buildTextEvents(chunk)
         guard !events.isEmpty else { return false }
         poster.post(events)
         return true

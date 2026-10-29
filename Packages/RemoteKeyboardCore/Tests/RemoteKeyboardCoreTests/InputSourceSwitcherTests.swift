@@ -79,5 +79,35 @@ final class InputSourceSwitcherTests: XCTestCase {
         XCTAssertEqual(fake.log, ["select:ABC", "inject", "settle:0.05", "select:Zhuyin"])
     }
 
+    func testOverlappingCallsAreSerializedEachWithOwnSettleBeforeRestore() async {
+        let fake = FakeController(current: zhuyin)
+        let switcher = InputSourceSwitcher(controller: fake, settle: { seconds in
+            fake.log.append("settle:\(seconds)")
+            // Suspend long enough for the second call to start while the first is still settling.
+            for _ in 0..<5 { await Task.yield() }
+        })
+        let first = Task { await switcher.withASCII(settleSeconds: 0.05) { fake.log.append("injectA") } }
+        let second = Task { await switcher.withASCII(settleSeconds: 0.05) { fake.log.append("injectB") } }
+        let results = await [first.value, second.value]
+        XCTAssertEqual(results, [.injected, .injected])
+        XCTAssertEqual(fake.log, [
+            "select:ABC", "injectA", "settle:0.05", "select:Zhuyin",
+            "select:ABC", "injectB", "settle:0.05", "select:Zhuyin",
+        ])
+        XCTAssertEqual(fake.current, zhuyin)
+    }
+
+    func testFailedCallStillReleasesTheGate() async {
+        let fake = FakeController(current: zhuyin)
+        fake.selectIgnored = true
+        let switcher = InputSourceSwitcher(controller: fake, settle: { _ in })
+        var injected = 0
+        let first = Task { await switcher.withASCII { injected += 1 } }
+        let second = Task { await switcher.withASCII { injected += 1 } }
+        let results = await [first.value, second.value]
+        XCTAssertEqual(results, [.switchFailed, .switchFailed])
+        XCTAssertEqual(injected, 0)
+    }
+
     func testDefaultSettleIsFiftyMilliseconds() { XCTAssertEqual(InputSourceSwitcher.defaultSettleSeconds, 0.05) }
 }

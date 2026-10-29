@@ -111,8 +111,9 @@ final class TestInsertController: ObservableObject {
         let started = ContinuousClock.now
         let result = await switcher.withASCII(settleSeconds: settleSeconds) {
             if item.chunked {
-                chunks = injector.insert(item.text)
-                posted = chunks == UnicodeChunker.chunks(item.text).count
+                let outcome = injector.insert(item.text)
+                chunks = outcome.posted
+                posted = outcome.complete
             } else {
                 posted = injector.insertUnchunked(item.text)
                 chunks = posted ? 1 : 0
