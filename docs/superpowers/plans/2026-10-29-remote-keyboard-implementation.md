@@ -16,6 +16,7 @@
 
 - 不採用 Bluetooth HID；主傳輸為自訂 BLE GATT，Mac 安裝 Receiver。
 - D11／D12：iPhone 發佈 service `706AA642-68A3-41FA-889D-24E30709B0D0`，`event` `C7FC0313-53E7-4DCD-B75F-2AE66FE9C586`（notify）、`control` `320468E2-53B6-4B6A-88EC-AE2752415818`（write with response）；Mac 只走掃描路徑；notify 不超過 `maximumUpdateValueLength`，佇列滿時暫存不丟。
+- D13：Mac Receiver 登入時啟動並常駐；平時待命，點擊可編輯輸入框才開始掃描連線；`ReceiverSession.idleTimeout = 1800` 秒無活動自動停止，收到事件或再點輸入框即延長；焦點離開輸入框不斷線。
 - Peripheral 只在鍵盤可見且有 Full Access 時廣播；T09 前 Mac 連入任何廣播此 service 的 iPhone，僅供開發。
 - 依使用者守則不刪 source：T02 的 `GATTPeripheralServer` 保留但不再啟動。
 - 無 Full Access 時 Local Mode 必須可打字並可切換下一個鍵盤。
@@ -303,9 +304,9 @@ func testDiagnosticEventCarriesNoText() { XCTAssertFalse(String(describing: Diag
 **Branch:** `t03b-receiver-central`（T03a merge 後開始）
 
 **Files:**
-- Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Receiver/ReceiverLinkStateMachine.swift`
-- Create: `macOS/MacReceiver/Bluetooth/ReceiverBLECentral.swift`；Modify: `MacReceiverApp.swift`（menu 顯示 `Link:` 狀態；不再啟動 `GATTPeripheralServer`，檔案保留不刪）
-- Test: `Tests/RemoteKeyboardCoreTests/ReceiverLinkStateMachineTests.swift`
+- Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Receiver/ReceiverLinkStateMachine.swift`、`Receiver/ReceiverSession.swift`
+- Create: `macOS/MacReceiver/Bluetooth/ReceiverBLECentral.swift`、`macOS/MacReceiver/LoginItem.swift`；Modify: `MacReceiverApp.swift`（menu 顯示 `Link:` 狀態、剩餘接收時間、「開始接收／停止接收」、「登入時啟動」；不再啟動 `GATTPeripheralServer`，檔案保留不刪）
+- Test: `Tests/RemoteKeyboardCoreTests/ReceiverLinkStateMachineTests.swift`、`ReceiverSessionTests.swift`
 - Evidence: `e2e/E2E-T03B-LINK.md`
 
 **Interfaces:**
@@ -315,6 +316,8 @@ func testDiagnosticEventCarriesNoText() { XCTAssertFalse(String(describing: Diag
   - `enum ReceiverLinkState: Equatable, Sendable { case idle, unavailable(CentralPower), scanning, connecting(UUID), discovering(UUID), ready(UUID) }`
   - `enum ReceiverLinkInput: Equatable { case start, stop, power(CentralPower), discovered(UUID), connected(UUID), linkReady(UUID), disconnected(UUID), serviceInvalidated(UUID), connectTimeout }`
   - `enum ReceiverLinkEffect: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID), startConnectTimeout(seconds: Double), cancelConnectTimeout }`
+  - `enum ReceiverSessionInput: Equatable { case editableFocusGained, eventReceived, manualStart, manualStop, timerFired }`；`enum ReceiverSessionEffect: Equatable { case arm, disarm, scheduleTimeout(at: Date) }`
+  - `struct ReceiverSession { static let idleTimeout: TimeInterval = 1800; private(set) var isArmed: Bool; private(set) var deadline: Date?; init(idleTimeout: TimeInterval = idleTimeout); mutating func handle(_ input: ReceiverSessionInput, now: Date) -> [ReceiverSessionEffect] }`：`arm` 對應 link `.start`，`disarm` 對應 link `.stop`；`timerFired` 只在 `now >= deadline` 時 disarm（過期計時器忽略）；待命時 `eventReceived` 不會 arm。
   - `struct ReceiverLinkStateMachine { private(set) var state: ReceiverLinkState; mutating func handle(_ input: ReceiverLinkInput) -> [ReceiverLinkEffect] }`：連線逾時固定 `5.0` 秒；斷線、逾時或 iPhone 移除 service（鍵盤收起時連線可能仍在，因為系統連線共用）一律回到掃描；只有 `stop` 或藍牙不可用才停止。
 
 - [ ] **Step 1: 寫失敗測試**
@@ -346,15 +349,34 @@ func testPowerOffThenOnWhileStartedRescans() {
     var m = readyMachine(p); _ = m.handle(.power(.poweredOff)); XCTAssertEqual(m.state, .unavailable(.poweredOff))
     XCTAssertEqual(m.handle(.power(.poweredOn)), [.startScan])
 }
+func testFocusArmsAndSchedulesThirtyMinutes() {
+    var s = ReceiverSession(); let t0 = Date(timeIntervalSince1970: 0)
+    XCTAssertEqual(s.handle(.editableFocusGained, now: t0), [.arm, .scheduleTimeout(at: t0.addingTimeInterval(1800))])
+}
+func testEventExtendsDeadline() {
+    var s = armedSession(at: t0)
+    XCTAssertEqual(s.handle(.eventReceived, now: t0.addingTimeInterval(600)), [.scheduleTimeout(at: t0.addingTimeInterval(2400))])
+}
+func testRefocusWhileArmedExtendsWithoutRearm() {
+    var s = armedSession(at: t0)
+    XCTAssertEqual(s.handle(.editableFocusGained, now: t0.addingTimeInterval(60)), [.scheduleTimeout(at: t0.addingTimeInterval(1860))])
+}
+func testTimerAtDeadlineDisarms() { var s = armedSession(at: t0); XCTAssertEqual(s.handle(.timerFired, now: t0.addingTimeInterval(1800)), [.disarm]); XCTAssertFalse(s.isArmed) }
+func testStaleTimerIgnoredAfterExtension() {
+    var s = armedSession(at: t0); _ = s.handle(.eventReceived, now: t0.addingTimeInterval(600))
+    XCTAssertEqual(s.handle(.timerFired, now: t0.addingTimeInterval(1800)), [])
+}
+func testEventWhileStandbyDoesNotArm() { var s = ReceiverSession(); XCTAssertEqual(s.handle(.eventReceived, now: t0), []) }
+func testManualStopDisarms() { var s = armedSession(at: t0); XCTAssertEqual(s.handle(.manualStop, now: t0), [.disarm]) }
 func testStartBeforePowerScansOnPowerOn() { var m = ReceiverLinkStateMachine(); XCTAssertEqual(m.handle(.start), []); XCTAssertEqual(m.handle(.power(.poweredOn)), [.startScan]) }
 ```
 
 - [ ] **Step 2: 執行 `swift test`，預期 FAIL：找不到 `ReceiverLinkStateMachine`。**
-- [ ] **Step 3: 實作狀態機。**
+- [ ] **Step 3: 實作 `ReceiverSession` 與 `ReceiverLinkStateMachine`。**
 - [ ] **Step 4: 執行 `swift test`，全部 PASS。**
-- [ ] **Step 5: 實作 `ReceiverBLECentral`。** `@MainActor`、`CBCentralManager(queue: nil)`；App 啟動即送 `.start`；`scanForPeripherals(withServices: [Link.serviceUUID])`；連上後只探索 `Link.serviceUUID`，再探索 `event`／`control`，對 `event` `setNotifyValue(true)`，`didUpdateNotificationStateFor` 成功即 `.linkReady`；`didModifyServices` 包含 `Link.serviceUUID`，或 `event` 的通知狀態變為關閉，送 `.serviceInvalidated`；保留 peripheral 強參照；計時器只在 `connecting`／`discovering` 有效。menu 顯示 `Link: scanning`、`Link: ready (N ms)`（由 `discovered` 起算）。OSLog subsystem `com.ansonhui.remotekeyboard.receiver`、category `link`，只記狀態名稱與毫秒。
+- [ ] **Step 5: 實作 `ReceiverBLECentral`。** `@MainActor`、`CBCentralManager(queue: nil)`；App 啟動後待命；`ReceiverSession` 的 `.arm` 送 `.start`、`.disarm` 送 `.stop`，計時器依 `.scheduleTimeout(at:)` 設定；T03b 先以 menu「開始接收」觸發 `.manualStart`（點擊輸入框觸發在 T05 接上 `FocusMonitor`）；開發用 `UserDefaults` 鍵 `rk.idleTimeoutSeconds` 可覆寫 1800 秒；`LoginItem` 以 `SMAppService.mainApp.register()`／`unregister()` 實作「登入時啟動」，預設開啟；`scanForPeripherals(withServices: [Link.serviceUUID])`；連上後只探索 `Link.serviceUUID`，再探索 `event`／`control`，對 `event` `setNotifyValue(true)`，`didUpdateNotificationStateFor` 成功即 `.linkReady`；`didModifyServices` 包含 `Link.serviceUUID`，或 `event` 的通知狀態變為關閉，送 `.serviceInvalidated`；保留 peripheral 強參照；計時器只在 `connecting`／`discovering` 有效。menu 顯示 `Link: scanning`、`Link: ready (N ms)`（由 `discovered` 起算）。OSLog subsystem `com.ansonhui.remotekeyboard.receiver`、category `link`，只記狀態名稱與毫秒。
 - [ ] **Step 6: Run all（含 macOS adapter 測試），全部 exit 0。**
-- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** 依 `e2e/E2E-T03B-LINK.md`：先強制關閉 host App；Mac Receiver 執行中；Notes、Safari 各叫出鍵盤 10 次，記錄鍵盤 `BLE: connected` 與 Mac `Link: ready (N ms)`；收起鍵盤後 Mac 回到 `scanning`。
+- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** 依 `e2e/E2E-T03B-LINK.md`：先強制關閉 host App；Mac Receiver 執行中並按「開始接收」；確認「登入時啟動」顯示已啟用（`SMAppService.mainApp.status == .enabled`）；Notes、Safari 各叫出鍵盤 10 次，記錄鍵盤 `BLE: connected` 與 Mac `Link: ready (N ms)`；收起鍵盤後 Mac 回到 `scanning`。
 - [ ] **Step 8: 更新驗收報告 T03（子項 T03b，T03 整體結論）與 O8，主代理 commit。**
 
 **PASS：** Notes、Safari 各 10/10 進入 connected／ready，host App 不在前景。**若失敗：** 依 D8 啟動 LAN WebSocket 限時 PoC，暫停 UI 工作。
@@ -477,9 +499,9 @@ func testDrainStopsWhenSendReturnsFalseAndKeepsOrder() {
 - [ ] **Step 2: 執行 `swift test`，預期 FAIL。**
 - [ ] **Step 3: 實作 Core 型別與 router 擴充。**
 - [ ] **Step 4: 執行 `swift test`，全部 PASS。**
-- [ ] **Step 5: 接上兩端。** iPhone：Remote 按鍵 → `KeyboardEvent`（`focusEpoch` 取最新 `ReceiverStatus`，`seq` 每 session 從 1 遞增）→ `EventCodec.encode(maxBytes: central.maximumUpdateValueLength)` → `NotifyQueue`；以 `updateValue(_:for:onSubscribedCentrals:)` drain，`peripheralManagerIsReady(toUpdateSubscribers:)` 再 drain。`control` write 解成 `ControlMessage`：`.status` 更新 ready 與狀態列 `Mac → 目前 App`；`.ack` 以 `DiagnosticEvent.ackReceived` 記錄並短暫顯示。模式以 `UserDefaults.standard` 鍵 `rk.mode` 保存，載入經 `ModeResolver`（`hasFullAccess` 取 `UIInputViewController.hasFullAccess`）。Mac：`event` 通知 → `EventCodec.decode` → `FocusGuard.authorize(eventEpoch: event.focusEpoch, current:)` → `InputSourceSwitcher` → `TextInjector` → `control` 寫回 `.ack`；`linkReady` 後與焦點／epoch 改變時寫 `.status`（`.withResponse`）。
+- [ ] **Step 5: 接上兩端。** Mac：`FocusMonitor` 由非可編輯轉為可編輯時送 `ReceiverSession` `.editableFocusGained`，每收到一個有效 event 送 `.eventReceived`。iPhone：Remote 按鍵 → `KeyboardEvent`（`focusEpoch` 取最新 `ReceiverStatus`，`seq` 每 session 從 1 遞增）→ `EventCodec.encode(maxBytes: central.maximumUpdateValueLength)` → `NotifyQueue`；以 `updateValue(_:for:onSubscribedCentrals:)` drain，`peripheralManagerIsReady(toUpdateSubscribers:)` 再 drain。`control` write 解成 `ControlMessage`：`.status` 更新 ready 與狀態列 `Mac → 目前 App`；`.ack` 以 `DiagnosticEvent.ackReceived` 記錄並短暫顯示。模式以 `UserDefaults.standard` 鍵 `rk.mode` 保存，載入經 `ModeResolver`（`hasFullAccess` 取 `UIInputViewController.hasFullAccess`）。Mac：`event` 通知 → `EventCodec.decode` → `FocusGuard.authorize(eventEpoch: event.focusEpoch, current:)` → `InputSourceSwitcher` → `TextInjector` → `control` 寫回 `.ack`；`linkReady` 後與焦點／epoch 改變時寫 `.status`（`.withResponse`）。
 - [ ] **Step 6: Run all，全部 exit 0。**
-- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** `T05-E2E-A-01`：Notes → Mac TextEdit 按 `A` 20 次；`T05-E2E-A-02`：Safari → TextEdit 20 次；每次錄影，不得用主 App 代打。另做 5 次「按 A 前 1 秒內 Cmd-Tab 到 Finder」，Mac 不得出現字元，ack 為 `staleFocus` 或 `noFocus`。關閉 Full Access 後重開鍵盤，確認回到 Local 可打字。
+- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** `T05-E2E-A-01`：Notes → Mac TextEdit 按 `A` 20 次；`T05-E2E-A-02`：Safari → TextEdit 20 次；每次錄影，不得用主 App 代打。另做 5 次「按 A 前 1 秒內 Cmd-Tab 到 Finder」，Mac 不得出現字元，ack 為 `staleFocus` 或 `noFocus`。關閉 Full Access 後重開鍵盤，確認回到 Local 可打字。D13：Receiver 待命時點擊 TextEdit 文字框即開始接收並連上；以 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60` 將逾時改為 60 秒，確認 60 秒不打字即斷線回待命、期間持續打字則不斷線，測完以 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 還原。
 - [ ] **Step 8: 更新驗收報告 T05，主代理 commit。**
 
 **PASS：** 兩組各 20/20，錯焦點 0 次。**Gate 1：** 失敗即停止 T10–T12 的完整 UI，改依 D8 驗證 LAN 傳輸；任何 Extension 傳輸都失敗時重新確認產品方向。

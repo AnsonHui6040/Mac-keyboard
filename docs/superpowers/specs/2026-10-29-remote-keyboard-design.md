@@ -2,7 +2,7 @@
 
 **版本**：v1.2 | **日期**：2026-10-29 | **狀態**：DRAFT / 待使用者批准（v1.1 已於 2026-10-29 批准）；非已實作產品
 
-**v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向與 §13 實機資訊。
+**v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向、D13 Mac 常駐與接收時段與 §13 實機資訊。
 
 **v1.1 變更**：納入 2026-10-29 設計審問的決定，涵蓋 Remote 模式行為、草稿列、配對備案、Mac 輸入法、語音流程、BLE 備案與開發環境。決定總表見 §12。
 
@@ -15,6 +15,7 @@
 - iOS 第三方 Keyboard Extension：英文 QWERTY，Shift／Caps Lock／長按、刪除、Space、Return；數字 `123` 和特殊符號 `#+=` 兩層；繁體中文手寫頁、候選字；系統 globe／語言切換；語音輸入入口。
 - 英文外觀及使用習慣參考 Apple 原生鍵盤，但不複製 Apple 私有資產、預測字詞引擎或私有系統鍵盤 View。關鍵動作應原生風格而非假裝能重用 Apple keyboard。
 - Mac 具 menu-bar Receiver、首次配對、連線狀態、焦點狀態、接收暫停／解除配對。
+- Mac 常駐與接收時段（D13）：Receiver 登入時自動啟動並常駐 menu bar，平時待命（不掃描、不連線）。使用者在 Mac 點擊可編輯輸入框時開始接收（掃描並連入 iPhone 鍵盤）；30 分鐘沒有活動即停止掃描並斷線回到待命。每收到一個鍵盤事件或再次點擊可編輯輸入框，30 分鐘重新計算。焦點離開輸入框時連線保留，只令注入 fail closed。menu 另有手動「開始接收／停止接收」。
 - 預設 Local Mode：iPhone 本地正常輸入，毋須 Full Access；Remote Mode 必須由使用者明確啟用並授權，且有持續可見狀態；不能暗地將其他 App 的文字複製到 Mac。
 - Remote Mode 行為：按鍵只送往 Mac，iPhone 目前欄位不出字；鍵盤收起或切換 App 後重新開啟，沿用上次模式；鍵盤頂部常駐狀態列顯示「Mac → 目前 App 名稱」，點一下即切回 Local。
 - 未就緒時的草稿列：Remote Mode 開啟但 BLE 未連線、或 Mac 沒有可編輯焦點時，按鍵寫入鍵盤頂部草稿列，「傳送」為灰色不可按。就緒後「傳送」轉為可用，由使用者手動送出，不自動送出；送出後恢復逐字即時傳送。草稿送出時使用當下的 `focusEpoch`。草稿只存在記憶體，Extension 被終止或切換 App 即消失，不寫入磁碟。
@@ -131,6 +132,7 @@
 | D10 | Xcode project | 使用 XcodeGen：`project.yml` 納入 git，`*.xcodeproj` 不納入；每次以 `xcodegen generate` 產生 | 全部 |
 | D11 | 傳輸角色（2026-10-29 批准） | 角色對調：iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central。原因：同一 iCloud 的 iPhone 主動連 Mac 在實機失敗（T03），Mac 主動連 iPhone 成功（spike）。v1.2 已改寫 §2–§5、§9；D8 LAN 保留為後備 | T03–T06 |
 | D12 | GATT 方向 | iPhone 發佈 service；`event` notify 送事件、`control` 收 Mac 的 write（ACK、狀態）；Mac 只用掃描路徑；notify 受 `maximumUpdateValueLength` 限制並處理佇列滿（§5） | T03–T06 |
+| D13 | Mac 常駐與接收時段 | 登入自動啟動、常駐 menu bar；點擊可編輯輸入框才開始掃描連線；30 分鐘無活動自動停止，收到事件或再點輸入框即延長；焦點離開輸入框不斷線（§2） | T03b、T05 |
 
 ## 13. 開發環境（2026-10-29 實測）
 
