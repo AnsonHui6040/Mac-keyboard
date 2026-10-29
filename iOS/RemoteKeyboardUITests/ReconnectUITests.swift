@@ -6,9 +6,18 @@ import XCTest
 /// Run on a physical iPhone only, with the Mac Receiver already armed (press 開始接收 on the Mac first) and
 /// "Remote Keyboard" already selected as the current keyboard. The Mac's `reconnect.csv` is the authoritative
 /// record; this test's own numbers include XCUITest query latency and are only a cross-check.
+///
+/// Before running, start with Notes closed or sitting on the notes list. The test creates one new note for itself
+/// and taps only inside that note's body; it never touches an existing note. In Safari it taps only the address bar,
+/// never page content. The test types nothing: a tap is only what makes the keyboard appear.
+///
+/// A warm-up (not counted) checks that the keyboard is reachable and selects it. The counted reopens start after it.
+/// Whatever was measured is attached to the result even when the test fails part way.
 @MainActor
 final class ReconnectUITests: XCTestCase {
-    private static let apps = ["com.apple.mobilenotes", "com.apple.mobilesafari"]
+    private static let notesID = "com.apple.mobilenotes"
+    private static let safariID = "com.apple.mobilesafari"
+    private static let apps = [notesID, safariID]
     private static let statusIdentifier = "rk.status"
     private static let connectTimeoutSeconds = 10.0
     private static let defaultCount = 100
@@ -19,46 +28,41 @@ final class ReconnectUITests: XCTestCase {
         let sample: ReconnectSample
     }
 
-    override func setUp() {
+    /// Kept on the instance so `tearDown` can attach whatever was measured, even after a failure.
+    private var rows: [Row] = []
+
+    override func setUp() async throws {
         continueAfterFailure = false
+        rows = []
+    }
+
+    override func tearDown() async throws {
+        if !rows.isEmpty { attach(rows) }
     }
 
     func testHundredReopens() throws {
         // TEST_RUNNER_RK_REOPEN_COUNT=3 gives a short dry run; the gate itself is the default 100.
         let count = ProcessInfo.processInfo.environment["RK_REOPEN_COUNT"].flatMap(Int.init) ?? Self.defaultCount
-        var rows: [Row] = []
+
+        try warmUp()
 
         for index in 0..<count {
             let bundleID = Self.apps[index % Self.apps.count]
             let app = XCUIApplication(bundleIdentifier: bundleID)
             app.activate()
-            guard focusTextInput(in: app) else {
-                XCTFail("no text input found in \(bundleID) at reopen \(index + 1)")
+            guard let target = tapTarget(in: app, bundleID: bundleID) else {
+                XCTFail("no safe tap target in \(bundleID) at reopen \(index + 1)")
                 break
             }
+            // Taken immediately before the tap that brings the keyboard up.
             let shownAt = Self.nowMs()
-            let status = app.descendants(matching: .any).matching(identifier: Self.statusIdentifier).firstMatch
-
-            if index == 0 {
-                // O6: the third-party keyboard must be reachable at all. Try the globe a few times first.
-                var found = status.waitForExistence(timeout: Self.connectTimeoutSeconds)
-                var tries = 0
-                while !found && tries < 6 {
-                    tries += 1
-                    let next = app.keyboards.buttons["Next keyboard"]
-                    guard next.exists else { break }
-                    next.tap()
-                    found = status.waitForExistence(timeout: 2)
-                }
-                guard found else { throw XCTSkip("O6: third-party keyboard not reachable") }
-            }
-
+            target.tap()
+            let status = statusElement(in: app)
             let connectedAt = waitForConnected(status, shownAt: shownAt)
             rows.append(Row(index: index + 1, bundleID: bundleID, sample: ReconnectSample(shownAtMs: shownAt, connectedAtMs: connectedAt)))
             hideKeyboard(in: app)
         }
 
-        attach(rows)
         let summary = ReconnectStats.summarize(rows.map(\.sample))
         XCTAssertEqual(summary.attempts, count)
         // At least 99 of 100 connected (scaled for dry runs) and P95 at most 2000 ms.
@@ -66,31 +70,60 @@ final class ReconnectUITests: XCTestCase {
         XCTAssertLessThanOrEqual(summary.p95Ms ?? .max, 2000, "P95 \(summary.p95Ms.map(String.init) ?? "n/a") ms")
     }
 
+    // MARK: Warm-up (not counted)
+
+    /// Creates the test's own note, proves the keyboard is reachable (O6, trying the globe a few times), lets the link
+    /// settle, and checks Safari's address bar. None of this is a counted sample.
+    private func warmUp() throws {
+        let notes = XCUIApplication(bundleIdentifier: Self.notesID)
+        notes.activate()
+        let newNote = ["New Note", "Compose"].lazy.map { notes.buttons[$0] }.first { $0.waitForExistence(timeout: 3) }
+        guard let newNote else {
+            throw XCTSkip("Notes: new-note button not found; start with Notes closed or on the notes list")
+        }
+        newNote.tap()
+        let body = notes.textViews.firstMatch
+        guard body.waitForExistence(timeout: 5) else { throw XCTSkip("Notes: the new note's body did not appear") }
+        body.tap()
+
+        let status = statusElement(in: notes)
+        var found = status.waitForExistence(timeout: Self.connectTimeoutSeconds)
+        var tries = 0
+        while !found && tries < 6 {
+            tries += 1
+            let next = notes.keyboards.buttons["Next keyboard"]
+            guard next.exists else { break }
+            next.tap()
+            found = status.waitForExistence(timeout: 2)
+        }
+        guard found else { throw XCTSkip("O6: third-party keyboard not reachable") }
+        _ = waitForConnected(status, shownAt: Self.nowMs())
+        hideKeyboard(in: notes)
+
+        let safari = XCUIApplication(bundleIdentifier: Self.safariID)
+        safari.activate()
+        guard let bar = addressBar(in: safari) else { throw XCTSkip("Safari: address bar not found") }
+        bar.tap()
+        hideKeyboard(in: safari)
+    }
+
     // MARK: Steps
 
-    private func focusTextInput(in app: XCUIApplication) -> Bool {
-        func tapFirst(_ query: XCUIElementQuery) -> Bool {
-            let element = query.firstMatch
-            guard element.waitForExistence(timeout: 3) else { return false }
-            element.tap()
-            return true
-        }
-        if tapFirst(app.textViews) || tapFirst(app.textFields) || tapFirst(app.searchFields) { return true }
-        // Notes opens on its folder or note list; start a new note to get a text view.
-        for name in ["New Note", "Compose", "Create"] {
-            let button = app.buttons[name]
-            if button.waitForExistence(timeout: 2) {
-                button.tap()
-                if tapFirst(app.textViews) { return true }
-            }
-        }
-        // Safari: the address bar is a button until it is tapped.
-        let address = app.buttons["Address"]
-        if address.waitForExistence(timeout: 2) {
-            address.tap()
-            return tapFirst(app.textFields)
-        }
-        return false
+    private func statusElement(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: Self.statusIdentifier).firstMatch
+    }
+
+    /// What may be tapped to raise the keyboard: the warm-up's note body in Notes, the address bar in Safari.
+    private func tapTarget(in app: XCUIApplication, bundleID: String) -> XCUIElement? {
+        let element = bundleID == Self.notesID ? app.textViews.firstMatch : addressBar(in: app)
+        guard let element, element.waitForExistence(timeout: 5) else { return nil }
+        return element
+    }
+
+    /// Safari's address bar is a field when editing and a button otherwise. Page content is never a candidate.
+    private func addressBar(in app: XCUIApplication) -> XCUIElement? {
+        let candidates = [app.textFields["Address"], app.buttons["Address"], app.buttons["URL"]]
+        return candidates.first { $0.waitForExistence(timeout: 3) }
     }
 
     /// Polls until the status label's value is `connected`, or the timeout. `nil` means it never connected.
