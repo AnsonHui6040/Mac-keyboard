@@ -11,6 +11,8 @@ protocol CentralDriving: AnyObject {
     func connect(_ id: UUID)
     func discover(_ id: UUID)
     func cancel(_ id: UUID)
+    /// Drops everything held for `id` without touching the radio (used when Bluetooth is not powered on).
+    func forget(_ id: UUID)
     /// Write with response to the keyboard's `control` characteristic of the connected peripheral.
     func writeControl(_ data: Data)
 }
@@ -36,21 +38,30 @@ final class ReceiverBLECentral: ObservableObject {
     private var idleTimer: Timer?
     private var connectTimer: Timer?
     private var tickTimer: Timer?
-    private var discoveredAt: ContinuousClock.Instant?
+    private let monotonicMs: () -> Int64
+    private var rescanTimer: Timer?
+    /// Last power state reported by CoreBluetooth. The radio is only commanded while it is on.
+    private var power: CentralPower = .unknown
+    /// When the peripheral that is now being connected was accepted, not merely seen.
+    private var discoveredAtMs: Int64?
 
     /// Receives the raw bytes of every `event` notification, in arrival order.
     var eventHandler: (@MainActor (Data) -> Void)?
     /// Fires each time the link newly reaches ready (control characteristic is known by then).
     var onLinkReady: (@MainActor () -> Void)?
+    /// Fires each time the link leaves ready (disconnect, invalidation, stop, idle timeout or radio off).
+    var onLinkLost: (@MainActor () -> Void)?
 
     init(
         defaults: UserDefaults = .standard,
         clock: @escaping () -> Date = Date.init,
+        monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs,
         makeDriver: @escaping (ReceiverBLECentral) -> CentralDriving = { CoreBluetoothDriver(owner: $0) }
     ) {
         let override = defaults.double(forKey: Self.idleTimeoutKey)
         session = ReceiverSession(idleTimeout: override > 0 ? override : ReceiverSession.idleTimeout)
         self.clock = clock
+        self.monotonicMs = monotonicMs
         self.makeDriver = makeDriver
     }
 
@@ -132,29 +143,40 @@ final class ReceiverBLECentral: ObservableObject {
     // MARK: Link
 
     func handleLink(_ input: ReceiverLinkInput) {
+        if case .power(let new) = input { power = new }
         let before = link.state
-        if case .discovered = input { discoveredAt = .now }
         let effects = link.handle(input)
         let after = link.state
         linkState = after
+        // The clock starts only when the discovered peripheral was accepted for connect.
+        if case .discovered = input, before == .scanning, case .connecting = after { discoveredAtMs = monotonicMs() }
         if after != before { record(after) }
+        // Whatever the transition, a state with no connection in progress holds no start time.
+        switch after {
+        case .scanning, .idle, .unavailable: discoveredAtMs = nil
+        default: break
+        }
         for effect in effects { apply(effect) }
         if after != before, case .ready = after {
             handleSession(.linkReady)
             onLinkReady?()
         }
+        if case .ready = before, after != before { onLinkLost?() }
     }
 
     private func record(_ state: ReceiverLinkState) {
+        // Milliseconds since the peripheral was accepted. States without a connection in progress log -1 rather
+        // than the age of an earlier connection.
         var ms: Int?
-        if let discoveredAt {
-            let d = ContinuousClock.now - discoveredAt
-            ms = Int(d.components.seconds * 1000 + d.components.attoseconds / 1_000_000_000_000_000)
-        }
         switch state {
-        case .ready: readyMilliseconds = ms
-        case .scanning, .idle, .unavailable: readyMilliseconds = nil; discoveredAt = nil
-        default: break
+        case .ready:
+            ms = discoveredAtMs.map { Int(monotonicMs() - $0) }
+            readyMilliseconds = ms
+        case .connecting, .discovering:
+            ms = discoveredAtMs.map { Int(monotonicMs() - $0) }
+        case .scanning, .idle, .unavailable:
+            readyMilliseconds = nil
+            discoveredAtMs = nil
         }
         Self.log.info("state \(state.name, privacy: .public) \(ms ?? -1, privacy: .public) ms")
     }
@@ -162,10 +184,18 @@ final class ReceiverBLECentral: ObservableObject {
     private func apply(_ effect: ReceiverLinkEffect) {
         switch effect {
         case .startScan: driver?.startScan()
-        case .stopScan: driver?.stopScan()
+        // CoreBluetooth is told to stop or cancel only while it is powered on; otherwise there is nothing to undo.
+        case .stopScan: if power == .poweredOn { driver?.stopScan() }
         case .connect(let id): driver?.connect(id)
         case .discover(let id): driver?.discover(id)
-        case .cancel(let id): driver?.cancel(id)
+        case .cancel(let id):
+            if power == .poweredOn { driver?.cancel(id) } else { driver?.forget(id) }
+        case .startScanAfter(let seconds):
+            rescanTimer?.invalidate()
+            rescanTimer = Self.makeTimer(seconds, repeats: false) { [weak self] in self?.handleLink(.rescanTimer) }
+        case .cancelRescanTimer:
+            rescanTimer?.invalidate()
+            rescanTimer = nil
         case .startConnectTimeout(let seconds):
             connectTimer?.invalidate()
             connectTimer = Self.makeTimer(seconds, repeats: false) { [weak self] in self?.handleLink(.connectTimeout) }
@@ -199,11 +229,22 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
 
     func startScan() {
         guard let manager, manager.state == .poweredOn else { return }
+        // Anything but the connection in flight is stale; a fresh scan finds what is really there.
+        peripherals = peripherals.filter { $0.key == active }
         manager.scanForPeripherals(withServices: [Self.service])
     }
 
     func stopScan() {
-        manager?.stopScan()
+        guard let manager, manager.state == .poweredOn else { return }
+        manager.stopScan()
+    }
+
+    func forget(_ id: UUID) {
+        if active == id {
+            active = nil
+            control = nil
+        }
+        peripherals[id] = nil
     }
 
     func connect(_ id: UUID) {
@@ -220,11 +261,9 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
 
     func cancel(_ id: UUID) {
         guard let peripheral = peripherals[id] else { return }
-        if active == id {
-            active = nil
-            control = nil
-        }
-        manager?.cancelPeripheralConnection(peripheral)
+        forget(id)
+        guard let manager, manager.state == .poweredOn else { return }
+        manager.cancelPeripheralConnection(peripheral)
     }
 
     func writeControl(_ data: Data) {
@@ -250,7 +289,7 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
     private func disconnected(_ peripheral: CBPeripheral) {
         // A stale callback for a connection we already cancelled must not tear down a new attempt.
         guard active == peripheral.identifier, peripheral.state == .disconnected else { return }
-        control = nil
+        forget(peripheral.identifier)
         owner?.handleLink(.disconnected(peripheral.identifier))
     }
 }

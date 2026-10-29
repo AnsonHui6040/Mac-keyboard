@@ -7,6 +7,18 @@ public enum EventKind: Codable, Equatable, Sendable {
     case returnKey
     /// Latency probe; the Receiver acknowledges it without injecting anything.
     case ping(shownAtMs: Int64, connectedAtMs: Int64)
+
+    /// Short wire keys: with the two UUIDs a probe is otherwise over the smallest notify payload (182 bytes).
+    enum PingCodingKeys: String, CodingKey {
+        case shownAtMs = "s"
+        case connectedAtMs = "c"
+    }
+
+    /// A probe is not typed text, so it is sent without a focus epoch and the Receiver never ties it to a field.
+    public var carriesFocusEpoch: Bool {
+        if case .ping = self { return false }
+        return true
+    }
 }
 
 /// One semantic event sent from the keyboard to the Receiver over the `event` notification.

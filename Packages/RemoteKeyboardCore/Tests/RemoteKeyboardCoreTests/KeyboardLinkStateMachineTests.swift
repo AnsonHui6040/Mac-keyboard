@@ -99,4 +99,32 @@ final class KeyboardLinkStateMachineTests: XCTestCase {
         XCTAssertEqual(KeyboardLinkState.failed(.addService).statusText, "BLE: failed (addService)")
         XCTAssertEqual(KeyboardLinkState.failed(.advertise).statusText, "BLE: failed (advertise)")
     }
+
+    // MARK: T06 reconnect cycles
+
+    func testTwentyAppearDisappearCyclesRepublishEachTime() {
+        var m = KeyboardLinkStateMachine(); _ = m.handle(.power(.poweredOn))
+        for _ in 0..<20 {
+            XCTAssertEqual(m.handle(.appeared(hasFullAccess: true)), [.addService])
+            _ = m.handle(.serviceAdded(ok: true))
+            _ = m.handle(.advertisingStarted(ok: true))
+            _ = m.handle(.subscribed)
+            XCTAssertEqual(m.handle(.disappeared), [.stopAdvertising, .removeServices])
+            XCTAssertEqual(m.state, .idle)
+        }
+    }
+
+    func testRapidDisappearAppearDoesNotDuplicatePublish() {
+        var m = publishingMachine()
+        XCTAssertEqual(m.handle(.appeared(hasFullAccess: true)), [])
+        XCTAssertEqual(m.state, .publishing)
+    }
+
+    func testDisappearThenAppearBeforeServiceAddedPublishesOnceMore() {
+        var m = publishingMachine()
+        XCTAssertEqual(m.handle(.disappeared), [.stopAdvertising, .removeServices])
+        XCTAssertEqual(m.handle(.appeared(hasFullAccess: true)), [.addService])
+        // Filtering a stale didAdd is PendingServiceTracker's job; the machine advances on the one it is given.
+        XCTAssertEqual(m.handle(.serviceAdded(ok: true)), [.startAdvertising])
+    }
 }

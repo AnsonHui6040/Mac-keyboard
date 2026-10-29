@@ -93,4 +93,88 @@ final class ReceiverLinkStateMachineTests: XCTestCase {
     func testPowerOnWhileIdleDoesNotScan() {
         var m = ReceiverLinkStateMachine(); XCTAssertEqual(m.handle(.power(.poweredOn)), []); XCTAssertEqual(m.state, .idle)
     }
+
+    // MARK: T06 reconnect cycles
+
+    func testTwentyDisconnectCyclesAlwaysRescan() {
+        var m = scanningMachine()
+        for _ in 0..<20 {
+            _ = m.handle(.discovered(p)); _ = m.handle(.connected(p)); _ = m.handle(.linkReady(p))
+            XCTAssertEqual(m.handle(.disconnected(p)), [.startScan])
+            XCTAssertEqual(m.state, .scanning)
+        }
+    }
+
+    func testLateDisconnectAfterRescanIgnored() {
+        var m = readyMachine(p)
+        _ = m.handle(.disconnected(p))
+        XCTAssertEqual(m.handle(.disconnected(p)), [])
+        XCTAssertEqual(m.state, .scanning)
+    }
+
+    // MARK: T06 rescan backoff
+
+    func testBackoffScheduleIsImmediateThenGrowsAndCaps() {
+        XCTAssertEqual((0...6).map(ReceiverLinkStateMachine.backoffSeconds(afterFailures:)), [0, 0, 0.5, 1, 2, 2, 2])
+    }
+
+    func testRepeatedHandshakeFailuresBackOffInsteadOfHotLooping() {
+        var m = scanningMachine()
+        _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScan], "the first failure rescans at once")
+        _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScanAfter(seconds: 0.5)])
+        XCTAssertEqual(m.state, .scanning)
+        XCTAssertEqual(m.handle(.rescanTimer), [.startScan])
+        _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScanAfter(seconds: 1)])
+        _ = m.handle(.rescanTimer); _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScanAfter(seconds: 2)])
+        _ = m.handle(.rescanTimer); _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScanAfter(seconds: 2)])
+    }
+
+    func testDisconnectAndInvalidationDuringHandshakeCountAsFailures() {
+        var m = connectingMachine(p)
+        XCTAssertEqual(m.handle(.disconnected(p)), [.cancelConnectTimeout, .startScan])
+        _ = m.handle(.discovered(p)); _ = m.handle(.connected(p))
+        XCTAssertEqual(m.handle(.serviceInvalidated(p)), [.cancelConnectTimeout, .cancel(p), .startScanAfter(seconds: 0.5)])
+    }
+
+    func testReadyResetsTheBackoff() {
+        var m = scanningMachine()
+        for _ in 0..<3 { _ = m.handle(.discovered(p)); _ = m.handle(.connectTimeout); _ = m.handle(.rescanTimer) }
+        _ = m.handle(.discovered(p)); _ = m.handle(.connected(p)); _ = m.handle(.linkReady(p))
+        XCTAssertEqual(m.handle(.disconnected(p)), [.startScan], "a drop after a good link rescans at once")
+        _ = m.handle(.discovered(p))
+        XCTAssertEqual(m.handle(.connectTimeout), [.cancel(p), .startScan], "failure count starts over")
+    }
+
+    func testNothingIsAcceptedWhileTheBackoffTimerIsPending() {
+        var m = scanningMachine()
+        for _ in 0..<2 { _ = m.handle(.discovered(p)); _ = m.handle(.connectTimeout) }
+        XCTAssertEqual(m.handle(.discovered(UUID())), [])
+        XCTAssertEqual(m.state, .scanning)
+    }
+
+    func testRescanTimerWithoutAPendingBackoffIsIgnored() {
+        var m = scanningMachine()
+        XCTAssertEqual(m.handle(.rescanTimer), [])
+        var r = readyMachine(p)
+        XCTAssertEqual(r.handle(.rescanTimer), [])
+    }
+
+    func testStopOrPowerLossCancelsAPendingBackoff() {
+        func pending() -> ReceiverLinkStateMachine {
+            var m = scanningMachine()
+            for _ in 0..<2 { _ = m.handle(.discovered(p)); _ = m.handle(.connectTimeout) }
+            return m
+        }
+        var stopped = pending()
+        XCTAssertEqual(stopped.handle(.stop), [.cancelRescanTimer])
+        XCTAssertEqual(stopped.state, .idle)
+        var off = pending()
+        XCTAssertEqual(off.handle(.power(.poweredOff)), [.cancelRescanTimer])
+        XCTAssertEqual(off.handle(.power(.poweredOn)), [.startScan], "back on, the search resumes at once")
+    }
 }

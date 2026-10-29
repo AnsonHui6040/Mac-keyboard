@@ -19,6 +19,21 @@ final class EventCodecTests: XCTestCase {
         }
     }
 
+    func testPingWithDaysOfUptimeFitsTheSmallestNotifyPayload() throws {
+        // 182 is the smallest maximumUpdateValueLength seen; 9-digit milliseconds is eleven days of process uptime.
+        let e = KeyboardEvent(
+            protocolVersion: 1, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: nil,
+            kind: .ping(shownAtMs: 999_999_000, connectedAtMs: 999_999_999))
+        let data = try EventCodec.encode(e, maxBytes: 182)
+        XCTAssertLessThanOrEqual(data.count, 182)
+        XCTAssertEqual(try EventCodec.decode(data), e)
+    }
+
+    func testOnlyProbesGoWithoutAFocusEpoch() {
+        XCTAssertFalse(EventKind.ping(shownAtMs: 1, connectedAtMs: 2).carriesFocusEpoch)
+        for kind in [EventKind.text("A"), .backspace, .returnKey] { XCTAssertTrue(kind.carriesFocusEpoch) }
+    }
+
     func testCurrentVersionIsOne() { XCTAssertEqual(KeyboardEvent.currentVersion, 1) }
 
     func testEncodingIsDeterministicSortedKeys() throws {
