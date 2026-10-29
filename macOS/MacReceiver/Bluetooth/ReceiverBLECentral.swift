@@ -151,6 +151,11 @@ final class ReceiverBLECentral: ObservableObject {
         // The clock starts only when the discovered peripheral was accepted for connect.
         if case .discovered = input, before == .scanning, case .connecting = after { discoveredAtMs = monotonicMs() }
         if after != before { record(after) }
+        // Whatever the transition, a state with no connection in progress holds no start time.
+        switch after {
+        case .scanning, .idle, .unavailable: discoveredAtMs = nil
+        default: break
+        }
         for effect in effects { apply(effect) }
         if after != before, case .ready = after {
             handleSession(.linkReady)
@@ -160,11 +165,18 @@ final class ReceiverBLECentral: ObservableObject {
     }
 
     private func record(_ state: ReceiverLinkState) {
-        let ms = discoveredAtMs.map { Int(monotonicMs() - $0) }
+        // Milliseconds since the peripheral was accepted. States without a connection in progress log -1 rather
+        // than the age of an earlier connection.
+        var ms: Int?
         switch state {
-        case .ready: readyMilliseconds = ms
-        case .scanning, .idle, .unavailable: readyMilliseconds = nil; discoveredAtMs = nil
-        default: break
+        case .ready:
+            ms = discoveredAtMs.map { Int(monotonicMs() - $0) }
+            readyMilliseconds = ms
+        case .connecting, .discovering:
+            ms = discoveredAtMs.map { Int(monotonicMs() - $0) }
+        case .scanning, .idle, .unavailable:
+            readyMilliseconds = nil
+            discoveredAtMs = nil
         }
         Self.log.info("state \(state.name, privacy: .public) \(ms ?? -1, privacy: .public) ms")
     }

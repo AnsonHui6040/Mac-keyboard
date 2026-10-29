@@ -266,6 +266,33 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(driver.calls, [.forget(p)], "no cancel to a radio that is off, but the peripheral is released")
     }
 
+    func testReadyTimeAfterABluetoothCycleMeasuresOnlyTheNewDiscovery() {
+        var now: Int64 = 0
+        let central = make(monotonicMs: { now })
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        now = 1_000
+        central.handleLink(.discovered(p))
+        now = 1_400
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.readyMilliseconds, 400)
+
+        now = 2_000
+        central.handleLink(.power(.poweredOff))
+        XCTAssertNil(central.readyMilliseconds)
+        now = 6_000
+        central.handleLink(.power(.poweredOn))
+        now = 9_000
+        central.handleLink(.discovered(p))
+        now = 9_300
+        central.handleLink(.connected(p))
+        now = 9_450
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.readyMilliseconds, 450, "measured from this discovery, not from the one before the cycle")
+    }
+
     func testStopWhilePoweredOnStillCancels() {
         let central = make()
         let p = UUID()

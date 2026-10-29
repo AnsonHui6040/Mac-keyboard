@@ -4,8 +4,14 @@ import XCTest
 /// T06 reconnect gate, driven from outside the keyboard process.
 ///
 /// Run on a physical iPhone only, with the Mac Receiver already armed (press 開始接收 on the Mac first) and
-/// "Remote Keyboard" already selected as the current keyboard. The Mac's `reconnect.csv` is the authoritative
-/// record; this test's own numbers include XCUITest query latency and are only a cross-check.
+/// "Remote Keyboard" already selected as the current keyboard.
+///
+/// Gate evidence is the attached `reconnect-ui.csv`. The gate metric is keyboard visible to connected
+/// (`keyboardToConnectedMs`, P95 at most 2000 ms, and at least 99 of 100 reopens connected). It starts at the first
+/// time `rk.status` exists, not at the tap, because the XCUITest `tap()` call alone costs about 0.7 s in Notes and
+/// 1.8 s in Safari and is not part of the product. `latencyMs` (tap to connected) and the `RKTIMING` lines stay in
+/// the file for reference. The Mac's `reconnect.csv` (iPhone-measured keyboard appear to connected) is the
+/// cross-check.
 ///
 /// Before running, start with Notes closed or sitting on the notes list. The test creates one new note for itself
 /// and taps only inside that note's body; it never touches an existing note. In Safari it taps only the address bar,
@@ -82,9 +88,14 @@ final class ReconnectUITests: XCTestCase {
 
         let summary = ReconnectStats.summarize(rows.map(\.sample))
         XCTAssertEqual(summary.attempts, count)
-        // At least 99 of 100 connected (scaled for dry runs) and P95 at most 2000 ms.
+        // At least 99 of 100 connected (scaled for dry runs); a reopen whose keyboard never appeared counts as failed.
         XCTAssertGreaterThanOrEqual(summary.successes * 100, summary.attempts * 99, "connected \(summary.successes)/\(summary.attempts)")
-        XCTAssertLessThanOrEqual(summary.p95Ms ?? .max, 2000, "P95 \(summary.p95Ms.map(String.init) ?? "n/a") ms")
+        // P95 of keyboard visible to connected at most 2000 ms (the user's ruling of 2026-10-30).
+        let fromKeyboard = ReconnectStats.summarize(rows.compactMap { row in
+            row.keyboardVisibleMs.map { ReconnectSample(shownAtMs: $0, connectedAtMs: row.connectedMs) }
+        })
+        XCTAssertLessThanOrEqual(
+            fromKeyboard.p95Ms ?? .max, 2000, "keyboard-to-connected P95 \(fromKeyboard.p95Ms.map(String.init) ?? "n/a") ms")
     }
 
     // MARK: Label probe
