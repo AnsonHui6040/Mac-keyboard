@@ -1,6 +1,6 @@
 # Remote Keyboard 實作驗收報告（模板／目前結果）
 
-**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：0/16 PASS；T01 READY_FOR_VERIFY（待實機），其餘 NOT_STARTED**
+**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：1/16 PASS（T01），其餘 NOT_STARTED**
 
 > **證據規則：**只有實際執行測試、保存完整輸出並核對結果後才可填 PASS；文獻研究不算 PASS。不可事後推測 log 或填虛構時間。
 
@@ -12,7 +12,7 @@
 | Research/source review | 深度研究已有報告；未執行 code 實測 |
 | Xcode build | iOS Simulator 與 macOS build 成功（commit c78b6ea，2026-10-29） |
 | `swift test` | 6 tests，0 failures（commit c78b6ea） |
-| 實機連線 Gate | NOT_RUN |
+| 實機連線 Gate | NOT_RUN（T01 實機 Local Mode 已 PASS） |
 | Mac AX 注入 Gate | NOT_RUN |
 | Security Gate | NOT_RUN |
 | Dictation Gate | NOT_RUN |
@@ -22,9 +22,9 @@
 
 | # | 事項 | 負責 | 何時需要 | 狀態 |
 |---|---|---|---|---|
-| O1 | 實體 iPhone 以 USB 連接 Mac、信任此電腦、開啟 Developer Mode | 使用者 | T03 前 | NOT_STARTED |
-| O2 | Xcode 登入 Apple ID 取得 Personal Team 簽名身分（目前 0 個） | 使用者 | T01 真機驗收前 | NOT_STARTED |
-| O3 | Personal Team 下 App Group 是否可用，決定 D3 配對路徑 | T01 | T01 | NOT_STARTED |
+| O1 | 實體 iPhone 以 USB 連接 Mac、信任此電腦、開啟 Developer Mode | 使用者 | T03 前 | PASS（iPhone 17 Pro、iOS 27.0.1、wired、Developer Mode Enabled） |
+| O2 | Xcode 登入 Apple ID 取得 Personal Team 簽名身分（目前 0 個） | 使用者 | T01 真機驗收前 | PASS（Personal Team 4YN34HPX6F，1 個 Apple Development 身分） |
+| O3 | Personal Team 下 App Group 是否可用，決定 D3 配對路徑 | T01 | T01 | PASS（簽名含 `group.com.ansonhui.remotekeyboard`，Extension 讀到主 App 寫入值；T09 可走主 App 配對，D3 備案保留） |
 | O4 | Keyboard Extension 內 CoreBluetooth 權限提示由哪個 process 顯示、主 App 是否需先取得授權 | T03 | T03 | NOT_STARTED |
 | O5 | `CGEventKeyboardSetUnicodeString` 單一事件長度上限 | T04 | T04 | NOT_STARTED |
 | O6 | XCUITest 能否在真機切換到第三方鍵盤（D9） | T06 | T06 | NOT_STARTED |
@@ -34,7 +34,7 @@
 
 | Case | 任務 | 目前狀態 | 通過條件 | 實測結果 | 證據檔 |
 |---|---|---|---|---|---|
-| T01 | 工程基礎與離線 Local Mode | READY_FOR_VERIFY | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 自動：swift test 6/0、iOS Simulator 與 macOS build 成功。模擬器（iPhone 18 Pro、iOS 27.0、Full Access 關閉）：鍵盤可加入與選用，輸入「a bC」正確（Space、單次 Shift、Backspace）。實機：TBD | `e2e/E2E-T01-LOCAL.md`、`evidence/T01-sim-*.png` |
+| T01 | 工程基礎與離線 Local Mode | PASS | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 自動：swift test 6/0、iOS Simulator 與 macOS build 成功。實機（iPhone 17 Pro、iOS 27.0.1、Full Access 關閉，2026-10-29 17:18）：備忘錄輸入 `Hello World` 與 26 個字母共 37 字元逐字一致，Return、Backspace、Shift 正常，系統 🌐 可切換鍵盤，`AppGroup: OK` | `e2e/E2E-T01-LOCAL.md`、`evidence/T01-device-notes-hello-world.webp`、`evidence/T01-sim-*.png` |
 | T02 | Mac Receiver Shell、BLE GATT Advertiser | NOT_STARTED | macOS GATT service 完整可發現，service publish 成功 | 尚未測試 | — |
 | T03 | Extension BLE Central 冷連線 | NOT_STARTED | 在 Notes 與 Safari Extension 中都可連線 | 尚未測試 | — |
 | T04 | Mac 焦點感知與 Unicode 注入 | NOT_STARTED | TextEdit 5 組字串逐一完全一致；切換至非可編輯焦點時 0 誤注入 | 尚未測試 | — |
