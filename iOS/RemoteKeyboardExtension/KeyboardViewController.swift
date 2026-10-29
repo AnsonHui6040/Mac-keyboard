@@ -14,7 +14,9 @@ final class KeyboardViewController: UIInputViewController {
     private static let noteSeconds: Double = 2
 
     private var keyboardView: MinimalKeyboardView?
-    private let peripheral = KeyboardBLEPeripheral()
+    private let peripheral = KeyboardBLEPeripheral.shared
+    /// Counts this controller and releases peripheral ownership when it is deallocated.
+    private let lifecycle = ControllerLifecycle()
     private var savedMode: KeyboardMode = .local
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
     private var note: String?
@@ -30,7 +32,10 @@ final class KeyboardViewController: UIInputViewController {
         let router = KeyboardActionRouter(
             local: TextDocumentProxySink(proxy: textDocumentProxy),
             remote: peripheral,
-            isRemoteReady: { [weak peripheral] in peripheral?.isRemoteReady ?? false }
+            isRemoteReady: { [weak self] in
+                guard let self else { return false }
+                return self.peripheral.isRemoteReady(for: self.lifecycle.token)
+            }
         )
         let view = MinimalKeyboardView(
             showsGlobeKey: needsInputModeSwitchKey,
@@ -55,23 +60,25 @@ final class KeyboardViewController: UIInputViewController {
             view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
         ])
         keyboardView = view
-        peripheral.onStateChange = { [weak self] _ in self?.refreshStatus() }
-        peripheral.onControl = { [weak self] message in self?.received(message) }
-        peripheral.onNote = { [weak self] text in self?.showNote(text) }
         view.setMode(mode)
         refreshStatus()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        peripheral.viewWillAppear(hasFullAccess: hasFullAccess)
+        peripheral.appear(
+            owner: lifecycle.token, hasFullAccess: hasFullAccess,
+            onStateChange: { [weak self] _ in self?.refreshStatus() },
+            onControl: { [weak self] message in self?.received(message) },
+            onNote: { [weak self] text in self?.showNote(text) }
+        )
         keyboardView?.setMode(mode)
         refreshStatus()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        peripheral.viewDidDisappear()
+        peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
     }
 

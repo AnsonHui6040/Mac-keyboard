@@ -287,6 +287,9 @@ extension CoreBluetoothDriver: @preconcurrency CBCentralManagerDelegate {
 
 extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        // More than one copy of the service on a peripheral means a duplicate publisher on the phone.
+        let copies = peripheral.services?.filter { $0.uuid == Self.service }.count ?? 0
+        Self.log.notice("discovered \(copies, privacy: .public) keyboard service(s)")
         guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else {
             return invalidated(peripheral)
         }

@@ -50,39 +50,9 @@ struct MacReceiverApp: App {
 
     var body: some Scene {
         MenuBarExtra("Remote Keyboard", systemImage: "keyboard") {
-            Text(central.linkLabel)
-            Text(ReceiverMenu.remainingText(central.remainingSeconds))
-            Divider()
-            Button("開始接收") { central.startReceiving() }
-            Button("停止接收") { central.stopReceiving() }
-                .disabled(!central.isArmed)
-            Divider()
-            Text(FocusMenuText.line(focus.snapshot))
-            if let snapshot = focus.snapshot, !snapshot.axTrusted {
-                Button("授權輔助使用") { focus.requestTrustPrompt() }
-            }
-            Divider()
-            Menu("測試插入") {
-                ForEach(TestInsertItem.all) { item in
-                    Button(item.label) { testInsert.start(item) }
-                }
-            }
-            if let remaining = testInsert.remaining {
-                Text("倒數 \(remaining) 秒")
-                Button("取消測試插入") { testInsert.cancel() }
-            }
-            Text(testInsert.status)
-            Divider()
-            Toggle("登入時啟動", isOn: Binding(
-                get: { loginItem.isOn },
-                set: { loginItem.setOn($0) }
-            ))
-            if loginItem.needsApproval {
-                Text("需在系統設定 › 登入項目 允許")
-            }
-            Divider()
-            Button("結束") { NSApplication.shared.terminate(nil) }
+            ReceiverPanel(central: central, focus: focus, testInsert: testInsert, loginItem: loginItem)
         }
+        .menuBarExtraStyle(.window)
     }
 }
 

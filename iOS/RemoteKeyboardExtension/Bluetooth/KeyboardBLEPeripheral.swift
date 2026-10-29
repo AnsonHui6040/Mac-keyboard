@@ -4,13 +4,21 @@ import RemoteKeyboardCore
 
 /// Adapter between the Core `KeyboardLinkStateMachine` and CoreBluetooth.
 /// The keyboard extension advertises while visible; the Mac Receiver is the central.
+///
+/// Exactly one instance and one `CBPeripheralManager` exist per extension process. The system can create several
+/// keyboard view controllers; each one claims this peripheral when it appears, and only the latest claimant may
+/// tear the link down. Two managers publishing the same service made the Mac subscribe to a copy nobody was watching.
 @MainActor
 final class KeyboardBLEPeripheral: NSObject {
-    var onStateChange: ((KeyboardLinkState) -> Void)?
+    static let shared = KeyboardBLEPeripheral()
+
+    private var onStateChange: ((KeyboardLinkState) -> Void)?
     /// Every decoded message the Receiver wrote to `control`, after the peripheral's own state is updated.
-    var onControl: ((ControlMessage) -> Void)?
+    private var onControl: ((ControlMessage) -> Void)?
     /// A short user-facing note, for example when a key could not be sent.
-    var onNote: ((String) -> Void)?
+    private var onNote: ((String) -> Void)?
+
+    private var ownership = PeripheralOwnership<UUID>()
 
     private var machine = KeyboardLinkStateMachine()
     private var manager: CBPeripheralManager?
@@ -34,25 +42,66 @@ final class KeyboardBLEPeripheral: NSObject {
         machine.state == .connected && subscribedCentral != nil && latestStatus?.ready == true
     }
 
-    func viewWillAppear(hasFullAccess: Bool) {
+    private override init() { super.init() }
+
+    /// A controller that no longer owns the peripheral never sends.
+    func isRemoteReady(for owner: UUID) -> Bool { ownership.isOwner(owner) && isRemoteReady }
+
+    /// `owner` takes the callbacks and feeds `.appeared`. A claim by a new owner starts a new session (id, seq,
+    /// queue) but keeps a live subscription, so a replacement controller does not drop an established link.
+    func appear(
+        owner: UUID, hasFullAccess: Bool,
+        onStateChange: @escaping (KeyboardLinkState) -> Void,
+        onControl: @escaping (ControlMessage) -> Void,
+        onNote: @escaping (String) -> Void
+    ) {
+        let hadOwner = ownership.owner != nil
+        if ownership.claim(owner) {
+            KeyboardLifecycleLog.note("owner changed to \(owner.uuidString.prefix(8)) hadPrevious=\(hadOwner)")
+            if hadOwner { startSession() }
+        }
+        self.onStateChange = onStateChange
+        self.onControl = onControl
+        self.onNote = onNote
         // Without Full Access no CBPeripheralManager is created at all.
         if hasFullAccess && manager == nil {
             manager = CBPeripheralManager(delegate: self, queue: nil)
+            KeyboardLifecycleLog.note("manager created")
         }
         feed(.appeared(hasFullAccess: hasFullAccess))
     }
 
-    func viewDidDisappear() {
+    /// Honored only for the current owner; a stale controller's late disappear must not tear down the new owner's link.
+    func disappear(owner: UUID) {
+        guard ownership.isOwner(owner) else {
+            KeyboardLifecycleLog.note("disappear ignored for stale \(owner.uuidString.prefix(8))")
+            return
+        }
         feed(.disappeared)
-        resetSession()
+        endSession()
+        ownership.release(owner)
+        onStateChange = nil
+        onControl = nil
+        onNote = nil
     }
 
-    /// Ends a keyboard appearance: the next one is a new peripheral session with a fresh id, seq from 1, nothing
-    /// queued and no stale status.
-    private func resetSession() {
+    /// A controller is going away. Same as a disappear when it is still the owner, otherwise nothing.
+    func release(owner: UUID) {
+        guard ownership.isOwner(owner) else { return }
+        KeyboardLifecycleLog.note("owner released by deinit \(owner.uuidString.prefix(8))")
+        disappear(owner: owner)
+    }
+
+    /// A fresh id, seq from 1 and nothing queued.
+    private func startSession() {
         sessionId = UUID()
         seq = 0
         queue.removeAll()
+    }
+
+    /// Ends a keyboard appearance: the next one is a new peripheral session, with no stale subscription or status.
+    private func endSession() {
+        startSession()
         subscribedCentral = nil
         latestStatus = nil
     }
@@ -123,13 +172,18 @@ final class KeyboardBLEPeripheral: NSObject {
             let service = CBMutableService(type: Self.serviceID, primary: true)
             service.characteristics = [event, control]
             eventCharacteristic = event
+            // One manager must never hold two copies of the service.
+            manager.removeAllServices()
+            KeyboardLifecycleLog.note("removeAllServices before add")
             manager.add(service)
+            KeyboardLifecycleLog.note("addService")
         case .startAdvertising:
             manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Self.serviceID]])
         case .stopAdvertising:
             manager.stopAdvertising()
         case .removeServices:
             manager.removeAllServices()
+            KeyboardLifecycleLog.note("removeAllServices")
             eventCharacteristic = nil
             queue.removeAll()
         }
@@ -166,6 +220,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         guard characteristic.uuid == Self.eventID else { return }
         subscribedCentral = central
         DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
+        KeyboardLifecycleLog.note("subscribed maxUpdateValueLength=\(central.maximumUpdateValueLength)")
         feed(.subscribed)
     }
 
@@ -174,6 +229,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didUnsubscribeFrom characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
+        KeyboardLifecycleLog.note("unsubscribed maxUpdateValueLength=\(central.maximumUpdateValueLength)")
         // Keys typed for the old connection are not replayed into a later one.
         subscribedCentral = nil
         latestStatus = nil
