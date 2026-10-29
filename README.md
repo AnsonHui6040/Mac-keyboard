@@ -7,10 +7,10 @@ iPhone 第三方鍵盤 Extension，透過自訂 BLE GATT 將英文、符號、�
 | 項目 | 狀態 |
 |---|---|
 | 設計規格 | v1.1 APPROVED（2026-10-29） |
-| 實作計劃 | v1.0 DRAFT，規格批准後以 writing-plans 修訂 |
+| 實作計劃 | v1.1 DRAFT（M1 詳細、M2–M5 待細化），待使用者審核 |
 | 程式碼 | 尚未開始 |
 | 驗收 | 0/16 PASS，全部 NOT_STARTED |
-| 下一步 | 以 writing-plans 修訂計劃 → T01 |
+| 下一步 | 審核計劃 v1.1 → T01 |
 
 最後更新：2026-10-29
 
