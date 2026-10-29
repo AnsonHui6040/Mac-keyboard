@@ -1,6 +1,6 @@
 # Remote Keyboard 實作驗收報告（模板／目前結果）
 
-**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：2/16 PASS（T01、T02）；T03 FAIL 並改採 D11 角色對調（待重新規劃）；其餘 NOT_STARTED**
+**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：2/16 PASS（T01、T02）；T03 進行中（T03a PASS，T03b 待做）；其餘 NOT_STARTED**
 
 > **證據規則：**只有實際執行測試、保存完整輸出並核對結果後才可填 PASS；文獻研究不算 PASS。不可事後推測 log 或填虛構時間。
 
@@ -25,7 +25,7 @@
 | O1 | 實體 iPhone 以 USB 連接 Mac、信任此電腦、開啟 Developer Mode | 使用者 | T03 前 | PASS（iPhone 17 Pro、iOS 27.0.1、wired、Developer Mode Enabled） |
 | O2 | Xcode 登入 Apple ID 取得 Personal Team 簽名身分（目前 0 個） | 使用者 | T01 真機驗收前 | PASS（Personal Team 4YN34HPX6F，1 個 Apple Development 身分） |
 | O3 | Personal Team 下 App Group 是否可用，決定 D3 配對路徑 | T01 | T01 | PASS（簽名含 `group.com.ansonhui.remotekeyboard`，Extension 讀到主 App 寫入值；T09 可走主 App 配對，D3 備案保留） |
-| O4 | Keyboard Extension 內 CoreBluetooth 權限提示由哪個 process 顯示、主 App 是否需先取得授權 | T03 | T03 | NOT_STARTED |
+| O4 | Keyboard Extension 內 CoreBluetooth 權限與 Full Access 組合 | T03a | T03a | PASS（授權＋Full Access → advertising；無 Full Access → no-full-access；拒絕授權 → unavailable；四格 Local 正常、無 crash） |
 | O5 | `CGEventKeyboardSetUnicodeString` 單一事件長度上限 | T04 | T04 | NOT_STARTED |
 | O6 | XCUITest 能否在真機切換到第三方鍵盤（D9） | T06 | T06 | NOT_STARTED |
 | O7 | `PKStrokeRecognizer` API 名稱、最低系統版本與繁體中文支援，以 Apple 官方文件核實 | T12 前查證 | T12 | NOT_STARTED |
@@ -37,7 +37,7 @@
 |---|---|---|---|---|---|
 | T01 | 工程基礎與離線 Local Mode | PASS | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 自動：swift test 6/0、iOS Simulator 與 macOS build 成功。實機（iPhone 17 Pro、iOS 27.0.1、Full Access 關閉，2026-10-29 17:18）：備忘錄輸入 `Hello World` 與 26 個字母共 37 字元逐字一致，Return、Backspace、Shift 正常，系統 🌐 可切換鍵盤，`AppGroup: OK` | `e2e/E2E-T01-LOCAL.md`、`evidence/T01-device-notes-hello-world.webp`、`evidence/T01-sim-*.png` |
 | T02 | Mac Receiver Shell、BLE GATT Advertiser | PASS | macOS GATT service 完整可發現，service publish 成功 | 自動：swift test 8/0、MacReceiverTests 5/5（含 4 個生命週期測試）。實機（2026-10-29）：選單列 `BLE: advertising`；iPhone nRF Connect 掃到 Connectable 廣播與 service UUID `2A6F212A…`；Mac bluetoothd 紀錄確認 service 與 3 個 characteristic（write／notify／read notify）。iPhone 端連線因既有系統 LE 連線無法以 nRF 完成，characteristic 探索改由 T03 驗證（使用者 2026-10-29 批准） | `e2e/E2E-T02-GATT.md`、`evidence/T02-*` |
-| T03 | Extension BLE Central 冷連線 | FAIL | 在 Notes 與 Safari Extension 中都可連線 | 自動：swift test 28/0、各 build 成功，code review 通過（branch `t03-extension-central`，未 merge）。實機（2026-10-29）：Extension 藍牙 state On；`retrieveConnectedPeripherals` 無結果；掃描連線在 link layer 完成後即斷（reason 762），狀態 `BLE: failed (timeout)`。改採 D11 角色對調，spike 實機成功（Mac Central 514–561 ms ready） | `verification/2026-10-29-handoff.md`、`evidence/T03-*`、`evidence/SPIKE-*` |
+| T03 | BLE 連線（v1.2：T03a iPhone Peripheral＋T03b Mac Central） | IN_PROGRESS（T03a PASS） | T03a：O4 四格不 crash、Local 照常、授權齊全時 Notes／Safari 進入 advertising；T03b：Notes、Safari 各 10/10 connected | T03a（2026-10-29，commit 7b38be1）：swift test 28/0、各 build 成功、code review 通過；實機 O4 四格與 Notes／Safari 皆與預期一致（使用者回報）。舊 v1.1 T03（iPhone 為 Central）實機 FAIL，見交接紀錄。T03b：NOT_STARTED | `e2e/E2E-T03A-PERIPHERAL.md`、`verification/2026-10-29-handoff.md`、`evidence/T03-*`、`evidence/SPIKE-*` |
 | T04 | Mac 焦點感知與 Unicode 注入 | NOT_STARTED | TextEdit 5 組字串逐一完全一致；切換至非可編輯焦點時 0 誤注入 | 尚未測試 | — |
 | T05 | 最小端到端 A 鍵輸入 PoC | NOT_STARTED | Notes→TextEdit、Safari→TextEdit 各 20 次成功，0 錯誤焦點 | 尚未測試 | — |
 | T06 | BLE Lifecycle／冷啟動 Gate | NOT_STARTED | 100 次鍵盤重開連線 >=99 成功；已配對且 Mac awake 的 P95 <=2 秒 | 尚未測試 | — |
