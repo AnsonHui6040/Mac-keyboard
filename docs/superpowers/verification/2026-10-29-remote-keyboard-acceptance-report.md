@@ -8,7 +8,7 @@
 
 | 指標 | 結果 |
 |---|---|
-| Product spec | DRAFT / 待批准 |
+| Product spec | DRAFT v1.1 / 待批准（已納入設計決定 D1–D10） |
 | Research/source review | 深度研究已有報告；未執行 code 實測 |
 | Xcode build | NOT_RUN |
 | `swift test` | NOT_RUN |
@@ -17,6 +17,18 @@
 | Security Gate | NOT_RUN |
 | Dictation Gate | NOT_RUN |
 | Release / App Review | NOT_STARTED |
+
+## 開工前待解決事項（2026-10-29）
+
+| # | 事項 | 負責 | 何時需要 | 狀態 |
+|---|---|---|---|---|
+| O1 | 實體 iPhone 以 USB 連接 Mac、信任此電腦、開啟 Developer Mode | 使用者 | T03 前 | NOT_STARTED |
+| O2 | Xcode 登入 Apple ID 取得 Personal Team 簽名身分（目前 0 個） | 使用者 | T01 真機驗收前 | NOT_STARTED |
+| O3 | Personal Team 下 App Group 是否可用，決定 D3 配對路徑 | T01 | T01 | NOT_STARTED |
+| O4 | Keyboard Extension 內 CoreBluetooth 權限提示由哪個 process 顯示、主 App 是否需先取得授權 | T03 | T03 | NOT_STARTED |
+| O5 | `CGEventKeyboardSetUnicodeString` 單一事件長度上限 | T04 | T04 | NOT_STARTED |
+| O6 | XCUITest 能否在真機切換到第三方鍵盤（D9） | T06 | T06 | NOT_STARTED |
+| O7 | `PKStrokeRecognizer` API 名稱、最低系統版本與繁體中文支援，以 Apple 官方文件核實 | T12 前查證 | T12 | NOT_STARTED |
 
 ## 任務逐項驗收狀態
 
