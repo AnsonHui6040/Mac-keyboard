@@ -90,6 +90,28 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(central.linkState, .idle)
     }
 
+    func testIdleTimerFiresWhileMenuTracking() {
+        defaults.set(0.2, forKey: ReceiverBLECentral.idleTimeoutKey)
+        let central = make()
+        central.startReceiving()
+        XCTAssertTrue(central.isArmed)
+        // AppKit registers this mode as common in the running app; make that explicit for the test host.
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(RunLoop.Mode.eventTracking.rawValue as CFString))
+        let end = Date().addingTimeInterval(1.0)
+        while Date() < end && central.isArmed {
+            RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertFalse(central.isArmed)
+    }
+
+    func testRemainingSecondsTracksClockWithoutTick() {
+        var current = Date(timeIntervalSince1970: 1000)
+        let central = make(clock: { current })
+        central.startReceiving()
+        current = Date(timeIntervalSince1970: 1100)
+        XCTAssertEqual(central.remainingSeconds, 1700)
+    }
+
     func testDefaultIdleTimeoutIsThirtyMinutes() {
         var current = Date(timeIntervalSince1970: 1000)
         let central = make(clock: { current })

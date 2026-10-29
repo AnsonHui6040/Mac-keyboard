@@ -34,8 +34,18 @@ final class ReceiverSessionTests: XCTestCase {
 
     func testStaleTimerIgnoredAfterExtension() {
         var s = armedSession(at: t0); _ = s.handle(.eventReceived, now: t0.addingTimeInterval(600))
-        XCTAssertEqual(s.handle(.timerFired, now: t0.addingTimeInterval(1800)), [])
+        XCTAssertEqual(s.handle(.timerFired, now: t0.addingTimeInterval(1800)), [.scheduleTimeout(at: t0.addingTimeInterval(2400))])
         XCTAssertTrue(s.isArmed)
+    }
+
+    func testEarlyTimerReschedulesToDeadline() {
+        var s = armedSession(at: t0)
+        XCTAssertEqual(s.handle(.timerFired, now: t0.addingTimeInterval(1000)), [.scheduleTimeout(at: t0.addingTimeInterval(1800))])
+        XCTAssertTrue(s.isArmed)
+    }
+
+    func testTimerWhileStandbyIgnored() {
+        var s = ReceiverSession(); XCTAssertEqual(s.handle(.timerFired, now: t0), [])
     }
 
     func testEventWhileStandbyDoesNotArm() {

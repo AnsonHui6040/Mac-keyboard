@@ -37,8 +37,9 @@ public struct ReceiverSession {
             guard isArmed else { return [] }
             return disarm()
         case .timerFired:
-            guard isArmed, let deadline, now >= deadline else { return [] }
-            return disarm()
+            guard isArmed, let deadline else { return [] }
+            // An early or stale timer re-arms itself for the real deadline.
+            return now >= deadline ? disarm() : [.scheduleTimeout(at: deadline)]
         }
     }
 

@@ -56,7 +56,7 @@ final class ReceiverBLECentral: ObservableObject {
 
     var remainingSeconds: TimeInterval? {
         guard isArmed, let deadline else { return nil }
-        return max(0, deadline.timeIntervalSince(now))
+        return max(0, deadline.timeIntervalSince(clock()))
     }
 
     // MARK: Session
@@ -88,19 +88,26 @@ final class ReceiverBLECentral: ObservableObject {
         }
     }
 
+    /// Common modes keep timers firing while the menu bar menu is open (run loop in `.eventTracking`).
+    private static func makeTimer(
+        _ interval: TimeInterval, repeats: Bool, _ fire: @escaping @MainActor () -> Void
+    ) -> Timer {
+        let timer = Timer(timeInterval: interval, repeats: repeats) { _ in
+            MainActor.assumeIsolated { fire() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }
+
     private func scheduleIdleTimeout(at date: Date) {
         idleTimer?.invalidate()
         let interval = max(0, date.timeIntervalSince(clock()))
-        idleTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
-            MainActor.assumeIsolated { self?.handleSession(.timerFired) }
-        }
+        idleTimer = Self.makeTimer(interval, repeats: false) { [weak self] in self?.handleSession(.timerFired) }
     }
 
     private func startTicking() {
         tickTimer?.invalidate()
-        tickTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.now = self?.clock() ?? Date() }
-        }
+        tickTimer = Self.makeTimer(1, repeats: true) { [weak self] in self?.now = self?.clock() ?? Date() }
     }
 
     private func stopTicking() {
@@ -143,9 +150,7 @@ final class ReceiverBLECentral: ObservableObject {
         case .cancel(let id): driver?.cancel(id)
         case .startConnectTimeout(let seconds):
             connectTimer?.invalidate()
-            connectTimer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.handleLink(.connectTimeout) }
-            }
+            connectTimer = Self.makeTimer(seconds, repeats: false) { [weak self] in self?.handleLink(.connectTimeout) }
         case .cancelConnectTimeout:
             connectTimer?.invalidate()
             connectTimer = nil
