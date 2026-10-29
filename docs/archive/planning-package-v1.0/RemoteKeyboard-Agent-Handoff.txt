@@ -1,0 +1,38 @@
+PROJECT: iPhone -> Mac Remote Keyboard
+DATE: 2026-10-29
+STATUS: DESIGN DRAFT. NO BUILD OR REAL DEVICE TESTS HAVE BEEN RUN.
+
+Read and obey the attached project documents in this order:
+1. docs/superpowers/specs/2026-10-29-remote-keyboard-design.md
+2. docs/superpowers/research/2026-10-29-remote-keyboard-research-summary.md
+3. docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md
+4. docs/superpowers/verification/2026-10-29-remote-keyboard-acceptance-report.md
+
+Use Superpowers workflow:
+- Brainstorming/design approval before product code.
+- Writing-plans for any revised feature scope.
+- Use git worktrees/feature branch isolation.
+- Use test-driven-development for each task (Red -> Green -> Verify).
+- Use systematic-debugging for each failure.
+- Use verification-before-completion; do not report PASS without fresh command outputs and actual device observations.
+- Prefer a fresh independent reviewer after each task and whole-branch review before release.
+
+FIRST ENGINEERING TARGET:
+T01 local keyboard works offline in iPhone Notes without Full Access.
+T02 Mac BLE GATT advertiser visible.
+T03 BLE Central from Keyboard Extension can connect (not merely host app).
+T04 AX focus plus CGEvent correctly inserts 'A'/'香港' into Mac TextEdit.
+T05 iPhone Notes custom keyboard A -> Mac TextEdit A. If fails, STOP building full UI.
+T06 repeat keyboard dismissal/reopen / switch Notes->Safari, 100 attempts and log all results.
+
+IMPORTANT:
+- User does NOT want Bluetooth HID; main transport is custom BLE GATT + Mac Receiver.
+- iOS keyboard is English QWERTY, Handwriting, Symbols 123 and #+=, globe and dictation entry.
+- Full Access must be opt-in; Local Mode remains functional without it.
+- App Review 4.4.1 disallows launching apps other than Settings from keyboard extension.
+- hasDictationKey is NOT proof that Apple's dictation transcript can be read or relayed. Dictation is an isolated high-risk gate.
+- Mac input focus is detected with AX and every event is focus-guarded, fail closed.
+- Input is semantic Unicode, not HID scan codes.
+- ACK does not prove content has rendered in arbitrary Mac app; do not promise exactly-once generic-app delivery.
+- No plaintext keylogging in logs.
+- Every task must update acceptance-report.md with actual evidence; start with all NOT_STARTED.

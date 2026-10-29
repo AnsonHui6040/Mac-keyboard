@@ -1,10 +1,14 @@
 .DS_Store
-RemoteKeyboard-Superpowers-v1-Acceptance-Report.md
-RemoteKeyboard-Superpowers-v1-Implementation-Plan.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/docs/superpowers/research/2026-10-29-remote-keyboard-research-summary.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/docs/superpowers/specs/2026-10-29-remote-keyboard-design.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/docs/superpowers/verification/2026-10-29-remote-keyboard-acceptance-report.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/docs/superpowers/verification/2026-10-29-remote-keyboard-acceptance-report.md
-RemoteKeyboard-Superpowers-v1-Planning-Package/README.md
-/RemoteKeyboard-Superpowers-v1-Planning-Package
+
+# Xcode（project 由 XcodeGen 產生，project.yml 才是來源）
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+build/
+.build/
+.swiftpm/
+
+# 本機工作檔
+.claude/*.local.md
+.claude/settings.local.json
