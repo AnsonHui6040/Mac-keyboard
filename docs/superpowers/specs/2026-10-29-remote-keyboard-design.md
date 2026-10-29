@@ -1,6 +1,8 @@
-# iPhone → Mac Remote Keyboard — 設計規格（待批准）
+# iPhone → Mac Remote Keyboard — 設計規格
 
-**版本**：v1.1 | **日期**：2026-10-29 | **狀態**：APPROVED（使用者於 2026-10-29 批准 v1.1）；非已實作產品
+**版本**：v1.2 | **日期**：2026-10-29 | **狀態**：DRAFT / 待使用者批准（v1.1 已於 2026-10-29 批准）；非已實作產品
+
+**v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向與 §13 實機資訊。
 
 **v1.1 變更**：納入 2026-10-29 設計審問的決定，涵蓋 Remote 模式行為、草稿列、配對備案、Mac 輸入法、語音流程、BLE 備案與開發環境。決定總表見 §12。
 
@@ -16,8 +18,8 @@
 - 預設 Local Mode：iPhone 本地正常輸入，毋須 Full Access；Remote Mode 必須由使用者明確啟用並授權，且有持續可見狀態；不能暗地將其他 App 的文字複製到 Mac。
 - Remote Mode 行為：按鍵只送往 Mac，iPhone 目前欄位不出字；鍵盤收起或切換 App 後重新開啟，沿用上次模式；鍵盤頂部常駐狀態列顯示「Mac → 目前 App 名稱」，點一下即切回 Local。
 - 未就緒時的草稿列：Remote Mode 開啟但 BLE 未連線、或 Mac 沒有可編輯焦點時，按鍵寫入鍵盤頂部草稿列，「傳送」為灰色不可按。就緒後「傳送」轉為可用，由使用者手動送出，不自動送出；送出後恢復逐字即時傳送。草稿送出時使用當下的 `focusEpoch`。草稿只存在記憶體，Extension 被終止或切換 App 即消失，不寫入磁碟。
-- 優先 BLE 自訂 GATT：Mac Peripheral/Server，iPhone Keyboard Extension Central/Client；Mac 使用 AX 聚焦與 CGEvent Unicode 注入；純 Wi-Fi fallback 留到核心 BLE 路徑驗證後才評估。**不以 BLE HID 作主路徑**。
-- iPhone 主 App：安裝教學、Full Access 提示、初次配對、管理配對 Mac、顯示診斷及語音方案說明。主 App **不假設**能長期代 Extension 維持 BLE 連線。
+- 優先 BLE 自訂 GATT（D11）：iPhone Keyboard Extension 為 Peripheral／GATT Server，鍵盤顯示期間廣播並以 notify 送出事件；Mac Receiver 為 Central／GATT Client，執行期間持續掃描並自動連入，以 write 回傳 ACK 與 Receiver 狀態。Mac 使用 AX 聚焦與 CGEvent Unicode 注入。LAN WebSocket 為後備（D8），目前不實作。**不以 BLE HID 作主路徑**。
+- iPhone 主 App：安裝教學、Full Access 提示、初次配對、管理配對 Mac、顯示診斷及語音方案說明。主 App **不假設**能長期代 Extension 維持 BLE 連線；Remote 傳輸由 Extension 自己的 Peripheral 負責。
 
 ## 3. 最重要的平台限制
 
@@ -27,7 +29,9 @@
 4. Mac Accessibility 只能證明有可用的焦點與可發送事件，不等同文字已呈現在任意第三方 App；輸入框切換／睡眠／桌面切換需重新驗證。
 5. BLE ACK 只能確認 Receiver 端協定狀態／注入動作，不保證目標軟體已經顯示文字。對無法觀察結果的 CGEvent，斷線重試可能出現語義不確定狀態；**不可宣稱任意 App 都具備端到端 exactly-once。**
 6. 若 iPhone 用戶在其他 App 打開鍵盤，遠端模式只發送由本鍵盤**直接產生**並明確選擇發往 Mac 的事件；不收集 host App 既有文字或複製通用打字紀錄。
-7. `PencilKit PKStrokeRecognizer` 支援與部署最低版本、繁體中文辨識語言及 Extension 記憶體佔用須實機查證；未通過則用 ML Kit Digital Ink `zh-Hani-TW` 或 `zh-Hani-HK` 評估回退。
+7. 同一 iCloud 的 iPhone 與 Mac 已有系統 LE 連線，且第三方 App 無法經 `retrieveConnectedPeripherals` 取得；iPhone 主動連 Mac 的新連線在 link layer 即斷（reason 762），Mac 主動連 iPhone 可成功（實測 514–561 ms）。因此 iPhone 只能當 Peripheral（D11）。
+8. Extension 只在鍵盤顯示期間存在：Peripheral 只在鍵盤可見且已開 Full Access 時廣播；鍵盤收起即停止廣播並斷線，下次叫出鍵盤由 Mac 重新連入。
+9. `PencilKit PKStrokeRecognizer` 支援與部署最低版本、繁體中文辨識語言及 Extension 記憶體佔用須實機查證；未通過則用 ML Kit Digital Ink `zh-Hani-TW` 或 `zh-Hani-HK` 評估回退。
 
 ## 4. 架構
 
@@ -38,9 +42,9 @@
 [Keyboard Extension, UIKit/UIInputViewController]
   ├─ Local mode (textDocumentProxy -> iPhone current field)
   └─ Remote mode (English / Symbols / Handwriting -> SemanticEvent queue)
-             │ CoreBluetooth Central：scan/connect/write/notify
-             ▼
-[Mac Receiver CBPeripheralManager custom GATT service]
+             │ CBPeripheralManager：廣播 service；event 以 notify 送出，control 收 write
+             ▲ Mac 為 Central：scan → connect → subscribe event／write control
+[Mac Receiver CBCentralManager]
   ├─ Pairing + authentication, session/sequence, queue/ACK
   ├─ AX focus guard, remote-enabled status
   └─ CGEvent Unicode / limited AX fallback
@@ -59,15 +63,16 @@
 - 配對路徑：首選由主 App 配對，經 App Group／Keychain sharing 交給 Extension。若 T01 實測 Personal Team 無法使用 App Group，改為在鍵盤內輸入 Mac 顯示的 6 位配對碼，配對秘密存於 Extension 自身的 Keychain，主 App 只負責教學與診斷。
 - Mac 輸入法：注入前若目前輸入法不是 ABC，以 TIS API 切換至 ABC，注入後切回原輸入法。輸入法組字中的未完成文字可能因切換而被提交，此行為可接受。切換後再驗證一次，仍不是 ABC 則 fail closed 拒收。需測試切換未生效即注入、連續事件之間反覆切換的 race。
 - `CGEventKeyboardSetUnicodeString` 單一事件有長度上限，Receiver 須自行切段注入；實際上限於 T04 實測後寫入本節。
-- 連線路徑：同一 iCloud 的 iPhone 與 Mac 通常已有系統 LE 連線（T02 實測：第三方 App 對 Mac 廣播發起新連線不會完成）。Keyboard Extension 先以 `retrieveConnectedPeripherals(withServices:)` 接入已連線的 Mac，取不到才掃描。
-- 先以 `writeWithResponse` 及 notify/indicate 的可驗證流程做 PoC；由實際 MTU/`maximumWriteValueLength` 分 chunk，勿寫死 20 bytes。
+- GATT 方向（D12）：service 由 iPhone 發佈，UUID `706AA642-68A3-41FA-889D-24E30709B0D0`。`event` characteristic `C7FC0313-53E7-4DCD-B75F-2AE66FE9C586`（notify）：iPhone → Mac 的 `KeyboardEvent`。`control` characteristic `320468E2-53B6-4B6A-88EC-AE2752415818`（write with response）：Mac → iPhone 的 `Ack` 與 `ReceiverStatus`（含 `ready`、目前 App 名稱、`focusEpoch`）。T02 的 Mac service `2A6F212A-…` 停用，Receiver 不再廣播。
+- 連線路徑：Mac 以 `scanForPeripherals(withServices: [service])` 掃描並連入；`retrieveConnectedPeripherals` 在 Mac 與 iPhone 兩端都取不到對方（實測），不作為路徑。T09 完成配對驗證前，Mac 連入任何廣播此 service 的 iPhone，僅供開發使用。
+- 單一 notify 大小以 `CBCentral.maximumUpdateValueLength` 為上限，勿寫死 20 bytes；`updateValue` 回傳 `false` 時暫存事件，等 `peripheralManagerIsReady(toUpdateSubscribers:)` 再送，不得丟棄。
 - 針對 ACK lost：Receiver 保留短期事件 ID 去重；若是否已發往目標 App 無法證明，回報 `AMBIGUOUS` 狀態，禁止無提示的跨焦點重播。
 
 ## 6. 語音的預定設計決策
 
 - 目標流程：使用 iOS 系統的麥克風按鍵（`hasDictationKey = false`，由系統在鍵盤下方顯示）。聽寫文字由 iOS 直接寫入 host App 欄位，因此**文字會留在 iPhone 欄位**；Extension 觀察 `documentContextBeforeInput` 的變化計算差分，同步到草稿列與 Mac。Apple 修正詞語時，Mac 端以 `BACKSPACE × n` 加新文字對應。
 - 首先測 `system dictation visible / actually commits to host App / extension sees textDidChange / extension can know exact diff / remote receives exact diff`，**每項需獨立記錄**。
-- 若僅能見到按鈕或有限 context diff，不能宣稱語音支援 Mac 同步。T13 未通過時，改為主 App 手動語音頁：使用者自行開啟主 App，以 iPhone 麥克風辨識後經主 App 的 BLE 送往 Mac。不走自動跳 App hack。
+- 若僅能見到按鈕或有限 context diff，不能宣稱語音支援 Mac 同步。T13 未通過時，改為主 App 手動語音頁：使用者自行開啟主 App，以 iPhone 麥克風辨識後由主 App 作為 Peripheral 經 BLE 送往 Mac。不走自動跳 App hack。
 
 ## 7. 不做的事（v1.0）
 
@@ -87,14 +92,15 @@
 
 | 方案 | 優點 | 限制 | 決策 |
 |---|---|---|---|
-| Extension -> BLE GATT -> Mac Receiver | 離線、Unicode 語義文字、不依賴 HID；易控 ACK | Extension 生命周期與授權待實測 | **首選（PoC 後方確立）** |
-| Extension -> LAN WebSocket -> Mac Receiver | 協定傳輸可靠、debug 簡單 | Full Access + local-network permission、網段限制 | T03/T05 證實 Extension 無法使用 BLE 後才做限時 PoC（Bonjour + TLS WebSocket）；校園 Wi-Fi 隔離裝置時改用 iPhone 個人熱點測試 |
+| Extension（Central）-> Mac Receiver（Peripheral） | 離線、Unicode 語義文字 | 同一 iCloud 實機連線失敗（T03） | 不採用 |
+| Mac Receiver（Central）-> Extension（Peripheral） | 離線、Unicode 語義文字、不依賴 HID；易控 ACK；實測 0.5 秒連上 | 只在鍵盤可見時可連；需 Full Access | **首選（D11）** |
+| Extension -> LAN WebSocket -> Mac Receiver | 協定傳輸可靠、debug 簡單 | Full Access + local-network permission、網段限制 | D11 路徑若在 T05／T06 未達標才做限時 PoC（Bonjour + TLS WebSocket）；校園 Wi-Fi 隔離裝置時改用 iPhone 個人熱點測試 |
 | Main iOS App -> BLE/LAN | 易處理 Native TextInput、語音 | 不符合任何 App 中直接開鍵盤的目標 | 診斷與語音降級方案 |
 | iPhone Bluetooth HID | Mac 免安裝 Receiver | 既有配對體驗差，Unicode/CJK 問題 | 不採納主線 |
 
 ## 10. 設計文件狀態
 
-本設計 v1.1 已於 2026-10-29 獲使用者批准。未宣稱任何真機測試已通過。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，須依 v1.1 修訂後才開始執行。
+本設計 v1.1 已於 2026-10-29 獲使用者批准；v1.2 待批准。未宣稱任何真機測試已通過。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，v1.2 批准後依其 T03–T06 執行。
 
 ## 11. 核心證據鏈（Apple 官方）
 
@@ -109,7 +115,7 @@
 - Handwriting: https://developer.apple.com/documentation/pencilkit/recognizing-handwriting-and-converting-to-text
 - ML Kit Digital Ink: https://developers.google.com/ml-kit/vision/digital-ink-recognition/ios
 
-## 12. 設計決定總表（v1.1，2026-10-29）
+## 12. 設計決定總表（v1.2，2026-10-29）
 
 | # | 範疇 | 決定 | 影響任務 |
 |---|---|---|---|
@@ -123,7 +129,8 @@
 | D8 | BLE 備案 | 接受 LAN WebSocket 備案，僅在 BLE 證實不可行後做限時 PoC（§9） | T03、T05、T15 |
 | D9 | 重連測試 | T06 的 100 次以 XCUITest 在真機自動執行，使用者親手抽查 10 次並錄影；XCUITest 無法切換第三方鍵盤時，改由使用者親手完成 100 次 | T06 |
 | D10 | Xcode project | 使用 XcodeGen：`project.yml` 納入 git，`*.xcodeproj` 不納入；每次以 `xcodegen generate` 產生 | 全部 |
-| D11 | 傳輸角色（2026-10-29 批准） | 角色對調：iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central。原因：同一 iCloud 的 iPhone 主動連 Mac 在實機失敗（T03），Mac 主動連 iPhone 成功（spike）。§2、§4、§5 待 v1.2 改寫；D8 LAN 保留為後備 | T03–T06 |
+| D11 | 傳輸角色（2026-10-29 批准） | 角色對調：iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central。原因：同一 iCloud 的 iPhone 主動連 Mac 在實機失敗（T03），Mac 主動連 iPhone 成功（spike）。v1.2 已改寫 §2–§5、§9；D8 LAN 保留為後備 | T03–T06 |
+| D12 | GATT 方向 | iPhone 發佈 service；`event` notify 送事件、`control` 收 Mac 的 write（ACK、狀態）；Mac 只用掃描路徑；notify 受 `maximumUpdateValueLength` 限制並處理佇列滿（§5） | T03–T06 |
 
 ## 13. 開發環境（2026-10-29 實測）
 
@@ -132,6 +139,6 @@
 | Xcode／Swift | 27.1／6.4 |
 | macOS | 27.2，Bluetooth 已開啟 |
 | iOS 模擬器 | iPhone 18 Pro（iOS 27.0）；模擬器沒有 CoreBluetooth，只能用於 T01 的 UI 與 Local Mode |
-| 實體 iPhone | 尚未連接；T03、T05、T06 必須使用實機 |
-| 簽名身分 | 0 個；需在 Xcode → Settings → Accounts 登入 Apple ID 取得 Personal Team |
+| 實體 iPhone | iPhone 17 Pro，iOS 27.0.1，USB 配對、Developer Mode 已開；T03、T05、T06 必須使用實機 |
+| 簽名身分 | Personal Team `4YN34HPX6F`（Apple Development），`project.yml` 已設定 |
 | XcodeGen | 2.46.0 已安裝；三個 target 的空殼已於暫存資料夾驗證 iOS Simulator 與 macOS build 成功，Extension 的 `CFBundleVersion` 需與 host App 一致 |
