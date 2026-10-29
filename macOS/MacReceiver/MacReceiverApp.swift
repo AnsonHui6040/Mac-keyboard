@@ -1,3 +1,4 @@
+import RemoteKeyboardCore
 import SwiftUI
 
 @main
@@ -6,16 +7,36 @@ struct MacReceiverApp: App {
     @StateObject private var loginItem: LoginItem
     @StateObject private var focus: FocusMonitor
     @StateObject private var testInsert: TestInsertController
+    @StateObject private var coordinator: ReceiverCoordinator
+    private let pipeline: EventPipeline
 
     init() {
         let loginItem = LoginItem()
         loginItem.applyDefaultIfNeeded()
         let focus = FocusMonitor()
+        // One switcher, so the menu test and the BLE pipeline share the same serialization gate.
+        let switcher = InputSourceSwitcher(
+            controller: TISInputSourceController(),
+            composition: AXCompositionAdapter(element: { [weak focus] in focus?.focusedElement }),
+            settle: { try? await Task.sleep(for: .seconds($0)) }
+        )
+        let central = ReceiverBLECentral()
+        let pipeline = EventPipeline(
+            snapshot: { [weak focus] in focus?.refreshNow() },
+            switcher: switcher,
+            injector: TextInjector(),
+            sendAck: { [weak central] ack in central?.send(.ack(ack)) },
+            noteValidEvent: { [weak central] in central?.noteEvent() }
+        )
+        central.eventHandler = { [pipeline] data in pipeline.submit(data) }
+        let coordinator = ReceiverCoordinator(focus: focus, central: central)
         focus.start()
-        _central = StateObject(wrappedValue: ReceiverBLECentral())
+        self.pipeline = pipeline
+        _central = StateObject(wrappedValue: central)
         _loginItem = StateObject(wrappedValue: loginItem)
         _focus = StateObject(wrappedValue: focus)
-        _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus))
+        _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus, switcher: switcher))
+        _coordinator = StateObject(wrappedValue: coordinator)
     }
 
     var body: some Scene {

@@ -124,6 +124,8 @@ final class TestInsertController: ObservableObject {
         switch result {
         case .switchFailed:
             status = "未插入：切換英文輸入法失敗"
+        case .compositionActive:
+            status = "未插入：輸入法正在組字"
         case .injected:
             let length = item.text.utf16.count
             status = posted ? "已插入（長度 \(length)，\(chunks) 段，\(ms) ms）" : "插入失敗：事件建立失敗"

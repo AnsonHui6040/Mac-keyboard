@@ -19,12 +19,17 @@ final class FocusMonitor: ObservableObject {
     nonisolated static let editableRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"]
 
     @Published private(set) var snapshot: FocusSnapshot?
+    /// Called with each snapshot that differs from the previous one, after `snapshot` is updated.
+    var onChange: ((FocusSnapshot) -> Void)?
 
     private var epoch: UInt64 = 0
     private var lastPID: Int32?
     private var lastElement: AXUIElement?
     private var pollTimer: Timer?
     private var activationObserver: NSObjectProtocol?
+
+    /// The element read by the latest `refreshNow()`; `nil` when untrusted, nothing focused, or Receiver itself is frontmost.
+    var focusedElement: AXUIElement? { lastElement }
 
     /// Pure classification, kept free of AX types so it can be unit tested.
     nonisolated static func isEditable(role: String?, valueSettable: Bool) -> Bool {
@@ -93,7 +98,10 @@ final class FocusMonitor: ObservableObject {
         let next = FocusSnapshot(
             axTrusted: trusted, frontmostPID: pid, appName: app?.localizedName, editable: editable, epoch: epoch
         )
-        if next != snapshot { snapshot = next }
+        if next != snapshot {
+            snapshot = next
+            onChange?(next)
+        }
         return next
     }
 
@@ -120,6 +128,9 @@ final class FocusMonitor: ObservableObject {
         var roleRef: CFTypeRef?
         let role = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success
             ? roleRef as? String : nil
+
+        // A text role already qualifies, so the value (the whole document, for a text area) is never copied for it.
+        if let role, editableRoles.contains(role) { return (element, true) }
 
         // A settable value only counts when it is text; sliders and checkboxes settle numbers, not typed characters.
         var settable: DarwinBoolean = false

@@ -4,8 +4,10 @@ public enum DiagnosticKeyKind: String, Sendable {
     case text, backspace, `return`
 }
 
-public enum AckCode: String, Sendable {
+public enum AckCode: String, Codable, Sendable {
     case posted, notAuthorized, noFocus, staleFocus, switchFailed, malformed
+    /// An IME composition was still open after Escape; nothing was switched or injected.
+    case compositionActive
 }
 
 /// Diagnostics carry state names, codes and sizes only. There is deliberately no free-text

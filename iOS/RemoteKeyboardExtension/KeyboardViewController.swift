@@ -9,29 +9,36 @@ struct TextDocumentProxySink: @preconcurrency TextSink {
     func deleteBackward() { proxy.deleteBackward() }
 }
 
-/// Remote path is not available until T05.
-private struct UnavailableRemoteSink: RemoteEventSink {
-    func enqueue(_ kind: EventKind) {}
-}
-
 final class KeyboardViewController: UIInputViewController {
+    static let modeDefaultsKey = "rk.mode"
+    private static let noteSeconds: Double = 2
+
     private var keyboardView: MinimalKeyboardView?
     private let peripheral = KeyboardBLEPeripheral()
+    private var savedMode: KeyboardMode = .local
+    /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
+    private var note: String?
+    private var noteTask: Task<Void, Never>?
+
+    /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
+    private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        savedMode = ModeResolver.saved(rawValue: UserDefaults.standard.string(forKey: Self.modeDefaultsKey))
 
         let router = KeyboardActionRouter(
             local: TextDocumentProxySink(proxy: textDocumentProxy),
-            remote: UnavailableRemoteSink()
+            remote: peripheral,
+            isRemoteReady: { [weak peripheral] in peripheral?.isRemoteReady ?? false }
         )
         let view = MinimalKeyboardView(
             showsGlobeKey: needsInputModeSwitchKey,
             probeText: Self.probeStatusText()
         )
         view.onAction = { [weak self] action in
-            guard self != nil else { return }
-            _ = router.route(action, mode: .local)
+            guard let self else { return }
+            self.handle(router.route(action, mode: self.mode))
         }
         view.globeButton.addTarget(
             self,
@@ -48,22 +55,72 @@ final class KeyboardViewController: UIInputViewController {
             view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
         ])
         keyboardView = view
-        peripheral.onStateChange = { [weak view] state in view?.setLinkState(state) }
+        peripheral.onStateChange = { [weak self] _ in self?.refreshStatus() }
+        peripheral.onControl = { [weak self] message in self?.received(message) }
+        view.setMode(mode)
+        refreshStatus()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         peripheral.viewWillAppear(hasFullAccess: hasFullAccess)
+        keyboardView?.setMode(mode)
+        refreshStatus()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         peripheral.viewDidDisappear()
+        showNote(nil)
     }
 
     override func viewWillLayoutSubviews() {
         keyboardView?.setGlobeVisible(needsInputModeSwitchKey)
         super.viewWillLayoutSubviews()
+    }
+
+    // MARK: Routing results
+
+    private func handle(_ outcome: RouteOutcome) {
+        switch outcome {
+        case .modeToggled(let requested):
+            // Persist what actually took effect, so a refused Remote (no Full Access) is not remembered as Remote.
+            let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
+            savedMode = applied
+            UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
+            keyboardView?.setMode(applied)
+            showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)
+        case .rejected:
+            showNote("Mac 尚未就緒，未輸入")
+        case .insertedLocally, .enqueuedRemote, .advanceInputMode:
+            break
+        }
+    }
+
+    private func received(_ message: ControlMessage) {
+        if case .ack(let ack) = message { showNote(StatusLine.ackText(ack.result)) }
+        refreshStatus()
+    }
+
+    // MARK: Status line
+
+    private func refreshStatus() {
+        let link = peripheral.linkState
+        let line = StatusLine.text(mode: mode, link: link, receiver: peripheral.latestStatus)
+        keyboardView?.setStatus(text: StatusLine.appendingNote(line, note: note), linkName: link.name)
+    }
+
+    private func showNote(_ text: String?) {
+        noteTask?.cancel()
+        note = text
+        refreshStatus()
+        guard text != nil else { return }
+        noteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.noteSeconds))
+            guard !Task.isCancelled else { return }
+            self?.note = nil
+            self?.refreshStatus()
+        }
     }
 
     private static func probeStatusText() -> String {

@@ -93,8 +93,10 @@ final class TextInjector {
         return ok
     }
 
-    func backspace() { postKey(Self.backspaceKey) }
-    func returnKeyPress() { postKey(Self.returnKey) }
+    @discardableResult
+    func backspace() -> Bool { postKey(Self.backspaceKey) }
+    @discardableResult
+    func returnKeyPress() -> Bool { postKey(Self.returnKey) }
 
     private func postChunk(_ chunk: String) -> Bool {
         let events = buildTextEvents(chunk)
@@ -103,10 +105,11 @@ final class TextInjector {
         return true
     }
 
-    private func postKey(_ key: CGKeyCode) {
+    private func postKey(_ key: CGKeyCode) -> Bool {
         let events = Self.makeKeyEvents(virtualKey: key)
-        guard !events.isEmpty else { return }
+        guard !events.isEmpty else { return false }
         poster.post(events)
         Self.log.info("key \(key, privacy: .public)")
+        return true
     }
 }

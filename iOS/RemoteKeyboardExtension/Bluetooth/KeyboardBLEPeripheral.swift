@@ -7,14 +7,30 @@ import RemoteKeyboardCore
 @MainActor
 final class KeyboardBLEPeripheral: NSObject {
     var onStateChange: ((KeyboardLinkState) -> Void)?
+    /// Every decoded message the Receiver wrote to `control`, after the peripheral's own state is updated.
+    var onControl: ((ControlMessage) -> Void)?
 
     private var machine = KeyboardLinkStateMachine()
     private var manager: CBPeripheralManager?
     private var eventCharacteristic: CBMutableCharacteristic?
 
+    // Send path. All of this belongs to one keyboard appearance and is reset when it starts or ends.
+    private var sessionId = UUID()
+    private var seq: UInt64 = 0
+    private var queue = NotifyQueue()
+    private var subscribedCentral: CBCentral?
+    private(set) var latestStatus: ReceiverStatus?
+
     private static let serviceID = CBUUID(string: GATTServiceSpec.Link.serviceUUID)
     private static let eventID = CBUUID(string: GATTServiceSpec.Link.eventUUID)
     private static let controlID = CBUUID(string: GATTServiceSpec.Link.controlUUID)
+
+    var linkState: KeyboardLinkState { machine.state }
+
+    /// Remote keys are accepted only with a connected link, a subscribed central and a Receiver that says it is ready.
+    var isRemoteReady: Bool {
+        machine.state == .connected && subscribedCentral != nil && latestStatus?.ready == true
+    }
 
     func viewWillAppear(hasFullAccess: Bool) {
         // Without Full Access no CBPeripheralManager is created at all.
@@ -26,6 +42,53 @@ final class KeyboardBLEPeripheral: NSObject {
 
     func viewDidDisappear() {
         feed(.disappeared)
+        resetSession()
+    }
+
+    /// Ends a keyboard appearance: the next one is a new peripheral session with a fresh id, seq from 1, nothing
+    /// queued and no stale status.
+    private func resetSession() {
+        sessionId = UUID()
+        seq = 0
+        queue.removeAll()
+        subscribedCentral = nil
+        latestStatus = nil
+    }
+
+    // MARK: Sending
+
+    /// Encodes one semantic key and sends it, or queues it until the transmit queue has room.
+    /// Only kind and length are logged.
+    func send(_ kind: EventKind) {
+        guard let central = subscribedCentral else { return }
+        let event = KeyboardEvent(
+            protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: sessionId,
+            seq: seq + 1, focusEpoch: latestStatus?.focusEpoch, kind: kind)
+        guard let frame = try? EventCodec.encode(event, maxBytes: central.maximumUpdateValueLength) else { return }
+        seq += 1
+        queue.enqueue(frame)
+        if let (key, length) = Self.diagnosticKey(kind) {
+            DiagnosticEvent.keySent(kind: key, utf8Length: length).log()
+        }
+        drain()
+    }
+
+    /// Hands queued frames to CoreBluetooth in order. A `false` from `updateValue` means the transmit queue is full;
+    /// the rest waits for `peripheralManagerIsReady(toUpdateSubscribers:)`.
+    private func drain() {
+        guard let manager, let eventCharacteristic, let central = subscribedCentral else { return }
+        queue.drain { frame in
+            manager.updateValue(frame, for: eventCharacteristic, onSubscribedCentrals: [central])
+        }
+    }
+
+    private static func diagnosticKey(_ kind: EventKind) -> (DiagnosticKeyKind, Int)? {
+        switch kind {
+        case .text(let text): (.text, text.utf8.count)
+        case .backspace: (.backspace, 0)
+        case .returnKey: (.return, 0)
+        case .ping: nil
+        }
     }
 
     private func feed(_ input: KeyboardLinkInput) {
@@ -54,6 +117,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .removeServices:
             manager.removeAllServices()
             eventCharacteristic = nil
+            queue.removeAll()
         }
     }
 
@@ -86,6 +150,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didSubscribeTo characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
+        subscribedCentral = central
         feed(.subscribed)
     }
 
@@ -94,12 +159,38 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didUnsubscribeFrom characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
+        // Keys typed for the old connection are not replayed into a later one.
+        subscribedCentral = nil
+        latestStatus = nil
+        queue.removeAll()
         feed(.unsubscribed)
     }
 
-    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
-        // Control payloads are handled in T05; always acknowledge.
-        guard let first = requests.first else { return }
-        peripheral.respond(to: first, withResult: .success)
+    func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        drain()
     }
+
+    func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
+        guard let first = requests.first else { return }
+        // Prepared (long) writes arrive as pieces with offsets; the payload is the pieces in offset order.
+        let pieces = requests.filter { $0.characteristic.uuid == Self.controlID }.sorted { $0.offset < $1.offset }
+        var payload = Data()
+        for piece in pieces { payload.append(piece.value ?? Data()) }
+        guard !pieces.isEmpty, let message = try? ControlCodec.decode(payload) else {
+            peripheral.respond(to: first, withResult: .invalidAttributeValueLength)
+            return
+        }
+        peripheral.respond(to: first, withResult: .success)
+        switch message {
+        case .status(let status):
+            latestStatus = status
+        case .ack(let ack):
+            DiagnosticEvent.ackReceived(ack.result).log()
+        }
+        onControl?(message)
+    }
+}
+
+extension KeyboardBLEPeripheral: @preconcurrency RemoteEventSink {
+    func enqueue(_ kind: EventKind) { send(kind) }
 }
