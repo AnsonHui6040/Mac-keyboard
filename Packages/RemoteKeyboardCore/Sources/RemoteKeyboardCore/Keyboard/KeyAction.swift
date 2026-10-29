@@ -1,9 +1,3 @@
-public enum EventKind: Equatable, Sendable {
-    case text(String)
-    case backspace
-    case returnKey
-}
-
 public enum KeyAction: Equatable, Sendable {
     case character(String)
     case backspace

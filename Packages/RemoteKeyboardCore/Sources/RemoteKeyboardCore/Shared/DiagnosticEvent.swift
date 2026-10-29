@@ -4,8 +4,15 @@ public enum DiagnosticKeyKind: String, Sendable {
     case text, backspace, `return`
 }
 
-public enum AckCode: String, Sendable {
+public enum AckCode: String, Codable, Sendable {
     case posted, notAuthorized, noFocus, staleFocus, switchFailed, malformed
+    /// An IME composition was still open after Escape; nothing was switched or injected.
+    case compositionActive
+}
+
+/// Why a key was not sent. Fixed names only.
+public enum KeyDropReason: String, Sendable {
+    case tooLarge, encodeFailed
 }
 
 /// Diagnostics carry state names, codes and sizes only. There is deliberately no free-text
@@ -15,6 +22,10 @@ public enum DiagnosticEvent: Equatable, Sendable {
     case receiverLink(String)
     case keySent(kind: DiagnosticKeyKind, utf8Length: Int)
     case ackReceived(AckCode)
+    /// A key that could not be encoded for the subscribed central; kind and length only.
+    case keyDropped(kind: DiagnosticKeyKind, utf8Length: Int, reason: KeyDropReason)
+    /// The subscribed central's `maximumUpdateValueLength`, logged once per subscription.
+    case centralSubscribed(maxUpdateLength: Int)
     case reconnectSample(shownAtMs: Int64, connectedAtMs: Int64?)
 
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "diagnostic")
@@ -30,6 +41,10 @@ public enum DiagnosticEvent: Equatable, Sendable {
             logger.info("keySent kind=\(kind.rawValue, privacy: .public) utf8Length=\(utf8Length, privacy: .public)")
         case .ackReceived(let code):
             logger.info("ack \(code.rawValue, privacy: .public)")
+        case .keyDropped(let kind, let utf8Length, let reason):
+            logger.error("keyDropped kind=\(kind.rawValue, privacy: .public) utf8Length=\(utf8Length, privacy: .public) reason=\(reason.rawValue, privacy: .public)")
+        case .centralSubscribed(let maxUpdateLength):
+            logger.info("centralSubscribed maxUpdateLength=\(maxUpdateLength, privacy: .public)")
         case .reconnectSample(let shownAtMs, let connectedAtMs):
             logger.info("reconnect shownAtMs=\(shownAtMs, privacy: .public) connectedAtMs=\(connectedAtMs ?? -1, privacy: .public)")
         }

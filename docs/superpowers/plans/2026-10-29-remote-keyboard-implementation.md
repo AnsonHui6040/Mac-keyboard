@@ -440,7 +440,7 @@ func testRestoreHappensAfterSettleDelay() async // 記錄順序 == ["select:ABC"
 
 ### Task 05: 端到端 A 鍵 PoC
 
-**Branch:** `t05-e2e-a-key`（T03b、T04 merge 後開始）
+**Branch:** `t05-e2e-a-key`（由 `t04-mac-inject` 開出；T04 實機測試併入 T05 實機測試，兩者測完一起 merge）
 
 **Files:**
 - Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Shared/KeyboardEvent.swift`、`Shared/ControlMessage.swift`、`Keyboard/NotifyQueue.swift`；Modify: `Keyboard/KeyAction.swift`（移出 `EventKind`）、`Keyboard/KeyboardActionRouter.swift`、`Shared/KeyboardMode.swift`
@@ -462,9 +462,19 @@ func testRestoreHappensAfterSettleDelay() async // 記錄順序 == ["select:ABC"
   - `enum ModeResolver { static func effectiveMode(saved: KeyboardMode, hasFullAccess: Bool) -> KeyboardMode }`
   - Router 擴充：`init(local:remote:isRemoteReady: @escaping () -> Bool)`；`.remote` 且 ready → `enqueue` 並回傳 `.enqueuedRemote`，local sink 0 次；`.remote` 且未 ready → `.rejected`（M1 暫行；D6 草稿列在 T10）；`.toggleMode` → `.modeToggled(mode == .local ? .remote : .local)`。
 
+- 組字規則（D4 修訂，2026-10-29）：
+  - `enum CompositionState: Equatable, Sendable { case composing, notComposing, unknown }`
+  - `protocol CompositionControlling { func state() -> CompositionState; func cancel() }`（Mac adapter：讀焦點元素 `AXTextInputMarkedTextMarkerRange`，非 NULL → `.composing`、NULL → `.notComposing`、屬性不支援或 AX 錯誤 → `.unknown`；`cancel()` 送 Escape，virtualKey 53）
+  - `InputSourceSwitcher` 改為 `init(controller:composition:settle:)`，`composition` 預設 `nil`（等同永遠 `.unknown`）。`withASCII` 在 gate 內、目前不是 ABC 時：`.composing` → `cancel()`、`await settle(settleSeconds)`、再讀 `state()`，仍 `.composing` 則回傳 `.compositionActive` 且不切換不注入；`.notComposing`／`.unknown` → 照 T04 流程。目前是 ABC 時不查組字。
+  - `SwitchResult` 新增 `.compositionActive`；Mac 對應 ack 用 `AckCode` 既有的拒收類別（實作時選最接近者並在報告說明）。
+
 - [ ] **Step 1: 寫失敗測試**
 
 ```swift
+func testComposingIsCancelledBeforeSwitch() async   // current = Zhuyin、state 先 .composing 後 .notComposing → 記錄順序 ["cancel", "settle:0.05", "select:ABC", "inject", "settle:0.05", "select:Zhuyin"]
+func testStillComposingAfterCancelRefuses() async   // state 一直 .composing → .compositionActive，selected == []，injected 0
+func testUnknownCompositionSwitchesAsBefore() async // state .unknown → 與 testSwitchesAndRestores 相同，cancel 0 次
+func testABCSkipsCompositionCheck() async           // current = ABC → state() 0 次、cancel 0 次
 func testTapAProducesOneRemoteSemanticEvent() {
     let (router, local, remote) = makeRouter(ready: true)
     XCTAssertEqual(router.route(.character("A"), mode: .remote), .enqueuedRemote)
@@ -501,7 +511,7 @@ func testDrainStopsWhenSendReturnsFalseAndKeepsOrder() {
 - [ ] **Step 4: 執行 `swift test`，全部 PASS。**
 - [ ] **Step 5: 接上兩端。** Mac：`FocusMonitor` 由非可編輯轉為可編輯時送 `ReceiverSession` `.editableFocusGained`，每收到一個有效 event 送 `.eventReceived`。iPhone：Remote 按鍵 → `KeyboardEvent`（`focusEpoch` 取最新 `ReceiverStatus`，`seq` 每 session 從 1 遞增）→ `EventCodec.encode(maxBytes: central.maximumUpdateValueLength)` → `NotifyQueue`；以 `updateValue(_:for:onSubscribedCentrals:)` drain，`peripheralManagerIsReady(toUpdateSubscribers:)` 再 drain。`control` write 解成 `ControlMessage`：`.status` 更新 ready 與狀態列 `Mac → 目前 App`；`.ack` 以 `DiagnosticEvent.ackReceived` 記錄並短暫顯示。模式以 `UserDefaults.standard` 鍵 `rk.mode` 保存，載入經 `ModeResolver`（`hasFullAccess` 取 `UIInputViewController.hasFullAccess`）。Mac：`event` 通知 → `EventCodec.decode` → `FocusGuard.authorize(eventEpoch: event.focusEpoch, current:)` → `InputSourceSwitcher` → `TextInjector` → `control` 寫回 `.ack`；`linkReady` 後與焦點／epoch 改變時寫 `.status`（`.withResponse`）。
 - [ ] **Step 6: Run all，全部 exit 0。**
-- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** `T05-E2E-A-01`：Notes → Mac TextEdit 按 `A` 20 次；`T05-E2E-A-02`：Safari → TextEdit 20 次；每次錄影，不得用主 App 代打。另做 5 次「按 A 前 1 秒內 Cmd-Tab 到 Finder」，Mac 不得出現字元，ack 為 `staleFocus` 或 `noFocus`。關閉 Full Access 後重開鍵盤，確認回到 Local 可打字。D13：Receiver 待命時點擊 TextEdit 文字框即開始接收並連上；以 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60` 將逾時改為 60 秒，確認 60 秒不打字即斷線回待命、期間持續打字則不斷線，測完以 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 還原。
+- [ ] **Step 7: 實機驗收（使用者，標 TBD）。** `T05-E2E-A-01`：Notes → Mac TextEdit 按 `A` 20 次；`T05-E2E-A-02`：Safari → TextEdit 20 次；每次錄影，不得用主 App 代打。Mac 用注音打一半（候選字未選）時按 iPhone `A`：TextEdit 未完成文字被刪除、出現 `A`、輸入法切回注音。另做 5 次「按 A 前 1 秒內 Cmd-Tab 到 Finder」，Mac 不得出現字元，ack 為 `staleFocus` 或 `noFocus`。關閉 Full Access 後重開鍵盤，確認回到 Local 可打字。D13：Receiver 待命時點擊 TextEdit 文字框即開始接收並連上；以 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60` 將逾時改為 60 秒，確認 60 秒不打字即斷線回待命、期間持續打字則不斷線，測完以 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 還原。
 - [ ] **Step 8: 更新驗收報告 T05，主代理 commit。**
 
 **PASS：** 兩組各 20/20，錯焦點 0 次。**Gate 1：** 失敗即停止 T10–T12 的完整 UI，改依 D8 驗證 LAN 傳輸；任何 Extension 傳輸都失敗時重新確認產品方向。

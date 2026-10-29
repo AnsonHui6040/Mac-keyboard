@@ -6,6 +6,8 @@ import XCTest
 private final class FakeDriver: CentralDriving {
     enum Call: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID) }
     var calls: [Call] = []
+    var controlWrites: [Data] = []
+    func writeControl(_ data: Data) { controlWrites.append(data) }
     func startScan() { calls.append(.startScan) }
     func stopScan() { calls.append(.stopScan) }
     func connect(_ id: UUID) { calls.append(.connect(id)) }
@@ -145,5 +147,68 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(ReceiverMenu.remainingText(1800), "剩餘接收時間 30:00")
         XCTAssertEqual(ReceiverMenu.remainingText(59.2), "剩餘接收時間 01:00")
         XCTAssertEqual(ReceiverMenu.remainingText(0), "剩餘接收時間 00:00")
+    }
+
+    // MARK: T05 wiring
+
+    private func makeReady(_ central: ReceiverBLECentral) -> UUID {
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        return p
+    }
+
+    func testControlWriteIsDroppedUntilLinkIsReady() {
+        let central = make()
+        central.startReceiving()
+        central.send(.status(ReceiverStatus(ready: true, appName: "TextEdit", focusEpoch: 1)))
+        XCTAssertEqual(driver.controlWrites, [])
+    }
+
+    func testControlWriteGoesToDriverOnceReadyAndDecodes() throws {
+        let central = make()
+        _ = makeReady(central)
+        let status = ControlMessage.status(ReceiverStatus(ready: true, appName: "TextEdit", focusEpoch: 9))
+        central.send(status)
+        XCTAssertEqual(driver.controlWrites.count, 1)
+        XCTAssertEqual(try ControlCodec.decode(driver.controlWrites[0]), status)
+    }
+
+    func testControlWriteStopsAfterStopReceiving() {
+        let central = make()
+        _ = makeReady(central)
+        central.stopReceiving()
+        central.send(.ack(Ack(eventId: UUID(), result: .posted)))
+        XCTAssertEqual(driver.controlWrites, [])
+    }
+
+    func testOnLinkReadyFiresOncePerReadyTransition() {
+        let central = make()
+        var fired = 0
+        central.onLinkReady = { fired += 1 }
+        let p = makeReady(central)
+        XCTAssertEqual(fired, 1)
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(fired, 1)
+    }
+
+    func testEventDataReachesTheHandlerInOrder() {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        central.receive(eventData: Data("a".utf8))
+        central.receive(eventData: Data("b".utf8))
+        XCTAssertEqual(seen, [Data("a".utf8), Data("b".utf8)])
+    }
+
+    func testEditableFocusArmsAnIdleReceiver() {
+        let central = make()
+        XCTAssertFalse(central.isArmed)
+        central.focusGainedEditable()
+        XCTAssertTrue(central.isArmed)
+        XCTAssertEqual(madeDrivers, 1)
     }
 }

@@ -4,6 +4,7 @@ import RemoteKeyboardCore
 final class MinimalKeyboardView: UIView {
     var onAction: ((KeyAction) -> Void)?
     let globeButton = UIButton(type: .system)
+    private let modeButton = UIButton(type: .system)
     private let statusLabel = UILabel()
 
     private var isShifted = false
@@ -23,9 +24,16 @@ final class MinimalKeyboardView: UIView {
         globeButton.isHidden = !visible
     }
 
-    func setLinkState(_ state: KeyboardLinkState) {
-        statusLabel.text = state.statusText
-        statusLabel.accessibilityValue = state.name
+    /// `linkName` stays the BLE link state name so UI tests can read the link regardless of the visible wording.
+    func setStatus(text: String, linkName: String) {
+        statusLabel.text = text
+        statusLabel.accessibilityValue = linkName
+    }
+
+    func setMode(_ mode: KeyboardMode) {
+        modeButton.setTitle(mode == .remote ? "遠端" : "本機", for: .normal)
+        modeButton.accessibilityValue = mode.rawValue
+        modeButton.backgroundColor = mode == .remote ? .systemBlue.withAlphaComponent(0.3) : .secondarySystemBackground
     }
 
     // MARK: - Layout
@@ -70,6 +78,8 @@ final class MinimalKeyboardView: UIView {
         bottom.distribution = .fill
         configureGlobe()
         bottom.addArrangedSubview(globeButton)
+        configureModeKey()
+        bottom.addArrangedSubview(modeButton)
         let space = makeKey(title: "space") { [weak self] in self?.onAction?(.space) }
         bottom.addArrangedSubview(space)
         let returnKey = makeKey(title: "return") { [weak self] in self?.onAction?(.returnKey) }
@@ -79,7 +89,9 @@ final class MinimalKeyboardView: UIView {
         spaceRatio.priority = UILayoutPriority(999)
         let globeRatio = globeButton.widthAnchor.constraint(equalTo: returnKey.widthAnchor)
         globeRatio.priority = UILayoutPriority(999)
-        NSLayoutConstraint.activate([spaceRatio, globeRatio])
+        let modeRatio = modeButton.widthAnchor.constraint(equalTo: returnKey.widthAnchor)
+        modeRatio.priority = UILayoutPriority(999)
+        NSLayoutConstraint.activate([spaceRatio, globeRatio, modeRatio])
         stack.addArrangedSubview(bottom)
 
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -114,6 +126,13 @@ final class MinimalKeyboardView: UIView {
     private func configureGlobe() {
         globeButton.setTitle("🌐", for: .normal)
         styleKey(globeButton)
+    }
+
+    private func configureModeKey() {
+        styleKey(modeButton)
+        modeButton.accessibilityIdentifier = "rk.mode"
+        modeButton.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleMode) }, for: .touchUpInside)
+        setMode(.local)
     }
 
     private func makeKey(title: String, action: @escaping () -> Void) -> UIButton {

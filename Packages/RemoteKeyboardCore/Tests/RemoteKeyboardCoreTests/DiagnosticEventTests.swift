@@ -10,6 +10,14 @@ final class DiagnosticEventTests: XCTestCase {
         XCTAssertEqual(DiagnosticKeyKind.return.rawValue, "return")
     }
 
+    func testDropDiagnosticsCarryNoText() {
+        let event = DiagnosticEvent.keyDropped(kind: .text, utf8Length: 3, reason: .tooLarge)
+        XCTAssertFalse(String(describing: event).contains("香"))
+        XCTAssertEqual(KeyDropReason.tooLarge.rawValue, "tooLarge")
+        XCTAssertEqual(KeyDropReason.encodeFailed.rawValue, "encodeFailed")
+        XCTAssertEqual(DiagnosticEvent.centralSubscribed(maxUpdateLength: 182), .centralSubscribed(maxUpdateLength: 182))
+    }
+
     func testAckCodeRawValues() {
         let raw = [AckCode.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed].map(\.rawValue)
         XCTAssertEqual(raw, ["posted", "notAuthorized", "noFocus", "staleFocus", "switchFailed", "malformed"])

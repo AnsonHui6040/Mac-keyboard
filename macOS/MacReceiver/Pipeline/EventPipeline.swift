@@ -1,0 +1,145 @@
+import Foundation
+import OSLog
+import RemoteKeyboardCore
+
+/// Turns each `event` notification into at most one injection and exactly one ack.
+///
+/// Strictly one event at a time, in arrival order: events are queued into a stream and a single consumer finishes
+/// one (including its ASCII switch, settle and restore) before it reads the next. Fails closed: the focus is read
+/// fresh before the guard and once more right before posting. Logs carry kind, length, result and timing only.
+@MainActor
+final class EventPipeline {
+    private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "pipeline")
+
+    private let snapshot: @MainActor () -> FocusSnapshot?
+    private let switcher: InputSourceSwitcher
+    private let injector: TextInjector
+    private let sendAck: @MainActor (Ack) -> Void
+    private let noteValidEvent: @MainActor () -> Void
+    private let continuation: AsyncStream<Data>.Continuation
+    private var consumer: Task<Void, Never>?
+
+    /// - Parameters:
+    ///   - snapshot: a forced, fresh focus read (not a cached value).
+    ///   - noteValidEvent: called for every validly decoded event, whether or not it is injected.
+    init(
+        snapshot: @escaping @MainActor () -> FocusSnapshot?,
+        switcher: InputSourceSwitcher,
+        injector: TextInjector,
+        sendAck: @escaping @MainActor (Ack) -> Void,
+        noteValidEvent: @escaping @MainActor () -> Void
+    ) {
+        self.snapshot = snapshot
+        self.switcher = switcher
+        self.injector = injector
+        self.sendAck = sendAck
+        self.noteValidEvent = noteValidEvent
+        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        self.continuation = continuation
+        consumer = Task { @MainActor [weak self] in
+            for await data in stream {
+                guard let self else { return }
+                await self.process(data)
+            }
+        }
+    }
+
+    /// Queues one raw notification. Order of calls is the order of processing.
+    func submit(_ data: Data) { continuation.yield(data) }
+
+    // MARK: Decision mapping (pure)
+
+    /// The refusal ack for a guard decision; `nil` when the guard allows.
+    nonisolated static func ackCode(for decision: InjectionDecision) -> AckCode? {
+        switch decision {
+        case .allow: nil
+        case .notAuthorized: .notAuthorized
+        case .noFocus: .noFocus
+        case .staleFocus: .staleFocus
+        }
+    }
+
+    /// The ack after `withASCII` returned. `lateDecision` is the focus re-check made right before posting, and
+    /// `injected` says whether every posting step succeeded.
+    nonisolated static func ackCode(result: SwitchResult, lateDecision: InjectionDecision, injected: Bool) -> AckCode {
+        switch result {
+        case .switchFailed: return .switchFailed
+        case .compositionActive: return .compositionActive
+        case .refused: return ackCode(for: lateDecision) ?? .staleFocus
+        case .injected:
+            if let refusal = ackCode(for: lateDecision) { return refusal }
+            return injected ? .posted : .malformed
+        }
+    }
+
+    // MARK: Processing
+
+    /// Handles one notification to completion. Internal so tests can drive it without the stream.
+    func process(_ data: Data) async {
+        let started = ContinuousClock.now
+        let event: KeyboardEvent
+        do {
+            event = try EventCodec.decode(data)
+        } catch {
+            Self.log.info("event rejected bytes=\(data.count, privacy: .public) ack=malformed")
+            sendAck(Ack(eventId: Ack.unknownEventId, result: .malformed))
+            return
+        }
+        noteValidEvent()
+        let code = await handle(event)
+        sendAck(Ack(eventId: event.eventId, result: code))
+        let elapsed = ContinuousClock.now - started
+        let ms = Int(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)
+        let (name, length) = Self.describe(event.kind)
+        Self.log.info("event kind=\(name, privacy: .public) length=\(length, privacy: .public) ack=\(code.rawValue, privacy: .public) ms=\(ms, privacy: .public)")
+    }
+
+    private func handle(_ event: KeyboardEvent) async -> AckCode {
+        switch event.kind {
+        case .ping:
+            // A probe: acknowledged as processed, never injected, so no focus decision is involved.
+            return .posted
+        case .text(let text) where text.isEmpty:
+            return .malformed
+        default:
+            break
+        }
+        // An event typed before any status arrived has no epoch to compare, so it cannot be tied to a field.
+        guard event.focusEpoch != nil else { return .staleFocus }
+        // Fresh read immediately before the guard.
+        let decision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+        if let refusal = Self.ackCode(for: decision) { return refusal }
+
+        var lateDecision = InjectionDecision.allow
+        var injected = false
+        let result = await switcher.withASCII(isAuthorized: {
+            // Re-run after the gate wait and before Escape: the focus may have moved while this call queued.
+            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+            return lateDecision == .allow
+        }) {
+            // The switch and composition cancel take real time; confirm the focus once more before posting.
+            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+            guard lateDecision == .allow else { return }
+            injected = inject(event.kind)
+        }
+        return Self.ackCode(result: result, lateDecision: lateDecision, injected: injected)
+    }
+
+    private func inject(_ kind: EventKind) -> Bool {
+        switch kind {
+        case .text(let text): injector.insert(text).complete
+        case .backspace: injector.backspace()
+        case .returnKey: injector.returnKeyPress()
+        case .ping: false
+        }
+    }
+
+    private static func describe(_ kind: EventKind) -> (String, Int) {
+        switch kind {
+        case .text(let text): ("text", text.utf8.count)
+        case .backspace: ("backspace", 0)
+        case .returnKey: ("return", 0)
+        case .ping: ("ping", 0)
+        }
+    }
+}
