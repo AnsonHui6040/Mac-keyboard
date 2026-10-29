@@ -62,7 +62,7 @@
 - Mac AX 每次 commit 前查詢前台程序和 focused editable UI element；沒有焦點、失去權限、焦點世代更換時 fail closed；不把舊輸入重播至新 App。remote mode 有使用者明確開關，狀態標識清楚。
 - 透過 BLE 加密權限及應用層 challenge-response/Keychain secret 雙重驗證；禁止僅以 device name/BLE identifier 認定已配對 Mac；敏感文字不寫入一般診斷 log。
 - 配對路徑：首選由主 App 配對，經 App Group／Keychain sharing 交給 Extension。若 T01 實測 Personal Team 無法使用 App Group，改為在鍵盤內輸入 Mac 顯示的 6 位配對碼，配對秘密存於 Extension 自身的 Keychain，主 App 只負責教學與診斷。
-- Mac 輸入法：注入前若目前輸入法不是 ABC，以 TIS API 切換至 ABC，注入後切回原輸入法。輸入法組字中的未完成文字可能因切換而被提交，此行為可接受。切換後再驗證一次，仍不是 ABC 則 fail closed 拒收。需測試切換未生效即注入、連續事件之間反覆切換的 race。
+- Mac 輸入法：注入前若目前輸入法不是 ABC，以 TIS API 切換至 ABC，注入後切回原輸入法。若焦點元素的 `AXTextInputMarkedTextMarkerRange` 顯示正在組字，先在原輸入法下送 Escape 取消組字（刪除未完成文字），確認組字已清除才切換；仍在組字則 fail closed 拒收。App 不支援此屬性時視為未組字，照常切換，未完成文字可能被提交。切換後再驗證一次，仍不是 ABC 則 fail closed 拒收。需測試切換未生效即注入、連續事件之間反覆切換的 race。
 - `CGEventKeyboardSetUnicodeString` 單一事件有長度上限，Receiver 須自行切段注入；實際上限於 T04 實測後寫入本節。
 - GATT 方向（D12）：service 由 iPhone 發佈，UUID `706AA642-68A3-41FA-889D-24E30709B0D0`。`event` characteristic `C7FC0313-53E7-4DCD-B75F-2AE66FE9C586`（notify）：iPhone → Mac 的 `KeyboardEvent`。`control` characteristic `320468E2-53B6-4B6A-88EC-AE2752415818`（write with response）：Mac → iPhone 的 `Ack` 與 `ReceiverStatus`（含 `ready`、目前 App 名稱、`focusEpoch`）。T02 的 Mac service `2A6F212A-…` 停用，Receiver 不再廣播。
 - 連線路徑：Mac 以 `scanForPeripherals(withServices: [service])` 掃描並連入；`retrieveConnectedPeripherals` 在 Mac 與 iPhone 兩端都取不到對方（實測），不作為路徑。T09 完成配對驗證前，Mac 連入任何廣播此 service 的 iPhone，僅供開發使用。
@@ -123,7 +123,7 @@
 | D1 | 受眾 | 自用與專題／比賽展示；M1–M4 只用開發簽名，App Store、TestFlight、Developer ID 公證留到 T16；App Review 4.4.1 規則照常遵守 | T16 |
 | D2 | 簽名 | 免費 Personal Team；build 7 天到期需重裝；App Group 可用性於 T01 實測並記錄 | T01、T09 |
 | D3 | 配對備案 | App Group 不可用時，鍵盤內輸入 6 位配對碼，秘密存於 Extension 自身 Keychain（§5） | T09 |
-| D4 | Mac 輸入法 | 注入前自動切換至 ABC、注入後切回；接受組字中文字被提交；切換後驗證失敗則 fail closed（§5） | T04、T14 |
+| D4 | Mac 輸入法 | 注入前自動切換至 ABC、注入後切回；Mac 正在組字時先取消組字（刪除未完成文字）再切換，App 不提供組字狀態時照常切換（未完成文字可能被提交）；切換後驗證失敗則 fail closed（§5；組字規則為使用者 2026-10-29 修訂） | T04、T05、T14 |
 | D5 | Remote 行為 | 只送 Mac；重開沿用上次模式；常駐狀態列，一點切回 Local（§2） | T05、T09、T10 |
 | D6 | 未就緒輸入 | 寫入草稿列，「傳送」灰色；就緒後由使用者手動送出；草稿只存記憶體（§2） | T06、T08、T10 |
 | D7 | 語音 | 系統麥克風加 context diff 同步；T13 未通過改用主 App 手動語音頁（§6） | T13 |
