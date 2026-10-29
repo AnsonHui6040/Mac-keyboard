@@ -57,6 +57,7 @@ final class KeyboardViewController: UIInputViewController {
         keyboardView = view
         peripheral.onStateChange = { [weak self] _ in self?.refreshStatus() }
         peripheral.onControl = { [weak self] message in self?.received(message) }
+        peripheral.onNote = { [weak self] text in self?.showNote(text) }
         view.setMode(mode)
         refreshStatus()
     }

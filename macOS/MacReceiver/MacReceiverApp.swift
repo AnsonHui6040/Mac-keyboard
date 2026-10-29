@@ -10,9 +10,14 @@ struct MacReceiverApp: App {
     @StateObject private var coordinator: ReceiverCoordinator
     private let pipeline: EventPipeline
 
+    /// The unit tests are hosted by this app. They build the objects they need themselves, so the host must not run
+    /// the live wiring (focus polling, BLE arming, login item) or it could scan and inject during `xcodebuild test`.
+    static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     init() {
         let loginItem = LoginItem()
-        loginItem.applyDefaultIfNeeded()
         let focus = FocusMonitor()
         // One switcher, so the menu test and the BLE pipeline share the same serialization gate.
         let switcher = InputSourceSwitcher(
@@ -28,9 +33,13 @@ struct MacReceiverApp: App {
             sendAck: { [weak central] ack in central?.send(.ack(ack)) },
             noteValidEvent: { [weak central] in central?.noteEvent() }
         )
-        central.eventHandler = { [pipeline] data in pipeline.submit(data) }
         let coordinator = ReceiverCoordinator(focus: focus, central: central)
-        focus.start()
+        if !Self.isRunningUnitTests {
+            loginItem.applyDefaultIfNeeded()
+            central.eventHandler = { [pipeline] data in pipeline.submit(data) }
+            coordinator.start()
+            focus.start()
+        }
         self.pipeline = pipeline
         _central = StateObject(wrappedValue: central)
         _loginItem = StateObject(wrappedValue: loginItem)

@@ -65,6 +65,7 @@ final class EventPipeline {
         switch result {
         case .switchFailed: return .switchFailed
         case .compositionActive: return .compositionActive
+        case .refused: return ackCode(for: lateDecision) ?? .staleFocus
         case .injected:
             if let refusal = ackCode(for: lateDecision) { return refusal }
             return injected ? .posted : .malformed
@@ -103,13 +104,19 @@ final class EventPipeline {
         default:
             break
         }
+        // An event typed before any status arrived has no epoch to compare, so it cannot be tied to a field.
+        guard event.focusEpoch != nil else { return .staleFocus }
         // Fresh read immediately before the guard.
         let decision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
         if let refusal = Self.ackCode(for: decision) { return refusal }
 
         var lateDecision = InjectionDecision.allow
         var injected = false
-        let result = await switcher.withASCII {
+        let result = await switcher.withASCII(isAuthorized: {
+            // Re-run after the gate wait and before Escape: the focus may have moved while this call queued.
+            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+            return lateDecision == .allow
+        }) {
             // The switch and composition cancel take real time; confirm the focus once more before posting.
             lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
             guard lateDecision == .allow else { return }

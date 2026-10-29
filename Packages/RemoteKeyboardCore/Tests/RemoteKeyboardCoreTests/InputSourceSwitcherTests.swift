@@ -212,4 +212,29 @@ final class InputSourceSwitcherTests: XCTestCase {
         XCTAssertEqual(result, .injected)
         XCTAssertEqual(injected, 1)
     }
+
+    func testUnauthorizedAfterGateRefusesBeforeCancelSwitchOrInject() async {
+        let fake = FakeController(current: zhuyin)
+        let composition = FakeComposition([.composing])
+        var injected = 0
+        var checks = 0
+        let switcher = InputSourceSwitcher(controller: fake, composition: composition, settle: { _ in })
+        let result = await switcher.withASCII(settleSeconds: 0.05, isAuthorized: { checks += 1; return false }) { injected += 1 }
+        XCTAssertEqual(result, .refused)
+        XCTAssertEqual(checks, 1)
+        XCTAssertEqual(composition.cancels, 0)
+        XCTAssertEqual(fake.selected, [])
+        XCTAssertEqual(injected, 0)
+    }
+
+    func testAuthorizedClosureTrueLetsCancelAndSwitchProceed() async {
+        let fake = FakeController(current: zhuyin)
+        let composition = FakeComposition([.composing, .notComposing])
+        var injected = 0
+        let switcher = InputSourceSwitcher(controller: fake, composition: composition, settle: { _ in })
+        let result = await switcher.withASCII(isAuthorized: { true }) { injected += 1 }
+        XCTAssertEqual(result, .injected)
+        XCTAssertEqual(composition.cancels, 1)
+        XCTAssertEqual(injected, 1)
+    }
 }

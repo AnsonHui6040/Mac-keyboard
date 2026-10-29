@@ -95,6 +95,9 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(code(.injected, late: .staleFocus, injected: false), .staleFocus)
         XCTAssertEqual(code(.injected, late: .noFocus, injected: false), .noFocus)
         XCTAssertEqual(code(.injected, injected: false), .malformed)
+        XCTAssertEqual(code(.refused, late: .staleFocus, injected: false), .staleFocus)
+        XCTAssertEqual(code(.refused, late: .noFocus, injected: false), .noFocus)
+        XCTAssertEqual(code(.refused, injected: false), .staleFocus)
     }
 
     // MARK: Per-event behaviour
@@ -166,6 +169,28 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(h.poster.batches.count, 0)
         XCTAssertEqual(composition.cancels, 1)
         XCTAssertEqual(h.controller.selected, [])
+    }
+
+    func testEventWithoutEpochIsRefusedAsStaleWithoutAFocusRead() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, id) = try frame(.text("A"), epoch: nil)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .staleFocus)])
+        XCTAssertEqual(h.poster.batches.count, 0)
+        XCTAssertEqual(h.state.reads, 0)
+        XCTAssertEqual(h.state.noted, 1)
+    }
+
+    func testFocusMovingWhileQueuedBehindTheGateNeverPostsEscape() async throws {
+        // First read allows; the re-check made after the gate and before Escape sees a new epoch.
+        let composition = FakeComposition(.composing)
+        let h = harness(snapshots: [snapshot(epoch: 5), snapshot(epoch: 6)], current: zhuyin, composition: composition)
+        let (data, id) = try frame(.text("A"), epoch: 5)
+        await h.pipeline.process(data)
+        XCTAssertEqual(composition.cancels, 0, "Escape must not reach a field that was never authorized")
+        XCTAssertEqual(h.controller.selected, [])
+        XCTAssertEqual(h.poster.batches.count, 0)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .staleFocus)])
     }
 
     func testPingIsAcknowledgedWithoutAFocusReadOrPosting() async throws {

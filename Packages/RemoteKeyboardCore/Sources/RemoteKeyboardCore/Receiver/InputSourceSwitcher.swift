@@ -24,6 +24,8 @@ public enum SwitchResult: Equatable, Sendable {
     case injected, switchFailed
     /// A composition stayed open after cancelling it; nothing was switched or injected.
     case compositionActive
+    /// The caller's authorization check failed after the gate was acquired; nothing was cancelled, switched or injected.
+    case refused
 }
 
 /// FIFO async mutex. Main-actor confined, so plain stored state is safe.
@@ -85,6 +87,7 @@ public struct InputSourceSwitcher {
 
     public func withASCII(
         settleSeconds: Double = InputSourceSwitcher.defaultSettleSeconds,
+        isAuthorized: @MainActor () -> Bool = { true },
         _ inject: () -> Void
     ) async -> SwitchResult {
         await gate.acquire()
@@ -95,6 +98,8 @@ public struct InputSourceSwitcher {
             return .injected
         }
         if let composition, composition.state() == .composing {
+            // Escape goes to whatever is focused now, so it needs a fresh authorization of its own.
+            guard isAuthorized() else { return .refused }
             composition.cancel()
             await settle(settleSeconds)
             if composition.state() == .composing { return .compositionActive }

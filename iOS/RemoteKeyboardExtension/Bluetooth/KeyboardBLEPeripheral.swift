@@ -9,6 +9,8 @@ final class KeyboardBLEPeripheral: NSObject {
     var onStateChange: ((KeyboardLinkState) -> Void)?
     /// Every decoded message the Receiver wrote to `control`, after the peripheral's own state is updated.
     var onControl: ((ControlMessage) -> Void)?
+    /// A short user-facing note, for example when a key could not be sent.
+    var onNote: ((String) -> Void)?
 
     private var machine = KeyboardLinkStateMachine()
     private var manager: CBPeripheralManager?
@@ -64,7 +66,19 @@ final class KeyboardBLEPeripheral: NSObject {
         let event = KeyboardEvent(
             protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: sessionId,
             seq: seq + 1, focusEpoch: latestStatus?.focusEpoch, kind: kind)
-        guard let frame = try? EventCodec.encode(event, maxBytes: central.maximumUpdateValueLength) else { return }
+        let frame: Data
+        do {
+            frame = try EventCodec.encode(event, maxBytes: central.maximumUpdateValueLength)
+        } catch {
+            // The router already accepted this key, so say what happened instead of dropping it silently.
+            let tooLarge: Bool
+            if case EventCodecError.tooLarge = error { tooLarge = true } else { tooLarge = false }
+            if let (key, length) = Self.diagnosticKey(kind) {
+                DiagnosticEvent.keyDropped(kind: key, utf8Length: length, reason: tooLarge ? .tooLarge : .encodeFailed).log()
+            }
+            onNote?(tooLarge ? "事件過大，未送出" : "事件編碼失敗，未送出")
+            return
+        }
         seq += 1
         queue.enqueue(frame)
         if let (key, length) = Self.diagnosticKey(kind) {
@@ -151,6 +165,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     ) {
         guard characteristic.uuid == Self.eventID else { return }
         subscribedCentral = central
+        DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
         feed(.subscribed)
     }
 

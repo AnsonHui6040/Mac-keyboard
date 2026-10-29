@@ -35,8 +35,15 @@ final class ReceiverCoordinator: ObservableObject {
     private let central: ReceiverBLECentral
     private var last: FocusSnapshot?
 
+    private let focus: FocusMonitor
+
+    /// Does not hook anything up; call `start()` for the live wiring.
     init(focus: FocusMonitor, central: ReceiverBLECentral) {
+        self.focus = focus
         self.central = central
+    }
+
+    func start() {
         focus.onChange = { [weak self] snapshot in self?.focusChanged(snapshot) }
         central.onLinkReady = { [weak self] in self?.sendStatus() }
     }
