@@ -27,6 +27,8 @@
 6. **多位元組被切斷**：不能寫死 BLE 20 bytes，須依 write limit 分 chunk；協定需要 packet framing、UTF-8 validation。https://developer.apple.com/documentation/corebluetooth/transferring-data-between-bluetooth-low-energy-devices
 7. **Full Access 權限風險**：Remote Mode 要 opt-in，Local Mode 不要求 full access；不保留任意鍵盤輸入全文 log。https://developer.apple.com/documentation/uikit/configuring-open-access-for-a-custom-keyboard
 
+8. **同一 iCloud 的 Mac 無法以新連線連上**（2026-10-29 T02 實測）：iPhone 將 Mac 廣播解析為已知裝置「Mac」，nRF Connect 停在 Connecting，Mac 端 150 秒抓取沒有任何連線要求；系統已有 iPhone 與 Mac 的 LE 連線並確認 Service Changed indication。處置：Central 先用 `retrieveConnectedPeripherals(withServices:)`。
+
 ## 可研究實例（沒有宣稱同構架構已完成）
 
 - Apple BLE data transfer sample： https://developer.apple.com/documentation/corebluetooth/transferring-data-between-bluetooth-low-energy-devices

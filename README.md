@@ -8,9 +8,9 @@ iPhone 第三方鍵盤 Extension，透過自訂 BLE GATT 將英文、符號、�
 |---|---|
 | 設計規格 | v1.1 APPROVED（2026-10-29） |
 | 實作計劃 | v1.1 DRAFT（M1 詳細、M2–M5 待細化），待使用者審核 |
-| 程式碼 | T01 完成（Local Mode 鍵盤、XcodeGen 骨架） |
-| 驗收 | 1/16 PASS（T01） |
-| 下一步 | T02 Mac GATT advertiser |
+| 程式碼 | T01–T02 完成（Local Mode 鍵盤、Mac GATT advertiser） |
+| 驗收 | 2/16 PASS（T01、T02） |
+| 下一步 | T03 Extension BLE Central（先接入既有系統連線） |
 
 最後更新：2026-10-29
 

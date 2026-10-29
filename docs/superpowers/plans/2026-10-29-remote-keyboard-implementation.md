@@ -223,7 +223,7 @@ func testAdvertiseWaitsForPoweredOnAndServiceReady() {
 - Produces:
   - `enum CentralPower: Sendable { case unknown, poweredOff, unauthorized, unsupported, poweredOn }`
   - `enum ConnectionState: Equatable, Sendable { case idle, unavailable(CentralPower), scanning, connecting, discovering, ready, failed(FailureReason) }`；`enum FailureReason: Equatable, Sendable { case timeout, disconnected, serviceMissing }`
-  - `enum ConnectionInput: Equatable { case keyboardAppeared, keyboardDisappeared, power(CentralPower), discovered(peripheralID: UUID), connected(UUID), servicesReady(UUID), disconnected(UUID), timeout }`
+  - `enum ConnectionInput: Equatable { case keyboardAppeared(systemConnected: UUID?), keyboardDisappeared, power(CentralPower), discovered(peripheralID: UUID), connected(UUID), servicesReady(UUID), disconnected(UUID), timeout }`
   - `enum ConnectionEffect: Equatable { case startScan, stopScan, connect(UUID), discoverServices(UUID), cancel(UUID), startTimeout(seconds: Double) }`
   - `struct ConnectionStateMachine { private(set) var state: ConnectionState; mutating func handle(_ input: ConnectionInput) -> [ConnectionEffect] }`；連線逾時固定 `5.0` 秒。
   - `enum DiagnosticEvent: Equatable, Sendable { case stateChanged(ConnectionState), keySent(kind: String, utf8Length: Int), ackReceived(result: String), reconnectSample(shownAtMs: Int64, readyAtMs: Int64?) }`；`kind` 只能是 `"text" / "backspace" / "return"`；`func log()` 以 OSLog `privacy: .public` 輸出這些欄位。
@@ -234,8 +234,13 @@ func testAdvertiseWaitsForPoweredOnAndServiceReady() {
 func testKeyboardAppearStartsScanWhenPoweredOn() {
     var m = ConnectionStateMachine()
     _ = m.handle(.power(.poweredOn))
-    XCTAssertEqual(m.handle(.keyboardAppeared), [.startScan, .startTimeout(seconds: 5.0)])
+    XCTAssertEqual(m.handle(.keyboardAppeared(systemConnected: nil)), [.startScan, .startTimeout(seconds: 5.0)])
     XCTAssertEqual(m.state, .scanning)
+}
+func testAppearWithSystemConnectedMacConnectsWithoutScan() {
+    var m = ConnectionStateMachine(); _ = m.handle(.power(.poweredOn)); let mac = UUID()
+    XCTAssertEqual(m.handle(.keyboardAppeared(systemConnected: mac)), [.connect(mac), .startTimeout(seconds: 5.0)])
+    XCTAssertEqual(m.state, .connecting)
 }
 func testHappyPathReachesReady() {
     var m = poweredOnAppeared(); let p = UUID()
@@ -249,13 +254,13 @@ func testBluetoothOffTransitionsToUnavailable() {
 }
 func testUnauthorizedTransitionsToUnavailable() {
     var m = ConnectionStateMachine(); _ = m.handle(.power(.unauthorized))
-    XCTAssertEqual(m.handle(.keyboardAppeared), [])
+    XCTAssertEqual(m.handle(.keyboardAppeared(systemConnected: nil)), [])
     XCTAssertEqual(m.state, .unavailable(.unauthorized))
 }
 func testReappearDoesNotReuseStalePeripheral() {
     var m = readyMachine(peripheral: old)
     XCTAssertEqual(m.handle(.keyboardDisappeared), [.cancel(old)])
-    XCTAssertEqual(m.handle(.keyboardAppeared), [.startScan, .startTimeout(seconds: 5.0)])
+    XCTAssertEqual(m.handle(.keyboardAppeared(systemConnected: nil)), [.startScan, .startTimeout(seconds: 5.0)])
 }
 func testTimeoutFails() { var m = poweredOnAppeared(); _ = m.handle(.timeout); XCTAssertEqual(m.state, .failed(.timeout)) }
 func testDiagnosticEventCarriesNoText() {
@@ -265,13 +270,15 @@ func testDiagnosticEventCarriesNoText() {
 ```
 
 - [ ] **Step 2: 執行 `swift test`，預期 FAIL：找不到 `ConnectionStateMachine`。**
-- [ ] **Step 3: 實作狀態機與 `DiagnosticEvent`。** 已 `ready` 或 `connecting` 時再收到 `keyboardAppeared` 回傳 `[]`（防重複連線，T06 依賴此行為）。
+- [ ] **Step 3: 實作狀態機與 `DiagnosticEvent`。** 已 `ready` 或 `connecting` 時再收到 `keyboardAppeared(…)` 回傳 `[]`（防重複連線，T06 依賴此行為）。
 - [ ] **Step 4: 執行 `swift test`，全部 PASS。**
-- [ ] **Step 5: 實作 `KeyboardBLECentral`。** 持有 `CBCentralManager`（`queue: nil`）與 `ConnectionStateMachine`；delegate 轉成 `ConnectionInput`，effect 轉成 CoreBluetooth 呼叫；`scanForPeripherals(withServices: [serviceUUID])`；`viewWillAppear` 送 `keyboardAppeared`，`viewWillDisappear` 送 `keyboardDisappeared`。狀態列顯示 `ConnectionState`，並設 `accessibilityIdentifier = "rk.status"`、`accessibilityValue` 為 state 名稱（T06 使用）。
+- [ ] **Step 5: 實作 `KeyboardBLECentral`。** 持有 `CBCentralManager`（`queue: nil`）與 `ConnectionStateMachine`；delegate 轉成 `ConnectionInput`，effect 轉成 CoreBluetooth 呼叫；`viewWillAppear` 先呼叫 `retrieveConnectedPeripherals(withServices: [serviceUUID])`，取第一個結果的 identifier 送 `keyboardAppeared(systemConnected:)`（無結果送 `nil`，才走 `scanForPeripherals(withServices: [serviceUUID])`）；`viewWillDisappear` 送 `keyboardDisappeared`。狀態列顯示 `ConnectionState`，並設 `accessibilityIdentifier = "rk.status"`、`accessibilityValue` 為 state 名稱（T06 使用）。
 - [ ] **Step 6: host App 加「允許 Bluetooth」按鈕**，建立一次 `CBCentralManager` 觸發系統授權提示並顯示結果。
 - [ ] **Step 7: Run all，全部 exit 0。**
 - [ ] **Step 8: 實機驗收（使用者，標 TBD）。** 依 `e2e/E2E-T03-CENTRAL.md` 記錄 O4 矩陣：host App 授權（有／無）× Full Access（開／關）共 4 格，每格記錄 Extension 狀態列最終值。先強制關閉 host App，再分別在 Notes 與 Safari 叫出鍵盤，錄影顯示 `scanning → connecting → discovering → ready`。
 - [ ] **Step 9: 更新驗收報告 T03 與 O4，主代理 commit。**
+
+**v1.1 修訂（T02 實測）：** 同一 iCloud 的 iPhone 與 Mac 已有系統 LE 連線，nRF Connect 對 Mac 廣播發起的新連線停在 Connecting，Mac 端沒有收到連線要求。因此 Central 先以 `retrieveConnectedPeripherals` 接入現有連線，掃描只作後備。Step 8 另記錄 O8：`retrieveConnectedPeripherals` 是否回傳 Mac、走哪一條路徑、到 `ready` 的時間。
 
 **PASS：** Notes 與 Safari 中 Extension 均到達 `ready`，host App 不在前景。**若失敗：** 記錄 4 格矩陣與 console，依 D8 啟動 LAN WebSocket 限時 PoC，暫停 UI 工作。
 

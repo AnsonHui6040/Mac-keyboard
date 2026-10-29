@@ -59,6 +59,7 @@
 - 配對路徑：首選由主 App 配對，經 App Group／Keychain sharing 交給 Extension。若 T01 實測 Personal Team 無法使用 App Group，改為在鍵盤內輸入 Mac 顯示的 6 位配對碼，配對秘密存於 Extension 自身的 Keychain，主 App 只負責教學與診斷。
 - Mac 輸入法：注入前若目前輸入法不是 ABC，以 TIS API 切換至 ABC，注入後切回原輸入法。輸入法組字中的未完成文字可能因切換而被提交，此行為可接受。切換後再驗證一次，仍不是 ABC 則 fail closed 拒收。需測試切換未生效即注入、連續事件之間反覆切換的 race。
 - `CGEventKeyboardSetUnicodeString` 單一事件有長度上限，Receiver 須自行切段注入；實際上限於 T04 實測後寫入本節。
+- 連線路徑：同一 iCloud 的 iPhone 與 Mac 通常已有系統 LE 連線（T02 實測：第三方 App 對 Mac 廣播發起新連線不會完成）。Keyboard Extension 先以 `retrieveConnectedPeripherals(withServices:)` 接入已連線的 Mac，取不到才掃描。
 - 先以 `writeWithResponse` 及 notify/indicate 的可驗證流程做 PoC；由實際 MTU/`maximumWriteValueLength` 分 chunk，勿寫死 20 bytes。
 - 針對 ACK lost：Receiver 保留短期事件 ID 去重；若是否已發往目標 App 無法證明，回報 `AMBIGUOUS` 狀態，禁止無提示的跨焦點重播。
 

@@ -1,6 +1,6 @@
 # Remote Keyboard 實作驗收報告（模板／目前結果）
 
-**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：1/16 PASS（T01），其餘 NOT_STARTED**
+**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：2/16 PASS（T01、T02），其餘 NOT_STARTED**
 
 > **證據規則：**只有實際執行測試、保存完整輸出並核對結果後才可填 PASS；文獻研究不算 PASS。不可事後推測 log 或填虛構時間。
 
@@ -29,13 +29,14 @@
 | O5 | `CGEventKeyboardSetUnicodeString` 單一事件長度上限 | T04 | T04 | NOT_STARTED |
 | O6 | XCUITest 能否在真機切換到第三方鍵盤（D9） | T06 | T06 | NOT_STARTED |
 | O7 | `PKStrokeRecognizer` API 名稱、最低系統版本與繁體中文支援，以 Apple 官方文件核實 | T12 前查證 | T12 | NOT_STARTED |
+| O8 | Keyboard Extension 以 `retrieveConnectedPeripherals(withServices:)` 能否取得已連線的 Mac；取不到時掃描路徑能否完成連線 | T03 | T03 | NOT_STARTED |
 
 ## 任務逐項驗收狀態
 
 | Case | 任務 | 目前狀態 | 通過條件 | 實測結果 | 證據檔 |
 |---|---|---|---|---|---|
 | T01 | 工程基礎與離線 Local Mode | PASS | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 自動：swift test 6/0、iOS Simulator 與 macOS build 成功。實機（iPhone 17 Pro、iOS 27.0.1、Full Access 關閉，2026-10-29 17:18）：備忘錄輸入 `Hello World` 與 26 個字母共 37 字元逐字一致，Return、Backspace、Shift 正常，系統 🌐 可切換鍵盤，`AppGroup: OK` | `e2e/E2E-T01-LOCAL.md`、`evidence/T01-device-notes-hello-world.webp`、`evidence/T01-sim-*.png` |
-| T02 | Mac Receiver Shell、BLE GATT Advertiser | NOT_STARTED | macOS GATT service 完整可發現，service publish 成功 | 尚未測試 | — |
+| T02 | Mac Receiver Shell、BLE GATT Advertiser | PASS | macOS GATT service 完整可發現，service publish 成功 | 自動：swift test 8/0、MacReceiverTests 5/5（含 4 個生命週期測試）。實機（2026-10-29）：選單列 `BLE: advertising`；iPhone nRF Connect 掃到 Connectable 廣播與 service UUID `2A6F212A…`；Mac bluetoothd 紀錄確認 service 與 3 個 characteristic（write／notify／read notify）。iPhone 端連線因既有系統 LE 連線無法以 nRF 完成，characteristic 探索改由 T03 驗證（使用者 2026-10-29 批准） | `e2e/E2E-T02-GATT.md`、`evidence/T02-*` |
 | T03 | Extension BLE Central 冷連線 | NOT_STARTED | 在 Notes 與 Safari Extension 中都可連線 | 尚未測試 | — |
 | T04 | Mac 焦點感知與 Unicode 注入 | NOT_STARTED | TextEdit 5 組字串逐一完全一致；切換至非可編輯焦點時 0 誤注入 | 尚未測試 | — |
 | T05 | 最小端到端 A 鍵輸入 PoC | NOT_STARTED | Notes→TextEdit、Safari→TextEdit 各 20 次成功，0 錯誤焦點 | 尚未測試 | — |
