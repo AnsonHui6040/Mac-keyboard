@@ -1,0 +1,77 @@
+# E2E-T04-INJECT：Mac 焦點守衛、輸入法切換與 Unicode 注入真機驗收
+
+執行者：使用者。每一步完成後填寫「結果」，全部為 PASS 才算 T04 通過。
+
+通過標準：5 組字串在 TextEdit 完全一致；注音狀態下 `香港` 20/20 正確；非可編輯焦點 0 誤注入。若失敗：改測 AXValue 寫入作對照；無法可靠注入時停用注入，不貼到其他欄位。
+
+前置條件：Mac 執行最新的 MacReceiver（由 `/private/tmp/claude-501/receiver-run/MacReceiver.app` 副本啟動）；已在 系統設定 › 隱私權與安全性 › 輔助使用 允許 Remote Keyboard Receiver；TextEdit 已開一份新文件。本 Task 不需要 iPhone。
+
+選單對照（Mac 選單列鍵盤圖示）：
+
+| 項目 | 顯示 |
+|---|---|
+| 焦點 | `焦點：TextEdit（可編輯，epoch N）`；未授權時顯示「輔助使用未授權」與「授權輔助使用」按鈕 |
+| 測試插入 | 子選單：`A`、`Hello`、`香港`、`👨‍👩‍👧‍👦`、`café`、`O5 長度測試（30 字元，單一事件）` |
+| 倒數 | 「倒數 N 秒」與「取消測試插入」 |
+| 結果 | 「已插入（長度 L，C 段，T ms）」或「未插入：原因」 |
+
+操作方式：選單 › 測試插入 › 選一個字串，3 秒內點進 TextEdit 文件，等倒數結束。
+
+## 步驟
+
+### 1. 輔助使用授權
+1. 啟動 Receiver，開啟選單。
+2. 若顯示「輔助使用未授權」，按「授權輔助使用」，在系統設定允許後重新開啟選單。
+3. 點進 TextEdit 後開啟選單，確認顯示 `焦點：TextEdit（可編輯，epoch N）`。
+
+結果：TBD
+
+### 2. 5 組字串（輸入法為 ABC）
+| 字串 | TextEdit 顯示是否完全一致 | 選單結果文字 |
+|---|---|---|
+| `A` | TBD | TBD |
+| `Hello` | TBD | TBD |
+| `香港` | TBD | TBD |
+| `👨‍👩‍👧‍👦` | TBD | TBD |
+| `café` | TBD | TBD |
+
+結果：TBD
+
+### 3. 注音狀態插入 `香港` 20 次
+1. 把 Mac 輸入法切到注音，確認選單列輸入法圖示為注音。
+2. 測試插入 `香港`，共 20 次；每次結束後確認 TextEdit 多出 `香港`，且輸入法已切回注音。
+3. 若有失敗，執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.settleSeconds -float 0.1`，結束並重開 Receiver 後重測；仍失敗改 `0.2`。
+
+| settle 秒數 | 成功次數 / 20 | 輸入法是否每次切回注音 |
+|---|---|---|
+| 0.05（預設） | TBD | TBD |
+| 0.1（如需要） | TBD | TBD |
+| 0.2（如需要） | TBD | TBD |
+
+測完執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.settleSeconds`。
+
+結果：TBD
+
+### 4. 非可編輯焦點 0 誤注入
+每項：測試插入 `Hello`，倒數期間切到目標位置，確認沒有任何文字出現，且選單顯示「未插入：…」。
+
+| 倒數期間的焦點 | 是否出現文字 | 選單結果文字 |
+|---|---|---|
+| Finder 桌面 | TBD | TBD |
+| Spotlight（倒數期間按 ⌘Space 打開） | TBD | TBD |
+| 關閉 TextEdit 文件（⌘W） | TBD | TBD |
+
+註：Spotlight 搜尋欄本身是可編輯欄位，若文字出現在 Spotlight 搜尋欄，記錄為「插入到 Spotlight 欄位」，不算誤注入到其他位置，但要寫明。
+
+結果：TBD
+
+### 5. O5：單一事件長度上限
+1. 輸入法切回 ABC，點進 TextEdit 新的一行。
+2. 測試插入 `O5 長度測試（30 字元，單一事件）`。
+3. 數 TextEdit 實際出現的字元數（完整應為 `ABCDEFGHIJKLMNOPQRSTUVWXYZ0123`，30 個字元）。
+
+| 預期 | 實際出現的字元數 | 實際字串 |
+|---|---|---|
+| 30 | TBD | TBD |
+
+結果：TBD（實際字元數即單一事件上限，寫入 spec §5）
