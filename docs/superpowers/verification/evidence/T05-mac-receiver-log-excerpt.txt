@@ -1,0 +1,489 @@
+# T05 Mac Receiver log excerpt (2026-10-30). Real Receiver processes only (PID 58798, 68664, 72798); unit-test host runs removed. Log carries kinds, lengths and results only, no typed text.
+2026-10-30 02:05:53.431 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state idle 192626 ms
+2026-10-30 02:05:53.610 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning -1 ms
+2026-10-30 02:05:53.645 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:05:53.649 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state discovering 4 ms
+2026-10-30 02:05:53.701 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state ready 56 ms
+2026-10-30 02:05:59.986 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning 6341 ms
+2026-10-30 02:06:02.515 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:06:02.563 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state discovering 47 ms
+2026-10-30 02:06:02.671 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state ready 155 ms
+2026-10-30 02:06:57.676 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning 55160 ms
+2026-10-30 02:07:41.491 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:07:41.540 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state discovering 49 ms
+2026-10-30 02:07:41.971 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state ready 480 ms
+2026-10-30 02:07:45.736 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning 4245 ms
+2026-10-30 02:07:47.929 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:07:47.976 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state discovering 46 ms
+2026-10-30 02:07:48.196 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state ready 266 ms
+2026-10-30 02:08:10.486 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning 22557 ms
+2026-10-30 02:11:12.525 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:11:12.573 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state discovering 47 ms
+2026-10-30 02:11:12.721 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state ready 195 ms
+2026-10-30 02:17:30.826 I  MacReceiver[58798:42e696] [com.ansonhui.remotekeyboard.receiver:link] state scanning 378300 ms
+2026-10-30 02:19:01.133 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state unavailable -1 ms
+2026-10-30 02:19:01.218 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state scanning -1 ms
+2026-10-30 02:23:00.719 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:23:00.775 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state discovering 55 ms
+2026-10-30 02:23:00.890 Df MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:23:01.039 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state ready 320 ms
+2026-10-30 02:23:33.080 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state scanning 32360 ms
+2026-10-30 02:23:35.215 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:23:35.248 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state discovering 33 ms
+2026-10-30 02:23:35.330 Df MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:23:35.420 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state ready 205 ms
+2026-10-30 02:24:02.576 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] test insert refused noFocus
+2026-10-30 02:24:12.114 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] test insert refused noFocus
+2026-10-30 02:24:59.750 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state scanning 84535 ms
+2026-10-30 02:25:01.125 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:25:01.193 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state discovering 68 ms
+2026-10-30 02:25:01.310 Df MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:25:01.460 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state ready 334 ms
+2026-10-30 02:25:20.110 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:25:20.110 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] test insert a result injected ms 8
+2026-10-30 02:25:23.845 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:25:23.845 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] test insert a result injected ms 0
+2026-10-30 02:25:30.764 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] insert length 5 chunks 1 of 1
+2026-10-30 02:25:30.764 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:inject] test insert hello result injected ms 0
+2026-10-30 02:26:51.800 I  MacReceiver[68664:444490] [com.ansonhui.remotekeyboard.receiver:link] state scanning 110675 ms
+2026-10-30 02:28:07.223 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state unavailable -1 ms
+2026-10-30 02:28:07.374 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning -1 ms
+2026-10-30 02:28:36.885 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:28:36.936 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state discovering 51 ms
+2026-10-30 02:28:37.115 Df MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:28:37.276 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state ready 391 ms
+2026-10-30 02:28:43.050 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:43.051 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=9
+2026-10-30 02:28:43.221 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:43.221 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:43.852 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:43.853 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:43.941 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:43.941 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:44.212 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:44.212 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:44.262 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:44.263 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:44.482 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:44.482 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:44.537 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:44.537 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:44.752 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:44.752 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:52.583 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:52.583 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:52.762 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:52.762 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:52.942 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:52.942 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:53.031 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.031 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:53.212 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.212 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:53.307 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.308 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:53.391 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.392 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:53.572 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.572 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:53.662 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.662 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:53.842 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:53.842 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:54.022 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:54.022 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:54.202 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:54.202 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:54.381 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:54.381 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:54.652 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:54.652 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:55.012 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:55.012 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:55.101 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:55.102 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:55.282 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:55.282 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:55.327 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:55.327 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:55.822 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:55.822 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:56.002 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:56.002 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:56.182 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:56.182 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:56.278 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:56.278 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:56.451 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:56.451 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:28:56.722 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:56.722 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:57.082 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:57.082 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:28:57.273 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:28:57.273 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:10.222 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:10.222 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:29:10.942 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:10.942 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:11.121 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:11.122 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:11.301 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:11.301 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:11.481 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:11.481 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:11.661 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:11.662 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:11.842 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:11.842 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:12.021 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:12.022 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:12.202 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:12.202 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:12.381 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:12.381 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:12.651 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:12.651 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:12.831 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:12.831 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:13.011 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:13.011 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:13.191 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:13.192 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:13.552 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:13.552 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:29:13.731 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:13.731 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:13.912 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:13.912 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:29:14.092 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:14.092 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:29:14.361 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:14.361 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:14.812 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:14.812 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:15.352 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:15.352 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=1
+2026-10-30 02:29:15.532 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:15.532 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:15.802 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:15.802 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:15.891 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:15.891 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=0
+2026-10-30 02:29:39.283 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:29:39.283 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] test insert a result injected ms 0
+2026-10-30 02:32:14.091 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning 217205 ms
+2026-10-30 02:32:20.178 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:32:20.233 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state discovering 54 ms
+2026-10-30 02:32:20.346 Df MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:32:20.525 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state ready 347 ms
+2026-10-30 02:32:46.671 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning 26492 ms
+2026-10-30 02:33:47.723 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:33:47.777 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state discovering 54 ms
+2026-10-30 02:33:47.915 Df MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:33:48.080 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state ready 357 ms
+2026-10-30 02:33:48.861 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning 1137 ms
+2026-10-30 02:37:27.818 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:37:27.871 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state discovering 53 ms
+2026-10-30 02:37:27.951 Df MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:37:28.100 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state ready 283 ms
+2026-10-30 02:37:33.156 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:33.210 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=69
+2026-10-30 02:37:33.511 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:33.566 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:37:33.689 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:33.746 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:37:33.870 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:33.923 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:37:34.052 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:34.107 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=66
+2026-10-30 02:37:34.230 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:34.309 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=88
+2026-10-30 02:37:36.753 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:37:36.807 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=66
+2026-10-30 02:37:36.931 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:37:36.986 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=64
+2026-10-30 02:37:37.378 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:37:37.433 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=61
+2026-10-30 02:37:37.827 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 36
+2026-10-30 02:37:37.885 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=return length=0 ack=posted ms=63
+2026-10-30 02:37:38.009 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 36
+2026-10-30 02:37:38.064 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=return length=0 ack=posted ms=63
+2026-10-30 02:37:38.099 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 36
+2026-10-30 02:37:38.154 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=return length=0 ack=posted ms=62
+2026-10-30 02:37:55.197 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:55.252 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:37:55.646 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:55.703 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:37:56.292 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:56.349 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:37:56.545 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:56.599 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:37:56.636 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:56.691 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:37:57.297 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:57.352 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:37:58.617 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:37:58.670 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=59
+2026-10-30 02:37:59.065 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:37:59.120 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=59
+2026-10-30 02:37:59.788 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:59.843 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:37:59.907 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:37:59.961 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=60
+2026-10-30 02:38:00.289 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:00.344 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:00.351 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:00.406 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:00.414 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:00.467 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=55
+2026-10-30 02:38:00.594 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:00.649 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:38:00.865 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:00.919 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:38:01.225 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:01.300 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=79
+2026-10-30 02:38:01.405 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:01.460 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:01.857 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:01.914 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:38:01.974 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:02.030 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:38:02.665 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:02.723 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:38:02.787 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:02.841 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=60
+2026-10-30 02:38:03.476 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:03.536 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:38:03.580 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:03.632 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=54
+2026-10-30 02:38:04.378 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:04.433 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:38:04.557 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:04.612 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:05.186 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:05.245 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:38:16.288 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:16.341 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:38:16.706 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:16.759 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:38:17.065 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:17.120 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:38:17.183 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:17.264 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=83
+2026-10-30 02:38:17.337 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:17.391 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:34.728 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:34.792 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=91
+2026-10-30 02:38:35.705 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:35.760 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:38:36.289 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:36.344 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:38:36.780 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:36.836 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:38:40.469 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:40.525 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:38:40.736 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:40.793 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:40.857 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:40.912 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=60
+2026-10-30 02:38:41.107 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:41.161 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=69
+2026-10-30 02:38:41.368 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:41.420 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:38:43.975 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:44.031 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:44.067 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:44.121 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:44.277 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:44.332 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=66
+2026-10-30 02:38:44.519 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:44.573 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:44.794 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:44.846 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:38:46.231 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:46.320 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=98
+2026-10-30 02:38:46.337 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:46.396 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=67
+2026-10-30 02:38:46.681 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:46.739 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=67
+2026-10-30 02:38:46.863 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:46.922 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=71
+2026-10-30 02:38:46.945 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:47.003 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:47.220 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:47.306 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=94
+2026-10-30 02:38:47.323 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:47.386 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=74
+2026-10-30 02:38:47.414 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:47.470 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:38:47.586 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:47.645 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=74
+2026-10-30 02:38:48.130 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.184 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=72
+2026-10-30 02:38:48.210 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.289 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=87
+2026-10-30 02:38:48.390 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.445 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:38:48.474 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.529 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:38:48.568 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.621 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:48.937 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:48.994 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=72
+2026-10-30 02:38:49.018 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.073 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:49.202 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.280 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=88
+2026-10-30 02:38:49.412 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.467 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=66
+2026-10-30 02:38:49.649 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.703 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:49.836 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.891 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:38:49.905 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:49.960 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:38:50.024 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:50.079 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:50.114 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:50.166 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:38:52.531 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:38:52.585 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=63
+2026-10-30 02:38:53.970 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:54.024 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:38:54.513 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:54.571 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:38:54.656 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:54.709 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=138
+2026-10-30 02:38:54.780 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:54.835 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:38:54.961 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:55.016 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:38:55.078 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:55.133 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:38:55.231 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:55.308 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=86
+2026-10-30 02:38:55.413 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:38:55.466 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:39:05.669 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:05.729 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:39:05.847 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:05.902 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=60
+2026-10-30 02:39:06.120 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:06.175 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:39:06.662 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:06.716 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=64
+2026-10-30 02:39:06.746 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:06.800 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:39:06.929 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:06.982 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=60
+2026-10-30 02:39:07.108 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:07.163 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:39:07.385 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:07.438 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=66
+2026-10-30 02:39:07.499 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:07.557 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:08.531 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:08.599 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=313
+2026-10-30 02:39:08.912 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:08.966 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:09.088 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:09.143 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:39:09.359 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:09.413 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:39:09.447 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:09.500 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:39:09.624 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:09.678 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:39:09.812 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:09.867 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:09.989 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:10.043 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:39:10.170 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:10.227 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:10.352 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:10.406 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:10.713 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:10.766 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:10.886 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:10.940 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:39:11.160 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:11.217 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:11.275 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:11.330 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:39:11.519 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:11.573 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=62
+2026-10-30 02:39:11.697 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:11.753 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:39:12.155 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:12.210 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:39:15.210 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:15.266 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=64
+2026-10-30 02:39:16.656 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:16.712 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=71
+2026-10-30 02:39:22.412 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:22.467 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:22.502 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:22.558 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:22.677 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:22.730 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=57
+2026-10-30 02:39:22.864 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:22.919 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=67
+2026-10-30 02:39:26.555 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:26.608 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=66
+2026-10-30 02:39:26.823 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:26.879 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=66
+2026-10-30 02:39:26.912 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:26.967 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=64
+2026-10-30 02:39:27.087 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.141 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=59
+2026-10-30 02:39:27.211 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.293 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=90
+2026-10-30 02:39:27.358 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.414 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=60
+2026-10-30 02:39:27.545 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.600 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=67
+2026-10-30 02:39:27.631 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.686 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=63
+2026-10-30 02:39:27.816 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:27.871 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=68
+2026-10-30 02:39:27.993 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.047 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=65
+2026-10-30 02:39:28.080 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.135 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=62
+2026-10-30 02:39:28.270 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.324 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=63
+2026-10-30 02:39:28.443 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.497 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=64
+2026-10-30 02:39:28.526 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.581 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=58
+2026-10-30 02:39:28.710 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.764 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=62
+2026-10-30 02:39:28.826 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:28.881 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=58
+2026-10-30 02:39:28.980 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] key 51
+2026-10-30 02:39:29.035 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=backspace length=0 ack=posted ms=62
+2026-10-30 02:39:38.152 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning 130333 ms
+2026-10-30 02:39:38.501 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state connecting 0 ms
+2026-10-30 02:39:38.554 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state discovering 53 ms
+2026-10-30 02:39:38.602 Df MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] discovered 1 keyboard service(s)
+2026-10-30 02:39:38.692 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state ready 191 ms
+2026-10-30 02:39:40.233 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:40.311 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=88
+2026-10-30 02:39:41.316 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:41.371 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=68
+2026-10-30 02:39:41.851 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:41.906 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=63
+2026-10-30 02:39:42.029 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.081 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=58
+2026-10-30 02:39:42.151 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.204 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=61
+2026-10-30 02:39:42.331 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.388 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:42.484 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.539 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:42.664 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.719 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=65
+2026-10-30 02:39:42.838 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:inject] insert length 1 chunks 1 of 1
+2026-10-30 02:39:42.892 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:pipeline] event kind=text length=1 ack=posted ms=59
+2026-10-30 02:40:37.373 I  MacReceiver[72798:44beb3] [com.ansonhui.remotekeyboard.receiver:link] state scanning 58871 ms

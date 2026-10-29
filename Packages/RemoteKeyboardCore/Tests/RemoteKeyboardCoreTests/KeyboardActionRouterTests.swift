@@ -14,10 +14,10 @@ private final class FakeRemoteSink: RemoteEventSink {
 }
 
 final class KeyboardActionRouterTests: XCTestCase {
-    private func makeRouter() -> (KeyboardActionRouter, FakeTextSink, FakeRemoteSink) {
+    private func makeRouter(ready: Bool = false) -> (KeyboardActionRouter, FakeTextSink, FakeRemoteSink) {
         let local = FakeTextSink()
         let remote = FakeRemoteSink()
-        return (KeyboardActionRouter(local: local, remote: remote), local, remote)
+        return (KeyboardActionRouter(local: local, remote: remote, isRemoteReady: { ready }), local, remote)
     }
 
     func testLocalModeInsertsAWithoutFullAccess() {
@@ -61,6 +61,49 @@ final class KeyboardActionRouterTests: XCTestCase {
         XCTAssertEqual(router.route(.backspace, mode: .remote), .rejected)
         XCTAssertEqual(local.inserted, [])
         XCTAssertEqual(local.deleteCount, 0)
+        XCTAssertEqual(remote.events, [])
+    }
+
+    func testTapAProducesOneRemoteSemanticEvent() {
+        let (router, local, remote) = makeRouter(ready: true)
+        XCTAssertEqual(router.route(.character("A"), mode: .remote), .enqueuedRemote)
+        XCTAssertEqual(remote.events, [.text("A")]); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testRemoteNotReadyRejectsWithoutLocalFallback() {
+        let (router, local, remote) = makeRouter(ready: false)
+        XCTAssertEqual(router.route(.character("A"), mode: .remote), .rejected)
+        XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testRemoteMapsSpaceReturnAndBackspaceToSemanticEvents() {
+        let (router, local, remote) = makeRouter(ready: true)
+        XCTAssertEqual(router.route(.space, mode: .remote), .enqueuedRemote)
+        XCTAssertEqual(router.route(.returnKey, mode: .remote), .enqueuedRemote)
+        XCTAssertEqual(router.route(.backspace, mode: .remote), .enqueuedRemote)
+        XCTAssertEqual(remote.events, [.text(" "), .returnKey, .backspace])
+        XCTAssertEqual(local.inserted, []); XCTAssertEqual(local.deleteCount, 0)
+    }
+
+    func testRemoteReadyDoesNotAffectLocalMode() {
+        let (router, local, remote) = makeRouter(ready: true)
+        XCTAssertEqual(router.route(.character("A"), mode: .local), .insertedLocally)
+        XCTAssertEqual(local.inserted, ["A"]); XCTAssertEqual(remote.events, [])
+    }
+
+    func testReadinessIsEvaluatedPerKey() {
+        var ready = false
+        let local = FakeTextSink(), remote = FakeRemoteSink()
+        let router = KeyboardActionRouter(local: local, remote: remote, isRemoteReady: { ready })
+        XCTAssertEqual(router.route(.character("a"), mode: .remote), .rejected)
+        ready = true
+        XCTAssertEqual(router.route(.character("b"), mode: .remote), .enqueuedRemote)
+        XCTAssertEqual(remote.events, [.text("b")])
+    }
+
+    func testNextKeyboardIsAvailableInRemoteMode() {
+        let (router, _, remote) = makeRouter(ready: true)
+        XCTAssertEqual(router.route(.nextKeyboard, mode: .remote), .advanceInputMode)
         XCTAssertEqual(remote.events, [])
     }
 }

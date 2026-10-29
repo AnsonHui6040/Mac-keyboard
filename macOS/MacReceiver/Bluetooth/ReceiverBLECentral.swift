@@ -11,6 +11,8 @@ protocol CentralDriving: AnyObject {
     func connect(_ id: UUID)
     func discover(_ id: UUID)
     func cancel(_ id: UUID)
+    /// Write with response to the keyboard's `control` characteristic of the connected peripheral.
+    func writeControl(_ data: Data)
 }
 
 /// Resident BLE central. Idle until a receive session is armed, then looks for the keyboard peripheral.
@@ -35,6 +37,11 @@ final class ReceiverBLECentral: ObservableObject {
     private var connectTimer: Timer?
     private var tickTimer: Timer?
     private var discoveredAt: ContinuousClock.Instant?
+
+    /// Receives the raw bytes of every `event` notification, in arrival order.
+    var eventHandler: (@MainActor (Data) -> Void)?
+    /// Fires each time the link newly reaches ready (control characteristic is known by then).
+    var onLinkReady: (@MainActor () -> Void)?
 
     init(
         defaults: UserDefaults = .standard,
@@ -63,8 +70,19 @@ final class ReceiverBLECentral: ObservableObject {
 
     func startReceiving() { handleSession(.manualStart) }
     func stopReceiving() { handleSession(.manualStop) }
-    /// Called for every `event` notification; extends the idle deadline.
+    /// Extends the idle deadline for one validly decoded event.
     func noteEvent() { handleSession(.eventReceived) }
+    /// The focused Mac field became editable (D13): arms receiving, or extends it when already armed.
+    func focusGainedEditable() { handleSession(.editableFocusGained) }
+
+    /// Called by the driver for every `event` notification. Decoding and the idle deadline belong to the handler.
+    func receive(eventData: Data) { eventHandler?(eventData) }
+
+    /// Writes a control message with response. Dropped unless the link is ready.
+    func send(_ message: ControlMessage) {
+        guard case .ready = link.state, let data = try? ControlCodec.encode(message) else { return }
+        driver?.writeControl(data)
+    }
 
     func handleSession(_ input: ReceiverSessionInput) {
         let effects = session.handle(input, now: clock())
@@ -121,7 +139,10 @@ final class ReceiverBLECentral: ObservableObject {
         linkState = after
         if after != before { record(after) }
         for effect in effects { apply(effect) }
-        if after != before, case .ready = after { handleSession(.linkReady) }
+        if after != before, case .ready = after {
+            handleSession(.linkReady)
+            onLinkReady?()
+        }
     }
 
     private func record(_ state: ReceiverLinkState) {
@@ -161,12 +182,14 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
     private static let service = CBUUID(string: GATTServiceSpec.Link.serviceUUID)
     private static let event = CBUUID(string: GATTServiceSpec.Link.eventUUID)
     private static let control = CBUUID(string: GATTServiceSpec.Link.controlUUID)
+    private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "link")
 
     private weak var owner: ReceiverBLECentral?
     private var manager: CBCentralManager?
     /// Strong references; CoreBluetooth drops peripherals that nobody retains.
     private var peripherals: [UUID: CBPeripheral] = [:]
     private var active: UUID?
+    private var control: CBCharacteristic?
 
     init(owner: ReceiverBLECentral) {
         self.owner = owner
@@ -186,6 +209,7 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
     func connect(_ id: UUID) {
         guard let peripheral = peripherals[id] else { return }
         active = id
+        control = nil
         peripheral.delegate = self
         manager?.connect(peripheral)
     }
@@ -196,8 +220,20 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
 
     func cancel(_ id: UUID) {
         guard let peripheral = peripherals[id] else { return }
-        if active == id { active = nil }
+        if active == id {
+            active = nil
+            control = nil
+        }
         manager?.cancelPeripheralConnection(peripheral)
+    }
+
+    func writeControl(_ data: Data) {
+        guard let id = active, let peripheral = peripherals[id], let control else { return }
+        guard data.count <= peripheral.maximumWriteValueLength(for: .withResponse) else {
+            Self.log.error("control write dropped, length \(data.count, privacy: .public)")
+            return
+        }
+        peripheral.writeValue(data, for: control, type: .withResponse)
     }
 
     private static func power(_ state: CBManagerState) -> CentralPower {
@@ -214,6 +250,7 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
     private func disconnected(_ peripheral: CBPeripheral) {
         // A stale callback for a connection we already cancelled must not tear down a new attempt.
         guard active == peripheral.identifier, peripheral.state == .disconnected else { return }
+        control = nil
         owner?.handleLink(.disconnected(peripheral.identifier))
     }
 }
@@ -250,6 +287,9 @@ extension CoreBluetoothDriver: @preconcurrency CBCentralManagerDelegate {
 
 extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        // More than one copy of the service on a peripheral means a duplicate publisher on the phone.
+        let copies = peripheral.services?.filter { $0.uuid == Self.service }.count ?? 0
+        Self.log.notice("discovered \(copies, privacy: .public) keyboard service(s)")
         guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == Self.service }) else {
             return invalidated(peripheral)
         }
@@ -259,9 +299,12 @@ extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(
         _ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?
     ) {
-        guard error == nil, let event = service.characteristics?.first(where: { $0.uuid == Self.event }) else {
-            return invalidated(peripheral)
-        }
+        guard error == nil,
+              let event = service.characteristics?.first(where: { $0.uuid == Self.event }),
+              let control = service.characteristics?.first(where: { $0.uuid == Self.control })
+        else { return invalidated(peripheral) }
+        // Known before notifications start, so the first status can be written the moment the link is ready.
+        self.control = control
         peripheral.setNotifyValue(true, for: event)
     }
 
@@ -283,8 +326,15 @@ extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(
         _ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?
     ) {
-        guard error == nil, characteristic.uuid == Self.event else { return }
-        owner?.noteEvent()
+        guard error == nil, characteristic.uuid == Self.event, let data = characteristic.value else { return }
+        owner?.receive(eventData: data)
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?
+    ) {
+        guard characteristic.uuid == Self.control, let error else { return }
+        Self.log.error("control write failed code \((error as NSError).code, privacy: .public)")
     }
 
     private func invalidated(_ peripheral: CBPeripheral) {
