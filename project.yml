@@ -11,7 +11,7 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: 0.1.0
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: "4YN34HPX6F"
 packages:
   RemoteKeyboardCore:
     path: Packages/RemoteKeyboardCore
