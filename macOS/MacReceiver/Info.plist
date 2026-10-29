@@ -23,6 +23,6 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>「Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。」</string>
+	<string>Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。</string>
 </dict>
 </plist>

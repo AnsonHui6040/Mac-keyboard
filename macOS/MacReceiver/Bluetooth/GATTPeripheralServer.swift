@@ -21,14 +21,33 @@ enum GATTServerState: Equatable {
     }
 }
 
+/// Seam over `CBPeripheralManager` so lifecycle logic can be tested without hardware.
+@MainActor
+protocol PeripheralManaging: AnyObject {
+    func add(_ service: CBMutableService)
+    func removeAllServices()
+    func startAdvertising(_ advertisementData: [String: Any]?)
+    func stopAdvertising()
+}
+
+extension CBPeripheralManager: @MainActor PeripheralManaging {}
+
 @MainActor
 final class GATTPeripheralServer: NSObject, ObservableObject {
     @Published private(set) var state: GATTServerState = .idle
 
-    private var manager: CBPeripheralManager?
+    private let makeManager: (GATTPeripheralServer) -> PeripheralManaging
+    private var manager: PeripheralManaging?
     private var power: PeripheralPower = .unknown
     private var serviceAdded = false
     private var wantsRunning = false
+
+    init(makeManager: @escaping (GATTPeripheralServer) -> PeripheralManaging = {
+        CBPeripheralManager(delegate: $0, queue: nil)
+    }) {
+        self.makeManager = makeManager
+        super.init()
+    }
 
     static func makeService() -> CBMutableService {
         let input = CBMutableCharacteristic(
@@ -55,7 +74,7 @@ final class GATTPeripheralServer: NSObject, ObservableObject {
         wantsRunning = true
         if manager == nil {
             state = .waitingForPower
-            manager = CBPeripheralManager(delegate: self, queue: nil)
+            manager = makeManager(self)
         } else {
             reconcile()
         }
@@ -89,22 +108,25 @@ final class GATTPeripheralServer: NSObject, ObservableObject {
         }
     }
 
-    private func handleState(_ newPower: PeripheralPower) {
+    func handlePowerChange(_ newPower: PeripheralPower) {
         power = newPower
         reconcile()
     }
 
-    private func handleServiceAdded(errorCode: Int?) {
-        if let errorCode {
-            state = .failed("add-service-\(errorCode)")
+    func handleServiceAdded(error: Error?) {
+        // After stop() the service was removed; a late callback must not mark it present.
+        guard wantsRunning else { return }
+        if let error {
+            state = .failed("add-service-\((error as NSError).code)")
             return
         }
         serviceAdded = true
         reconcile()
     }
 
-    private func handleAdvertisingStarted(errorCode: Int?) {
-        state = errorCode.map { .failed("advertise-\($0)") } ?? .advertising
+    func handleAdvertisingStarted(error: Error?) {
+        guard wantsRunning else { return }
+        state = error.map { .failed("advertise-\(($0 as NSError).code)") } ?? .advertising
     }
 }
 
@@ -117,14 +139,14 @@ extension GATTPeripheralServer: @preconcurrency CBPeripheralManagerDelegate {
         case .unsupported: .unsupported
         default: .unknown
         }
-        handleState(mapped)
+        handlePowerChange(mapped)
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
-        handleServiceAdded(errorCode: error.map { ($0 as NSError).code })
+        handleServiceAdded(error: error)
     }
 
     func peripheralManagerDidStartAdvertising(_ peripheral: CBPeripheralManager, error: Error?) {
-        handleAdvertisingStarted(errorCode: error.map { ($0 as NSError).code })
+        handleAdvertisingStarted(error: error)
     }
 }

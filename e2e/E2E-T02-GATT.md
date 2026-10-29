@@ -67,3 +67,10 @@
 3. 點「Start」，確認回到 `BLE: advertising`。
 
 結果：TBD
+
+### 8. 藍牙關閉再開啟
+1. 在 Mac 關閉藍牙，再重新開啟。
+2. 確認選單列第一行回到 `BLE: advertising`。
+3. 在 iPhone 的 nRF Connect 重新掃描，確認仍可看到 `RemoteKeyboard` 服務。
+
+結果：TBD

@@ -69,7 +69,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
-        NSBluetoothAlwaysUsageDescription: 「Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。」
+        NSBluetoothAlwaysUsageDescription: Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.receiver
