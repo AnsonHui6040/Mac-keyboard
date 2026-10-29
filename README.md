@@ -8,9 +8,9 @@ iPhone 第三方鍵盤 Extension，透過自訂 BLE GATT 將英文、符號、�
 |---|---|
 | 設計規格 | v1.2 APPROVED（2026-10-29，D11 角色對調、D13 Mac 常駐） |
 | 實作計劃 | v1.2 APPROVED（T03a、T03b、T05、T06 重寫） |
-| 程式碼 | T01、T02、T03a 完成（iPhone 鍵盤 BLE Peripheral） |
-| 驗收 | 2/16 PASS（T01、T02）；T03a PASS，T03b 待做 |
-| 下一步 | T03b Mac Receiver BLE Central（含 D13 常駐） |
+| 程式碼 | T01–T03 完成（Local Mode 鍵盤、iPhone BLE Peripheral、Mac 常駐 Central） |
+| 驗收 | 3/16 PASS（T01、T02、T03） |
+| 下一步 | T04 Mac 焦點守衛、輸入法切換與 Unicode 注入（見 `docs/superpowers/verification/2026-10-29-handoff.md`） |
 
 最後更新：2026-10-29
 

@@ -21,13 +21,13 @@
 3. 確認選單顯示 `Link: idle` 與「待命」。
 4. 按「開始接收」，確認顯示 `Link: scanning` 與「剩餘接收時間 30:00」附近的倒數。
 
-結果：TBD
+結果：未記錄（開發版未放入 /Applications；登入項目留待 T16 驗證）
 
 ### 2. 強制關閉 host App
 1. 在 iPhone 的 App 切換器中，把 Remote Keyboard 主 App 往上滑掉。
 2. 之後的步驟都不要再開啟主 App。
 
-結果：TBD
+結果：PASS
 
 ### 3. Notes 連線 10 次
 1. 開啟 Notes 的輸入框，切換到 Remote Keyboard。
@@ -36,18 +36,18 @@
 
 | 次 | 鍵盤 `BLE: connected` | Mac `Link: ready (N ms)` 的 N |
 |---|---|---|
-| 1 | TBD | TBD |
-| 2 | TBD | TBD |
-| 3 | TBD | TBD |
-| 4 | TBD | TBD |
-| 5 | TBD | TBD |
-| 6 | TBD | TBD |
-| 7 | TBD | TBD |
-| 8 | TBD | TBD |
-| 9 | TBD | TBD |
-| 10 | TBD | TBD |
+| 1 | 未逐次記錄 | 未逐次記錄 |
+| 2 | 未逐次記錄 | 未逐次記錄 |
+| 3 | 未逐次記錄 | 未逐次記錄 |
+| 4 | 未逐次記錄 | 未逐次記錄 |
+| 5 | 未逐次記錄 | 未逐次記錄 |
+| 6 | 未逐次記錄 | 未逐次記錄 |
+| 7 | 未逐次記錄 | 未逐次記錄 |
+| 8 | 未逐次記錄 | 未逐次記錄 |
+| 9 | 未逐次記錄 | 未逐次記錄 |
+| 10 | 未逐次記錄 | 未逐次記錄 |
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報在多個 App 反覆叫出鍵盤皆連上；Mac log 保留 9 次 ready，200–783 ms；未逐次記錄）
 
 ### 4. Safari 連線 10 次
 1. 開啟 Safari 的網址列或網頁輸入框，切換到 Remote Keyboard。
@@ -55,32 +55,32 @@
 
 | 次 | 鍵盤 `BLE: connected` | Mac `Link: ready (N ms)` 的 N |
 |---|---|---|
-| 1 | TBD | TBD |
-| 2 | TBD | TBD |
-| 3 | TBD | TBD |
-| 4 | TBD | TBD |
-| 5 | TBD | TBD |
-| 6 | TBD | TBD |
-| 7 | TBD | TBD |
-| 8 | TBD | TBD |
-| 9 | TBD | TBD |
-| 10 | TBD | TBD |
+| 1 | 未逐次記錄 | 未逐次記錄 |
+| 2 | 未逐次記錄 | 未逐次記錄 |
+| 3 | 未逐次記錄 | 未逐次記錄 |
+| 4 | 未逐次記錄 | 未逐次記錄 |
+| 5 | 未逐次記錄 | 未逐次記錄 |
+| 6 | 未逐次記錄 | 未逐次記錄 |
+| 7 | 未逐次記錄 | 未逐次記錄 |
+| 8 | 未逐次記錄 | 未逐次記錄 |
+| 9 | 未逐次記錄 | 未逐次記錄 |
+| 10 | 未逐次記錄 | 未逐次記錄 |
 
-結果：TBD
+結果：PASS（同上，包含 Safari）
 
 ### 5. 收起鍵盤後 Mac 回到掃描
 1. 在 Notes 叫出鍵盤並確認 Mac 為 `Link: ready (N ms)`。
 2. 收起鍵盤。
 3. 確認 Mac 在數秒內回到 `Link: scanning`。
 
-結果：TBD
+結果：PASS（Mac log：收起鍵盤後 ready → scanning，例如 21:37:52、21:38:05）
 
 ### 6. 停止接收
 1. 按「停止接收」。
 2. 確認 Mac 顯示 `Link: idle` 與「待命」。
 3. 在 iPhone 叫出鍵盤，確認鍵盤狀態列維持 `BLE: advertising`，沒有進入 `BLE: connected`。
 
-結果：TBD
+結果：未記錄（使用者未單獨回報；`testStopFromReadyCancels` 單元測試覆蓋）
 
 ### 7. 閒置逾時
 1. 在 Mac 終端機執行：`defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`
@@ -90,4 +90,4 @@
 5. 確認 Mac 自動回到 `Link: idle` 與「待命」。
 6. 測試完成後執行：`defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds`，並重新啟動 MacReceiver 恢復 30 分鐘。
 
-結果：TBD
+結果：PASS（60 秒覆寫：Mac log 於開始接收約 60 秒後轉 idle，21:52:59、21:54:14；menu 開啟期間倒數照常更新；鍵盤連上時倒數重置為 01:00；測試後已 `defaults delete` 還原 30 分鐘）
