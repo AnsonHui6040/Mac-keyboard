@@ -36,7 +36,7 @@
 結果：TBD
 
 ### 5. 地球鍵切換鍵盤
-1. 確認鍵盤上有地球鍵。
+1. 確認鍵盤上的 🌐 鍵，或系統在鍵盤下方顯示的 🌐（Face ID 機型的 `needsInputModeSwitchKey` 為 false，自訂 🌐 依設計隱藏）。
 2. 長按地球鍵，確認出現鍵盤清單並可切換到其他鍵盤。
 3. 點一下地球鍵，確認可切換到下一個鍵盤。
 
@@ -53,7 +53,7 @@ O3 結果（OK／FAIL）：TBD
 ### 7. Personal Team 因 App Group 簽名失敗時
 適用於步驟 2 的建置出現 App Group entitlement 的簽名錯誤。
 
-1. 刪除 `iOS/RemoteKeyboardApp/RemoteKeyboardApp.entitlements` 與 `iOS/RemoteKeyboardExtension/RemoteKeyboardExtension.entitlements` 中的 `com.apple.security.application-groups` 項目（或在 `project.yml` 移除兩個 target 的 `entitlements`）。
+1. 在 `project.yml` 移除 `RemoteKeyboardApp` 與 `RemoteKeyboardExtension` 兩個 target 的 `entitlements` 區塊（App Group）。不要手動編輯產生出來的 `.entitlements` 檔，`xcodegen generate` 會覆寫。
 2. 重新執行 `xcodegen generate`，再重新建置並安裝。
 3. 重複步驟 3 至 5，Local Mode 必須仍可正常輸入。
 4. 在此檔記錄 O3 = FAIL，後續改走 D3。

@@ -55,27 +55,34 @@ final class MinimalKeyboardView: UIView {
         }
 
         let bottom = makeRow()
+        bottom.distribution = .fill
         configureGlobe()
         bottom.addArrangedSubview(globeButton)
         let space = makeKey(title: "space") { [weak self] in self?.onAction?(.space) }
         bottom.addArrangedSubview(space)
         let returnKey = makeKey(title: "return") { [weak self] in self?.onAction?(.returnKey) }
         bottom.addArrangedSubview(returnKey)
-        globeButton.widthAnchor.constraint(equalTo: returnKey.widthAnchor).isActive = true
-        space.widthAnchor.constraint(equalTo: returnKey.widthAnchor, multiplier: 4).isActive = true
+        // Hidden arranged subviews take no space in a fill stack, so these hold in both states.
+        let spaceRatio = space.widthAnchor.constraint(equalTo: returnKey.widthAnchor, multiplier: 4)
+        spaceRatio.priority = UILayoutPriority(999)
+        let globeRatio = globeButton.widthAnchor.constraint(equalTo: returnKey.widthAnchor)
+        globeRatio.priority = UILayoutPriority(999)
+        NSLayoutConstraint.activate([spaceRatio, globeRatio])
         stack.addArrangedSubview(bottom)
 
         probe.translatesAutoresizingMaskIntoConstraints = false
         addSubview(probe)
         addSubview(stack)
+        let height = heightAnchor.constraint(equalToConstant: 230)
+        height.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
+            height,
             probe.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             probe.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             stack.topAnchor.constraint(equalTo: probe.bottomAnchor, constant: 2),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
-            heightAnchor.constraint(equalToConstant: 230)
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
         ])
     }
 
