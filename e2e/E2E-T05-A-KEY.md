@@ -21,62 +21,66 @@
 ## 步驟
 
 ### 1. 點擊輸入框即開始接收（D13）
+
+實測：點擊 TextEdit 後 Mac 開始掃描並連上（log 8 次 ready，56–480 ms）。
 1. Mac 選單顯示「待命」時，點進 TextEdit 文件。
 2. 確認選單變成「剩餘接收時間 30:00」附近並開始掃描。
 3. iPhone 開 Notes，叫出 Remote Keyboard，按「本機」切到「遠端」。
 4. 確認 iPhone 狀態列顯示 `Mac → TextEdit`，Mac 選單顯示 `Link: ready (N ms)`。
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 2. Notes → TextEdit 按 `A` 20 次（T05-E2E-A-01）
 每次：收起鍵盤，再叫出鍵盤，按一次 `A`，確認 TextEdit 多一個 `A`。錄影存證，不得用主 App 代打。
 
 | 成功次數 / 20 | 錯誤或多出的字 | 錄影檔 |
 |---|---|---|
-| TBD | TBD | TBD |
+| 未記錄 | 未記錄 | 未記錄 |
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 3. Safari → TextEdit 按 `A` 20 次（T05-E2E-A-02）
 同步驟 2，iPhone 改在 Safari 網址列或網頁輸入框叫出鍵盤。
 
 | 成功次數 / 20 | 錯誤或多出的字 | 錄影檔 |
 |---|---|---|
-| TBD | TBD | TBD |
+| 未記錄 | 未記錄 | 未記錄 |
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 4. 一般打字
+
+實測：206 個事件全部 `posted`（文字 178、Backspace 25、Return 3），見 `docs/superpowers/verification/evidence/T05-mac-receiver-log-excerpt.txt`。
 在遠端模式打 `Hello world`，再按 Backspace 2 次與 Return 1 次，確認 TextEdit 顯示 `Hello wor` 並換行。
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 5. 按鍵前切走焦點 5 次
 每次：在 Mac 按 ⌘Tab 切到 Finder，1 秒內在 iPhone 按 `A`。Mac 不得出現字元，iPhone 提示為「焦點已改變，未輸入」或「Mac 沒有輸入欄位」，或狀態列顯示「（無輸入欄位）」而未送出。
 
 | 次 | Mac 是否出現字元 | iPhone 顯示 |
 |---|---|---|
-| 1 | TBD | TBD |
-| 2 | TBD | TBD |
-| 3 | TBD | TBD |
-| 4 | TBD | TBD |
-| 5 | TBD | TBD |
+| 1 | 未記錄 | 未記錄 |
+| 2 | 未記錄 | 未記錄 |
+| 3 | 未記錄 | 未記錄 |
+| 4 | 未記錄 | 未記錄 |
+| 5 | 未記錄 | 未記錄 |
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 6. Mac 注音組字中
 1. Mac 切到注音，在 TextEdit 打 `ㄒㄧㄤ`，不要選字（候選字仍在組字中）。
 2. 在 iPhone 遠端模式按 `A`。
 3. 預期：TextEdit 未完成的注音被刪除、出現 `A`，輸入法切回注音。若注音被提交成中文字後才出現 `A`，記錄「組字未偵測到」（TextEdit 未提供組字狀態）。
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 7. 沒有完整取用
 1. iPhone 設定 › 一般 › 鍵盤 › Remote Keyboard，關閉「允許完整取用」。
 2. 在 Notes 叫出鍵盤，確認顯示「本機」且可正常打字，按「遠端」時顯示「遠端需要開啟『允許完整取用』」。
 3. 測完重新開啟「允許完整取用」。
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
 
 ### 8. 60 秒逾時
 1. 執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 Receiver。
@@ -84,4 +88,4 @@
 3. 停止打字 60 秒，確認 Mac 選單回到「待命」並斷線。
 4. 執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds`，重開 Receiver。
 
-結果：TBD
+結果：未逐項記錄（使用者 2026-10-30 決定 T04／T05 以端到端實測通過，本項延至 T16 最後測試）
