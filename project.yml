@@ -1,0 +1,76 @@
+name: RemoteKeyboard
+options:
+  bundleIdPrefix: com.ansonhui
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+packages:
+  RemoteKeyboardCore:
+    path: Packages/RemoteKeyboardCore
+targets:
+  RemoteKeyboardApp:
+    type: application
+    platform: iOS
+    sources: [iOS/RemoteKeyboardApp]
+    dependencies:
+      - target: RemoteKeyboardExtension
+        embed: true
+      - package: RemoteKeyboardCore
+    entitlements:
+      path: iOS/RemoteKeyboardApp/RemoteKeyboardApp.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.ansonhui.remotekeyboard]
+    info:
+      path: iOS/RemoteKeyboardApp/Info.plist
+      properties:
+        CFBundleDisplayName: Remote Keyboard
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard
+        TARGETED_DEVICE_FAMILY: "1"
+  RemoteKeyboardExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - iOS/RemoteKeyboardExtension
+    dependencies:
+      - package: RemoteKeyboardCore
+    entitlements:
+      path: iOS/RemoteKeyboardExtension/RemoteKeyboardExtension.entitlements
+      properties:
+        com.apple.security.application-groups: [group.com.ansonhui.remotekeyboard]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.keyboard
+        INFOPLIST_FILE: iOS/RemoteKeyboardExtension/Info.plist
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: YES
+  MacReceiver:
+    type: application
+    platform: macOS
+    sources: [macOS/MacReceiver]
+    dependencies:
+      - package: RemoteKeyboardCore
+    info:
+      path: macOS/MacReceiver/Info.plist
+      properties:
+        CFBundleDisplayName: Remote Keyboard Receiver
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSUIElement: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.receiver
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES

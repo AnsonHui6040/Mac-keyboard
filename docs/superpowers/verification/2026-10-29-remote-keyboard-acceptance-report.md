@@ -1,6 +1,6 @@
 # Remote Keyboard 實作驗收報告（模板／目前結果）
 
-**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：0/16 PASS，全部 NOT_STARTED**
+**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：0/16 PASS；T01 READY_FOR_VERIFY（待實機），其餘 NOT_STARTED**
 
 > **證據規則：**只有實際執行測試、保存完整輸出並核對結果後才可填 PASS；文獻研究不算 PASS。不可事後推測 log 或填虛構時間。
 
@@ -10,8 +10,8 @@
 |---|---|
 | Product spec | v1.1 APPROVED 2026-10-29（含設計決定 D1–D10） |
 | Research/source review | 深度研究已有報告；未執行 code 實測 |
-| Xcode build | NOT_RUN |
-| `swift test` | NOT_RUN |
+| Xcode build | iOS Simulator 與 macOS build 成功（commit c78b6ea，2026-10-29） |
+| `swift test` | 6 tests，0 failures（commit c78b6ea） |
 | 實機連線 Gate | NOT_RUN |
 | Mac AX 注入 Gate | NOT_RUN |
 | Security Gate | NOT_RUN |
@@ -34,7 +34,7 @@
 
 | Case | 任務 | 目前狀態 | 通過條件 | 實測結果 | 證據檔 |
 |---|---|---|---|---|---|
-| T01 | 工程基礎與離線 Local Mode | NOT_STARTED | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 尚未測試 | — |
+| T01 | 工程基礎與離線 Local Mode | READY_FOR_VERIFY | 真機 Notes 輸入 20 字正確且在無 Full Access 照常 | 自動：swift test 6/0、iOS Simulator 與 macOS build 成功。模擬器（iPhone 18 Pro、iOS 27.0、Full Access 關閉）：鍵盤可加入與選用，輸入「a bC」正確（Space、單次 Shift、Backspace）。實機：TBD | `e2e/E2E-T01-LOCAL.md`、`evidence/T01-sim-*.png` |
 | T02 | Mac Receiver Shell、BLE GATT Advertiser | NOT_STARTED | macOS GATT service 完整可發現，service publish 成功 | 尚未測試 | — |
 | T03 | Extension BLE Central 冷連線 | NOT_STARTED | 在 Notes 與 Safari Extension 中都可連線 | 尚未測試 | — |
 | T04 | Mac 焦點感知與 Unicode 注入 | NOT_STARTED | TextEdit 5 組字串逐一完全一致；切換至非可編輯焦點時 0 誤注入 | 尚未測試 | — |
