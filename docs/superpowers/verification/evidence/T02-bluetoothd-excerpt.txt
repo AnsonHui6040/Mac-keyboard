@@ -1,0 +1,24 @@
+# T02 Mac bluetoothd 紀錄節錄（2026-10-29，macOS 27.2；已移除裝置位址）
+
+## GATT 資料庫（Receiver 加入的 service）
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x0028 Primary Service      [ serviceUUID: 2A6F212A-3B7A-4293-87B4-FAD198077EFB, endHandle: 0x0031, discoveredCharacteristics: none, ID: 0x00220001 ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x0029 Characteristic       [ valueUUID: 92A59A91-80A0-4743-8E65-F297A9B05104, valueHandle: 0x002A, properties: write extended, discoveredDescriptors: none ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002A 92A59A91-80A0-4743-8E65-F297A9B05104 [ NULL ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002B Extended Properties  [ reliable-write ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002C Characteristic       [ valueUUID: 6AEB18CE-45D1-47B8-9F18-96939C182189, valueHandle: 0x002D, properties: notify, discoveredDescriptors: none ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002D 6AEB18CE-45D1-47B8-9F18-96939C182189 [ NULL ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002E Client Configuration [ none ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x002F Characteristic       [ valueUUID: 99FA0347-3B23-498D-A0F0-1EE6B0AAA76E, valueHandle: 0x0030, properties: read notify, discoveredDescriptors: none ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x0030 99FA0347-3B23-498D-A0F0-1EE6B0AAA76E [ NULL ]
+2026-10-29 17:26:17.228 Df bluetoothd[41dump:    0x0031 Client Configuration [ none ]
+
+## 廣播 instance
+2026-10-29 17:35:52.418  Starting Connectable  Advertising instance name "RemoteKeyboard", UUID(s) [ 2A6F212A-3B7A-4293-87B4-FAD198077EFB ], interval=181.25ms
+
+## 既有系統連線
+system_profiler SPBluetoothDataType → Connected: iPhone（RSSI -50，Services: HID BLE）
+2026-10-29 17:23:26.817 e.bluetooth:Server.GATT] Sending indication to device "<iPhone>"
+2026-10-29 17:23:26.919 e.bluetooth:Server.GATT] indicationConfirmed - Server Indication - Device:<iPhone>
+
+## nRF Connect 重試期間（150 秒即時抓取）
+LE.Connection / GATT / Security 類別：0 筆連入連線、0 筆 ATT 要求
