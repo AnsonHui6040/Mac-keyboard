@@ -24,11 +24,15 @@ public enum ReceiverLinkInput: Equatable {
     case start, stop, power(CentralPower)
     case discovered(UUID), connected(UUID), linkReady(UUID), disconnected(UUID), serviceInvalidated(UUID)
     case connectTimeout
+    /// The backoff delay requested by `startScanAfter` has elapsed.
+    case rescanTimer
 }
 
 public enum ReceiverLinkEffect: Equatable {
     case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID)
     case startConnectTimeout(seconds: Double), cancelConnectTimeout
+    /// Rescan after a delay (answered by `rescanTimer`) instead of at once, so repeated handshake failures cannot hot-loop.
+    case startScanAfter(seconds: Double), cancelRescanTimer
 }
 
 /// Keeps looking for the keyboard while started. Only `stop` or an unusable radio ends the search.
@@ -38,8 +42,16 @@ public struct ReceiverLinkStateMachine {
     public private(set) var state: ReceiverLinkState = .idle
     private var power: CentralPower = .unknown
     private var started = false
+    /// Consecutive failed handshakes; a ready link, stop or an unusable radio start the count over.
+    private var handshakeFailures = 0
+    private var rescanPending = false
 
     public init() {}
+
+    /// The first failure rescans at once (it already cost the connect timeout); later ones wait 0.5, 1, then 2 seconds.
+    public static func backoffSeconds(afterFailures failures: Int) -> Double {
+        failures <= 1 ? 0 : min(0.5 * Double(1 << min(failures - 2, 8)), 2)
+    }
 
     public mutating func handle(_ input: ReceiverLinkInput) -> [ReceiverLinkEffect] {
         switch input {
@@ -55,7 +67,7 @@ public struct ReceiverLinkStateMachine {
             guard started else { return [] }
             return evaluate()
         case .discovered(let id):
-            guard state == .scanning else { return [] }
+            guard state == .scanning, !rescanPending else { return [] }
             state = .connecting(id)
             return [.stopScan, .connect(id), .startConnectTimeout(seconds: Self.connectTimeoutSeconds)]
         case .connected(let id):
@@ -65,18 +77,24 @@ public struct ReceiverLinkStateMachine {
         case .linkReady(let id):
             guard state == .discovering(id) else { return [] }
             state = .ready(id)
+            handshakeFailures = 0
             return [.cancelConnectTimeout]
         case .disconnected(let id):
             guard current == id else { return [] }
-            let cleanup: [ReceiverLinkEffect] = isHandshaking ? [.cancelConnectTimeout] : []
+            let failed = isHandshaking
+            let cleanup: [ReceiverLinkEffect] = failed ? [.cancelConnectTimeout] : []
             state = .scanning
-            return cleanup + [.startScan]
+            return cleanup + scanEffects(afterFailure: failed)
         case .serviceInvalidated(let id):
             guard current == id else { return [] }
-            return rescan(cancelling: id, timeoutPending: isHandshaking)
+            return rescan(cancelling: id, timeoutPending: isHandshaking, failed: isHandshaking)
         case .connectTimeout:
             guard isHandshaking, let id = current else { return [] }
-            return rescan(cancelling: id, timeoutPending: false)
+            return rescan(cancelling: id, timeoutPending: false, failed: true)
+        case .rescanTimer:
+            guard rescanPending, state == .scanning else { return [] }
+            rescanPending = false
+            return [.startScan]
         }
     }
 
@@ -94,9 +112,19 @@ public struct ReceiverLinkStateMachine {
         }
     }
 
-    private mutating func rescan(cancelling id: UUID, timeoutPending: Bool) -> [ReceiverLinkEffect] {
+    private mutating func rescan(cancelling id: UUID, timeoutPending: Bool, failed: Bool) -> [ReceiverLinkEffect] {
         state = .scanning
-        return (timeoutPending ? [.cancelConnectTimeout] : []) + [.cancel(id), .startScan]
+        return (timeoutPending ? [.cancelConnectTimeout] : []) + [.cancel(id)] + scanEffects(afterFailure: failed)
+    }
+
+    /// Starts scanning at once, or after the backoff when handshakes keep failing.
+    private mutating func scanEffects(afterFailure failed: Bool) -> [ReceiverLinkEffect] {
+        guard failed else { return [.startScan] }
+        handshakeFailures += 1
+        let delay = Self.backoffSeconds(afterFailures: handshakeFailures)
+        guard delay > 0 else { return [.startScan] }
+        rescanPending = true
+        return [.startScanAfter(seconds: delay)]
     }
 
     private mutating func evaluate() -> [ReceiverLinkEffect] {
@@ -116,12 +144,14 @@ public struct ReceiverLinkStateMachine {
     private mutating func teardown(to target: ReceiverLinkState) -> [ReceiverLinkEffect] {
         let effects: [ReceiverLinkEffect]
         switch state {
-        case .scanning: effects = [.stopScan]
+        case .scanning: effects = rescanPending ? [.cancelRescanTimer] : [.stopScan]
         case .connecting(let id), .discovering(let id): effects = [.cancelConnectTimeout, .cancel(id)]
         case .ready(let id): effects = [.cancel(id)]
         case .idle, .unavailable: effects = []
         }
         state = target
+        rescanPending = false
+        handshakeFailures = 0
         return effects
     }
 }

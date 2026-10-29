@@ -26,17 +26,21 @@ struct MacReceiverApp: App {
             settle: { try? await Task.sleep(for: .seconds($0)) }
         )
         let central = ReceiverBLECentral()
+        // No file is touched until the first ping arrives; the unit-test host never receives one.
+        let reconnectLog = ReconnectLog(fileURL: ReconnectLog.defaultFileURL)
         let pipeline = EventPipeline(
             snapshot: { [weak focus] in focus?.refreshNow() },
             switcher: switcher,
             injector: TextInjector(),
             sendAck: { [weak central] ack in central?.send(.ack(ack)) },
-            noteValidEvent: { [weak central] in central?.noteEvent() }
+            noteValidEvent: { [weak central] in central?.noteEvent() },
+            onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) }
         )
         let coordinator = ReceiverCoordinator(focus: focus, central: central)
         if !Self.isRunningUnitTests {
             loginItem.applyDefaultIfNeeded()
             central.eventHandler = { [pipeline] data in pipeline.submit(data) }
+            central.onLinkLost = { [pipeline] in pipeline.discardQueued() }
             coordinator.start()
             focus.start()
         }

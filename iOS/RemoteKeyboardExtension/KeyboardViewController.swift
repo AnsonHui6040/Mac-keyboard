@@ -21,6 +21,8 @@ final class KeyboardViewController: UIInputViewController {
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
     private var note: String?
     private var noteTask: Task<Void, Never>?
+    /// Between `viewWillAppear` and `viewDidDisappear`; only a controller on screen may reclaim the peripheral.
+    private var isOnScreen = false
 
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
     private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
@@ -43,6 +45,7 @@ final class KeyboardViewController: UIInputViewController {
         )
         view.onAction = { [weak self] action in
             guard let self else { return }
+            self.reclaimPeripheralIfVacant()
             self.handle(router.route(action, mode: self.mode))
         }
         view.globeButton.addTarget(
@@ -66,18 +69,20 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        peripheral.appear(
-            owner: lifecycle.token, hasFullAccess: hasFullAccess,
-            onStateChange: { [weak self] _ in self?.refreshStatus() },
-            onControl: { [weak self] message in self?.received(message) },
-            onNote: { [weak self] text in self?.showNote(text) }
-        )
+        isOnScreen = true
+        claimPeripheral()
         keyboardView?.setMode(mode)
         refreshStatus()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        reclaimPeripheralIfVacant()
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        isOnScreen = false
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
     }
@@ -85,6 +90,24 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillLayoutSubviews() {
         keyboardView?.setGlobeVisible(needsInputModeSwitchKey)
         super.viewWillLayoutSubviews()
+    }
+
+    private func claimPeripheral() {
+        peripheral.appear(
+            owner: lifecycle.token, hasFullAccess: hasFullAccess,
+            onStateChange: { [weak self] _ in self?.refreshStatus() },
+            onControl: { [weak self] message in self?.received(message) },
+            onNote: { [weak self] text in self?.showNote(text) }
+        )
+    }
+
+    /// If a newer controller claimed the peripheral and then disappeared while this one stayed on screen, nobody owns
+    /// the link any more. The next key press (or `viewDidAppear`) takes it back, instead of leaving this keyboard offline.
+    private func reclaimPeripheralIfVacant() {
+        guard isOnScreen, peripheral.isVacant else { return }
+        KeyboardLifecycleLog.note("vacant owner reclaimed by \(lifecycle.token.uuidString.prefix(8))")
+        claimPeripheral()
+        refreshStatus()
     }
 
     // MARK: Routing results
@@ -114,7 +137,8 @@ final class KeyboardViewController: UIInputViewController {
 
     private func refreshStatus() {
         let link = peripheral.linkState
-        let line = StatusLine.text(mode: mode, link: link, receiver: peripheral.latestStatus)
+        let line = StatusLine.text(
+            mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs)
         keyboardView?.setStatus(text: StatusLine.appendingNote(line, note: note), linkName: link.name)
     }
 

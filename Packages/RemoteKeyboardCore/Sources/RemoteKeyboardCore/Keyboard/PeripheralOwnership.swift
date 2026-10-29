@@ -9,6 +9,10 @@ public struct PeripheralOwnership<Owner: Hashable & Sendable>: Sendable {
 
     public func isOwner(_ candidate: Owner) -> Bool { owner == candidate }
 
+    /// Nobody owns the peripheral. A controller that is still on screen then reclaims it (for example on its next key
+    /// press), which covers the case where a newer controller claimed and disappeared while this one stayed visible.
+    public var isVacant: Bool { owner == nil }
+
     /// Makes `candidate` the owner. Returns true when that changed who owns it.
     @discardableResult
     public mutating func claim(_ candidate: Owner) -> Bool {

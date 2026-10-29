@@ -35,11 +35,21 @@ final class KeyboardBLEPeripheral: NSObject {
     private var subscribedCentral: CBCentral?
     private(set) var latestStatus: ReceiverStatus?
 
+    // Reconnect timing of the current appearance, and the one probe sent for it.
+    private var tracker = ReconnectTracker()
+    private var pingEventId: UUID?
+
     private static let serviceID = CBUUID(string: GATTServiceSpec.Link.serviceUUID)
     private static let eventID = CBUUID(string: GATTServiceSpec.Link.eventUUID)
     private static let controlID = CBUUID(string: GATTServiceSpec.Link.controlUUID)
 
     var linkState: KeyboardLinkState { machine.state }
+
+    /// Shown-to-connected time of this appearance, once the link has connected.
+    var reconnectLatencyMs: Int64? { tracker.latencyMs }
+
+    /// Nobody owns the peripheral; a controller that is still on screen may reclaim it.
+    var isVacant: Bool { ownership.isVacant }
 
     /// Remote keys are accepted only with a connected link, a subscribed central and a Receiver that says it is ready.
     var isRemoteReady: Bool {
@@ -60,6 +70,9 @@ final class KeyboardBLEPeripheral: NSObject {
         onNote: @escaping (String) -> Void
     ) {
         let hadOwner = ownership.owner != nil
+        // The clock starts when the owning controller's appearance starts. A replacement controller or a repeated
+        // appear inside a running appearance keeps the original start.
+        tracker.beginIfIdle(atMs: MonotonicClock.nowMs())
         if ownership.claim(owner) {
             KeyboardLifecycleLog.note("owner changed to \(owner.uuidString.prefix(8)) hadPrevious=\(hadOwner)")
             if hadOwner { startSession() }
@@ -108,6 +121,8 @@ final class KeyboardBLEPeripheral: NSObject {
         startSession()
         subscribedCentral = nil
         latestStatus = nil
+        tracker.reset()
+        pingEventId = nil
         clearPendingService()
     }
 
@@ -120,11 +135,13 @@ final class KeyboardBLEPeripheral: NSObject {
 
     /// Encodes one semantic key and sends it, or queues it until the transmit queue has room.
     /// Only kind and length are logged.
-    func send(_ kind: EventKind) {
-        guard let central = subscribedCentral else { return }
+    @discardableResult
+    func send(_ kind: EventKind) -> UUID? {
+        guard let central = subscribedCentral else { return nil }
+        let eventId = UUID()
         let event = KeyboardEvent(
-            protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: sessionId,
-            seq: seq + 1, focusEpoch: latestStatus?.focusEpoch, kind: kind)
+            protocolVersion: KeyboardEvent.currentVersion, eventId: eventId, sessionId: sessionId,
+            seq: seq + 1, focusEpoch: kind.carriesFocusEpoch ? latestStatus?.focusEpoch : nil, kind: kind)
         let frame: Data
         do {
             frame = try EventCodec.encode(event, maxBytes: central.maximumUpdateValueLength)
@@ -136,7 +153,7 @@ final class KeyboardBLEPeripheral: NSObject {
                 DiagnosticEvent.keyDropped(kind: key, utf8Length: length, reason: tooLarge ? .tooLarge : .encodeFailed).log()
             }
             onNote?(tooLarge ? "事件過大，未送出" : "事件編碼失敗，未送出")
-            return
+            return nil
         }
         seq += 1
         queue.enqueue(frame)
@@ -144,6 +161,17 @@ final class KeyboardBLEPeripheral: NSObject {
             DiagnosticEvent.keySent(kind: key, utf8Length: length).log()
         }
         drain()
+        return eventId
+    }
+
+    /// One `.ping` per appearance, after the link connected and the first ReceiverStatus arrived (the Receiver refuses
+    /// typed events that carry no focus epoch, so the probe waits for the same condition). Not a typed key.
+    private func sendPingIfDue() {
+        guard subscribedCentral != nil,
+              let ping = tracker.takePing(statusReceived: latestStatus != nil, linkConnected: machine.state == .connected)
+        else { return }
+        DiagnosticEvent.reconnectSample(shownAtMs: ping.shownAtMs, connectedAtMs: ping.connectedAtMs).log()
+        pingEventId = send(.ping(shownAtMs: ping.shownAtMs, connectedAtMs: ping.connectedAtMs))
     }
 
     /// Hands queued frames to CoreBluetooth in order. A `false` from `updateValue` means the transmit queue is full;
@@ -168,7 +196,10 @@ final class KeyboardBLEPeripheral: NSObject {
         let before = machine.state
         let effects = machine.handle(input)
         for effect in effects { perform(effect) }
+        // Recorded on the transition into connected only, before the status line is refreshed.
+        tracker.linkChanged(from: before, to: machine.state, atMs: MonotonicClock.nowMs())
         if machine.state != before || input == .disappeared { onStateChange?(machine.state) }
+        sendPingIfDue()
     }
 
     private func perform(_ effect: KeyboardLinkEffect) {
@@ -276,8 +307,14 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             latestStatus = status
         case .ack(let ack):
             DiagnosticEvent.ackReceived(ack.result).log()
+            // The probe's own ack is not a typed key, so it never reaches the status line as "Mac 已輸入".
+            if ack.eventId == pingEventId {
+                pingEventId = nil
+                return
+            }
         }
         onControl?(message)
+        if case .status = message { sendPingIfDue() }
     }
 }
 

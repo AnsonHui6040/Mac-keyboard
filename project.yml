@@ -57,6 +57,18 @@ targets:
         INFOPLIST_FILE: iOS/RemoteKeyboardExtension/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
+  RemoteKeyboardUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [iOS/RemoteKeyboardUITests]
+    dependencies:
+      - target: RemoteKeyboardApp
+      - package: RemoteKeyboardCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
   MacReceiver:
     type: application
     platform: macOS
@@ -88,6 +100,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.receiver.tests
         GENERATE_INFOPLIST_FILE: YES
 schemes:
+  RemoteKeyboardApp:
+    build:
+      targets:
+        RemoteKeyboardApp: all
+    run:
+      config: Debug
+    test:
+      targets: [RemoteKeyboardUITests]
   MacReceiver:
     build:
       targets:

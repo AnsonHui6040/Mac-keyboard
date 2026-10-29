@@ -39,4 +39,15 @@ final class StatusLineTests: XCTestCase {
         XCTAssertEqual(StatusLine.appendingNote("Mac → TextEdit", note: "Mac 已輸入"), "Mac → TextEdit（Mac 已輸入）")
         XCTAssertEqual(StatusLine.appendingNote("Mac", note: nil), "Mac")
     }
+
+    func testConnectedLatencyIsShownInBothModes() {
+        XCTAssertEqual(StatusLine.text(mode: .local, link: .connected, receiver: nil, connectedMs: 482), "BLE: connected (482 ms)")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: status(), connectedMs: 482),
+                       "Mac → TextEdit (482 ms)")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: nil, connectedMs: 90), "Mac（等待狀態） (90 ms)")
+    }
+
+    func testLatencyIsIgnoredWhenNotConnected() {
+        XCTAssertEqual(StatusLine.text(mode: .local, link: .advertising, receiver: nil, connectedMs: 482), "BLE: advertising")
+    }
 }

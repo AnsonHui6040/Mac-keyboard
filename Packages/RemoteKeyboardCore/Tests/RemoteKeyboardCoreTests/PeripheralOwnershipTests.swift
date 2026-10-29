@@ -49,4 +49,30 @@ final class PeripheralOwnershipTests: XCTestCase {
         o.claim(1); o.release(1)
         XCTAssertTrue(o.claim(1))
     }
+
+    func testVacantOnlyWhenNobodyOwns() {
+        var o = PeripheralOwnership<Int>()
+        XCTAssertTrue(o.isVacant)
+        o.claim(1)
+        XCTAssertFalse(o.isVacant)
+        o.release(1)
+        XCTAssertTrue(o.isVacant)
+    }
+
+    func testStillVisibleControllerCanReclaimAfterTheNewerOneDisappears() {
+        var o = PeripheralOwnership<Int>()
+        o.claim(1)          // A appears
+        o.claim(2)          // B appears and takes over
+        o.release(2)        // B disappears while A is still on screen
+        XCTAssertTrue(o.isVacant)
+        XCTAssertTrue(o.claim(1), "A takes the link back")
+        XCTAssertTrue(o.isOwner(1))
+    }
+
+    func testReclaimRuleNeverStealsFromALiveOwner() {
+        var o = PeripheralOwnership<Int>()
+        o.claim(2)
+        XCTAssertFalse(o.isVacant, "the caller reclaims only when vacant")
+        XCTAssertTrue(o.isOwner(2))
+    }
 }

@@ -4,7 +4,7 @@ import XCTest
 
 @MainActor
 private final class FakeDriver: CentralDriving {
-    enum Call: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID) }
+    enum Call: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID), forget(UUID) }
     var calls: [Call] = []
     var controlWrites: [Data] = []
     func writeControl(_ data: Data) { controlWrites.append(data) }
@@ -13,6 +13,7 @@ private final class FakeDriver: CentralDriving {
     func connect(_ id: UUID) { calls.append(.connect(id)) }
     func discover(_ id: UUID) { calls.append(.discover(id)) }
     func cancel(_ id: UUID) { calls.append(.cancel(id)) }
+    func forget(_ id: UUID) { calls.append(.forget(id)) }
 }
 
 @MainActor
@@ -29,8 +30,10 @@ final class ReceiverBLECentralTests: XCTestCase {
         madeDrivers = 0
     }
 
-    private func make(clock: @escaping () -> Date = Date.init) -> ReceiverBLECentral {
-        ReceiverBLECentral(defaults: defaults, clock: clock) { [unowned self] _ in
+    private func make(
+        clock: @escaping () -> Date = Date.init, monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs
+    ) -> ReceiverBLECentral {
+        ReceiverBLECentral(defaults: defaults, clock: clock, monotonicMs: monotonicMs) { [unowned self] _ in
             madeDrivers += 1
             return driver
         }
@@ -210,5 +213,123 @@ final class ReceiverBLECentralTests: XCTestCase {
         central.focusGainedEditable()
         XCTAssertTrue(central.isArmed)
         XCTAssertEqual(madeDrivers, 1)
+    }
+
+    // MARK: T06 reconnect hardening
+
+    func testReadyTimeStartsWhenThePeripheralIsAcceptedNotWhenItIsMerelySeen() {
+        var now: Int64 = 1_000
+        let central = make(monotonicMs: { now })
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        // The first sighting is accepted; further sightings while connecting are ignored and must not move the clock.
+        central.handleLink(.discovered(p))
+        now = 1_300
+        central.handleLink(.discovered(UUID()))
+        central.handleLink(.discovered(p))
+        now = 1_500
+        central.handleLink(.connected(p))
+        now = 1_900
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.readyMilliseconds, 900)
+    }
+
+    func testASightingWhileIdleDoesNotStartTheClock() {
+        var now: Int64 = 0
+        let central = make(monotonicMs: { now })
+        let p = UUID()
+        central.handleLink(.discovered(UUID()))
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        now = 5_000
+        central.handleLink(.discovered(p))
+        now = 5_250
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.readyMilliseconds, 250)
+    }
+
+    func testBluetoothOffNeverSendsStopScanOrCancelButForgetsThePeripheral() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.power(.poweredOff))
+        XCTAssertEqual(driver.calls, [.startScan], "no stopScan to a radio that is off")
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        driver.calls.removeAll()
+        central.handleLink(.power(.poweredOff))
+        XCTAssertEqual(driver.calls, [.forget(p)], "no cancel to a radio that is off, but the peripheral is released")
+    }
+
+    func testStopWhilePoweredOnStillCancels() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        central.stopReceiving()
+        XCTAssertEqual(driver.calls.last, .cancel(p))
+    }
+
+    func testRepeatedHandshakeFailuresWaitForTheBackoffBeforeScanning() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        for _ in 0..<2 {
+            central.handleLink(.discovered(p))
+            central.handleLink(.connectTimeout)
+        }
+        XCTAssertEqual(driver.calls.filter { $0 == .startScan }.count, 2, "initial scan plus the immediate first retry")
+        driver.calls.removeAll()
+        central.handleLink(.discovered(p))
+        XCTAssertEqual(driver.calls, [], "a sighting during the backoff is not connected to")
+        central.handleLink(.rescanTimer)
+        XCTAssertEqual(driver.calls, [.startScan])
+    }
+
+    func testStopCancelsAPendingBackoff() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        for _ in 0..<2 {
+            central.handleLink(.discovered(p))
+            central.handleLink(.connectTimeout)
+        }
+        driver.calls.removeAll()
+        central.stopReceiving()
+        central.handleLink(.rescanTimer)
+        XCTAssertEqual(driver.calls, [], "nothing scans after stop, not even when the old timer fires")
+        XCTAssertEqual(central.linkState, .idle)
+    }
+
+    func testOnLinkLostFiresWhenLeavingReadyOnly() {
+        let central = make()
+        var lost = 0
+        central.onLinkLost = { lost += 1 }
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connectTimeout)
+        XCTAssertEqual(lost, 0, "a failed handshake never had a link")
+        central.handleLink(.discovered(p)); central.handleLink(.connected(p)); central.handleLink(.linkReady(p))
+        central.handleLink(.disconnected(p))
+        XCTAssertEqual(lost, 1)
+        central.handleLink(.discovered(p)); central.handleLink(.connected(p)); central.handleLink(.linkReady(p))
+        central.stopReceiving()
+        XCTAssertEqual(lost, 2)
+        central.startReceiving()
+        central.handleLink(.discovered(p)); central.handleLink(.connected(p)); central.handleLink(.linkReady(p))
+        central.handleLink(.power(.poweredOff))
+        XCTAssertEqual(lost, 3)
     }
 }

@@ -16,36 +16,63 @@ final class EventPipeline {
     private let injector: TextInjector
     private let sendAck: @MainActor (Ack) -> Void
     private let noteValidEvent: @MainActor () -> Void
-    private let continuation: AsyncStream<Data>.Continuation
+    private let onPing: @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void
+
+    /// A notification tagged with the link generation it arrived in.
+    private struct Queued: Sendable {
+        let generation: UInt64
+        let data: Data
+    }
+
+    private let continuation: AsyncStream<Queued>.Continuation
     private var consumer: Task<Void, Never>?
+    /// Bumped whenever the link goes away; anything queued under an older generation is dropped unprocessed.
+    private var generation: UInt64 = 0
 
     /// - Parameters:
     ///   - snapshot: a forced, fresh focus read (not a cached value).
     ///   - noteValidEvent: called for every validly decoded event, whether or not it is injected.
+    ///   - onPing: receives a reconnect probe's timestamps. A ping never reaches the focus read or the injector.
     init(
         snapshot: @escaping @MainActor () -> FocusSnapshot?,
         switcher: InputSourceSwitcher,
         injector: TextInjector,
         sendAck: @escaping @MainActor (Ack) -> Void,
-        noteValidEvent: @escaping @MainActor () -> Void
+        noteValidEvent: @escaping @MainActor () -> Void,
+        onPing: @escaping @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void = { _, _ in }
     ) {
         self.snapshot = snapshot
         self.switcher = switcher
         self.injector = injector
         self.sendAck = sendAck
         self.noteValidEvent = noteValidEvent
-        let (stream, continuation) = AsyncStream<Data>.makeStream()
+        self.onPing = onPing
+        let (stream, continuation) = AsyncStream<Queued>.makeStream()
         self.continuation = continuation
         consumer = Task { @MainActor [weak self] in
-            for await data in stream {
+            for await item in stream {
                 guard let self else { return }
-                await self.process(data)
+                guard item.generation == self.generation else {
+                    Self.log.info("event dropped bytes=\(item.data.count, privacy: .public) reason=link-lost")
+                    continue
+                }
+                await self.process(item.data)
             }
         }
     }
 
+    deinit {
+        continuation.finish()
+        consumer?.cancel()
+    }
+
     /// Queues one raw notification. Order of calls is the order of processing.
-    func submit(_ data: Data) { continuation.yield(data) }
+    func submit(_ data: Data) { continuation.yield(Queued(generation: generation, data: data)) }
+
+    /// Drops every notification that is queued but not yet being processed. Called when receiving stops or the link
+    /// is lost: keys typed for a connection that no longer exists are not injected later. The event already in
+    /// flight finishes under its own focus checks.
+    func discardQueued() { generation &+= 1 }
 
     // MARK: Decision mapping (pure)
 
@@ -96,8 +123,10 @@ final class EventPipeline {
 
     private func handle(_ event: KeyboardEvent) async -> AckCode {
         switch event.kind {
-        case .ping:
-            // A probe: acknowledged as processed, never injected, so no focus decision is involved.
+        case .ping(let shownAtMs, let connectedAtMs):
+            // A probe: recorded and acknowledged as processed, never injected. It is handled before the epoch rule
+            // below, so a ping without a focus epoch is not refused.
+            onPing(shownAtMs, connectedAtMs)
             return .posted
         case .text(let text) where text.isEmpty:
             return .malformed

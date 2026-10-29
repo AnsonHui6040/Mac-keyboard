@@ -1,10 +1,16 @@
 /// Wording for the keyboard status line. Taiwan Traditional Chinese where it is not a state name.
 public enum StatusLine {
-    public static func text(mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?) -> String {
-        guard mode == .remote, link == .connected else { return link.statusText }
+    /// - Parameter connectedMs: shown-to-connected time of this appearance; only used while the link is connected.
+    public static func text(
+        mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, connectedMs: Int64? = nil
+    ) -> String {
+        let latency = link == .connected ? connectedMs.map { " (\($0) ms)" } ?? "" : ""
+        guard mode == .remote, link == .connected else {
+            return link == .connected ? "BLE: connected" + latency : link.statusText
+        }
         let base = receiver?.appName.map { "Mac → \($0)" } ?? "Mac"
-        guard let receiver else { return base + "（等待狀態）" }
-        return receiver.ready ? base : base + "（無輸入欄位）"
+        guard let receiver else { return base + "（等待狀態）" + latency }
+        return (receiver.ready ? base : base + "（無輸入欄位）") + latency
     }
 
     public static func ackText(_ code: AckCode) -> String {

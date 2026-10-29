@@ -43,6 +43,7 @@ final class EventPipelineTests: XCTestCase {
         var reads = 0
         var acks: [Ack] = []
         var noted = 0
+        var pings: [[Int64]] = []
         init(_ snapshots: [FocusSnapshot?]) { self.snapshots = snapshots }
         func next() -> FocusSnapshot? {
             reads += 1
@@ -66,7 +67,8 @@ final class EventPipelineTests: XCTestCase {
             switcher: InputSourceSwitcher(controller: controller, composition: composition, settle: settle),
             injector: TextInjector(poster: poster),
             sendAck: { state.acks.append($0) },
-            noteValidEvent: { state.noted += 1 }
+            noteValidEvent: { state.noted += 1 },
+            onPing: { state.pings.append([$0, $1]) }
         )
         return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state)
     }
@@ -243,5 +245,52 @@ final class EventPipelineTests: XCTestCase {
                                                InputSourceSwitcher.asciiID, zhuyin,
                                                InputSourceSwitcher.asciiID, zhuyin,
                                                InputSourceSwitcher.asciiID, zhuyin])
+    }
+
+    // MARK: T06 ping and link loss
+
+    func testPingWithoutAFocusEpochIsAckedAndRecordedNotRefused() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, id) = try frame(.ping(shownAtMs: 1_000, connectedAtMs: 1_480), epoch: nil)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted)])
+        XCTAssertEqual(h.state.pings, [[1_000, 1_480]])
+        XCTAssertEqual(h.state.reads, 0, "no focus read for a probe")
+        XCTAssertEqual(h.poster.batches.count, 0)
+        XCTAssertTrue(h.controller.selected.isEmpty, "no input source switch for a probe")
+    }
+
+    func testTypedEventsNeverReachThePingHook() async throws {
+        let h = harness(snapshots: [snapshot()])
+        await h.pipeline.process(try frame(.text("A")).0)
+        XCTAssertEqual(h.state.pings, [])
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    func testDiscardQueuedDropsEventsThatHaveNotStartedAndLaterOnesStillRun() async throws {
+        let h = harness(snapshots: [snapshot()])
+        // The consumer cannot run before this test yields, so all three are still queued.
+        for _ in 0..<3 { h.pipeline.submit(try frame(.text("A")).0) }
+        h.pipeline.discardQueued()
+        h.pipeline.submit(try frame(.text("B")).0)
+        await waitUntil { h.state.acks.count >= 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(h.state.acks.count, 1, "only the event submitted after the link loss is processed")
+        XCTAssertEqual(h.poster.batches.count, 1)
+    }
+
+    func testPipelineIsReleasedEvenThoughItsConsumerIsWaiting() async throws {
+        weak var weakPipeline: EventPipeline?
+        do {
+            let h = harness(snapshots: [snapshot()])
+            h.pipeline.submit(try frame(.backspace).0)
+            await waitUntil { h.state.acks.count == 1 }
+            weakPipeline = h.pipeline
+        }
+        await waitUntil { weakPipeline == nil }
+        XCTAssertNil(weakPipeline)
     }
 }
