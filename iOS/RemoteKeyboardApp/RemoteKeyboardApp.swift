@@ -1,4 +1,5 @@
 import CoreBluetooth
+import RemoteKeyboardCore
 import SwiftUI
 
 @main
@@ -46,6 +47,9 @@ private struct ContentView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Text("版本：\(BuildStamp.current())")
+                }
                 Section("測試輸入") {
                     TextField("在這裡輸入", text: $draft)
                 }

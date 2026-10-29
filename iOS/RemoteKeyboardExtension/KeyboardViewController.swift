@@ -133,6 +133,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private static func probeStatusText() -> String {
         let value = UserDefaults(suiteName: "group.com.ansonhui.remotekeyboard")?.object(forKey: "probe")
-        return value == nil ? "AppGroup: NIL" : "AppGroup: OK"
+        let group = value == nil ? "AppGroup: NIL" : "AppGroup: OK"
+        return "\(group)  版本 \(BuildStamp.current())"
     }
 }

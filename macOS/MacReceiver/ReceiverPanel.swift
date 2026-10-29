@@ -16,6 +16,8 @@ struct ReceiverPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Text("版本：\(BuildStamp.current())")
+                .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(central.linkLabel)
                 Text(ReceiverMenu.remainingText(central.remainingSeconds))
