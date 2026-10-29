@@ -7,3 +7,14 @@ public enum GATTServiceSpec {
     /// Read + notify.
     public static let statusUUID = "99FA0347-3B23-498D-A0F0-1EE6B0AAA76E"
 }
+
+extension GATTServiceSpec {
+    /// iPhone keyboard is the peripheral; the Mac Receiver is the central.
+    public enum Link {
+        public static let serviceUUID = "706AA642-68A3-41FA-889D-24E30709B0D0"
+        /// Notify.
+        public static let eventUUID = "C7FC0313-53E7-4DCD-B75F-2AE66FE9C586"
+        /// Write with response.
+        public static let controlUUID = "320468E2-53B6-4B6A-88EC-AE2752415818"
+    }
+}

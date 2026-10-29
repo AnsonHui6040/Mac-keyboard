@@ -4,6 +4,7 @@ import RemoteKeyboardCore
 final class MinimalKeyboardView: UIView {
     var onAction: ((KeyAction) -> Void)?
     let globeButton = UIButton(type: .system)
+    private let statusLabel = UILabel()
 
     private var isShifted = false
     private var letterButtons: [UIButton] = []
@@ -22,6 +23,11 @@ final class MinimalKeyboardView: UIView {
         globeButton.isHidden = !visible
     }
 
+    func setLinkState(_ state: KeyboardLinkState) {
+        statusLabel.text = state.statusText
+        statusLabel.accessibilityValue = state.name
+    }
+
     // MARK: - Layout
 
     private func build(probeText: String) {
@@ -30,6 +36,12 @@ final class MinimalKeyboardView: UIView {
         probe.font = .systemFont(ofSize: 10)
         probe.textColor = .secondaryLabel
         probe.textAlignment = .right
+
+        statusLabel.text = KeyboardLinkState.idle.statusText
+        statusLabel.font = .systemFont(ofSize: 10)
+        statusLabel.textColor = .secondaryLabel
+        statusLabel.accessibilityIdentifier = "rk.status"
+        statusLabel.accessibilityValue = KeyboardLinkState.idle.name
 
         let stack = UIStackView()
         stack.axis = .vertical
@@ -71,6 +83,8 @@ final class MinimalKeyboardView: UIView {
         stack.addArrangedSubview(bottom)
 
         probe.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(statusLabel)
         addSubview(probe)
         addSubview(stack)
         let height = heightAnchor.constraint(equalToConstant: 230)
@@ -79,6 +93,9 @@ final class MinimalKeyboardView: UIView {
             height,
             probe.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             probe.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            statusLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
+            statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: probe.leadingAnchor, constant: -8),
             stack.topAnchor.constraint(equalTo: probe.bottomAnchor, constant: 2),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),

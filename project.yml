@@ -35,6 +35,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: Remote Keyboard 需要藍牙，才能讓你的 Mac 連線並接收鍵盤送出的文字。
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard

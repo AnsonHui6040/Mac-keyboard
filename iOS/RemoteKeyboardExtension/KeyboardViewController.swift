@@ -16,6 +16,7 @@ private struct UnavailableRemoteSink: RemoteEventSink {
 
 final class KeyboardViewController: UIInputViewController {
     private var keyboardView: MinimalKeyboardView?
+    private let peripheral = KeyboardBLEPeripheral()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -47,6 +48,17 @@ final class KeyboardViewController: UIInputViewController {
             view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
         ])
         keyboardView = view
+        peripheral.onStateChange = { [weak view] state in view?.setLinkState(state) }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        peripheral.viewWillAppear(hasFullAccess: hasFullAccess)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        peripheral.viewDidDisappear()
     }
 
     override func viewWillLayoutSubviews() {

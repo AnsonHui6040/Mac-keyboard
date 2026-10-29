@@ -20,6 +20,8 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Remote Keyboard 需要藍牙，才能讓你的 Mac 連線並接收鍵盤送出的文字。</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>
