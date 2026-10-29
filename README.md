@@ -8,9 +8,9 @@ iPhone 第三方鍵盤 Extension，透過自訂 BLE GATT 將英文、符號、�
 |---|---|
 | 設計規格 | v1.2 APPROVED（2026-10-29，D11 角色對調、D13 Mac 常駐；D4 組字規則 2026-10-30 修訂） |
 | 實作計劃 | v1.2 APPROVED（T03a、T03b、T05、T06 重寫） |
-| 程式碼 | T01–T05 完成：iPhone 鍵盤遠端模式打字經 BLE 送到 Mac 目前焦點（焦點守衛、自動切 ABC、ACK） |
-| 驗收 | 5/16 PASS（T01–T05；T04／T05 部分實機項目延至 T16） |
-| 下一步 | T06 BLE 重連 Gate（見 `docs/superpowers/verification/2026-10-29-handoff.md`） |
+| 程式碼 | T01–T06 完成：iPhone 鍵盤遠端模式打字經 BLE 送到 Mac 目前焦點（焦點守衛、自動切 ABC、ACK），鍵盤重開後約 0.2–0.7 秒自動重連 |
+| 驗收 | 6/16 PASS（T01–T06，M1 Gate 通過；部分實機逐項紀錄延至 T16） |
+| 下一步 | M2 規劃：以 brainstorming 定義主 App 設定頁與速成範圍，再以 writing-plans 細化 T07–T16（見 `docs/superpowers/verification/2026-10-29-handoff.md`） |
 
 最後更新：2026-10-30
 
