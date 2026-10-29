@@ -8,7 +8,7 @@
 
 | 指標 | 結果 |
 |---|---|
-| Product spec | DRAFT v1.1 / 待批准（已納入設計決定 D1–D10） |
+| Product spec | v1.1 APPROVED 2026-10-29（含設計決定 D1–D10） |
 | Research/source review | 深度研究已有報告；未執行 code 實測 |
 | Xcode build | NOT_RUN |
 | `swift test` | NOT_RUN |
