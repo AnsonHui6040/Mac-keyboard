@@ -8,7 +8,7 @@
 
 **Tech Stack:** Xcode 27.1、Swift 6.4（language mode 6）、XcodeGen 2.46.0、UIKit `UIInputViewController`、SwiftUI、CoreBluetooth、ApplicationServices（AXUIElement）、CoreGraphics（CGEvent）、Carbon TIS、OSLog、XCTest／XCUITest。
 
-**Spec:** `docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`（v1.2，設計決定見 §12 D1–D12）。
+**Spec:** `docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`（v1.2 APPROVED，設計決定見 §12 D1–D13）。
 
 **範圍：** T01、T02 已完成。v1.2 依 D11 重寫 T03（拆成 T03a、T03b）、T05、T06；T04 不受影響。舊 T03（iPhone 為 Central）實機失敗，branch `t03-extension-central` 封存不 merge。T07–T16 保留任務定義與 v1.1 調整，於 M1 Gate 通過後再以 writing-plans 細化。v1.0 原文見 `docs/archive/planning-package-v1.0/RemoteKeyboard-Superpowers-v1-Implementation-Plan.md`。
 
@@ -571,4 +571,4 @@ func testLateDisconnectAfterRescanIgnored()               // ReceiverLink：scan
 
 **依賴：** T01、T02 已完成 → T03a → T03b；T04 可與 T03a／T03b 平行 → T05 → T06。M2 需 T05 PASS。
 
-**計劃狀態：** v1.2 DRAFT，待使用者審核。T01、T02 PASS；舊 T03 FAIL（見 `verification/2026-10-29-handoff.md`）。
+**計劃狀態：** v1.2 APPROVED（2026-10-29）。T01、T02 PASS；舊 T03 FAIL（見 `verification/2026-10-29-handoff.md`）。

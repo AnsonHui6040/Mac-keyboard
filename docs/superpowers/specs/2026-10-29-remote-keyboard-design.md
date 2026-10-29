@@ -1,6 +1,6 @@
 # iPhone → Mac Remote Keyboard — 設計規格
 
-**版本**：v1.2 | **日期**：2026-10-29 | **狀態**：DRAFT / 待使用者批准（v1.1 已於 2026-10-29 批准）；非已實作產品
+**版本**：v1.2 | **日期**：2026-10-29 | **狀態**：APPROVED（使用者於 2026-10-29 批准 v1.2）；非已實作產品
 
 **v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向、D13 Mac 常駐與接收時段與 §13 實機資訊。
 
@@ -101,7 +101,7 @@
 
 ## 10. 設計文件狀態
 
-本設計 v1.1 已於 2026-10-29 獲使用者批准；v1.2 待批准。未宣稱任何真機測試已通過。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，v1.2 批准後依其 T03–T06 執行。
+本設計 v1.2 已於 2026-10-29 獲使用者批准。未宣稱任何真機測試已通過。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，依其 v1.2 的 T03a、T03b、T04–T06 執行。
 
 ## 11. 核心證據鏈（Apple 官方）
 
