@@ -123,6 +123,7 @@
 | D8 | BLE 備案 | 接受 LAN WebSocket 備案，僅在 BLE 證實不可行後做限時 PoC（§9） | T03、T05、T15 |
 | D9 | 重連測試 | T06 的 100 次以 XCUITest 在真機自動執行，使用者親手抽查 10 次並錄影；XCUITest 無法切換第三方鍵盤時，改由使用者親手完成 100 次 | T06 |
 | D10 | Xcode project | 使用 XcodeGen：`project.yml` 納入 git，`*.xcodeproj` 不納入；每次以 `xcodegen generate` 產生 | 全部 |
+| D11 | 傳輸角色（2026-10-29 批准） | 角色對調：iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central。原因：同一 iCloud 的 iPhone 主動連 Mac 在實機失敗（T03），Mac 主動連 iPhone 成功（spike）。§2、§4、§5 待 v1.2 改寫；D8 LAN 保留為後備 | T03–T06 |
 
 ## 13. 開發環境（2026-10-29 實測）
 

@@ -1,0 +1,9 @@
+# Spike 角色對調 Mac 紀錄（2026-10-29）
+
+2026-10-29 18:45:45.423 r:spike] probe state scanning 0 ms
+2026-10-29 18:45:45.591 r:spike] probe state connecting-scan 168 ms
+2026-10-29 18:45:45.984 r:spike] probe state ready-scan 561 ms
+
+2026-10-29 18:46:39.830 r:spike] probe state scanning 0 ms
+2026-10-29 18:46:39.892 r:spike] probe state connecting-scan 61 ms
+2026-10-29 18:46:40.344 r:spike] probe state ready-scan 514 ms

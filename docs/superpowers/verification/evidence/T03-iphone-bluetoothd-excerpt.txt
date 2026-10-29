@@ -1,0 +1,29 @@
+# T03 iPhone bluetoothd 紀錄節錄（2026-10-29 17:54，iOS 27.0.1；已移除裝置識別碼）
+
+2026-10-29 17:51:58.723 .bluetooth:Server.XPC] Received XPC message "CBMsgIdRetrieveConnectedPeripheralsWithServices" from session "com.ansonhui.remotekeyboard.keyboard-central
+2026-10-29 17:51:58.723 .bluetooth:Server.LE.Scan] Received 'start active ThirdPartyApp scan' request  , without duplicates, duration:unlimited, UUID [ 2A6F212A-3B7A-4293-87B4-FAD198077
+2026-10-29 17:51:59.433 .bluetooth:Server.App] Stopping scan for session "com.ansonhui.remotekeyboard.keyboard" - 1 advertisements delivered
+2026-10-29 17:51:59.433 .bluetooth:Server.XPC] Received XPC message "CBMsgIdConnectPeripheral" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:03.831 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:03.832 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:14.166 .bluetooth:Server.XPC] Received XPC message "CBMsgIdRetrieveConnectedPeripheralsWithServices" from session "com.ansonhui.remotekeyboard.keyboard-central
+2026-10-29 17:52:14.166 .bluetooth:Server.LE.Scan] Received 'start active ThirdPartyApp scan' request  , without duplicates, duration:unlimited, UUID [ 2A6F212A-3B7A-4293-87B4-FAD198077
+2026-10-29 17:52:14.179 .bluetooth:Server.App] Stopping scan for session "com.ansonhui.remotekeyboard.keyboard" - 1 advertisements delivered
+2026-10-29 17:52:14.179 .bluetooth:Server.XPC] Received XPC message "CBMsgIdConnectPeripheral" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:19.210 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:19.211 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:27.087 .bluetooth:Server.XPC] Received XPC message "CBMsgIdRetrieveConnectedPeripheralsWithServices" from session "com.ansonhui.remotekeyboard.keyboard-central
+2026-10-29 17:52:27.088 .bluetooth:Server.LE.Scan] Received 'start active ThirdPartyApp scan' request  , without duplicates, duration:unlimited, UUID [ 2A6F212A-3B7A-4293-87B4-FAD198077
+2026-10-29 17:52:27.581 .bluetooth:Server.App] Stopping scan for session "com.ansonhui.remotekeyboard.keyboard" - 1 advertisements delivered
+2026-10-29 17:52:27.581 .bluetooth:Server.XPC] Received XPC message "CBMsgIdConnectPeripheral" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:32.265 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:52:32.265 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:54:29.687 .bluetooth:Server.XPC] Received XPC message "CBMsgIdRetrieveConnectedPeripheralsWithServices" from session "com.ansonhui.remotekeyboard.keyboard-central
+2026-10-29 17:54:29.687 .bluetooth:Server.LE.Scan] Received 'start active ThirdPartyApp scan' request  , without duplicates, duration:unlimited, UUID [ 2A6F212A-3B7A-4293-87B4-FAD198077
+2026-10-29 17:54:29.760 .bluetooth:Server.App] Stopping scan for session "com.ansonhui.remotekeyboard.keyboard" - 1 advertisements delivered
+2026-10-29 17:54:29.760 .bluetooth:Server.XPC] Received XPC message "CBMsgIdConnectPeripheral" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:54:34.788 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:54:34.788 .bluetooth:Server.XPC] Received XPC message "CBMsgIdCancelPeripheralConnection" from session "com.ansonhui.remotekeyboard.keyboard-central"
+2026-10-29 17:54:29.190 [Server.LE.Connection] Outgoing LE Connection complete ... with status 0
+2026-10-29 17:54:29.197 [Server.LE.Connection] LE Link disconnected ... with reason 762 encryptionPending 0
+（Disconnection History：17:53:22 起約每 0.5 秒一筆 reason 762）
