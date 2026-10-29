@@ -19,6 +19,10 @@ final class KeyboardBLEPeripheral: NSObject {
     private var onNote: ((String) -> Void)?
 
     private var ownership = PeripheralOwnership<UUID>()
+    /// The service add in flight. Only its own `didAdd` may advance the link state machine.
+    private var pendingService = PendingServiceTracker<ObjectIdentifier>()
+    /// Held so the pending service's identity cannot be reused by a later allocation while it is in flight.
+    private var pendingServiceObject: CBMutableService?
 
     private var machine = KeyboardLinkStateMachine()
     private var manager: CBPeripheralManager?
@@ -104,6 +108,12 @@ final class KeyboardBLEPeripheral: NSObject {
         startSession()
         subscribedCentral = nil
         latestStatus = nil
+        clearPendingService()
+    }
+
+    private func clearPendingService() {
+        pendingService.clear()
+        pendingServiceObject = nil
     }
 
     // MARK: Sending
@@ -175,6 +185,8 @@ final class KeyboardBLEPeripheral: NSObject {
             // One manager must never hold two copies of the service.
             manager.removeAllServices()
             KeyboardLifecycleLog.note("removeAllServices before add")
+            pendingServiceObject = service
+            pendingService.begin(ObjectIdentifier(service))
             manager.add(service)
             KeyboardLifecycleLog.note("addService")
         case .startAdvertising:
@@ -182,6 +194,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .stopAdvertising:
             manager.stopAdvertising()
         case .removeServices:
+            clearPendingService()
             manager.removeAllServices()
             KeyboardLifecycleLog.note("removeAllServices")
             eventCharacteristic = nil
@@ -206,6 +219,12 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
+        // A completion for any service but the one in flight belongs to an earlier appearance and is dropped.
+        guard pendingService.accept(ObjectIdentifier(service)) else {
+            KeyboardLifecycleLog.note("stale didAdd ignored ok=\(error == nil)")
+            return
+        }
+        pendingServiceObject = nil
         feed(.serviceAdded(ok: error == nil))
     }
 
