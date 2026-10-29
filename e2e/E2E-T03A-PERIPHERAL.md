@@ -25,12 +25,12 @@
 
 | 格 | 主 App 藍牙授權 | Full Access | 預期狀態列 | 實際狀態列 | Local 打字正常 | 有無 crash |
 |---|---|---|---|---|---|---|
-| A | 允許 | 開 | `BLE: advertising` | TBD | TBD | TBD |
-| B | 允許 | 關 | `BLE: no-full-access` | TBD | TBD | TBD |
-| C | 拒絕 | 開 | `BLE: unavailable` | TBD | TBD | TBD |
-| D | 拒絕 | 關 | `BLE: no-full-access` | TBD | TBD | TBD |
+| A | 允許 | 開 | `BLE: advertising` | `BLE: advertising` | 正常 | 無 |
+| B | 允許 | 關 | `BLE: no-full-access` | `BLE: no-full-access` | 正常 | 無 |
+| C | 拒絕 | 開 | `BLE: unavailable` | `BLE: unavailable` | 正常 | 無 |
+| D | 拒絕 | 關 | `BLE: no-full-access` | `BLE: no-full-access` | 正常 | 無 |
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
 
 ## 步驟
 
@@ -38,7 +38,7 @@
 1. 開啟 Remote Keyboard 主 App，按「允許藍牙」。
 2. 系統提示出現時選擇「允許」，確認主 App 顯示「已允許」。
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
 
 ### 2. Notes 顯示 advertising（格 A）
 1. Full Access 開、藍牙授權允許。
@@ -46,22 +46,22 @@
 3. 確認狀態列在數秒內變成 `BLE: advertising`（accessibilityValue 為 `advertising`）。
 4. 收起鍵盤，再叫出鍵盤，確認狀態列再次變成 `BLE: advertising`。
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
 
 ### 3. Safari 顯示 advertising（格 A）
 1. 開啟 Safari，點進網址列或任一文字欄位，切換到 Remote Keyboard。
 2. 確認狀態列在數秒內變成 `BLE: advertising`。
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
 
 ### 4. 其餘三格（B、C、D）
 1. 依 O4 矩陣調整授權與 Full Access，逐格記錄狀態列與 Local 打字。
 2. 每格都確認 Local 模式可以輸入 `abc`、退格、換行，且沒有 crash。
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
 
 ### 5. 備註
 1. 本次沒有 Mac Receiver Central，不需要也不會看到 `BLE: connected`。
 2. 若狀態列顯示 `BLE: failed (...)`，請記錄括號內文字並回報。
 
-結果：TBD
+結果：PASS（使用者 2026-10-29 回報與預期一致）
