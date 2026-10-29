@@ -14,7 +14,9 @@
 
 Notes 準備：開始前讓 Notes 停在備忘錄列表或關閉 Notes；自動測試會新建一則空白備忘錄並只在其中點擊，不會打字，也不會碰其他備忘錄。Safari 只點網址列。
 
-紀錄來源：每次連上後 iPhone 送一個 ping，Mac 把 `shownAtMs,connectedAtMs,latencyMs` 寫入 `~/Library/Logs/RemoteKeyboard/reconnect.csv`（只有數字，沒有文字）。失敗次數 = 100 − CSV 行數。
+紀錄來源：
+- 自動測試（步驟 1）：以 UI test 附在 xcresult 的 `reconnect-ui.csv` 為準，每次重開一行，含成功或逾時；暖身（新建備忘錄、選鍵盤、Safari 網址列一次）不計入。Mac 的 `reconnect.csv` 只作交叉核對，因為暖身的連線也會寫入。
+- 手動測試（步驟 2）：開始前刪除 `reconnect.csv`，不做暖身，直接數 100 次；每次連上後 iPhone 送一個 ping，Mac 寫一行 `shownAtMs,connectedAtMs,latencyMs`（只有數字，沒有文字）。失敗次數 = 100 − CSV 行數。
 
 ## 步驟
 
@@ -30,7 +32,7 @@ xcodebuild test -project RemoteKeyboard.xcodeproj -scheme RemoteKeyboardApp -onl
 | 項目 | 結果 |
 |---|---|
 | O6：XCUITest 能否讀到鍵盤 `rk.status` | TBD |
-| CSV 行數 / 100 | TBD |
+| `reconnect-ui.csv` 成功次數 / 100 | TBD |
 | P95（ms） | TBD |
 
 結果：TBD

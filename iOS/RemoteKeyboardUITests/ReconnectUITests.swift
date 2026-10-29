@@ -84,6 +84,11 @@ final class ReconnectUITests: XCTestCase {
         newNote.tap()
         let body = notes.textViews.firstMatch
         guard body.waitForExistence(timeout: 5) else { throw XCTSkip("Notes: the new note's body did not appear") }
+        // Only an empty body is ever tapped, so an existing note can never be touched.
+        guard Self.isEmpty(body) else {
+            XCTFail("no safe tap target: the Notes body is not empty")
+            return
+        }
         body.tap()
 
         let status = statusElement(in: notes)
@@ -97,7 +102,10 @@ final class ReconnectUITests: XCTestCase {
             found = status.waitForExistence(timeout: 2)
         }
         guard found else { throw XCTSkip("O6: third-party keyboard not reachable") }
-        _ = waitForConnected(status, shownAt: Self.nowMs())
+        guard waitForConnected(status, shownAt: Self.nowMs()) != nil else {
+            XCTFail("warm-up never connected")
+            return
+        }
         hideKeyboard(in: notes)
 
         let safari = XCUIApplication(bundleIdentifier: Self.safariID)
@@ -117,7 +125,13 @@ final class ReconnectUITests: XCTestCase {
     private func tapTarget(in app: XCUIApplication, bundleID: String) -> XCUIElement? {
         let element = bundleID == Self.notesID ? app.textViews.firstMatch : addressBar(in: app)
         guard let element, element.waitForExistence(timeout: 5) else { return nil }
+        // The note body is tapped only while it is empty (it is the test's own, never typed into).
+        if bundleID == Self.notesID, !Self.isEmpty(element) { return nil }
         return element
+    }
+
+    private static func isEmpty(_ element: XCUIElement) -> Bool {
+        (element.value as? String ?? "").isEmpty
     }
 
     /// Safari's address bar is a field when editing and a button otherwise. Page content is never a candidate.
