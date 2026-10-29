@@ -16,7 +16,7 @@
 
 - 不採用 Bluetooth HID；主傳輸為自訂 BLE GATT，Mac 安裝 Receiver。
 - D11／D12：iPhone 發佈 service `706AA642-68A3-41FA-889D-24E30709B0D0`，`event` `C7FC0313-53E7-4DCD-B75F-2AE66FE9C586`（notify）、`control` `320468E2-53B6-4B6A-88EC-AE2752415818`（write with response）；Mac 只走掃描路徑；notify 不超過 `maximumUpdateValueLength`，佇列滿時暫存不丟。
-- D13：Mac Receiver 登入時啟動並常駐；平時待命，點擊可編輯輸入框才開始掃描連線；`ReceiverSession.idleTimeout = 1800` 秒無活動自動停止，收到事件或再點輸入框即延長；焦點離開輸入框不斷線。
+- D13：Mac Receiver 登入時啟動並常駐；平時待命，點擊可編輯輸入框才開始掃描連線；`ReceiverSession.idleTimeout = 1800` 秒無活動自動停止，收到事件、鍵盤連上或再點輸入框即延長；焦點離開輸入框不斷線。
 - Peripheral 只在鍵盤可見且有 Full Access 時廣播；T09 前 Mac 連入任何廣播此 service 的 iPhone，僅供開發。
 - 依使用者守則不刪 source：T02 的 `GATTPeripheralServer` 保留但不再啟動。
 - 無 Full Access 時 Local Mode 必須可打字並可切換下一個鍵盤。
@@ -316,8 +316,8 @@ func testDiagnosticEventCarriesNoText() { XCTAssertFalse(String(describing: Diag
   - `enum ReceiverLinkState: Equatable, Sendable { case idle, unavailable(CentralPower), scanning, connecting(UUID), discovering(UUID), ready(UUID) }`
   - `enum ReceiverLinkInput: Equatable { case start, stop, power(CentralPower), discovered(UUID), connected(UUID), linkReady(UUID), disconnected(UUID), serviceInvalidated(UUID), connectTimeout }`
   - `enum ReceiverLinkEffect: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID), startConnectTimeout(seconds: Double), cancelConnectTimeout }`
-  - `enum ReceiverSessionInput: Equatable { case editableFocusGained, eventReceived, manualStart, manualStop, timerFired }`；`enum ReceiverSessionEffect: Equatable { case arm, disarm, scheduleTimeout(at: Date) }`
-  - `struct ReceiverSession { static let idleTimeout: TimeInterval = 1800; private(set) var isArmed: Bool; private(set) var deadline: Date?; init(idleTimeout: TimeInterval = idleTimeout); mutating func handle(_ input: ReceiverSessionInput, now: Date) -> [ReceiverSessionEffect] }`：`arm` 對應 link `.start`，`disarm` 對應 link `.stop`；`timerFired` 只在 `now >= deadline` 時 disarm（過期計時器忽略）；待命時 `eventReceived` 不會 arm。
+  - `enum ReceiverSessionInput: Equatable { case editableFocusGained, eventReceived, linkReady, manualStart, manualStop, timerFired }`；`enum ReceiverSessionEffect: Equatable { case arm, disarm, scheduleTimeout(at: Date) }`
+  - `struct ReceiverSession { static let idleTimeout: TimeInterval = 1800; private(set) var isArmed: Bool; private(set) var deadline: Date?; init(idleTimeout: TimeInterval = idleTimeout); mutating func handle(_ input: ReceiverSessionInput, now: Date) -> [ReceiverSessionEffect] }`：`arm` 對應 link `.start`，`disarm` 對應 link `.stop`；`timerFired` 在 `now >= deadline` 時 disarm，提早觸發則重新排到 deadline；`linkReady` 與 `eventReceived` 同樣延長；待命時兩者都不會 arm。
   - `struct ReceiverLinkStateMachine { private(set) var state: ReceiverLinkState; mutating func handle(_ input: ReceiverLinkInput) -> [ReceiverLinkEffect] }`：連線逾時固定 `5.0` 秒；斷線、逾時或 iPhone 移除 service（鍵盤收起時連線可能仍在，因為系統連線共用）一律回到掃描；只有 `stop` 或藍牙不可用才停止。
 
 - [ ] **Step 1: 寫失敗測試**

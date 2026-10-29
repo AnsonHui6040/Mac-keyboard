@@ -48,6 +48,15 @@ final class ReceiverSessionTests: XCTestCase {
         var s = ReceiverSession(); XCTAssertEqual(s.handle(.timerFired, now: t0), [])
     }
 
+    func testLinkReadyExtendsDeadline() {
+        var s = armedSession(at: t0)
+        XCTAssertEqual(s.handle(.linkReady, now: t0.addingTimeInterval(600)), [.scheduleTimeout(at: t0.addingTimeInterval(600 + 1800))])
+    }
+
+    func testLinkReadyWhileStandbyDoesNotArm() {
+        var s = ReceiverSession(); XCTAssertEqual(s.handle(.linkReady, now: t0), []); XCTAssertFalse(s.isArmed)
+    }
+
     func testEventWhileStandbyDoesNotArm() {
         var s = ReceiverSession(); XCTAssertEqual(s.handle(.eventReceived, now: t0), []); XCTAssertFalse(s.isArmed)
     }

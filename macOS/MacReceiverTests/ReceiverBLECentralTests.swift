@@ -104,6 +104,24 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertFalse(central.isArmed)
     }
 
+    func testReachingReadyExtendsDeadline() {
+        var current = Date(timeIntervalSince1970: 1000)
+        let central = make(clock: { current })
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        current = Date(timeIntervalSince1970: 1900)
+        XCTAssertEqual(central.remainingSeconds, 900)
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.remainingSeconds, 1800)
+        // Repeated events while already ready are not new connections.
+        current = Date(timeIntervalSince1970: 2000)
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.remainingSeconds, 1700)
+    }
+
     func testRemainingSecondsTracksClockWithoutTick() {
         var current = Date(timeIntervalSince1970: 1000)
         let central = make(clock: { current })

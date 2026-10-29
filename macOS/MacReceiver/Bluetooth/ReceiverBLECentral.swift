@@ -125,6 +125,7 @@ final class ReceiverBLECentral: ObservableObject {
         linkState = after
         if after != before { record(after) }
         for effect in effects { apply(effect) }
+        if after != before, case .ready = after { handleSession(.linkReady) }
     }
 
     private func record(_ state: ReceiverLinkState) {

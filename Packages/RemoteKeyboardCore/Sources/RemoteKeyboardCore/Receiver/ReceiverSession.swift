@@ -2,6 +2,8 @@ import Foundation
 
 public enum ReceiverSessionInput: Equatable {
     case editableFocusGained, eventReceived, manualStart, manualStop, timerFired
+    /// The keyboard link reached ready; counts as activity.
+    case linkReady
 }
 
 public enum ReceiverSessionEffect: Equatable {
@@ -28,7 +30,7 @@ public struct ReceiverSession {
             let next = now.addingTimeInterval(idleTimeout)
             deadline = next
             return (wasArmed ? [] : [.arm]) + [.scheduleTimeout(at: next)]
-        case .eventReceived:
+        case .eventReceived, .linkReady:
             guard isArmed else { return [] }
             let next = now.addingTimeInterval(idleTimeout)
             deadline = next
