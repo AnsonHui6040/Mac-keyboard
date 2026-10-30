@@ -7,6 +7,8 @@ final class BottomRowView: UIView {
     #if DEBUG
     /// Long-pressing return for two seconds; the debug build uses it to send one 3,000-character text (T07 check).
     var onDebugLongReturn: (() -> Void)?
+    /// Long-pressing space for two seconds; the debug build uses it to fill the draft to its cap (T10 device test).
+    var onDebugLongSpace: (() -> Void)?
     #endif
 
     /// The controller adds `handleInputModeList(from:with:)` to this button.
@@ -31,6 +33,9 @@ final class BottomRowView: UIView {
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(debugLongReturn(_:)))
         longPress.minimumPressDuration = 2
         returnKey.addGestureRecognizer(longPress)
+        let spacePress = UILongPressGestureRecognizer(target: self, action: #selector(debugLongSpace(_:)))
+        spacePress.minimumPressDuration = 2
+        spaceKey.addGestureRecognizer(spacePress)
         #endif
         for key in [globeKey, chineseEnglishKey, symbolsKey, spaceKey, returnKey] { addSubview(key) }
     }
@@ -40,6 +45,10 @@ final class BottomRowView: UIView {
     #if DEBUG
     @objc private func debugLongReturn(_ recognizer: UILongPressGestureRecognizer) {
         if recognizer.state == .began { onDebugLongReturn?() }
+    }
+
+    @objc private func debugLongSpace(_ recognizer: UILongPressGestureRecognizer) {
+        if recognizer.state == .began { onDebugLongSpace?() }
     }
     #endif
 

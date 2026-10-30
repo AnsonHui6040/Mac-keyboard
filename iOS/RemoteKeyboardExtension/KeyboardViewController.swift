@@ -49,6 +49,7 @@ final class KeyboardViewController: UIInputViewController {
         root.onAction = { [weak self] action in self?.perform(action) ?? false }
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
+        root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
         #endif
         root.globeButton.addTarget(
             self,
@@ -125,6 +126,23 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         peripheral.send(.text(String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)))
+    }
+
+    /// T10 device test (step 31): fills the draft with `a` through the router until it holds the cap, so the test
+    /// does not have to tap 1,000 keys. Remote mode only, and only while keys would go to the draft anyway, so
+    /// nothing is ever sent to the Mac.
+    private func fillDraftToCap() {
+        reclaimPeripheralIfVacant()
+        guard mode == .remote else { return }
+        guard transmit == .draft || !draft.isEmpty || !isReady else {
+            showNote("請先切到草稿")
+            return
+        }
+        while draft.text.count < DraftBuffer.maxCharacters {
+            let outcome = router.route(.character("a"), mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+            guard outcome == .draftEdited else { break }
+        }
+        refreshStatus()
     }
     #endif
 

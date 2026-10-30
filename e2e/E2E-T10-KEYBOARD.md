@@ -19,6 +19,73 @@
 - Mac 執行本分支的 MacReceiver，開啟 TextEdit 並新建純文字文件，讓游標停在文件內。
 - 在 iPhone 的備忘錄或 Safari 開啟文字欄位，切換到 Remote Keyboard。
 
+## 自動化執行
+
+使用者決定把大部分手動步驟改為自動執行。自動化分兩部分：iPhone 上的 XCUITest（`KeyboardT10UITests`）操作備忘錄與鍵盤，檢查 iPhone 畫面上看得到的結果；Mac 上的腳本 `e2e/scripts/t10-device-run.sh` 檢查 TextEdit 實際收到的文字，最後再檢查 Receiver 紀錄沒有輸入的明文。下表「結果」欄在使用者確認前一律維持 TBD。
+
+前置條件：
+1. iPhone 以線連接 Mac 並解鎖，已完成 Mac 配對（T09）、開啟「允許完整取用」，且 Remote Keyboard 是目前使用的鍵盤。
+2. Mac 執行本分支的 MacReceiver，已按「開始接收」。Receiver 閒置 30 分鐘會逾時，整個流程較長時請再按一次。
+3. 備忘錄已關閉，或停在備忘錄清單。測試只會新增自己的備忘錄，且只點新備忘錄的空白內文；本機模式打的字會在案例結束前刪除。
+4. 一次性設定：若 UI 測試的簽名需要，先在 Xcode 選擇 iPhone 為目的地，執行 Product > Build For Testing 一次。
+5. 執行腳本的 App（例如 Terminal）要允許控制 TextEdit 與 System Events（系統設定 > 隱私權與安全性 > 自動操作、輔助使用）。
+6. TextEdit 的「自動修正拼字」要關閉，否則輸入的字可能被改寫；也可以加上 `T10_DISABLE_AUTOCORRECT=1`，腳本會在執行期間關閉並於結束時還原。
+7. 步驟 31 需要 Debug 建置（長按空白 2 秒填滿草稿的測試掛鉤只存在於 Debug）。
+
+指令：
+
+```
+e2e/scripts/t10-device-run.sh                      # 建置一次，依序執行全部案例
+e2e/scripts/t10-device-run.sh testDraftEditing     # 只執行指定案例
+e2e/scripts/t10-device-run.sh --skip-build         # 沿用上次建置
+e2e/scripts/t10-device-run.sh --list               # 列出案例與 Mac 端預期，不執行
+```
+
+腳本每個案例都新建一份 TextEdit 文件並讓它取得焦點，同時每 0.3 秒記錄文件內容，案例結束後比對預期，最後把結果寫入 `$T10_OUT/summary.csv`（預設 `/tmp/t10-device-run`）。腳本只新增自己的 TextEdit 文件，結束時不儲存直接關閉，不會動到其他文件。
+
+| 步驟 | 方式 | 說明 | 結果 |
+|---|---|---|---|
+| 1 | 自動（testAccessibilityLabels）加手動 | 自動檢查 `AppGroup: OK` 這行；本版 build 時間仍需人工核對 | TBD |
+| 2 | 自動（testShiftAndInstant） | 檢查狀態列為 `Mac → …` 且頂部只有兩行 | TBD |
+| 3 | 自動（testShiftAndInstant） | | TBD |
+| 4 | 自動（testShiftAndInstant） | 以系統雙擊動作觸發 Caps Lock | TBD |
+| 5 | 自動（testShiftAndInstant） | | TBD |
+| 6 | 自動（testShiftAndInstant） | 兩次點擊間隔 0.6 秒 | TBD |
+| 7 | 自動（testShiftAndInstant） | iPhone 備忘錄保持空白；Mac 端比對 `AABCde hello` 加換行 | TBD |
+| 8 | 自動（testShiftAndInstant） | 同上 | TBD |
+| 9 | 自動（testRemoteLongPressDelete） | 打 30 個字母後長按刪除 1 秒；Mac 端接受剩下 15 至 27 個字母 | TBD |
+| 10 | 自動（testLocalModeAndLongPressDelete） | 本機長按刪除，備忘錄內文逐字減少至少 3 個 | TBD |
+| 11 | 自動（testLocalModeAndLongPressDelete） | 本機打 `abc`，頂部沒有 `即時｜草稿` | TBD |
+| 12 | 自動（testLocalModeAndLongPressDelete） | 回到遠端後狀態文字與 `即時｜草稿` 出現 | TBD |
+| 13 | 自動（testLocalModeAndLongPressDelete） | | TBD |
+| 14 | 自動（testDraftEditing） | 含鍵盤高度增加約 36 pt | TBD |
+| 15 | 自動（testDraftEditing） | Mac 端確認草稿送出前沒有任何字 | TBD |
+| 16 | 自動（testDraftEditing） | | TBD |
+| 17 | 自動（testDraftEditing） | | TBD |
+| 18 | 自動（testDraftEditing） | Mac 端確認游標移動期間 TextEdit 沒有變化 | TBD |
+| 19 | 自動（testDraftEditing） | | TBD |
+| 20 | 自動（testDraftEditing） | 草稿放 4 秒後才傳送；Mac 端確認一次出現完整草稿 | TBD |
+| 21 | 自動（testDraftEditing） | 草稿內含換行，Mac 端比對 `abXcab`、換行、`cdd` | TBD |
+| 22 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 23 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 24 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 25 | 自動（testInstantWithDraftEditsDraft） | Mac 端比對 `xzq` | TBD |
+| 26 | 自動（testNotReadyGoesToDraft） | 腳本讓 TextEdit 失去焦點；Mac 端確認沒有任何字 | TBD |
+| 27 | 自動（testNotReadyGoesToDraft） | 約 15 秒後焦點恢復，測試等待 `傳送` 變藍並確認不會自動送出，再按下傳送 | TBD |
+| 28 | 自動（testPersistence） | 含收起鍵盤與切到 Safari 再回來 | TBD |
+| 29 | 自動（testModeSwitchKeepsDraft） | 含鍵盤高度減少約 36 pt | TBD |
+| 30 | 自動（testModeSwitchKeepsDraft） | 以再打一個字確認游標位置還在 | TBD |
+| 31 | 自動（testDraftCap） | 只驗證上限與提示；草稿不會傳到 Mac，「傳送後再次可打」仍需手動 | TBD |
+| 32 | 自動（testFieldKinds） | 需要 Safari 能被操作，否則案例略過，改為手動 | TBD |
+| 33 | 自動（testFieldKinds） | 同上 | TBD |
+| 34 | 自動（testSymbolsAndPages） | 遠端與本機各打一次 `1` 與 `@` | TBD |
+| 35 | 自動（testSymbolsAndPages） | | TBD |
+| 36 | 手動 | 地球鍵與長按選鍵盤需要人工操作 | TBD |
+| 37 | 自動（testPersistence）加手動 | 自動部分不含重新啟動 App，該部分手動 | TBD |
+| 38 | 自動（testAccessibilityLabels）加手動 | 自動檢查每顆鍵的標籤文字；VoiceOver 實際朗讀仍需手動 | TBD |
+| 39 | 手動 | 需要 iPhone SE 3 或 mini | TBD |
+| 40 | 自動（腳本）加手動 | 腳本檢查 Mac 端 Receiver 紀錄沒有任何輸入字串；iPhone 端診斷紀錄仍需手動 | TBD |
+
 ## 步驟
 
 | 步驟 | 操作 | 預期 | 結果 |
