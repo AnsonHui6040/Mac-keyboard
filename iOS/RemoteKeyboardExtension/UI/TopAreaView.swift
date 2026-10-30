@@ -96,6 +96,12 @@ final class TopAreaView: UIView {
     private let candidateBar = CandidateBarView()
     private let probeLabel = UILabel()
     private let stack = UIStackView()
+    #if DEBUG
+    /// T13: a 2-second press on the status label (Remote mode) turns the dictation probe on or off.
+    var onDebugLongStatus: (() -> Void)?
+    /// T13: the dictation probe checklist, in the candidate row while the probe is on and no candidates are shown.
+    private let dictationLabel = UILabel()
+    #endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -136,6 +142,12 @@ final class TopAreaView: UIView {
         candidateBar.setCandidates(state.candidates)
         // The small build line gives way to the candidates.
         probeLabel.isHidden = !state.candidates.isEmpty
+        #if DEBUG
+        // The dictation checklist replaces the build line; candidates (Chinese page) still win.
+        dictationLabel.text = state.dictationProbeLines?.joined(separator: "\n")
+        dictationLabel.isHidden = state.dictationProbeLines == nil || !state.candidates.isEmpty
+        if state.dictationProbeLines != nil { probeLabel.isHidden = true }
+        #endif
     }
 
     // MARK: Rows
@@ -150,6 +162,12 @@ final class TopAreaView: UIView {
         statusLabel.accessibilityValue = KeyboardLinkState.idle.name
         statusLabel.text = KeyboardLinkState.idle.statusText
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        #if DEBUG
+        statusLabel.isUserInteractionEnabled = true
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(statusLongPressed(_:)))
+        press.minimumPressDuration = 2
+        statusLabel.addGestureRecognizer(press)
+        #endif
         modeToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleMode) }, for: .touchUpInside)
         transmitToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleTransmit) }, for: .touchUpInside)
         modeToggle.setContentHuggingPriority(.required, for: .horizontal)
@@ -171,6 +189,13 @@ final class TopAreaView: UIView {
         statusRow.addArrangedSubview(spacer)
         statusRow.addArrangedSubview(transmitToggle)
     }
+
+    #if DEBUG
+    @objc private func statusLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        onDebugLongStatus?()
+    }
+    #endif
 
     private func buildDraftRow() {
         cursorLeft.onTap = { [weak self] in self?.onAction?(.cursorLeft) }
@@ -236,6 +261,22 @@ final class TopAreaView: UIView {
             probeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: candidateRow.leadingAnchor, constant: 8),
             probeLabel.centerYAnchor.constraint(equalTo: candidateRow.centerYAnchor)
         ])
+        #if DEBUG
+        dictationLabel.font = .systemFont(ofSize: 10)
+        dictationLabel.textColor = .secondaryLabel
+        dictationLabel.numberOfLines = 2
+        dictationLabel.adjustsFontSizeToFitWidth = true
+        dictationLabel.minimumScaleFactor = 0.6
+        dictationLabel.accessibilityIdentifier = "rk.dictationProbe"
+        dictationLabel.isHidden = true
+        dictationLabel.translatesAutoresizingMaskIntoConstraints = false
+        candidateRow.addSubview(dictationLabel)
+        NSLayoutConstraint.activate([
+            dictationLabel.leadingAnchor.constraint(equalTo: candidateRow.leadingAnchor, constant: 8),
+            dictationLabel.trailingAnchor.constraint(equalTo: candidateRow.trailingAnchor, constant: -8),
+            dictationLabel.centerYAnchor.constraint(equalTo: candidateRow.centerYAnchor)
+        ])
+        #endif
     }
 }
 

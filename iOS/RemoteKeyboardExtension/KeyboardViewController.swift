@@ -1,5 +1,8 @@
 import UIKit
 import RemoteKeyboardCore
+#if DEBUG
+import os
+#endif
 
 /// Adapts the system text proxy to the Core `TextSink` protocol.
 @MainActor
@@ -8,6 +11,39 @@ struct TextDocumentProxySink: @preconcurrency TextSink {
     func insertText(_ text: String) { proxy.insertText(text) }
     func deleteBackward() { proxy.deleteBackward() }
 }
+
+#if DEBUG
+/// T13: wraps the text proxy sink so the dictation probe knows a change in the field is ours (Local mode keys).
+@MainActor
+struct ProbingTextSink: @preconcurrency TextSink {
+    let base: TextDocumentProxySink
+    let onOwnEdit: () -> Void
+    func insertText(_ text: String) {
+        onOwnEdit()
+        base.insertText(text)
+        onOwnEdit()
+    }
+    func deleteBackward() {
+        onOwnEdit()
+        base.deleteBackward()
+        onOwnEdit()
+    }
+}
+
+/// T13: forwards to the peripheral and reports the id of each event it sent, so acks can be matched to them.
+@MainActor
+final class ProbingRemoteSink: @preconcurrency RemoteEventSink {
+    private let peripheral: KeyboardBLEPeripheral
+    private let onSent: (UUID) -> Void
+    init(peripheral: KeyboardBLEPeripheral, onSent: @escaping (UUID) -> Void) {
+        self.peripheral = peripheral
+        self.onSent = onSent
+    }
+    func enqueue(_ kind: EventKind) {
+        if let id = peripheral.send(kind) { onSent(id) }
+    }
+}
+#endif
 
 final class KeyboardViewController: UIInputViewController {
     static let modeDefaultsKey = "rk.mode"
@@ -24,7 +60,14 @@ final class KeyboardViewController: UIInputViewController {
     private let peripheral = KeyboardBLEPeripheral.shared
     /// Counts this controller and releases peripheral ownership when it is deallocated.
     private let lifecycle = ControllerLifecycle()
+    #if DEBUG
+    private lazy var router = InputRouter(
+        local: ProbingTextSink(
+            base: TextDocumentProxySink(proxy: textDocumentProxy), onOwnEdit: { [weak self] in self?.dictationOwnEdit() }),
+        remote: ProbingRemoteSink(peripheral: peripheral, onSent: { [weak self] id in self?.dictationSent(id) }))
+    #else
     private lazy var router = InputRouter(local: TextDocumentProxySink(proxy: textDocumentProxy), remote: peripheral)
+    #endif
     private var savedMode: KeyboardMode = .local
     private var transmit: TransmitMode = .instant
     private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: false)
@@ -38,6 +81,18 @@ final class KeyboardViewController: UIInputViewController {
     private var noteTask: Task<Void, Never>?
     /// Between `viewWillAppear` and `viewDidDisappear`; only a controller on screen may reclaim the peripheral.
     private var isOnScreen = false
+    #if DEBUG
+    // T13 dictation probe (DEBUG builds only). Memory holds the text snapshot; UserDefaults holds only the on flag and
+    // the counters, so a keyboard that iOS rebuilds during dictation still shows the numbers.
+    private static let dictationOnKey = "rk.dictationProbeOn"
+    private static let dictationCountersKey = "rk.dictationProbeCounters"
+    private static let dictationLog = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "dictation")
+    private var dictationProbeOn = false
+    private var dictationMirror = DictationMirror()
+    private var dictationSentIds: Set<UUID> = []
+    /// True while the probe routes a diff, so only those events count for checklist item 5.
+    private var isSyncingDictation = false
+    #endif
 
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
     private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
@@ -61,6 +116,8 @@ final class KeyboardViewController: UIInputViewController {
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
+        root.onDebugLongStatus = { [weak self] in self?.toggleDictationProbe() }
+        restoreDictationProbe()
         #endif
         root.globeButton.addTarget(
             self,
@@ -88,6 +145,9 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        #if DEBUG
+        dictationAppeared()
+        #endif
         updateNavigator()
         syncChineseEngine()
         claimPeripheral()
@@ -102,6 +162,9 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         isOnScreen = false
+        #if DEBUG
+        dictationDisappeared()
+        #endif
         imeQueue.reset()
         chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
@@ -112,6 +175,16 @@ final class KeyboardViewController: UIInputViewController {
     override func textWillChange(_ textInput: UITextInput?) {
         super.textWillChange(textInput)
         chinese.resetHistory()
+        #if DEBUG
+        dictationWillChange()
+        #endif
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        #if DEBUG
+        dictationDidChange()
+        #endif
     }
 
     override func viewWillLayoutSubviews() {
@@ -159,6 +232,169 @@ final class KeyboardViewController: UIInputViewController {
             guard outcome == .draftEdited else { break }
         }
         refreshStatus()
+    }
+    #endif
+
+    // MARK: T13 dictation probe (DEBUG)
+
+    #if DEBUG
+    private var textContext: (before: String, after: String) {
+        (textDocumentProxy.documentContextBeforeInput ?? "", textDocumentProxy.documentContextAfterInput ?? "")
+    }
+
+    private func restoreDictationProbe() {
+        let defaults = UserDefaults.standard
+        dictationProbeOn = defaults.bool(forKey: Self.dictationOnKey)
+        guard dictationProbeOn else { return }
+        let counters = defaults.data(forKey: Self.dictationCountersKey)
+            .flatMap { try? JSONDecoder().decode(DictationMirror.Counters.self, from: $0) }
+        dictationMirror = DictationMirror(counters: counters ?? DictationMirror.Counters())
+    }
+
+    private func persistDictationProbe() {
+        let defaults = UserDefaults.standard
+        defaults.set(dictationProbeOn, forKey: Self.dictationOnKey)
+        if let data = try? JSONEncoder().encode(dictationMirror.counters) {
+            defaults.set(data, forKey: Self.dictationCountersKey)
+        }
+    }
+
+    private func rebaselineDictationFromProxy() {
+        let context = textContext
+        dictationMirror.rebaseline(before: context.before, after: context.after)
+    }
+
+    /// A 2-second press on the status label. Turning on needs Remote mode; turning off works anywhere.
+    private func toggleDictationProbe() {
+        if dictationProbeOn {
+            dictationProbeOn = false
+            persistDictationProbe()
+            Self.dictationLog.info("probe off")
+            showNote("聽寫探測已關閉")
+            return
+        }
+        guard mode == .remote else {
+            showNote("聽寫探測需在遠端模式開啟")
+            return
+        }
+        dictationProbeOn = true
+        dictationMirror = DictationMirror()
+        dictationSentIds = []
+        rebaselineDictationFromProxy()
+        persistDictationProbe()
+        Self.dictationLog.info("probe on")
+        showNote("聽寫探測已開啟")
+    }
+
+    /// The keyboard view appeared. A baseline is taken only when there is none, so text that changed while the view
+    /// was hidden is still compared against the last snapshot at the next change.
+    private func dictationAppeared() {
+        guard dictationProbeOn else { return }
+        dictationMirror.noteAppeared()
+        if !dictationMirror.hasBaseline { rebaselineDictationFromProxy() }
+        persistDictationProbe()
+        Self.dictationLog.info("keyboard appeared count=\(self.dictationMirror.counters.appearances)")
+    }
+
+    private func dictationDisappeared() {
+        guard dictationProbeOn else { return }
+        dictationMirror.noteDisappeared()
+        persistDictationProbe()
+        Self.dictationLog.info("keyboard disappeared count=\(self.dictationMirror.counters.disappearances)")
+    }
+
+    private func dictationWillChange() {
+        guard dictationProbeOn else { return }
+        dictationMirror.noteWillChange()
+        persistDictationProbe()
+        Self.dictationLog.info("textWillChange count=\(self.dictationMirror.counters.willChangeCalls)")
+        refreshStatus()
+    }
+
+    /// Our own `insertText` / `deleteBackward` (Local mode): the field changes, but dictation did not write it.
+    private func dictationOwnEdit() {
+        guard dictationProbeOn else { return }
+        dictationMirror.noteOwnEdit(at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    private func dictationSent(_ id: UUID) {
+        guard dictationProbeOn, isSyncingDictation else { return }
+        dictationSentIds.insert(id)
+        dictationMirror.noteSent(1)
+    }
+
+    private func dictationAcked(_ id: UUID) {
+        guard dictationProbeOn, dictationSentIds.remove(id) != nil else { return }
+        dictationMirror.noteAcked()
+        persistDictationProbe()
+        Self.dictationLog.info("ack received sent=\(self.dictationMirror.counters.eventsSent) acked=\(self.dictationMirror.counters.eventsAcked)")
+        refreshStatus()
+    }
+
+    /// Compares the field with the last snapshot. In Remote mode a difference goes through the same router as typed
+    /// keys: to the Mac when the instant path applies, into the draft when the draft rules say so. In Local mode the
+    /// probe only observes. Only lengths and counts are logged, never text.
+    private func dictationDidChange() {
+        guard dictationProbeOn else { return }
+        let context = textContext
+        let outcome = dictationMirror.observe(
+            before: context.before, after: context.after, at: ProcessInfo.processInfo.systemUptime)
+        var name = "other"
+        switch outcome {
+        case .baselineSet: name = "baselineSet"
+        case .unchanged: name = "unchanged"
+        case .cursorMoved: name = "cursorMoved"
+        case .ownEdit: name = "ownEdit"
+        case .tooLarge:
+            name = "tooLarge"
+            showNote("差分過大，已重設")
+        case .events(let events):
+            name = mode == .remote ? "events" : "eventsObservedOnly"
+            if mode == .remote { syncDictation(events) }
+        }
+        let counters = dictationMirror.counters
+        Self.dictationLog.info(
+            "textDidChange outcome=\(name, privacy: .public) backspaces=\(counters.lastBackspaces) characters=\(counters.lastCharacters) did=\(counters.didChangeCalls) growths=\(counters.externalGrowths)")
+        persistDictationProbe()
+        refreshStatus()
+    }
+
+    private func syncDictation(_ events: [EventKind]) {
+        isSyncingDictation = true
+        defer { isSyncingDictation = false }
+        var drafted = 0
+        for event in events {
+            let action: KeyAction
+            switch event {
+            case .text(let text): action = .character(text)
+            case .backspace: action = .backspace
+            default: continue
+            }
+            let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+            switch outcome {
+            case .draftEdited: drafted += 1
+            case .draftFull:
+                showNote("草稿已滿，聽寫差分未同步")
+            default: break
+            }
+            if outcome == .draftFull { break }
+        }
+        if drafted > 0 { dictationMirror.noteDrafted(drafted) }
+    }
+
+    /// The checklist, two lines. Items 1 and 3 to 5 are measurements; item 1 is the user's own eyes.
+    private func dictationProbeLines() -> [String]? {
+        guard dictationProbeOn else { return nil }
+        let c = dictationMirror.counters
+        let written = c.externalGrowths > 0 ? "是\(c.externalGrowths)" : "否"
+        var diff = "退\(c.lastBackspaces) 字\(c.lastCharacters)"
+        if c.resets > 0 { diff += " 重設\(c.resets)" }
+        var mac = "送\(c.eventsSent) 回\(c.eventsAcked)"
+        if c.eventsDrafted > 0 { mac += " 稿\(c.eventsDrafted)" }
+        return [
+            "①請確認下方有麥克風  ②寫入欄位 \(written)",
+            "③變化 will\(c.willChangeCalls) did\(c.didChangeCalls) 隱\(c.disappearances)  ④差分 \(diff)  ⑤Mac \(mac)"
+        ]
     }
     #endif
 
@@ -253,6 +489,9 @@ final class KeyboardViewController: UIInputViewController {
             let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
             savedMode = applied
             chinese.resetHistory()
+            #if DEBUG
+            if dictationProbeOn { rebaselineDictationFromProxy() }
+            #endif
             UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
             showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)
         case .transmitToggled(let requested):
@@ -280,6 +519,9 @@ final class KeyboardViewController: UIInputViewController {
     private func received(_ message: ControlMessage) {
         // A probe's answer has no wording, so it leaves the status line alone.
         if case .ack(let ack) = message, let text = StatusLine.ackText(ack.result) { showNote(text) }
+        #if DEBUG
+        if case .ack(let ack) = message { dictationAcked(ack.eventId) }
+        #endif
         refreshStatus()
     }
 
@@ -291,7 +533,7 @@ final class KeyboardViewController: UIInputViewController {
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
             paired: peripheral.isPaired)
-        let state = KeyboardViewState(
+        let built = KeyboardViewState(
             mode: mode,
             transmit: transmit,
             page: navigator.page,
@@ -306,6 +548,12 @@ final class KeyboardViewController: UIInputViewController {
             candidates: navigator.page == .chinese ? chinese.candidates : [],
             handwritingMessage: navigator.page == .chinese ? Self.message(for: chinese.modelStatus) : nil,
             hapticsEnabled: hasFullAccess)
+        #if DEBUG
+        var state = built
+        state.dictationProbeLines = dictationProbeLines()
+        #else
+        let state = built
+        #endif
         rootView.apply(state)
         let height = rootView.preferredHeight
         if heightConstraint?.constant != height { heightConstraint?.constant = height }

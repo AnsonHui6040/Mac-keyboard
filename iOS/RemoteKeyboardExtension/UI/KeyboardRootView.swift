@@ -21,6 +21,10 @@ struct KeyboardViewState: Equatable {
     var handwritingMessage: String?
     /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
     var hapticsEnabled: Bool
+    #if DEBUG
+    /// T13 dictation probe checklist (two lines of text); nil when the probe is off.
+    var dictationProbeLines: [String]?
+    #endif
 }
 
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
@@ -41,6 +45,11 @@ final class KeyboardRootView: UIView {
     var onDebugLongSpace: (() -> Void)? {
         get { bottomRow.onDebugLongSpace }
         set { bottomRow.onDebugLongSpace = newValue }
+    }
+    /// T13: a 2-second press on the status label turns the dictation probe on or off.
+    var onDebugLongStatus: (() -> Void)? {
+        get { topArea.onDebugLongStatus }
+        set { topArea.onDebugLongStatus = newValue }
     }
     #endif
 

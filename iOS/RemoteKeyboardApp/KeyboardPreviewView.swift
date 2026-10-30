@@ -6,7 +6,7 @@ import UIKit
 /// Debug only. Launch the app with `-rkPreview <state>` to see the keyboard views at their real height with fake
 /// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
 /// `handwriting` (Chinese page with sample ink and the candidates 香 秤 港), `handwritingEmpty` (nothing written yet),
-/// `handwritingNoModel` (the model is missing).
+/// `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist in the candidate row).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -93,6 +93,13 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (make(page: .chinese), .off)
         case "handwritingNoModel":
             return (make(page: .chinese, message: "請先在 App 下載手寫模型"), .off)
+        case "dictationProbe":
+            var state = make()
+            state.dictationProbeLines = [
+                "①請確認下方有麥克風  ②寫入欄位 是12",
+                "③變化 will12 did12 隱0  ④差分 退2 字13 重設1  ⑤Mac 送12 回12 稿3"
+            ]
+            return (state, .off)
         case "caps":
             return (make(), .capsLock)
         default:
