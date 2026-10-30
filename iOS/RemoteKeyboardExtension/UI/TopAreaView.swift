@@ -111,8 +111,6 @@ final class TopAreaView: UIView {
     #if DEBUG
     /// T13: a 2-second press on the status label (Remote mode) turns the dictation probe on or off.
     var onDebugLongStatus: (() -> Void)?
-    /// T13: the dictation probe checklist, in the candidate row while the probe is on and no candidates are shown.
-    private let dictationLabel = UILabel()
     #endif
 
     override init(frame: CGRect) {
@@ -156,12 +154,6 @@ final class TopAreaView: UIView {
         candidateBar.setBackspaceVisible(isChinesePage)
         // The small build line gives way to the candidates and, on the Chinese page, to the delete key.
         probeLabel.isHidden = !state.candidates.isEmpty || isChinesePage
-        #if DEBUG
-        // The dictation checklist replaces the build line; the candidates and the Chinese page's delete key still win.
-        dictationLabel.text = state.dictationProbeLines?.joined(separator: "\n")
-        dictationLabel.isHidden = state.dictationProbeLines == nil || !state.candidates.isEmpty || isChinesePage
-        if state.dictationProbeLines != nil { probeLabel.isHidden = true }
-        #endif
     }
 
     // MARK: Rows
@@ -275,22 +267,6 @@ final class TopAreaView: UIView {
             probeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: candidateRow.leadingAnchor, constant: 8),
             probeLabel.centerYAnchor.constraint(equalTo: candidateRow.centerYAnchor)
         ])
-        #if DEBUG
-        dictationLabel.font = .systemFont(ofSize: 10)
-        dictationLabel.textColor = .secondaryLabel
-        dictationLabel.numberOfLines = 2
-        dictationLabel.adjustsFontSizeToFitWidth = true
-        dictationLabel.minimumScaleFactor = 0.6
-        dictationLabel.accessibilityIdentifier = "rk.dictationProbe"
-        dictationLabel.isHidden = true
-        dictationLabel.translatesAutoresizingMaskIntoConstraints = false
-        candidateRow.addSubview(dictationLabel)
-        NSLayoutConstraint.activate([
-            dictationLabel.leadingAnchor.constraint(equalTo: candidateRow.leadingAnchor, constant: 8),
-            dictationLabel.trailingAnchor.constraint(equalTo: candidateRow.trailingAnchor, constant: -8),
-            dictationLabel.centerYAnchor.constraint(equalTo: candidateRow.centerYAnchor)
-        ])
-        #endif
     }
 }
 

@@ -85,6 +85,8 @@ final class KeyboardViewController: UIInputViewController {
     // T13 dictation probe (DEBUG builds only). Memory holds the text snapshot; UserDefaults holds only the on flag and
     // the counters, so a keyboard that iOS rebuilds during dictation still shows the numbers.
     private static let dictationOnKey = "rk.dictationProbeOn"
+    /// Wall-clock time the switch was turned on; the switch is only restored for `DictationMirror.leaseSeconds`.
+    private static let dictationOnAtKey = "rk.dictationProbeOnAt"
     private static let dictationCountersKey = "rk.dictationProbeCounters"
     private static let dictationLog = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "dictation")
     private var dictationProbeOn = false
@@ -157,6 +159,9 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         reclaimPeripheralIfVacant()
+        #if DEBUG
+        dictationDidAppear()
+        #endif
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -238,14 +243,27 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: T13 dictation probe (DEBUG)
 
     #if DEBUG
-    private var textContext: (before: String, after: String) {
-        (textDocumentProxy.documentContextBeforeInput ?? "", textDocumentProxy.documentContextAfterInput ?? "")
+    /// The text around the cursor and the field's identifier. `before` is `nil` while iOS has not loaded the field
+    /// (or the cursor is at the very start), which is why only a keyboard that has been on screen may treat it as "".
+    private var textContext: (before: String?, after: String?, documentId: UUID?) {
+        (
+            textDocumentProxy.documentContextBeforeInput, textDocumentProxy.documentContextAfterInput,
+            textDocumentProxy.documentIdentifier
+        )
     }
 
     private func restoreDictationProbe() {
         let defaults = UserDefaults.standard
-        dictationProbeOn = defaults.bool(forKey: Self.dictationOnKey)
-        guard dictationProbeOn else { return }
+        guard defaults.bool(forKey: Self.dictationOnKey) else { return }
+        let startedAt = defaults.object(forKey: Self.dictationOnAtKey) as? Double
+        guard DictationMirror.isLeaseValid(startedAt: startedAt, now: Date().timeIntervalSince1970) else {
+            // Switched on too long ago (or without a start time): a forgotten switch stays off.
+            defaults.set(false, forKey: Self.dictationOnKey)
+            defaults.removeObject(forKey: Self.dictationOnAtKey)
+            Self.dictationLog.info("probe lease expired")
+            return
+        }
+        dictationProbeOn = true
         let counters = defaults.data(forKey: Self.dictationCountersKey)
             .flatMap { try? JSONDecoder().decode(DictationMirror.Counters.self, from: $0) }
         dictationMirror = DictationMirror(counters: counters ?? DictationMirror.Counters())
@@ -259,15 +277,20 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func rebaselineDictationFromProxy() {
+    /// Takes the baseline the user just caused (switching the probe on, changing mode) while the keyboard is on
+    /// screen. A `nil` text before the cursor then means an empty field. The appearance paths never do this.
+    private func rebaselineDictationFromVisibleKeyboard() {
         let context = textContext
-        dictationMirror.rebaseline(before: context.before, after: context.after)
+        dictationMirror.rebaseline(
+            before: context.before ?? "", after: context.after, documentId: context.documentId)
     }
 
     /// A 2-second press on the status label. Turning on needs Remote mode; turning off works anywhere.
     private func toggleDictationProbe() {
         if dictationProbeOn {
             dictationProbeOn = false
+            dictationSentIds = []
+            UserDefaults.standard.removeObject(forKey: Self.dictationOnAtKey)
             persistDictationProbe()
             Self.dictationLog.info("probe off")
             showNote("聽寫探測已關閉")
@@ -280,18 +303,19 @@ final class KeyboardViewController: UIInputViewController {
         dictationProbeOn = true
         dictationMirror = DictationMirror()
         dictationSentIds = []
-        rebaselineDictationFromProxy()
+        rebaselineDictationFromVisibleKeyboard()
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.dictationOnAtKey)
         persistDictationProbe()
         Self.dictationLog.info("probe on")
         showNote("聽寫探測已開啟")
     }
 
-    /// The keyboard view appeared. A baseline is taken only when there is none, so text that changed while the view
-    /// was hidden is still compared against the last snapshot at the next change.
+    /// The keyboard view is about to appear. No baseline is taken here: the field may not be loaded yet, and a baseline
+    /// of "" would send the whole existing text at the first change. A keyboard without a baseline gets one from its
+    /// first `textDidChange`.
     private func dictationAppeared() {
         guard dictationProbeOn else { return }
         dictationMirror.noteAppeared()
-        if !dictationMirror.hasBaseline { rebaselineDictationFromProxy() }
         persistDictationProbe()
         Self.dictationLog.info("keyboard appeared count=\(self.dictationMirror.counters.appearances)")
     }
@@ -337,8 +361,40 @@ final class KeyboardViewController: UIInputViewController {
     private func dictationDidChange() {
         guard dictationProbeOn else { return }
         let context = textContext
+        // No baseline and no text yet: the field is probably not loaded, and "" would make the next change look like
+        // the whole existing text. Wait for a change that carries text.
+        if !dictationMirror.hasBaseline, context.before == nil {
+            dictationMirror.noteDidChange()
+            Self.dictationLog.info("textDidChange outcome=baselineSkippedNil did=\(self.dictationMirror.counters.didChangeCalls)")
+            persistDictationProbe()
+            refreshStatus()
+            return
+        }
         let outcome = dictationMirror.observe(
-            before: context.before, after: context.after, at: ProcessInfo.processInfo.systemUptime)
+            before: context.before ?? "", after: context.after ?? "", documentId: context.documentId,
+            at: ProcessInfo.processInfo.systemUptime)
+        finishDictationObservation(outcome, event: "textDidChange")
+    }
+
+    /// The keyboard finished appearing. With a baseline it compares once, so a change made while the view was hidden is
+    /// still found; the log names it `appearDiff` so it can be told from a `textDidChange`. Without a baseline it waits
+    /// for the first `textDidChange`.
+    private func dictationDidAppear() {
+        guard dictationProbeOn, dictationMirror.hasBaseline else { return }
+        let context = textContext
+        // A `nil` text before the cursor may be a field that is not loaded yet; comparing it as "" could send
+        // backspaces for text that was never deleted. Skip, and leave the baseline for the next `textDidChange`.
+        guard let outcome = dictationMirror.observeOnAppear(
+            before: context.before, after: context.after, documentId: context.documentId,
+            at: ProcessInfo.processInfo.systemUptime)
+        else {
+            if context.before == nil { Self.dictationLog.info("appear outcome=appearSkippedNil") }
+            return
+        }
+        finishDictationObservation(outcome, event: "appear")
+    }
+
+    private func finishDictationObservation(_ outcome: DictationMirror.Outcome, event: String) {
         var name = "other"
         switch outcome {
         case .baselineSet: name = "baselineSet"
@@ -348,13 +404,20 @@ final class KeyboardViewController: UIInputViewController {
         case .tooLarge:
             name = "tooLarge"
             showNote("差分過大，已重設")
+        case .documentChanged:
+            name = "documentChanged"
+            showNote("換了欄位，已重設")
+        case .untrusted:
+            name = "untrusted"
+            showNote("文字窗口不可信，已重設")
         case .events(let events):
             name = mode == .remote ? "events" : "eventsObservedOnly"
+            if event == "appear" { name = "appearDiff" }
             if mode == .remote { syncDictation(events) }
         }
         let counters = dictationMirror.counters
         Self.dictationLog.info(
-            "textDidChange outcome=\(name, privacy: .public) backspaces=\(counters.lastBackspaces) characters=\(counters.lastCharacters) did=\(counters.didChangeCalls) growths=\(counters.externalGrowths)")
+            "\(event, privacy: .public) outcome=\(name, privacy: .public) backspaces=\(counters.lastBackspaces) characters=\(counters.lastCharacters) did=\(counters.didChangeCalls) growths=\(counters.externalGrowths) untrusted=\(counters.untrusted) docChanges=\(counters.documentChanges)")
         persistDictationProbe()
         refreshStatus()
     }
@@ -382,18 +445,22 @@ final class KeyboardViewController: UIInputViewController {
         if drafted > 0 { dictationMirror.noteDrafted(drafted) }
     }
 
-    /// The checklist, two lines. Items 1 and 3 to 5 are measurements; item 1 is the user's own eyes.
+    /// The checklist, one item per line. Item 1 is the user's own eyes; items 2 to 5 are measurements.
     private func dictationProbeLines() -> [String]? {
         guard dictationProbeOn else { return nil }
         let c = dictationMirror.counters
-        let written = c.externalGrowths > 0 ? "是\(c.externalGrowths)" : "否"
-        var diff = "退\(c.lastBackspaces) 字\(c.lastCharacters)"
-        if c.resets > 0 { diff += " 重設\(c.resets)" }
-        var mac = "送\(c.eventsSent) 回\(c.eventsAcked)"
-        if c.eventsDrafted > 0 { mac += " 稿\(c.eventsDrafted)" }
+        var diff = "④ 差分  退 \(c.lastBackspaces) 字 \(c.lastCharacters)"
+        if c.resets > 0 { diff += "  過大 \(c.resets)" }
+        if c.untrusted > 0 { diff += "  截斷 \(c.untrusted)" }
+        if c.documentChanges > 0 { diff += "  換檔 \(c.documentChanges)" }
+        var mac = "⑤ Mac  送 \(c.eventsSent) 回 \(c.eventsAcked)"
+        if c.eventsDrafted > 0 { mac += " 稿 \(c.eventsDrafted)" }
         return [
-            "①請確認下方有麥克風  ②寫入欄位 \(written)",
-            "③變化 will\(c.willChangeCalls) did\(c.didChangeCalls) 隱\(c.disappearances)  ④差分 \(diff)  ⑤Mac \(mac)"
+            "① 麥克風  請目視確認下方有麥克風",
+            "② 寫入欄位  \(c.externalGrowths > 0 ? "是" : "否") \(c.externalGrowths)",
+            "③ 鍵盤收到變化  did \(c.didChangeCalls)  will \(c.willChangeCalls)  隱 \(c.disappearances)  基準 \(c.baselines)",
+            diff,
+            mac
         ]
     }
     #endif
@@ -490,7 +557,7 @@ final class KeyboardViewController: UIInputViewController {
             savedMode = applied
             chinese.resetHistory()
             #if DEBUG
-            if dictationProbeOn { rebaselineDictationFromProxy() }
+            if dictationProbeOn { rebaselineDictationFromVisibleKeyboard() }
             #endif
             UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
             showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)

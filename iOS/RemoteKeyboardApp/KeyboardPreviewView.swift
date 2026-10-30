@@ -7,7 +7,7 @@ import UIKit
 /// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
 /// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
 /// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
-/// yet), `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist in the candidate row).
+/// yet), `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist panel over the English letter rows).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -103,8 +103,11 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         case "dictationProbe":
             var state = make()
             state.dictationProbeLines = [
-                "①請確認下方有麥克風  ②寫入欄位 是12",
-                "③變化 will12 did12 隱0  ④差分 退2 字13 重設1  ⑤Mac 送12 回12 稿3"
+                "① 麥克風  請目視確認下方有麥克風",
+                "② 寫入欄位  是 12",
+                "③ 鍵盤收到變化  did 12  will 12  隱 0  基準 1",
+                "④ 差分  退 2 字 13  過大 1  截斷 1  換檔 1",
+                "⑤ Mac  送 12 回 12 稿 3"
             ]
             return (state, .off)
         case "caps":
