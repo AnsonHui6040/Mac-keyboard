@@ -12,6 +12,20 @@ final class ControlMessageTests: XCTestCase {
         XCTAssertEqual(try ControlCodec.decode(ControlCodec.encode(m)), m)
     }
 
+    func testUntrustedStatusRoundTripsAndTrustedKeepsTheOldBytes() throws {
+        let untrusted = ControlMessage.status(ReceiverStatus(ready: false, appName: nil, focusEpoch: 1, trusted: false))
+        XCTAssertEqual(try ControlCodec.decode(ControlCodec.encode(untrusted)), untrusted)
+        let trusted = try ControlCodec.encode(.status(ReceiverStatus(ready: true, appName: "Notes", focusEpoch: 1)))
+        XCTAssertFalse(String(decoding: trusted, as: UTF8.self).contains("trusted"), "a trusted status adds nothing to the wire")
+        XCTAssertEqual(String(decoding: trusted, as: UTF8.self), #"{"status":{"_0":{"appName":"Notes","focusEpoch":1,"ready":true}}}"#)
+    }
+
+    func testStatusFromAnOlderReceiverDecodesAsTrusted() throws {
+        let old = try ControlCodec.encode(.status(ReceiverStatus(ready: true, appName: "Notes", focusEpoch: 1)))
+        guard case .status(let status) = try ControlCodec.decode(old) else { return XCTFail("not a status") }
+        XCTAssertTrue(status.trusted)
+    }
+
     func testAckRoundTripForEveryCode() throws {
         let codes: [AckCode] = [.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .compositionActive,
                                 .injectFailed, .pong, .outOfOrder]

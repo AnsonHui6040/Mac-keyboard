@@ -15,6 +15,7 @@ public enum StatusLine {
         guard mode == .remote, link == .connected else {
             return link == .connected ? "BLE: connected" + latency : link.statusText
         }
+        if let receiver, !receiver.trusted { return "Mac 未授權輔助使用" + latency }
         let base = receiver?.appName.map { "Mac → \($0)" } ?? "Mac"
         guard let receiver else { return base + "（等待狀態）" + latency }
         return (receiver.ready ? base : base + "（無輸入欄位）") + latency
@@ -42,6 +43,7 @@ public enum StatusLine {
     }
 
     public static func appendingNote(_ line: String, note: String?) -> String {
-        note.map { "\(line)（\($0)）" } ?? line
+        guard let note, !line.contains(note) else { return line }
+        return "\(line)（\(note)）"
     }
 }

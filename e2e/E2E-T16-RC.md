@@ -1,0 +1,265 @@
+# E2E-T16-RC：發布前實機總清單
+
+執行者：使用者。這份清單把所有延到最後才測的實機項目合在一起，依「同一個準備狀態一起做」排序，不必再翻各份 E2E 檔。使用者親手測完才算 PASS；在那之前，結果欄一律維持 TBD。
+
+怎麼填：測完一列，把結果欄的 TBD 改成 `PASS` 或 `FAIL（看到的現象）`。需要記錄數字的列，直接把數字寫在結果欄。
+
+欄位說明：
+
+| 欄位 | 意思 |
+|---|---|
+| 必要 | 沒有通過就不能發布 |
+| 可選 | 建議測，沒測或失敗只記錄，不擋發布 |
+| 來源 | 原本放這一項的 E2E 檔與步驟號，需要細節時回去看 |
+
+## 時間估計與順序
+
+| 組 | 內容 | 預估時間 | 項數 | 必要 | 可選 |
+|---|---|---|---|---|---|
+| A | 準備 Mac 與 iPhone | 15 分鐘 | 6 | 6 | 0 |
+| B | 英文鍵盤、符號頁與 Mac 注入基本功 | 45 分鐘 | 22 | 19 | 3 |
+| C | 手寫 | 25 分鐘 | 19 | 18 | 1 |
+| D | 速成 | 15 分鐘 | 10 | 10 | 0 |
+| E | 聽寫同步 | 35 分鐘 | 29 | 26 | 3 |
+| F | Mac 輸入法與跨 App 矩陣 | 80 分鐘 | 20 | 16 | 4 |
+| G | 穩定性與權限撤銷 | 45 分鐘 | 17 | 16 | 1 |
+| H | 重連、配對與登入項目 | 55 分鐘 | 19 | 15 | 4 |
+| Z | 收尾 | 5 分鐘 | 3 | 3 | 0 |
+| 合計 | | 約 5 小時 20 分鐘 | 145 | 129 | 16 |
+
+總時間約 5 小時 20 分鐘。每一組都可以獨立完成，組與組之間可以休息，也可以分成三段做：
+
+| 時段 | 組別 | 約略時間 |
+|---|---|---|
+| 第一段 | A、B、D、C | 1 小時 40 分鐘 |
+| 第二段 | E、F | 1 小時 55 分鐘 |
+| 第三段 | G、H、Z | 1 小時 45 分鐘 |
+
+順序不要打亂：A 一定先做；G 會關閉權限與藍牙，所以放在 F 之後；H 會解除配對，所以放在最後，Z 最後收尾。
+
+## 自動驗證（已完成，不需要使用者做）
+
+| 項目 | 結果 |
+|---|---|
+| Mac 未授權輔助使用時，鍵盤狀態列顯示「Mac 未授權輔助使用」，不再顯示「無輸入欄位」 | 自動測試 PASS；實機見 G6 |
+| Mac 藍牙不可用時，面板顯示原因（已關閉、未授權、不支援） | 自動測試 PASS；實機見 G11 |
+| CoreBluetooth 連線與斷線的接線（以假的 manager 與 peripheral 驗證） | 自動測試 PASS |
+| 重連 UI 測試清理（Notes 先返回列表、Safari 網址列查找不再多等、先比對 identifier、探測輸出不含資料夾名稱與網頁標題） | 程式完成、UI 測試 build-for-testing 成功；實機試跑見 H1 |
+
+## A 準備 Mac 與 iPhone（約 15 分鐘）
+
+這一組做完，後面所有組都可以直接開始。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| A1 | 必要 | 請主代理先用 Debug 設定把最新版安裝到 iPhone 與 Mac。比對 Mac 面板頂部「版本」與 iPhone 主 App 頂部的 build 時間 | 兩邊時間一致，也與主代理告知的相同 | TBD | E2E-T05-A-KEY 前置條件；E2E-T06-RECONNECT 前置條件 |
+| A2 | 必要 | 請主代理再 build 並安裝一次（內容不必改）。重新叫出鍵盤，看鍵盤右上的小字，再看 Mac 面板的版本 | 兩邊時間都換成新的時間；鍵盤右上文字完整，沒有被截斷 | TBD | 交接文件「延至 T16」表（T05 build 時間與截斷） |
+| A3 | 必要 | Mac 系統設定 › 隱私權與安全性：確認 Remote Keyboard Receiver 已允許「輔助使用」與「藍牙」。開啟 TextEdit 新建純文字文件，游標停在文件內，打開 Mac 選單列面板 | 焦點行顯示「焦點：TextEdit（可編輯，epoch N）」，沒有「授權輔助使用」按鈕 | TBD | E2E-T04-INJECT 步驟 1 |
+| A4 | 必要 | iPhone 設定 › 一般 › 鍵盤 › Remote Keyboard：確認「允許完整取用」已開。Mac 面板確認「配對：已配對 iPhone」；若顯示尚未配對，先照 H3 的配對步驟配對一次 | 兩邊都是已配對；iPhone 鍵盤在備忘錄叫得出來 | TBD | E2E-T09-PAIRING 前置條件 |
+| A5 | 必要 | Mac 輸入法切到 ABC，面板按「開始接收」。iPhone 備忘錄新建一則空白備忘錄，叫出 Remote Keyboard，按「遠端」並選「即時」 | iPhone 狀態列顯示 `Mac → TextEdit (N ms)`；Mac 面板顯示 `Link: ready (N ms)` | TBD | E2E-T05-A-KEY 前置條件 |
+| A6 | 必要 | 開啟 iPhone 螢幕錄影，並確認 Mac 也可以錄螢幕。B2、B3、H2 要用到 | 錄影開得起來 | TBD | E2E-T05-A-KEY 步驟 2、3；E2E-T06-RECONNECT 步驟 3 |
+
+## B 英文鍵盤、符號頁與 Mac 注入基本功（約 45 分鐘）
+
+準備狀態：A5 完成，Mac 輸入法 ABC，TextEdit 純文字文件，iPhone 遠端即時。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| B1 | 必要 | 面板先按「停止接收」到顯示「待命」，然後點進 TextEdit 文件 | 面板自動開始接收，顯示剩餘接收時間 30:00 附近並開始掃描；iPhone 狀態列回到 `Mac → TextEdit` | TBD | E2E-T05-A-KEY 步驟 1 |
+| B2 | 必要 | 開始錄影。在 Notes 重複 20 次：收起鍵盤、叫出鍵盤、按一次 `A`，確認 TextEdit 多一個 `A`。不得用主 App 代打 | 20 次都成功，沒有多出的字，錯誤焦點 0 次。記下成功次數與錄影檔名 | TBD | E2E-T05-A-KEY 步驟 2 |
+| B3 | 必要 | 同 B2，改在 Safari 網址列或網頁輸入框叫出鍵盤 | 20 次都成功，錯誤焦點 0 次。記下成功次數與錄影檔名 | TBD | E2E-T05-A-KEY 步驟 3 |
+| B4 | 必要 | 在遠端模式打 `Hello world`，倒退 2 次，再按一次換行 | TextEdit 顯示 `Hello wor` 並換行 | TBD | E2E-T05-A-KEY 步驟 4 |
+| B5 | 必要 | Mac 面板「測試插入」依序送出 `A`、`Hello`、`香港`、`👨‍👩‍👧‍👦`、`café`，每次倒數 3 秒內點進 TextEdit | 5 組字串都與 TextEdit 顯示完全一致，面板顯示「已插入」。結果欄逐項寫 PASS 或 FAIL | TBD | E2E-T04-INJECT 步驟 2 |
+| B6 | 必要 | 輸入法 ABC，點進 TextEdit 新的一行，面板「測試插入」選「O5 長度測試（30 字元，單一事件）」，數 TextEdit 實際出現的字元數 | 預期 30 個字元（`ABCDEFGHIJKLMNOPQRSTUVWXYZ0123`）。把實際字元數寫在結果欄，由主代理寫入規格 §5 | TBD | E2E-T04-INJECT 步驟 5 |
+| B7 | 必要 | 遠端草稿模式，長按空白鍵約 2 秒把草稿填滿（需 Debug 版），再打一個字 | 出現「草稿已達 1,000 字上限」，草稿不再增加；按傳送後可以再打字 | TBD | E2E-T10-KEYBOARD 步驟 31 |
+| B8 | 必要 | 在 Safari 或 Mail 的 email 欄位叫出鍵盤（先讓上次停在符號頁） | 鍵盤開在英文頁 | TBD | E2E-T10-KEYBOARD 步驟 32 |
+| B9 | 必要 | 在數字鍵盤的欄位（例如健康 App 加入資料）叫出鍵盤 | 開在符號頁，數字列在最上面；`符號` 鍵顯示 `ABC` | TBD | E2E-T10-KEYBOARD 步驟 33 |
+| B10 | 可選 | 打一段文字，感受按鍵高度（42 pt）與行距（12 pt）是否順手；有完整取用時按鍵輕震，關閉完整取用後不震 | 手感可以接受；不震的情況見 G10。寫下你的感想 | TBD | E2E-T10-KEYBOARD 摘要（42 pt 與震動手感） |
+| B11 | 可選 | 開啟 VoiceOver，逐一點選刪除、空白、換行、中英、符號、Shift、◀ ▶、傳送、本機｜遠端與幾個字母鍵 | 讀出台灣中文標籤（刪除、空白鍵、換行、中英切換、符號、大寫、游標左移、游標右移、傳送草稿）；字母鍵讀出字母 | TBD | E2E-T10-KEYBOARD 步驟 38 |
+| B12 | 可選 | 如果手邊有 iPhone SE 3 或 mini，開啟遠端草稿狀態（頂部 3 行），並製造「3 個按鍵未確認是否送達」這類較長提示 | 頂部三行與按鍵不重疊、不截字；長提示可用兩行顯示。沒有 375 pt 的實機就寫「無裝置」 | TBD | E2E-T10-KEYBOARD 步驟 39 |
+| B13 | 必要 | 遠端模式，英文頁按 `符號`，確認第 1 層 | 第 1、2 行為 `1234567890`、`-/:;()$&@"`，第 3 行為換層鍵 `#+=`、`.,?!'`、刪除 | TBD | E2E-T11-SYMBOLS 步驟 1 |
+| B14 | 必要 | 第 1 層每一鍵各按一次 | TextEdit 依序出現相同字元，備忘錄沒有字 | TBD | E2E-T11-SYMBOLS 步驟 2 |
+| B15 | 必要 | 按換層鍵 `#+=`，確認第 2 層，再每一鍵各按一次 | 第 2 層為 `[]{}#%^*+=`、`_\|~<>€£¥•`、`.,?!'`，換層鍵改為 `123`；換層本身沒有送出任何字；TextEdit 出現相同字元 | TBD | E2E-T11-SYMBOLS 步驟 3、4 |
+| B16 | 必要 | 按 `123` 回第 1 層；再按 `ABC` 回英文頁，再按 `符號` | 回到第 1 層，不是上次停留的層；換層沒有送出任何字；符號鍵在英文頁進入時顯示 `ABC` | TBD | E2E-T11-SYMBOLS 步驟 5、7、12 |
+| B17 | 必要 | 符號頁長按刪除 | 連續刪除 TextEdit 的字，鬆手即停 | TBD | E2E-T11-SYMBOLS 步驟 6 |
+| B18 | 必要 | 切到中文頁（`中英`），按 `符號` | 第 1 層為數字與全形標點 `「」『』（）：；、～`、`，。？！…`；換層鍵 `半形`；符號鍵顯示 `中`；按下回到中文頁 | TBD | E2E-T11-SYMBOLS 步驟 8、12 |
+| B19 | 必要 | 中文第 1 層每一鍵各按一次 | TextEdit 出現相同全形字元 | TBD | E2E-T11-SYMBOLS 步驟 9 |
+| B20 | 必要 | 按 `半形`，再按 `#+=`，再按 `全形`，中文第 2、3 層每一鍵各按一次 | 依序為中文第 2 層（同英文第 1 層）、第 3 層（同英文第 2 層）、回第 1 層；換層沒有送出任何字；TextEdit 出現相同字元 | TBD | E2E-T11-SYMBOLS 步驟 10、11 |
+| B21 | 必要 | 切到本機模式，符號頁每層各按數個鍵 | 備忘錄出現相同字元，TextEdit 沒有字 | TBD | E2E-T11-SYMBOLS 步驟 13 |
+| B22 | 必要 | 切換層與頁面各來回 10 次 | 沒有任何重複送出的字元；鍵盤沒有重新載入 | TBD | E2E-T11-SYMBOLS 步驟 14 |
+
+## C 手寫（約 25 分鐘）
+
+準備狀態：A5 完成，iPhone 在 Wi-Fi 或行動網路上（下載模型約 30 MB，只需一次）。步驟 C1 到 C3 一定要在手寫模型尚未下載時做；若已下載，先做 C17 刪除。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| C1 | 必要 | 開啟 Remote Keyboard 主 App，進入「中文輸入設定」 | 「中文輸入」顯示手寫已選，速成可選；「手寫模型」顯示「尚未下載」 | TBD | E2E-T12-HANDWRITING 步驟 1 |
+| C2 | 必要 | 在備忘錄叫出鍵盤，按 `中英` | 手寫區顯示「請先在 App 下載手寫模型」 | TBD | E2E-T12-HANDWRITING 步驟 3 |
+| C3 | 必要 | 回主 App 按「下載手寫模型」 | 顯示下載進度，完成後顯示「已下載（約 30 MB）」；記下畫面上的實際數字 | TBD | E2E-T12-HANDWRITING 步驟 2 |
+| C4 | 必要 | 本機模式，中文頁手寫 `香`，等候選字出現 | 頂部第三行出現候選字，第一個有淺色底；全部是中文字，沒有符號或數字 | TBD | E2E-T12-HANDWRITING 步驟 4 |
+| C5 | 必要 | 點第一個候選字 | 備忘錄出現 `香`，筆跡與候選字清空 | TBD | E2E-T12-HANDWRITING 步驟 5 |
+| C6 | 必要 | 依序寫 `港`、`你`、`好`，各按空白 | 空白送出第一個候選字，備忘錄為 `香港你好`（首選不是目標字時，改點正確的候選字） | TBD | E2E-T12-HANDWRITING 步驟 6 |
+| C7 | 必要 | 切到遠端即時，Mac 就緒，重複 C4 到 C6 | TextEdit 收到 `香港你好`，iPhone 備忘錄不出現字 | TBD | E2E-T12-HANDWRITING 步驟 7 |
+| C8 | 必要 | 切到遠端草稿，重複 C4 到 C6 | 字進草稿列，按傳送後 TextEdit 收到 `香港你好` | TBD | E2E-T12-HANDWRITING 步驟 8 |
+| C9 | 必要 | 寫一個字後按刪除 | 筆跡與候選字清空，備忘錄與 TextEdit 都不刪字 | TBD | E2E-T12-HANDWRITING 步驟 9 |
+| C10 | 必要 | 再按刪除（沒有筆跡），長按一次 | 刪除前一個字，長按可連續刪除 | TBD | E2E-T12-HANDWRITING 步驟 10 |
+| C11 | 必要 | 寫一個字後按重寫 | 筆跡與候選字清空，不送出任何字 | TBD | E2E-T12-HANDWRITING 步驟 11 |
+| C12 | 必要 | 沒有筆跡時按空白、換行 | 一般的空白與換行 | TBD | E2E-T12-HANDWRITING 步驟 12 |
+| C13 | 必要 | 按 `中英` 回英文頁，再按一次；收起鍵盤再叫出 | 在英文頁與中文頁之間切換；重開後停在上次的字母頁 | TBD | E2E-T12-HANDWRITING 步驟 13 |
+| C14 | 必要 | 寫 25 字的混合詞語（中文詞、單字與標點交錯），分別在本機與遠端即時各做一次 | 本機備忘錄與遠端 TextEdit 都沒有殘留的筆跡、候選字或多出的字 | TBD | 計劃 Task 12 Step 8（25 字混合詞語） |
+| C15 | 必要 | 在中文頁與英文頁之間用 `中英` 來回切換 30 次，再收起、叫出鍵盤 30 次 | 鍵盤沒有閃退、沒有被系統回收，手寫仍可使用 | TBD | 計劃 Task 12 Step 8（30 次切換無 OOM） |
+| C16 | 可選 | 準備自己選的 100 個常用字，逐字手寫，記下目標字是否出現在前 3 個候選字 | 前 3 個候選字命中至少 90 個。寫下實際命中數 | TBD | 計劃 Task 12 Step 8（100 字測例） |
+| C17 | 必要 | 到設定頁按「刪除手寫模型」並確認，再叫出鍵盤切到中文頁 | 設定頁顯示「尚未下載」；鍵盤中文頁顯示「請先在 App 下載手寫模型」 | TBD | E2E-T12-HANDWRITING 步驟 15；E2E-T13B-DICTATION-SYNC 步驟 15 |
+| C18 | 必要 | 再下載一次模型後叫出鍵盤 | 中文頁可手寫，辨識正常（鍵盤偵測到新模型並重新匯入） | TBD | E2E-T12-HANDWRITING 步驟 16 |
+| C19 | 必要 | 手寫頁底列從左到右確認 | 左到右為（地球儀）符號、中英、空白、重寫、換行；各鍵寬度與以前相同 | TBD | E2E-T13B-DICTATION-SYNC 步驟 20 |
+
+## D 速成（約 15 分鐘）
+
+準備狀態：A5 完成，主 App「中文輸入設定」選速成，iPhone 備忘錄與 TextEdit 同時開著。關閉「允許完整取用」的項目在 G7 到 G10 一起做。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| D1 | 必要 | 本機模式，中文頁用速成打 50 個常用字（明、速、成、你、我、他、的、是、中、國 等） | 每字都能用兩碼加空白或點選候選字打出；輸入碼以字根顯示在候選字列左端 | TBD | E2E-T12B-QUICK 步驟 1 |
+| D2 | 必要 | 遠端即時模式，同一批 50 字 | Mac 收到的字與 iPhone 上選的字相同 | TBD | E2E-T12B-QUICK 步驟 2 |
+| D3 | 必要 | 遠端草稿模式打 10 字，再傳送 | 草稿顯示該 10 字，傳送後 Mac 收到 | TBD | E2E-T12B-QUICK 步驟 3 |
+| D4 | 必要 | 主 App 設定頁在手寫與速成之間切換，關閉再重開鍵盤 | 重開後中文頁換成所選方式；切換前不變 | TBD | E2E-T12B-QUICK 步驟 5 |
+| D5 | 必要 | 速成輸入中按刪除、換行 | 刪除先退一碼，沒有輸入碼時才刪文字；換行在有輸入碼時只清除輸入碼 | TBD | E2E-T12B-QUICK 步驟 6 |
+| D6 | 必要 | 有兩碼輸入碼時按住刪除 | 只清掉輸入碼，不會接著連刪已送出的文字；沒有輸入碼時按住才連刪 | TBD | E2E-T12B-QUICK 步驟 6b |
+| D7 | 必要 | 按 Shift 再按字母；另測 Shift 後按空白、點候選字、換行，以及收起再打開鍵盤 | 字母以大寫送出，之後回到輸入碼；送字、清除輸入碼或重新開啟後 Shift 不再亮燈 | TBD | E2E-T12B-QUICK 步驟 7 |
+| D8 | 必要 | 輸入沒有字的碼（例如 zz）再按空白 | 不送出任何字，輸入碼清除 | TBD | E2E-T12B-QUICK 步驟 8 |
+| D9 | 必要 | 符號頁、中英鍵、地球儀鍵來回切換 | 與英文頁相同；回到中文頁時輸入碼已清除 | TBD | E2E-T12B-QUICK 步驟 9 |
+| D10 | 必要 | 主 App 設定頁「授權」 | 列出 Google ML Kit 與速成字碼表來源，授權全文可讀 | TBD | E2E-T12B-QUICK 步驟 10 |
+
+## E 聽寫同步（約 35 分鐘）
+
+準備狀態：iPhone 設定已啟用聽寫，加入繁體中文與英文；Mac 與 iPhone 就緒（A5）；主 App「中文輸入設定」的「聽寫同步到 Mac」開著。先做 E1 到 E19（探測關閉，這是正式用法），再做 E20 到 E27（需要 Debug 版的聽寫探測，做完要確認探測已關閉），最後做 E28、E29（需要 Release 版，請主代理先改裝）。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| E1 | 必要 | 傳送方式選「即時」，不長按任何東西。按系統麥克風，說一句中文，結束聽寫 | TextEdit 出現與備忘錄相同的那句，沒有多字、少字、重複 | TBD | E2E-T13B-DICTATION-SYNC 步驟 1 |
+| E2 | 必要 | 同一則備忘錄，說一句英文 | TextEdit 追加該句，與備忘錄一致 | TBD | E2E-T13B-DICTATION-SYNC 步驟 2 |
+| E3 | 必要 | 說一句中英混合（例如「今天吃 good day」），中途等 iOS 修正 | TextEdit 與備忘錄一致，沒有重複 | TBD | E2E-T13B-DICTATION-SYNC 步驟 3 |
+| E4 | 必要 | 在備忘錄手動刪掉幾個字 | TextEdit 同步退格（所有變化都送，包括只刪字） | TBD | E2E-T13B-DICTATION-SYNC 步驟 4 |
+| E5 | 必要 | 傳送方式選「草稿」。聽寫一句 | 草稿列出現該句，TextEdit 沒有收到 | TBD | E2E-T13B-DICTATION-SYNC 步驟 5 |
+| E6 | 必要 | 傳送方式「草稿」，整句中英混合聽寫（例如「吃法 good day」），聽寫期間完全不碰鍵盤，結束後比對草稿與備忘錄 | 草稿與備忘錄文字內容一致（iOS 修正前一個詞也一致） | TBD | E2E-T13B-DICTATION-SYNC 步驟 6 |
+| E7 | 必要 | 草稿有字時，用 ◀ ▶ 把草稿游標移到中間，再聽寫一句 | 新句插在草稿游標位置，草稿其他字不被刪、不重複 | TBD | E2E-T13B-DICTATION-SYNC 步驟 7 |
+| E8 | 必要 | 聽寫期間刻意按 ◀ 數次，把草稿游標移離剛寫進草稿的字，等 iOS 修正前一個詞 | 草稿不重複、不刪到無關的字；這次修正整個略過 | TBD | E2E-T13B-DICTATION-SYNC 步驟 8 |
+| E9 | 必要 | 在草稿用鍵盤打一個字再刪掉，之後 iOS 修正前一個詞 | 修正照常套用，草稿與備忘錄一致 | TBD | E2E-T13B-DICTATION-SYNC 步驟 9 |
+| E10 | 必要 | 草稿有聽寫的字，手動改幾個字，再聽寫一句，最後按「傳送」 | 草稿內容符合手動編輯加聽寫新增；傳送後 TextEdit 與草稿一致 | TBD | E2E-T13B-DICTATION-SYNC 步驟 10 |
+| E11 | 必要 | 傳送方式「即時」，按「傳送」（草稿清空）後再聽寫並等 iOS 修正 | 修正直接送到 Mac，TextEdit 與備忘錄一致 | TBD | E2E-T13B-DICTATION-SYNC 步驟 11 |
+| E12 | 必要 | 主 App「中文輸入設定」關閉「聽寫同步到 Mac」，回備忘錄，遠端即時模式聽寫一句 | 只寫進 iPhone 欄位，TextEdit 與草稿都沒有收到 | TBD | E2E-T13B-DICTATION-SYNC 步驟 12 |
+| E13 | 必要 | 重新開啟開關，回備忘錄聽寫一句 | 恢復同步 | TBD | E2E-T13B-DICTATION-SYNC 步驟 13 |
+| E14 | 必要 | 切到「本機」模式聽寫一句 | 只寫進 iPhone 欄位，Mac 沒有收到 | TBD | E2E-T13B-DICTATION-SYNC 步驟 14 |
+| E15 | 必要 | 強制關閉備忘錄後重開，新建空白備忘錄，切到本鍵盤（遠端即時），第一次就聽寫一句 | 第一句就同步到 TextEdit，沒有被吃掉 | TBD | E2E-T13B-DICTATION-SYNC 步驟 15 |
+| E16 | 必要 | 打開一則已有約 20 字的備忘錄，游標放在文末，切到本鍵盤（遠端即時），什麼都不做等 5 秒 | TextEdit 不應收到任何字 | TBD | E2E-T13B-DICTATION-SYNC 步驟 16 |
+| E17 | 必要 | 接續 E16：再說一句 | TextEdit 只收到新句，沒有舊字 | TBD | E2E-T13B-DICTATION-SYNC 步驟 17 |
+| E18 | 必要 | 接續 E16：切到其他 App 再回到同一則備忘錄（鍵盤重建），等 5 秒；游標移到文章開頭再做一次 | TextEdit 都不應收到任何字 | TBD | E2E-T13B-DICTATION-SYNC 步驟 18 |
+| E19 | 必要 | 底列位置：英文頁、符號頁各看一次 | 英文頁左到右為（地球儀）符號、中英、空白、換行；符號頁為（地球儀）「ABC」或「中」、中英、空白、換行，按最左邊的功能鍵回到原頁 | TBD | E2E-T13B-DICTATION-SYNC 步驟 19、21 |
+| E20 | 必要 | 換到英文頁，遠端模式，傳送方式「即時」，長按頂部第一行的狀態文字 2 秒開啟聽寫探測 | 狀態列出現「聽寫探測已開啟」，英文三列字母鍵改成五行檢查面板，數字全為 0，② 為「否」 | TBD | E2E-T13-DICTATION 步驟 1 |
+| E21 | 必要 | 確認鍵盤下方有系統麥克風，點下去可以開始聽寫 | 看得到且可開始聽寫 | TBD | E2E-T13-DICTATION 步驟 2 |
+| E22 | 可選 | 中文聽寫約 5 句（使用者 2026-10-30 決定語音只測約 10 句，Gate 已 PASS，所以完整 50 句不必做）。**每一句都新建一則空白備忘錄**；鍵盤重新出現後，先長按頂部狀態文字 2 秒關閉探測，再長按 2 秒開啟（重設基準），然後才說。每句說完停 2 秒再停止，記下面板累計數字，並比對備忘錄與 TextEdit | 每句「過大」「截斷」「換檔」不增加、`did` 有增加、`回` 等於 `送`、沒有「稿」，兩邊文字逐字相同。寫下符合的句數 | TBD | E2E-T13-DICTATION 步驟 3 到 6 與逐句紀錄表 |
+| E23 | 可選 | 同 E22（同樣每句新建空白備忘錄並重設探測），改用語言鍵切到英文，說約 5 句英文 | 判定規則同 E22。寫下符合的句數 | TBD | E2E-T13-DICTATION 步驟 7 |
+| E24 | 必要 | 說一句較長的話（約 30 字），中途停頓 1 到 2 秒讓 Apple 修正詞語 | 面板「退」的數字出現，TextEdit 同步退格後換成修正後的詞 | TBD | E2E-T13-DICTATION 步驟 8 |
+| E25 | 可選 | 聽寫後把 iPhone 游標移到別處再聽寫；並在遠端模式按一個鍵盤按鍵 | 只記錄現象。兩邊文字不同屬已知限制，不判 FAIL | TBD | E2E-T13-DICTATION 步驟 9 |
+| E26 | 必要 | 長按狀態文字 2 秒關閉探測，再聽寫一句 | 備忘錄有字，面板消失，字母鍵恢復可按（探測關閉後 TextEdit 是否同步以 E1 為準） | TBD | E2E-T13-DICTATION 步驟 10 |
+| E27 | 必要 | 五項結果彙整：① 麥克風可見 ② 寫入欄位 ③ 鍵盤收到變化 ④ 得知差分 ⑤ Mac 收到 | 五項各寫 PASS 或 FAIL，依 E21 到 E26 實際做的內容判定；E22、E23 沒做時，該兩項以 2026-10-31 已 PASS 的快速版為準 | TBD | E2E-T13-DICTATION 五項結果表 |
+| E28 | 必要 | 請主代理改裝 Release 版（Xcode 的 Scheme 選 Release 安裝）。長按頂部狀態文字 2 秒 | 沒有任何反應，沒有檢查面板 | TBD | E2E-T13B-DICTATION-SYNC 步驟 22 |
+| E29 | 必要 | Release 版：遠端即時模式說一句中文，再切到草稿模式說一句 | 即時時 TextEdit 收到；草稿模式時草稿列出現該句（不需長按） | TBD | E2E-T13B-DICTATION-SYNC 步驟 23 |
+
+## F Mac 輸入法與跨 App 矩陣（約 80 分鐘）
+
+準備狀態：改回 Debug 版。Mac 面板「開始接收」，TextEdit 純文字文件。每格請用 iPhone 遠端模式送出 `Hello`、`香港`、`café` 與一個 emoji，逐項看四件事：字元一致、組字取消、切回輸入法、錯誤焦點。結果同步填入 `docs/superpowers/verification/evidence/T14-matrix.csv`。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| F1 | 必要 | Mac 輸入法切到注音，面板「測試插入」送 `香港`，重複 20 次 | 每次 TextEdit 多出 `香港`，輸入法每次都切回注音，共 20 次成功 | TBD | E2E-T04-INJECT 步驟 3 |
+| F2 | 必要 | 若 F1 未達 20 次：終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.settleSeconds -float 0.1`，重開 Receiver 後重測；仍失敗改 `0.2`。F1 已全成功則這列寫「不需要」 | 找到可穩定 20/20 的最小值。把實測值寫在結果欄，由主代理寫入規格 §5 | TBD | E2E-T04-INJECT 步驟 3 |
+| F3 | 必要 | Mac 切到注音，在 TextEdit 打 `ㄒㄧㄤ` 不要選字，在 iPhone 遠端按 `A` | 未完成的注音被刪除、出現 `A`、輸入法切回注音；若注音被提交成中文字後才出現 `A`，寫「組字未偵測到」 | TBD | E2E-T05-A-KEY 步驟 6 |
+| F4 | 必要 | 面板「測試插入」送 `Hello`，倒數期間切到 Finder 桌面 | 沒有任何文字出現，面板顯示「未插入：…」 | TBD | E2E-T04-INJECT 步驟 4 |
+| F5 | 必要 | 同 F4，倒數期間按 ⌘Space 打開 Spotlight | 沒有文字出現在其他地方；若出現在 Spotlight 搜尋欄，寫明「插入到 Spotlight 欄位」 | TBD | E2E-T04-INJECT 步驟 4 |
+| F6 | 必要 | 同 F4，倒數期間按 ⌘W 關閉 TextEdit 文件 | 沒有任何文字出現，面板顯示「未插入：…」 | TBD | E2E-T04-INJECT 步驟 4 |
+| F7 | 必要 | 在遠端模式，Mac 按 ⌘Tab 切到 Finder，1 秒內在 iPhone 按 `A`，共 5 次 | Mac 0 個字元；iPhone 顯示「焦點已改變，未輸入」或「Mac 沒有輸入欄位」，或狀態列顯示「（無輸入欄位）」 | TBD | E2E-T05-A-KEY 步驟 5 |
+| F8 | 必要 | 矩陣 A：Mac 輸入法 ABC，在 TextEdit、Notes、Safari 網址列、Safari 網頁輸入框、Chrome、VS Code、Word、Messages 各送一次測試字串 | 8 個 App 都字元一致、沒有組字殘留、輸入法保持 ABC、錯誤焦點 0 次 | TBD | E2E-T14-MATRIX A（ABC 列） |
+| F9 | 必要 | 矩陣 A：Mac 輸入法注音，同樣 8 個 App | 8 個 App 都字元一致、組字已取消、輸入法切回注音、錯誤焦點 0 次 | TBD | E2E-T14-MATRIX A（注音列） |
+| F10 | 可選 | 矩陣 A：Mac 輸入法倉頡，同樣 8 個 App | 同 F9，輸入法切回倉頡 | TBD | E2E-T14-MATRIX A（倉頡列） |
+| F11 | 可選 | 矩陣 A：Mac 輸入法速成，同樣 8 個 App | 同 F9，輸入法切回速成 | TBD | E2E-T14-MATRIX A（速成列） |
+| F12 | 可選 | 矩陣 A：Mac 輸入法粵拼，同樣 8 個 App | 同 F9，輸入法切回粵拼 | TBD | E2E-T14-MATRIX A（粵拼列） |
+| F13 | 必要 | 矩陣 B：iPhone 本機模式，依序在英文、手寫、速成、符號頁各打幾個字 | 4 種頁面都能在 iPhone 欄位正常輸入，Mac 沒有收到 | TBD | E2E-T14-MATRIX B（本機列） |
+| F14 | 必要 | 矩陣 B：iPhone 遠端模式，英文、手寫、速成、符號頁各送幾個字 | 4 種頁面的字都送到 Mac，iPhone 欄位沒有字 | TBD | E2E-T14-MATRIX B（遠端列） |
+| F15 | 必要 | 在 iPhone 的密碼欄位（例如 Safari 登入頁）叫出鍵盤 | 自動回到系統鍵盤，Remote Keyboard 不送出任何字元 | TBD | E2E-T14-MATRIX C |
+| F16 | 必要 | 在 iPhone 的電話欄位（例如電話 App 或聯絡人的電話欄）叫出鍵盤 | 自動回到系統鍵盤，Remote Keyboard 不送出任何字元 | TBD | E2E-T14-MATRIX C |
+| F17 | 必要 | 面板連按兩次「測試插入」，第一次進行中切換視窗 | 第二次顯示「未插入：焦點已改變」，沒有字元打入新視窗 | TBD | E2E-T14-MATRIX D |
+| F18 | 必要 | 讓 TextEdit 無回應：終端機執行 `kill -STOP $(pgrep -x TextEdit)`，然後從 iPhone 送字，數秒後執行 `kill -CONT $(pgrep -x TextEdit)` 恢復 | 藍牙連線與 Mac 面板不凍結；字元不送出或晚到但不入錯誤欄位 | TBD | E2E-T14-MATRIX D |
+| F19 | 可選 | 讓切回輸入法被系統拒絕再送字（很難靠手動製造，沒有辦法就寫「無法重現」） | iPhone 收到「Mac 已輸入」，Mac 面板顯示「輸入法未能切回，請手動切換」 | TBD | E2E-T14-MATRIX D |
+| F20 | 必要 | 檢查 `T14-matrix.csv` 已填完 F8 到 F16 對應格子，FAIL 的格子寫了現象與 Mac log 時間 | CSV 沒有空白格 | TBD | E2E-T14-MATRIX 紀錄方式 |
+
+## G 穩定性與權限撤銷（約 45 分鐘）
+
+準備狀態：Debug 版，遠端即時，已連線。每個情境先確認能正常打字，造成情境，確認「無法輸入時有清楚原因、Mac 不收字、不補送」，復原後再打字確認正常。標註「3 次」的項目要做 3 次。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| G1 | 必要 | TextEdit 清空，遠端模式長按「換行」4 秒，等 burst 完成 | 狀態列顯示「burst 完成，已送 10000 行」，iPhone 沒有卡住，可以再打字 | TBD | E2E-T15-STABILITY A1 |
+| G2 | 必要 | Mac 面板除錯區按「驗證 burst」 | 預期 10000 行，遺漏 0，重複 0，亂序 0 | TBD | E2E-T15-STABILITY A2 |
+| G3 | 必要 | 重複 G1、G2 共 3 次（每次清空 TextEdit） | 三次都是 0／0／0 | TBD | E2E-T15-STABILITY A3 |
+| G4 | 必要 | burst 途中再長按「換行」4 秒 | 立即停止，狀態列顯示已取消與已送行數；Mac 上的行數與已送行數相符，沒有重複 | TBD | E2E-T15-STABILITY A4 |
+| G5 | 必要 | burst 途中關閉 Mac 藍牙 | 中止，顯示「Mac 未就緒」或「等不到回覆」；不會自動補送 | TBD | E2E-T15-STABILITY A5 |
+| G6 | 必要 | 3 次：Mac 系統設定撤銷 Remote Keyboard Receiver 的輔助使用，然後從 iPhone 送字，看 iPhone 狀態列與 Mac 面板，再重新允許 | iPhone 狀態列顯示「Mac 未授權輔助使用」（不是「無輸入欄位」）；Mac 面板顯示「輔助使用未授權」與「授權輔助使用」按鈕；Mac 不收字；復原後可再打字 | TBD | E2E-T15-STABILITY B1；交接文件「延至 T16」表（T05 未授權顯示） |
+| G7 | 必要 | 3 次：iPhone 關閉「允許完整取用」，叫出鍵盤，打字，再按「遠端」 | 顯示本機且可正常打字；按「遠端」顯示「遠端需要開啟『允許完整取用』」；Mac 不收字；開回後可再遠端打字 | TBD | E2E-T15-STABILITY B2；E2E-T05-A-KEY 步驟 7 |
+| G8 | 必要 | 先在主 App 按「寫入 probe」，關閉完整取用後叫出鍵盤，看頂部右側小字 | 只有英文頁，`中英` 不可按；英文照常輸入。記錄是 `AppGroup: OK` 還是 `AppGroup: NIL` | TBD | E2E-T12-HANDWRITING 步驟 14；E2E-T13B-DICTATION-SYNC 步驟 14 |
+| G9 | 必要 | 主 App 設定選速成，關閉完整取用後開啟鍵盤 | 中文頁為速成，可打字；沒有手寫頁 | TBD | E2E-T12B-QUICK 步驟 4 |
+| G10 | 可選 | 關閉完整取用時按幾個鍵 | 不震動；開回完整取用後按鍵輕震 | TBD | E2E-T10-KEYBOARD 摘要（震動） |
+| G11 | 必要 | 3 次 iPhone 與 3 次 Mac：關閉藍牙，等 5 秒再開啟；Mac 關閉期間看面板 | 關閉時 fail closed，不補送；Mac 面板顯示「藍牙已關閉，請在 Mac 開啟藍牙」；開啟後自動恢復，可再打字 | TBD | E2E-T15-STABILITY B3；交接文件「延至 T16」表（T03b unavailable 原因） |
+| G12 | 必要 | 3 次：Mac 睡眠 1 分鐘後喚醒（喚醒後按「開始接收」或點輸入框） | 喚醒後可以重連並打字，睡眠期間沒有字入錯誤欄位 | TBD | E2E-T15-STABILITY B4 |
+| G13 | 必要 | 3 次：iPhone 鎖屏後解鎖，回到備忘錄叫出鍵盤 | 解鎖後可重連並打字 | TBD | E2E-T15-STABILITY B5 |
+| G14 | 必要 | Mac 開 Console.app，左欄選這支 iPhone，篩選 subsystem `com.ansonhui.remotekeyboard`，做完 B、E、G 之後，分別搜尋自己打過的單字、聽寫過的句子、配對碼（只在搜尋欄輸入）、`TextEdit`、`Notes`、`pairKey`、`nonce`、`proof` | 每個搜尋都是 0 筆；只有固定句子與數字（`owner changed`、`manager created`、`handshake authenticated`、`goodbye received`、`link reset`、`liveness probe sent` 等），以及聽寫的次數與長度 | TBD | E2E-T09-PAIRING 步驟 7；E2E-T10-KEYBOARD 步驟 40；E2E-T11-SYMBOLS 步驟 15；E2E-T13-DICTATION 步驟 11 |
+| G15 | 必要 | 在 Mac 終端機執行下方「指令 G15」 | 輸出 0 | TBD | 回歸檢查；E2E-T15-STABILITY 備註；E2E-T09-PAIRING 步驟 6 |
+| G16 | 必要 | 在 Mac 終端機執行下方「指令 G16」 | 輸出 0 | TBD | 回歸檢查；E2E-T09-PAIRING 步驟 6 |
+| G17 | 必要 | G 組全部結束後，確認 Mac 輔助使用已重新允許、iPhone 完整取用已開、兩台藍牙已開 | 狀態恢復到 A 組結束時的樣子 | TBD | 收尾檢查 |
+
+指令 G15（把 `<自己打過的單字>` 換成實際打過的單字）：
+
+```bash
+log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "<自己打過的單字>|TextEdit|Notes"
+```
+
+指令 G16：
+
+```bash
+log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "pairKey|nonce|proof|sealed|privateKey"
+```
+
+## H 重連、配對與登入項目（約 55 分鐘）
+
+準備狀態：已配對；Mac 在接收中；鍵盤遠端模式。這一組會解除配對與重新配對，所以放在最後。
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| H1 | 必要 | 請主代理在 iPhone 連著 Mac 的情況下執行 `ReconnectUITests`（`RK_REOPEN_COUNT=3` 的短測）。測試前把 Notes 停在某則備忘錄裡面，觀察 | 測試會先自己返回備忘錄列表再新建備忘錄，不會 skip；Safari 網址列查找不再多等約 3 秒；`testProbeLabels` 輸出沒有資料夾名稱與網頁標題 | TBD | 計劃 Task 16 Step 3；E2E-T06-RECONNECT |
+| H2 | 必要 | 開始錄影。鍵盤出現後重開 10 次，記錄每次狀態列 `Mac → TextEdit (N ms)` 的 N | 10 次都連上，N 都在 2000 ms 以內。寫下 10 個 N | TBD | E2E-T06-RECONNECT 步驟 3 |
+| H3 | 必要 | 兩邊先各按「解除配對」，Mac 按「配對新 iPhone」，iPhone 開「配對 Mac」。肉眼比對兩邊配對碼，都按「確認」，再按「完成」。這一列是 H4 的前置（T09 步驟 1 已 PASS）；記下配對碼是否相同（不要寫數字） | 兩邊配對碼相同，完成後 iPhone 顯示「已配對 Mac」，Mac 顯示「配對：已配對 iPhone」 | TBD | E2E-T09-PAIRING 步驟 1 |
+| H4 | 必要 | 再解除兩邊配對，重新配對一次。比對這次與 H3 的配對碼 | 兩邊配對碼相同，且與 H3 的不同；配對完成後鍵盤可打字 | TBD | E2E-T09-PAIRING 步驟 4 |
+| H5 | 必要 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面 | Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；這支 iPhone 在這次接收時段內被略過，再開鍵盤也連不上（設計如此）。之後 Mac 按「停止接收」再「開始接收」清除 | TBD | E2E-T09-PAIRING 步驟 4 |
+| H6 | 必要 | 解除兩邊配對後，Mac 按「配對新 iPhone」，iPhone 開「配對 Mac」，兩邊出現配對碼後只在 Mac 按「取消」 | iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 顯示「配對已取消」；兩邊都是未配對；鍵盤遠端打字顯示「尚未配對 Mac，請開啟主 App 配對」，TextEdit 收到 0 個字元 | TBD | E2E-T09-PAIRING 步驟 2a |
+| H7 | 必要 | 同 H6，兩邊出現配對碼後只在 iPhone 按「取消」 | Mac 顯示「配對失敗，未儲存」；兩邊都是未配對；TextEdit 收到 0 個字元 | TBD | E2E-T09-PAIRING 步驟 2b |
+| H8 | 必要 | 先開 Mac 的配對時段，再開 iPhone 的配對畫面；出現配對碼後兩邊都不按，等 2 分鐘 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對；TextEdit 0 字元 | TBD | E2E-T09-PAIRING 步驟 2c |
+| H9 | 可選 | 先在 Mac 按「停止接收」並讓 TextEdit 不聚焦；先開 iPhone「配對 Mac」，約 10 秒後才按 Mac「配對新 iPhone」；出現配對碼後兩邊都不按，等 2 分鐘 | iPhone 先逾時，顯示「配對逾時，未儲存。」；Mac 顯示「配對失敗，未儲存」；兩邊都是未配對 | TBD | E2E-T09-PAIRING 步驟 2e |
+| H10 | 可選 | 兩邊出現配對碼後，只有 iPhone 按「確認」，Mac 按「取消」 | iPhone 已儲存、Mac 未儲存（已知行為）；鍵盤打字 TextEdit 收到 0 個字元；之後在 iPhone 按「解除配對」 | TBD | E2E-T09-PAIRING 步驟 2d |
+| H11 | 必要 | 重新完整配對一次（兩邊確認並按完成），然後在 iPhone 主 App 首頁的「在這裡輸入」輸入框點一下叫出鍵盤；Mac 按「配對新 iPhone」，再點 iPhone「配對 Mac」，然後在 Mac 終端機執行 `log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info \| grep "keyboard service"` | 輸出 `discovered 1 keyboard service(s)`，不是 2；配對仍可完成 | TBD | E2E-T09-PAIRING 步驟 8 |
+| H12 | 必要 | 終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 MacReceiver，按「開始接收」。連上後每 20 秒按一次 `A`，共 2 分鐘 | 持續打字期間不斷線，倒數被重置 | TBD | E2E-T05-A-KEY 步驟 8 |
+| H13 | 必要 | 接續 H12：停止打字 60 秒 | Mac 面板回到「待命」並斷線；鍵盤狀態列離開 `Mac → ...`（變成 `BLE: publishing` 或 `BLE: advertising`）；再按「開始接收」後數秒內鍵盤自動回到 `Mac → ...` | TBD | E2E-T05-A-KEY 步驟 8；E2E-T09-PAIRING 步驟 10d |
+| H14 | 必要 | 鍵盤保持連線，Mac 面板按「解除配對」 | 鍵盤狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」（不是「尚未配對」）；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對。再完成一次配對 | TBD | E2E-T09-PAIRING 步驟 10d |
+| H15 | 可選 | 鍵盤在畫面上且已連線；Mac 終端機執行 `killall -KILL MacReceiver`，重新開啟 Receiver 並按「開始接收」，收起鍵盤，再點輸入欄位叫出鍵盤，不使用地球鍵 | 數秒內回到 `Mac → ...`；打 `abc`，Mac 收到 `abc`；iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷，則沒有這三行） | TBD | E2E-T09-PAIRING 步驟 10e（主體已 PASS，這裡重測；延後的只有 iPhone 端 log） |
+| H16 | 必要 | 做完 H12 到 H15 後，終端機執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 並重啟 Receiver | 倒數回到 30 分鐘 | TBD | E2E-T03B-LINK 步驟 7 |
+| H17 | 必要 | 請開發者提供 MacReceiver.app（`/private/tmp/claude-501/receiver-run/MacReceiver.app` 或 Xcode 的 build 輸出路徑），放進「應用程式」資料夾並開啟。面板確認「登入時啟動」已打勾；若顯示「需在系統設定 › 登入項目 允許」，到系統設定 › 一般 › 登入項目 允許。然後登出再登入，或重新開機 | 重新登入後選單列自動出現 Receiver，面板顯示 `Link: idle` 與「待命」 | TBD | E2E-T03B-LINK 步驟 1；交接文件「延至 T16」表（T03b 登入項目） |
+| H18 | 可選 | 面板按「停止接收」，在 iPhone 叫出鍵盤 | Mac 顯示 `Link: idle` 與「待命」；鍵盤狀態列維持 `BLE: advertising`，沒有進入 `BLE: connected` | TBD | E2E-T03B-LINK 步驟 6 |
+| H19 | 必要 | 完成最後一次配對後，確認狀態與 A4 一致 | 兩邊都是已配對，鍵盤遠端打字正常 | TBD | 收尾檢查 |
+
+## Z 收尾（約 5 分鐘）
+
+| 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
+|---|---|---|---|---|---|
+| Z1 | 必要 | 確認聽寫探測已關閉；執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.settleSeconds`（如果有設過），確認沒有殘留的 `rk.idleTimeoutSeconds` | 所有測試用設定已還原 | TBD | E2E-T13-DICTATION 前置條件；E2E-T04-INJECT 步驟 3 |
+| Z2 | 必要 | 結束 Receiver（面板按「結束」） | 選單列沒有 Receiver，沒有殘留的 MacReceiver 行程（`pgrep -x MacReceiver` 無輸出） | TBD | 全域守則（收工檢查） |
+| Z3 | 必要 | 把 B6 的字元數、F2 的 settle 值、C3 的模型大小、G8 的 AppGroup 結果回報給主代理 | 主代理把 O5 與 settle 實測值寫入規格 §5 | TBD | 計劃 Task 16 Step 5 |

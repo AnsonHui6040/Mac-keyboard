@@ -271,6 +271,9 @@ final class AuthHandshakeTests: XCTestCase {
         let (mac, _, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
         let status = ControlMessage.status(ReceiverStatus(ready: true, appName: String(repeating: "香", count: 60), focusEpoch: UInt64.max))
         XCTAssertLessThan(try ControlCodec.encode(mac.sealControl(status)).count, 512)
+        let untrusted = ControlMessage.status(ReceiverStatus(
+            ready: false, appName: String(repeating: "香", count: 60), focusEpoch: UInt64.max, trusted: false))
+        XCTAssertLessThan(try ControlCodec.encode(mac.sealControl(untrusted)).count, 512)
     }
 
     func testRepeatedHelloFailsThePhoneSession() {

@@ -25,6 +25,11 @@ struct ReceiverPanel: View {
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(central.linkLabel)
+                if let reason = central.linkReason {
+                    Text(reason)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Text(ReceiverMenu.remainingText(central.remainingSeconds))
                     .foregroundStyle(.secondary)
             }
