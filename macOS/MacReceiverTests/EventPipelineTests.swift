@@ -348,6 +348,31 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(h.state.acks.last, Ack(eventId: keyId, result: .posted))
     }
 
+    func testProbeIsAckedPongWithoutCSVOrInjection() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let session = UUID()
+        let (probe, probeId) = try frame(.probe, epoch: nil, seq: 9, session: session)
+        await h.pipeline.process(probe)
+        await h.pipeline.process(probe)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: probeId, result: .pong), Ack(eventId: probeId, result: .pong)])
+        XCTAssertEqual(h.state.pings, [], "a probe is never a reconnect sample, so it never reaches reconnect.csv")
+        XCTAssertEqual(h.state.reads, 0, "no focus read")
+        XCTAssertEqual(h.poster.batches.count, 0, "no injection")
+        XCTAssertTrue(h.controller.selected.isEmpty, "no input source switch")
+        // Not recorded for deduplication: the probe's seq 9 does not make a later typed key look out of order.
+        let (key, keyId) = try frame(.text("A"), seq: 1, session: session)
+        await h.pipeline.process(key)
+        XCTAssertEqual(h.state.acks.last, Ack(eventId: keyId, result: .posted))
+        XCTAssertEqual(h.state.noted, 3, "a probe is receive activity like any valid event")
+    }
+
+    func testProbeIsAckedEvenWithoutAFocusEpochOrFocus() async throws {
+        let h = harness(snapshots: [nil])
+        let (probe, id) = try frame(.probe, epoch: nil)
+        await h.pipeline.process(probe)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .pong)])
+    }
+
     func testDiscardQueuedDoesNotForgetProcessedEvents() async throws {
         let h = harness(snapshots: [snapshot()])
         let (data, id) = try frame(.text("A"))

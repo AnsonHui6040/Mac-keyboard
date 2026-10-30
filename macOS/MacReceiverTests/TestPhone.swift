@@ -16,7 +16,7 @@ final class RecordingDriver: CentralDriving {
     func discover(_ id: UUID) { calls.append(.discover(id)) }
     func cancel(_ id: UUID) { calls.append(.cancel(id)) }
     func forget(_ id: UUID) { calls.append(.forget(id)) }
-    func writeControl(_ data: Data) { controlWrites.append(data) }
+    func writeControl(_ data: Data) -> Bool { controlWrites.append(data); return true }
 
     var writes: [ControlMessage] { controlWrites.compactMap { try? ControlCodec.decode($0) } }
 }
@@ -157,6 +157,17 @@ final class SecurityRig {
     }
 
     func bytesWritten() -> Int { driver.controlWrites.count }
+
+    private var answered = 0
+
+    /// Plays CoreBluetooth's write responses for every control write made so far (the recording radio never answers by
+    /// itself, so a test decides when a response arrives).
+    func answerOutstandingWrites() {
+        while answered < driver.controlWrites.count {
+            answered += 1
+            central.controlWriteCompleted()
+        }
+    }
 
     var cancels: [UUID] {
         driver.calls.compactMap { if case .cancel(let id) = $0 { id } else { nil } }

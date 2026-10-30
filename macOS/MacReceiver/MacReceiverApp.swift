@@ -45,6 +45,13 @@ struct MacReceiverApp: App {
             security.refreshPairedState()
             coordinator.start()
             focus.start()
+            // Quitting from the menu: an authenticated keyboard hears a goodbye before the connection goes away with the
+            // process. Best effort; it holds the run loop for at most about half a second.
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.willTerminateNotification, object: nil, queue: .main
+            ) { [weak central] _ in
+                MainActor.assumeIsolated { central?.prepareForTermination() }
+            }
         }
         self.pipeline = pipeline
         _central = StateObject(wrappedValue: central)

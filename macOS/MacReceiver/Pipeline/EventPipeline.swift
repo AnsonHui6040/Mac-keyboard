@@ -147,6 +147,10 @@ final class EventPipeline {
             // recorded) and the epoch rule below, so a ping without a focus epoch is not refused.
             onPing(shownAtMs, connectedAtMs)
             return .pong
+        case .probe:
+            // The keyboard's liveness probe: answered and nothing else. Not a reconnect sample (no `onPing`, so nothing
+            // reaches reconnect.csv), not recorded for deduplication and never injected.
+            return .pong
         default:
             break
         }
@@ -189,7 +193,7 @@ final class EventPipeline {
         case .text(let text): injector.insert(text).complete
         case .backspace: injector.backspace()
         case .returnKey: injector.returnKeyPress()
-        case .ping: false
+        case .ping, .probe: false
         }
     }
 
@@ -199,6 +203,7 @@ final class EventPipeline {
         case .backspace: ("backspace", 0)
         case .returnKey: ("return", 0)
         case .ping: ("ping", 0)
+        case .probe: ("probe", 0)
         }
     }
 }

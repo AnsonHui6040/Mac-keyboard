@@ -24,6 +24,14 @@ enum KeyboardLifecycleLog {
         case handshakeStarted
         case handshakeAuthenticated
         case handshakeFailed
+        /// A liveness probe left because a keyboard appeared on a link that looked connected.
+        case probeSent
+        case probeAnswered
+        case probeExpired
+        /// The Mac said goodbye (sealed `bye`).
+        case byeReceived
+        /// The service is published again from scratch (after a goodbye or an unanswered probe).
+        case linkReset
     }
 
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "lifecycle")
@@ -63,6 +71,16 @@ enum KeyboardLifecycleLog {
             logger.notice("handshake authenticated")
         case .handshakeFailed:
             logger.notice("handshake failed")
+        case .probeSent:
+            logger.notice("liveness probe sent")
+        case .probeAnswered:
+            logger.notice("liveness probe answered")
+        case .probeExpired:
+            logger.notice("liveness probe unanswered")
+        case .byeReceived:
+            logger.notice("goodbye received")
+        case .linkReset:
+            logger.notice("link reset")
         }
     }
 

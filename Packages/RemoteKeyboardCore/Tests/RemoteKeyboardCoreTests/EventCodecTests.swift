@@ -13,7 +13,7 @@ final class EventCodecTests: XCTestCase {
     }
 
     func testEveryKindRoundTripsIncludingNilEpoch() throws {
-        let kinds: [EventKind] = [.text("香港"), .backspace, .returnKey, .ping(shownAtMs: 10, connectedAtMs: 20)]
+        let kinds: [EventKind] = [.text("香港"), .backspace, .returnKey, .ping(shownAtMs: 10, connectedAtMs: 20), .probe]
         for kind in kinds {
             let e = makeEvent(kind: kind, epoch: nil)
             XCTAssertEqual(try EventCodec.decode(EventCodec.encode(e, maxBytes: 400)), e)
@@ -32,6 +32,7 @@ final class EventCodecTests: XCTestCase {
 
     func testOnlyProbesGoWithoutAFocusEpoch() {
         XCTAssertFalse(EventKind.ping(shownAtMs: 1, connectedAtMs: 2).carriesFocusEpoch)
+        XCTAssertFalse(EventKind.probe.carriesFocusEpoch, "the liveness probe is not typed text either")
         for kind in [EventKind.text("A"), .backspace, .returnKey] { XCTAssertTrue(kind.carriesFocusEpoch) }
     }
 

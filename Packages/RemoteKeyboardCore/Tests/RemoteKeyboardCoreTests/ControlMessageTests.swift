@@ -33,6 +33,7 @@ final class ControlMessageTests: XCTestCase {
             .hello(macNonce: Data(repeating: 1, count: 16)),
             .auth(proof: Data(repeating: 2, count: 32)),
             .authFailed,
+            .bye,
             .sealed(Data(repeating: 6, count: 60))
         ]
         for m in messages { XCTAssertEqual(try ControlCodec.decode(ControlCodec.encode(m)), m) }
@@ -41,6 +42,10 @@ final class ControlMessageTests: XCTestCase {
     func testAuthFailedCarriesNoPayload() throws {
         let text = String(decoding: try ControlCodec.encode(.authFailed), as: UTF8.self)
         XCTAssertEqual(text, #"{"authFailed":{}}"#)
+    }
+
+    func testByeCarriesNoPayload() throws {
+        XCTAssertEqual(String(decoding: try ControlCodec.encode(.bye), as: UTF8.self), #"{"bye":{}}"#)
     }
 
     func testAuthMessagesFitOneControlWriteAtTheSmallestMTU() throws {
