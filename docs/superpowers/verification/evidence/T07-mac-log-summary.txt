@@ -1,0 +1,11 @@
+# T07 Mac Receiver log 摘要（2026-10-30 實機，subsystem com.ansonhui.remotekeyboard.receiver，共 241 行）
+# 只列事件種類、長度、ACK 與連線狀態的次數；原始 log 無任何輸入文字（搜尋 hello、world、一二三、ABCDEFGHIJ、ok：0 筆）
+  69 event kind=text length=1 ack=posted
+  26 event kind=backspace length=0 ack=posted
+   6 event kind=return length=0 ack=posted
+   2 event kind=text length=6000 ack=posted
+   2 event kind=ping length=0 ack=posted
+frame rejected: 0
+partial message dropped: 0
+state ready 416 ms
+state ready 525 ms

@@ -23,12 +23,12 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 字母與空白 | TextEdit 顯示與輸入一致 | TBD |
-| 倒退 5 次 | 刪除 5 個字元 | TBD |
-| return | 換行一次 | TBD |
-| 狀態列 | 每個鍵之後顯示 `Mac 已輸入` | TBD |
+| 字母與空白 | TextEdit 顯示與輸入一致 | PASS（2026-10-30） |
+| 倒退 5 次 | 刪除 5 個字元 | PASS（2026-10-30） |
+| return | 換行一次 | PASS（2026-10-30） |
+| 狀態列 | 每個鍵之後顯示 `Mac 已輸入` | PASS（2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測）
 
 ### 2. 3,000 字元 TEXT
 1. 清空 TextEdit 文件（純文字格式），游標停在文件內。
@@ -46,13 +46,13 @@ printf '一二三四五六七八九十ABCDEFGHIJ%.0s' {1..150} | shasum
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 放開後 TextEdit 是否多出換行 | 沒有（長按只觸發測試入口，不送 return） | TBD |
-| TextEdit 收到的字數 | 全選後拷貝，在終端機執行 `pbpaste \| LC_ALL=en_US.UTF-8 wc -m`，輸出 3000 | TBD |
-| 內容 | `pbpaste \| shasum` 的雜湊值與上方第三行指令（預期字串）的 `shasum` 相同（`cfb204f94b4a99c3fe749628cd74c6fe23b53063`），即沒有缺字、重複、亂序 | TBD |
-| 輸入完成後狀態列 | 顯示 `Mac 已輸入` | TBD |
-| 輸入完成後再打一個字母 | 仍然正常輸入（連線與重組狀態沒有卡住） | TBD |
+| 放開後 TextEdit 是否多出換行 | 沒有（長按只觸發測試入口，不送 return） | PASS（2026-10-30：全選內容雜湊與預期字串完全相同，沒有多出換行） |
+| TextEdit 收到的字數 | 全選後拷貝，在終端機執行 `pbpaste \| LC_ALL=en_US.UTF-8 wc -m`，輸出 3000 | PASS（2026-10-30：輸出 3000） |
+| 內容 | `pbpaste \| shasum` 的雜湊值與上方第三行指令（預期字串）的 `shasum` 相同（`cfb204f94b4a99c3fe749628cd74c6fe23b53063`），即沒有缺字、重複、亂序 | PASS（2026-10-30：兩者皆為 `cfb204f94b4a99c3fe749628cd74c6fe23b53063`） |
+| 輸入完成後狀態列 | 顯示 `Mac 已輸入` | PASS（2026-10-30） |
+| 輸入完成後再打一個字母 | 仍然正常輸入（連線與重組狀態沒有卡住） | PASS（2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測）
 
 ### 3. 長按後的中斷
 1. 長按 `return` 2 秒送出 3,000 字元，在 TextEdit 還在輸入時收起鍵盤。
@@ -61,9 +61,9 @@ printf '一二三四五六七八九十ABCDEFGHIJ%.0s' {1..150} | shasum
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 重新連線後輸入 `ok` | TextEdit 收到 `ok`，沒有殘留的上一則訊息片段 | TBD |
+| 重新連線後輸入 `ok` | TextEdit 收到 `ok`，沒有殘留的上一則訊息片段 | PASS（2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測）
 
 ### 4. Log 檢查
 在 Mac 終端機執行：
@@ -74,8 +74,8 @@ log show --last 5m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiv
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| `event kind=text length=6000` | 步驟 2 出現一行，`ack=posted` | TBD |
-| `frame rejected`、`partial message dropped` | 步驟 1、2 沒有出現；步驟 3 若出現，只含種類、次數與 bytes 長度 | TBD |
-| log 內是否有輸入的文字內容 | 沒有 | TBD |
+| `event kind=text length=6000` | 步驟 2 出現一行，`ack=posted` | PASS（2026-10-30：2 行，皆 `ack=posted`；第 2 行為步驟 3，訊息在收起鍵盤前已完整送達，Mac 照常輸入完畢） |
+| `frame rejected`、`partial message dropped` | 步驟 1、2 沒有出現；步驟 3 若出現，只含種類、次數與 bytes 長度 | PASS（2026-10-30：0 次；步驟 3 未觸發殘片丟棄，因 35 個 frame 在收起鍵盤前已送完） |
+| log 內是否有輸入的文字內容 | 沒有 | PASS（2026-10-30：搜尋 hello、world、一二三、ABCDEFGHIJ、ok 皆 0 筆，見 `docs/superpowers/verification/evidence/T07-mac-log-summary.txt`） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測）
