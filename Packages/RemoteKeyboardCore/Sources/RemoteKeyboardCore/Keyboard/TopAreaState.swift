@@ -31,8 +31,8 @@ public struct TopAreaState: Equatable, Sendable {
 /// Sizes in points, chosen by the main agent for D17 (spec section 2).
 public enum KeyboardMetrics {
     public static let topRowHeight: Double = 36
-    public static let keyRowHeight: Double = 46
-    public static let rowGap: Double = 10
+    public static let keyRowHeight: Double = 42
+    public static let rowGap: Double = 12
     public static let keyRowCount = 4
     /// Space above the first key row and below the last one.
     public static let keyAreaVerticalInset: Double = 4

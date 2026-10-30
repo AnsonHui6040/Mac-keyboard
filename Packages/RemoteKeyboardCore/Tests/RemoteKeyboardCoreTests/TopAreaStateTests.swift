@@ -82,12 +82,12 @@ final class TopAreaStateTests: XCTestCase {
 
     func testMetricsConstantsAndHeights() {
         XCTAssertEqual(KeyboardMetrics.topRowHeight, 36)
-        XCTAssertEqual(KeyboardMetrics.keyRowHeight, 46)
-        XCTAssertEqual(KeyboardMetrics.rowGap, 10)
+        XCTAssertEqual(KeyboardMetrics.keyRowHeight, 42)
+        XCTAssertEqual(KeyboardMetrics.rowGap, 12)
         XCTAssertEqual(KeyboardMetrics.keyRowCount, 4)
-        XCTAssertEqual(KeyboardMetrics.keyAreaHeight, 4 * 46 + 3 * 10 + 8)
-        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 2), 2 * 36 + 222)
-        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3), 3 * 36 + 222)
+        XCTAssertEqual(KeyboardMetrics.keyAreaHeight, 4 * 42 + 3 * 12 + 8)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 2), 2 * 36 + 212)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3), 3 * 36 + 212)
         XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3) - KeyboardMetrics.height(visibleTopRows: 2), 36)
     }
 }

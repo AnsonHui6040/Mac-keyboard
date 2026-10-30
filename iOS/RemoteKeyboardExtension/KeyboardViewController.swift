@@ -209,7 +209,8 @@ final class KeyboardViewController: UIInputViewController {
             linkName: link.name,
             probeText: Self.probeStatusText(),
             showsGlobe: needsInputModeSwitchKey,
-            chineseAvailable: Self.chineseAvailable)
+            chineseAvailable: Self.chineseAvailable,
+            hapticsEnabled: hasFullAccess)
         rootView.apply(state)
         let height = rootView.preferredHeight
         if heightConstraint?.constant != height { heightConstraint?.constant = height }
