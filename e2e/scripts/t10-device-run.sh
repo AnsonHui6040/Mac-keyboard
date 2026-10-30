@@ -316,6 +316,23 @@ osa() { osascript - "$@" 2>/dev/null; }
 # `make new document` must differ by exactly one, and that window's document must be empty.
 textedit_new_window() {
   osa <<'AS'
+-- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
+on neverSaved(d)
+  set saved to true
+  try
+    tell application "TextEdit" to set p to path of d
+    if p is missing value then set saved to false
+  on error
+    set saved to false
+  end try
+  return not saved
+end neverSaved
+
+on isEmptyDoc(d)
+  tell application "TextEdit" to set t to text of d
+  return (length of t) is 0
+end isEmptyDoc
+
 tell application "TextEdit"
   activate
   set beforeIds to id of every window
@@ -327,20 +344,24 @@ tell application "TextEdit"
     set candidate to item k of afterIds
     if beforeIds does not contain candidate then set end of newIds to candidate
   end repeat
+  -- Anything created here that is not the one empty, never-saved window we want is closed again (new, never saved).
   if (count of newIds) is not 1 then
-    -- Close only windows that are new, empty and never saved.
     repeat with k from 1 to count of newIds
       try
         set d to document of (first window whose id is (item k of newIds))
-        if (file of d) is missing value and (length of (text of d)) is 0 then close d saving no
+        if my neverSaved(d) and my isEmptyDoc(d) then close d saving no
       end try
     end repeat
     return "ERR"
   end if
   set wid to item 1 of newIds
   set d to document of (first window whose id is wid)
-  if (file of d) is not missing value then return "ERR"
-  if (length of (text of d)) is not 0 then return "ERR"
+  if not my neverSaved(d) or not my isEmptyDoc(d) then
+    try
+      if my neverSaved(d) then close d saving no
+    end try
+    return "ERR"
+  end if
   return wid as string
 end tell
 AS
@@ -351,12 +372,24 @@ AS
 textedit_close_window() {
   [ -n "$1" ] || return 0
   osa "$1" <<'AS' >/dev/null
+-- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
+on neverSaved(d)
+  set saved to true
+  try
+    tell application "TextEdit" to set p to path of d
+    if p is missing value then set saved to false
+  on error
+    set saved to false
+  end try
+  return not saved
+end neverSaved
+
 on run argv
   set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     try
       set d to document of (first window whose id is wid)
-      if (file of d) is missing value then close d saving no
+      if my neverSaved(d) then close d saving no
     end try
   end tell
 end run
@@ -366,11 +399,23 @@ AS
 # Empties the test window's document. Fails (non-zero) when that window no longer exists or its document has a file.
 textedit_wipe() {
   osa "$1" <<'AS' >/dev/null
+-- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
+on neverSaved(d)
+  set saved to true
+  try
+    tell application "TextEdit" to set p to path of d
+    if p is missing value then set saved to false
+  on error
+    set saved to false
+  end try
+  return not saved
+end neverSaved
+
 on run argv
   set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     set d to document of (first window whose id is wid)
-    if (file of d) is not missing value then error "the document has a file"
+    if not my neverSaved(d) then error "the document has a file"
     set text of d to ""
   end tell
 end run
@@ -611,6 +656,7 @@ run_case() {
     say "  could not create a TextEdit document with a new, empty window (got '$WIN_ID')"
     record "$case_name" "$steps" "NOT RUN" "FAIL" "no TextEdit document"
     OVERALL=1
+    ABORT=1
     WIN_ID=""
     return
   fi
