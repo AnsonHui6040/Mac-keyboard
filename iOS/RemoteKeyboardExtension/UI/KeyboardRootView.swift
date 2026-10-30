@@ -60,6 +60,7 @@ final class KeyboardRootView: UIView {
 
     func apply(_ state: KeyboardViewState) {
         KeyFeedback.isEnabled = state.hapticsEnabled
+        KeyFeedback.prepare()
         topArea.apply(state)
         bottomRow.setGlobeVisible(state.showsGlobe)
         bottomRow.setChineseAvailable(state.chineseAvailable)

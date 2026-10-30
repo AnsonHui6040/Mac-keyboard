@@ -7,6 +7,12 @@ enum KeyFeedback {
     static var isEnabled = false
     private static let generator = UIImpactFeedbackGenerator(style: .light)
 
+    /// Wakes the haptic engine so the first press after a pause is not late.
+    static func prepare() {
+        guard isEnabled else { return }
+        generator.prepare()
+    }
+
     static func touchDown() {
         guard isEnabled else { return }
         generator.impactOccurred()

@@ -790,7 +790,7 @@ Mac adapter：`testUnpairedPeripheralIsDisconnectedAndSkippedForSession`、`test
   - `struct InputRouter { init(local: TextSink, remote: RemoteEventSink); func route(_ a: KeyAction, mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draft: inout DraftBuffer) -> RouteOutcome }`
   - 判斷：遠端模式下，`draft` 非空、或 `transmit == .draft`、或 `!ready` → 編輯草稿（`.draftEdited`）；否則即時送出（`.enqueuedRemote`）。`.sendDraft` 只在 `ready && !draft.isEmpty` 時送出全部事件（`.draftSent(count)`），否則 `.rejected`。`.cursorLeft/.cursorRight` 只動草稿，絕不送 Mac。本機模式所有字元寫入 iPhone 欄位，草稿保持不動。
   - `RouteOutcome` 新增 `draftEdited`、`draftSent(Int)`、`transmitToggled(TransmitMode)`、`pageChanged`；移除 T05 的「未就緒 `.rejected`」行為。
-- 版面（D17，主代理決定的尺寸）：頂部每行 36 pt；按鍵區 4 行，每行 46 pt、行距 10 pt；鍵盤總高 = 按鍵區 + 可見頂部行數 × 36，切換時以高度約束更新。不使用 Apple 私有資產；字型為系統字。
+- 版面（D17，主代理決定的尺寸）：頂部每行 36 pt；按鍵區 4 行，每行 42 pt、行距 12 pt（按鍵區共 212 pt，使用者 2026-10-30 實機後決定）；鍵盤總高 = 按鍵區 + 可見頂部行數 × 36，切換時以高度約束更新。不使用 Apple 私有資產；字型為系統字。
 - 同時處理交接延後項目（T01）：dead guard、router 多餘 case、App Group 字串改用 T09 `AppGroup`、無障礙標籤（每顆鍵 `accessibilityLabel`）、Backspace 長按連續刪除（0.5 秒後每 0.1 秒一次）；本機／遠端掣移到頂部、底列回復原生樣式（使用者 2026-10-30）。
 
 - [ ] **Step 1: 寫失敗測試**
