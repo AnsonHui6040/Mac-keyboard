@@ -28,7 +28,6 @@ targets:
       path: iOS/RemoteKeyboardApp/RemoteKeyboardApp.entitlements
       properties:
         com.apple.security.application-groups: [group.com.ansonhui.remotekeyboard]
-        keychain-access-groups: ["$(AppIdentifierPrefix)com.ansonhui.remotekeyboard.shared"]
     info:
       path: iOS/RemoteKeyboardApp/Info.plist
       properties:
@@ -36,7 +35,6 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
-        AppIdentifierPrefix: "$(AppIdentifierPrefix)"
         NSBluetoothAlwaysUsageDescription: Remote Keyboard 需要藍牙，才能讓你的 Mac 連線並接收鍵盤送出的文字。
     settings:
       base:
@@ -54,7 +52,6 @@ targets:
       path: iOS/RemoteKeyboardExtension/RemoteKeyboardExtension.entitlements
       properties:
         com.apple.security.application-groups: [group.com.ansonhui.remotekeyboard]
-        keychain-access-groups: ["$(AppIdentifierPrefix)com.ansonhui.remotekeyboard.shared"]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.keyboard

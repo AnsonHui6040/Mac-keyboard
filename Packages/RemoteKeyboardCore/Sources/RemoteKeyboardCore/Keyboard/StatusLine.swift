@@ -1,9 +1,16 @@
 /// Wording for the keyboard status line. Taiwan Traditional Chinese where it is not a state name.
 public enum StatusLine {
-    /// - Parameter connectedMs: shown-to-connected time of this appearance; only used while the link is connected.
+    /// Remote mode with no pair key: nothing is sent, and this is what the user is told to do.
+    public static let unpairedText = "尚未配對 Mac，請開啟主 App 配對"
+
+    /// - Parameters:
+    ///   - connectedMs: shown-to-connected time of this appearance; only used while the link is connected.
+    ///   - paired: whether this iPhone holds a pair key. Only Remote mode depends on it.
     public static func text(
-        mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, connectedMs: Int64? = nil
+        mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, connectedMs: Int64? = nil,
+        paired: Bool = true
     ) -> String {
+        if mode == .remote, !paired { return unpairedText }
         let latency = link == .connected ? connectedMs.map { " (\($0) ms)" } ?? "" : ""
         guard mode == .remote, link == .connected else {
             return link == .connected ? "BLE: connected" + latency : link.statusText

@@ -109,7 +109,7 @@ final class KeyboardViewController: UIInputViewController {
     /// the link any more. The next key press (or `viewDidAppear`) takes it back, instead of leaving this keyboard offline.
     private func reclaimPeripheralIfVacant() {
         guard isOnScreen, peripheral.isVacant else { return }
-        KeyboardLifecycleLog.note("vacant owner reclaimed by \(lifecycle.token.uuidString.prefix(8))")
+        KeyboardLifecycleLog.note(.vacantOwnerReclaimed(owner: lifecycle.token))
         claimPeripheral()
         refreshStatus()
     }
@@ -155,7 +155,8 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshStatus() {
         let link = peripheral.linkState
         let line = StatusLine.text(
-            mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs)
+            mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
+            paired: peripheral.isPaired)
         keyboardView?.setStatus(text: StatusLine.appendingNote(line, note: note), linkName: link.name)
     }
 
@@ -175,6 +176,6 @@ final class KeyboardViewController: UIInputViewController {
     private static func probeStatusText() -> String {
         let value = UserDefaults(suiteName: "group.com.ansonhui.remotekeyboard")?.object(forKey: "probe")
         let group = value == nil ? "AppGroup: NIL" : "AppGroup: OK"
-        return "\(group)  \(PairingStore.probeSummary())  版本 \(BuildStamp.current())"
+        return "\(group)  版本 \(BuildStamp.current())"
     }
 }

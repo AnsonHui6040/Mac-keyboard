@@ -2,7 +2,10 @@ import Foundation
 import OSLog
 import RemoteKeyboardCore
 
-/// Turns each `event` notification into at most one injection and exactly one ack.
+/// Turns each verified keyboard event into at most one injection and exactly one ack.
+///
+/// Events arrive here only after `ReceiverSecurity` authenticated the connection and opened the sealed payload; the
+/// pipeline never sees a plaintext message from the radio.
 ///
 /// A repeated event (same `eventId`) is acked with its original code and never typed again; an event whose `seq`
 /// is not above the highest one processed in its session is acked `outOfOrder` and not typed. What was processed is
@@ -22,10 +25,16 @@ final class EventPipeline {
     private let noteValidEvent: @MainActor () -> Void
     private let onPing: @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void
 
-    /// A notification tagged with the link generation it arrived in.
+    private enum Item: Sendable {
+        case event(KeyboardEvent)
+        /// Authenticated and decrypted, but the inner event could not be parsed.
+        case malformed
+    }
+
+    /// An item tagged with the link generation it arrived in.
     private struct Queued: Sendable {
         let generation: UInt64
-        let data: Data
+        let item: Item
     }
 
     private let continuation: AsyncStream<Queued>.Continuation
@@ -59,10 +68,13 @@ final class EventPipeline {
             for await item in stream {
                 guard let self else { return }
                 guard item.generation == self.generation else {
-                    Self.log.info("event dropped bytes=\(item.data.count, privacy: .public) reason=link-lost")
+                    Self.log.info("event dropped reason=link-lost")
                     continue
                 }
-                await self.process(item.data)
+                switch item.item {
+                case .event(let event): await self.process(event)
+                case .malformed: self.processMalformed()
+                }
             }
         }
     }
@@ -72,10 +84,13 @@ final class EventPipeline {
         consumer?.cancel()
     }
 
-    /// Queues one raw notification. Order of calls is the order of processing.
-    func submit(_ data: Data) { continuation.yield(Queued(generation: generation, data: data)) }
+    /// Queues one verified event. Order of calls is the order of processing.
+    func submit(_ event: KeyboardEvent) { continuation.yield(Queued(generation: generation, item: .event(event))) }
 
-    /// Drops every notification that is queued but not yet being processed. Called when receiving stops or the link
+    /// Queues the answer for an authenticated payload that could not be parsed; it is acked `malformed` in order.
+    func submitMalformed() { continuation.yield(Queued(generation: generation, item: .malformed)) }
+
+    /// Drops every item that is queued but not yet being processed. Called when receiving stops or the link
     /// is lost: keys typed for a connection that no longer exists are not injected later. The event already in
     /// flight finishes under its own focus checks.
     func discardQueued() { generation &+= 1 }
@@ -107,21 +122,15 @@ final class EventPipeline {
 
     // MARK: Processing
 
-    /// Handles one notification to completion. Internal so tests can drive it without the stream.
-    func process(_ data: Data) async {
+    /// An authenticated payload that did not parse: not an event, not receive activity, answered `malformed`.
+    func processMalformed() {
+        Self.log.info("event rejected ack=malformed")
+        sendAck(Ack(eventId: Ack.unknownEventId, result: .malformed))
+    }
+
+    /// Handles one event to completion. Internal so tests can drive it without the stream.
+    func process(_ event: KeyboardEvent) async {
         let started = ContinuousClock.now
-        let event: KeyboardEvent
-        do {
-            switch try PeripheralCodec.decode(data) {
-            case .event(let decoded): event = decoded
-            // Pairing and sealed messages are wired in the adapter step of T09; until then they are not events.
-            case .pairOffer, .pairReveal, .helloReply, .sealed: throw EventCodecError.malformed
-            }
-        } catch {
-            Self.log.info("event rejected bytes=\(data.count, privacy: .public) ack=malformed")
-            sendAck(Ack(eventId: Ack.unknownEventId, result: .malformed))
-            return
-        }
         noteValidEvent()
         let code = await handle(event)
         sendAck(Ack(eventId: event.eventId, result: code))

@@ -1,4 +1,5 @@
 import CoreBluetooth
+import CryptoKit
 import RemoteKeyboardCore
 import SwiftUI
 
@@ -41,7 +42,7 @@ extension BluetoothPermission: @preconcurrency CBCentralManagerDelegate {
 
 private struct ContentView: View {
     @State private var probeStatus = "未寫入"
-    @State private var keychainStatus = "未寫入"
+    @State private var isPaired = PairingStore.loadPairKey() != nil
     @StateObject private var bluetooth = BluetoothPermission()
     @State private var draft = ""
 
@@ -60,12 +61,17 @@ private struct ContentView: View {
                     }
                     Text(probeStatus)
                 }
-                Section("Keychain") {
-                    Button("寫入 Keychain probe") {
-                        let result = PairingStore.writeProbe()
-                        keychainStatus = "主要：\(result.primary)　備用：\(result.fallback)"
+                Section("Mac 配對") {
+                    Text(isPaired ? "已配對 Mac" : "尚未配對")
+                    NavigationLink("配對 Mac") {
+                        PairingView(onFinish: { isPaired = PairingStore.loadPairKey() != nil })
                     }
-                    Text(keychainStatus)
+                    if isPaired {
+                        Button("解除配對", role: .destructive) {
+                            PairingStore.deletePairKey()
+                            isPaired = PairingStore.loadPairKey() != nil
+                        }
+                    }
                 }
                 Section("藍牙") {
                     Button("允許藍牙") { bluetooth.request() }

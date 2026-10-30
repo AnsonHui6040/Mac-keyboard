@@ -27,6 +27,9 @@ public struct PhonePairing: Sendable {
     /// Set once the reveal went out; show it and ask for confirmation.
     public private(set) var sas: String?
 
+    /// - Parameter privateKey: a fresh `P256.KeyAgreement.PrivateKey` generated at the start of this pairing attempt, never
+    ///   reused across attempts. The commitment only binds the iPhone to a key it has not shown yet; with a reused key a
+    ///   man in the middle could learn it from an earlier attempt and search for a matching SAS ahead of time.
     public init(privateKey: P256.KeyAgreement.PrivateKey) { self.privateKey = privateKey }
 
     /// Step 1: the commitment to this side's public key.
@@ -71,6 +74,9 @@ public struct MacPairing: Sendable {
     /// Set once the iPhone's key was revealed and verified.
     public private(set) var sas: String?
 
+    /// - Parameter privateKey: a fresh `P256.KeyAgreement.PrivateKey` generated at the start of this pairing attempt, never
+    ///   reused across attempts. The Mac's key is on the wire before the iPhone's key is revealed; a key reused from an
+    ///   earlier attempt would be known to an observer of that attempt, and the commitment would protect nothing.
     public init(privateKey: P256.KeyAgreement.PrivateKey) { self.privateKey = privateKey }
 
     public mutating func receive(_ message: PeripheralMessage) -> MacPairingOutput {

@@ -11,6 +11,7 @@ struct ReceiverPanel: View {
     @ObservedObject var focus: FocusMonitor
     @ObservedObject var testInsert: TestInsertController
     @ObservedObject var loginItem: LoginItem
+    @ObservedObject var security: ReceiverSecurity
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
@@ -28,6 +29,8 @@ struct ReceiverPanel: View {
                 Button("停止接收") { central.stopReceiving() }
                     .disabled(!central.isArmed)
             }
+            Divider()
+            PairingSheet(security: security, now: central.now)
             Divider()
             Text(FocusMenuText.line(focus.snapshot))
                 .fixedSize(horizontal: false, vertical: true)

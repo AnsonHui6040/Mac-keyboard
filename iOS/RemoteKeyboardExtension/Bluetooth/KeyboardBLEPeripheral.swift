@@ -1,4 +1,5 @@
 import CoreBluetooth
+import CryptoKit
 import Foundation
 import RemoteKeyboardCore
 
@@ -39,6 +40,12 @@ final class KeyboardBLEPeripheral: NSObject {
     private var subscribedCentral: CBCentral?
     private(set) var latestStatus: ReceiverStatus?
 
+    /// The pair key as of the last appearance or connection; `nil` when this iPhone is not paired (or the Extension has
+    /// no Full Access and cannot read the Keychain).
+    private var pairKey: SymmetricKey?
+    /// One per Mac connection, with its own nonce. Events leave only once it `canSendEvents`, and only sealed.
+    private var handshake: PhoneHandshake?
+
     // Reconnect timing of the current appearance, and the one probe sent for it.
     private var tracker = ReconnectTracker()
     private var pingEventId: UUID?
@@ -55,9 +62,14 @@ final class KeyboardBLEPeripheral: NSObject {
     /// Nobody owns the peripheral; a controller that is still on screen may reclaim it.
     var isVacant: Bool { ownership.isVacant }
 
-    /// Remote keys are accepted only with a connected link, a subscribed central and a Receiver that says it is ready.
+    /// Whether this iPhone holds a pair key.
+    var isPaired: Bool { pairKey != nil }
+
+    /// Remote keys are accepted only with a connected link, a subscribed central that proved the pair key, and a Receiver
+    /// that says it is ready.
     var isRemoteReady: Bool {
-        machine.state == .connected && subscribedCentral != nil && latestStatus?.ready == true
+        machine.state == .connected && subscribedCentral != nil && handshake?.canSendEvents == true
+            && latestStatus?.ready == true
     }
 
     private override init() { super.init() }
@@ -78,7 +90,7 @@ final class KeyboardBLEPeripheral: NSObject {
         // appear inside a running appearance keeps the original start.
         tracker.beginIfIdle(atMs: MonotonicClock.nowMs())
         if ownership.claim(owner) {
-            KeyboardLifecycleLog.note("owner changed to \(owner.uuidString.prefix(8)) hadPrevious=\(hadOwner)")
+            KeyboardLifecycleLog.note(.ownerChanged(owner: owner, hadPrevious: hadOwner))
             if hadOwner { startSession() }
         }
         self.onStateChange = onStateChange
@@ -87,15 +99,20 @@ final class KeyboardBLEPeripheral: NSObject {
         // Without Full Access no CBPeripheralManager is created at all.
         if hasFullAccess && manager == nil {
             manager = CBPeripheralManager(delegate: self, queue: nil)
-            KeyboardLifecycleLog.note("manager created")
+            KeyboardLifecycleLog.note(.managerCreated)
         }
+        // The Keychain is read at each appearance (and again per connection) so a pairing made in the host App since the
+        // last time is picked up. Without Full Access the read fails and the keyboard is simply unpaired.
+        loadPairKey()
         feed(.appeared(hasFullAccess: hasFullAccess))
+        // The link machine has torn the service down by now; a manager an earlier controller created must not outlive it.
+        if !hasFullAccess { releaseManager() }
     }
 
     /// Honored only for the current owner; a stale controller's late disappear must not tear down the new owner's link.
     func disappear(owner: UUID) {
         guard ownership.isOwner(owner) else {
-            KeyboardLifecycleLog.note("disappear ignored for stale \(owner.uuidString.prefix(8))")
+            KeyboardLifecycleLog.note(.staleDisappearIgnored(owner: owner))
             return
         }
         feed(.disappeared)
@@ -109,18 +126,42 @@ final class KeyboardBLEPeripheral: NSObject {
     /// A controller is going away. Same as a disappear when it is still the owner, otherwise nothing.
     func release(owner: UUID) {
         guard ownership.isOwner(owner) else { return }
-        KeyboardLifecycleLog.note("owner released by deinit \(owner.uuidString.prefix(8))")
+        KeyboardLifecycleLog.note(.ownerReleasedByDeinit(owner: owner))
         disappear(owner: owner)
     }
 
-    /// A fresh id, seq from 1, nothing queued and nothing awaiting an ack.
+    private func loadPairKey() {
+        pairKey = PairingStore.loadPairKey()
+        if pairKey == nil { KeyboardLifecycleLog.note(.pairKeyMissing) }
+    }
+
+    /// Tears down the peripheral manager and everything tied to it (used when Full Access is off).
+    private func releaseManager() {
+        guard let manager else { return }
+        manager.stopAdvertising()
+        manager.removeAllServices()
+        manager.delegate = nil
+        self.manager = nil
+        eventCharacteristic = nil
+        subscribedCentral = nil
+        handshake = nil
+        latestStatus = nil
+        queue.removeAll()
+        clearPendingService()
+        KeyboardLifecycleLog.note(.managerReleasedNoFullAccess)
+    }
+
+    /// A fresh id, seq from 1, nothing queued and nothing awaiting an ack. While an authenticated connection is live the
+    /// sender is kept: the Mac pins the first session id a connection carries and ends the connection on any other, so a
+    /// replacement controller on a live link continues the same session (only its queue is cleared).
     private func startSession() {
-        sender = EventSender(sessionId: UUID())
+        if handshake?.canSendEvents != true { sender = EventSender(sessionId: UUID()) }
         queue.removeAll()
     }
 
     /// Ends a keyboard appearance: the next one is a new peripheral session, with no stale subscription or status.
     private func endSession() {
+        handshake = nil
         startSession()
         subscribedCentral = nil
         latestStatus = nil
@@ -140,11 +181,12 @@ final class KeyboardBLEPeripheral: NSObject {
     /// Only kind and length are logged.
     @discardableResult
     func send(_ kind: EventKind) -> UUID? {
-        guard let central = subscribedCentral else { return nil }
+        // Nothing leaves the phone before the Mac proved the pair key, and then only sealed.
+        guard let central = subscribedCentral, let current = handshake, current.canSendEvents else { return nil }
         let event = sender.make(kind, focusEpoch: latestStatus?.focusEpoch)
         let frames: [Data]
         do {
-            let message = try PeripheralCodec.encode(.event(event))
+            let message = try PeripheralCodec.encode(try current.sealEvent(event))
             // Each notification carries at most the subscribed central's maximumUpdateValueLength, header included.
             frames = try FrameCodec.split(message, messageId: messageId, maxFrameBytes: central.maximumUpdateValueLength)
         } catch {
@@ -169,6 +211,17 @@ final class KeyboardBLEPeripheral: NSObject {
         }
         drain()
         return event.eventId
+    }
+
+    /// Notifies one handshake message (`helloReply`) in the clear, framed like any other message.
+    private func transmit(_ message: PeripheralMessage) {
+        guard let central = subscribedCentral,
+              let payload = try? PeripheralCodec.encode(message),
+              let frames = try? FrameCodec.split(payload, messageId: messageId, maxFrameBytes: central.maximumUpdateValueLength)
+        else { return }
+        messageId &+= 1
+        for frame in frames { queue.enqueue(frame) }
+        drain()
     }
 
     /// One `.ping` per appearance, after the link connected and the first ReceiverStatus arrived (the Receiver refuses
@@ -233,11 +286,11 @@ final class KeyboardBLEPeripheral: NSObject {
             eventCharacteristic = event
             // One manager must never hold two copies of the service.
             manager.removeAllServices()
-            KeyboardLifecycleLog.note("removeAllServices before add")
+            KeyboardLifecycleLog.note(.removeAllServicesBeforeAdd)
             pendingServiceObject = service
             pendingService.begin(ObjectIdentifier(service))
             manager.add(service)
-            KeyboardLifecycleLog.note("addService")
+            KeyboardLifecycleLog.note(.addService)
         case .startAdvertising:
             manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Self.serviceID]])
         case .stopAdvertising:
@@ -245,7 +298,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .removeServices:
             clearPendingService()
             manager.removeAllServices()
-            KeyboardLifecycleLog.note("removeAllServices")
+            KeyboardLifecycleLog.note(.removeAllServices)
             eventCharacteristic = nil
             queue.removeAll()
         }
@@ -270,7 +323,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
         // A completion for any service but the one in flight belongs to an earlier appearance and is dropped.
         guard pendingService.accept(ObjectIdentifier(service)) else {
-            KeyboardLifecycleLog.note("stale didAdd ignored ok=\(error == nil)")
+            KeyboardLifecycleLog.note(.staleDidAddIgnored(ok: error == nil))
             return
         }
         pendingServiceObject = nil
@@ -288,7 +341,11 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         guard characteristic.uuid == Self.eventID else { return }
         subscribedCentral = central
         DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
-        KeyboardLifecycleLog.note("subscribed maxUpdateValueLength=\(central.maximumUpdateValueLength)")
+        KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
+        // Every Mac connection runs its own handshake with its own nonce; a recorded reply is useless on the next one.
+        loadPairKey()
+        handshake = PhoneHandshake(pairKey: pairKey, phoneNonce: Pairing.randomNonce())
+        KeyboardLifecycleLog.note(.handshakeStarted)
         feed(.subscribed)
     }
 
@@ -297,9 +354,10 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didUnsubscribeFrom characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
-        KeyboardLifecycleLog.note("unsubscribed maxUpdateValueLength=\(central.maximumUpdateValueLength)")
+        KeyboardLifecycleLog.note(.unsubscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
         // Keys typed for the old connection are not replayed into a later one.
         subscribedCentral = nil
+        handshake = nil
         latestStatus = nil
         queue.removeAll()
         feed(.unsubscribed)
@@ -320,6 +378,30 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             return
         }
         peripheral.respond(to: first, withResult: .success)
+        if case .pairAccept = message { return }  // pairing happens in the host App, never in the keyboard
+        guard var current = handshake else { return }
+        let output = current.receive(message)
+        handshake = current
+        switch output {
+        case .none:
+            break
+        case .send(let reply):
+            transmit(reply)
+        case .authenticated:
+            KeyboardLifecycleLog.note(.handshakeAuthenticated)
+            onStateChange?(machine.state)
+        case .deliver(let inner):
+            deliver(inner)
+        case .failed:
+            KeyboardLifecycleLog.note(.handshakeFailed)
+            // An unpaired keyboard already says so in the status line; only a failed proof needs a note.
+            if pairKey != nil { onNote?("配對驗證失敗") }
+            onStateChange?(machine.state)
+        }
+    }
+
+    /// An `ack` or `status` the Mac sent after it was authenticated (opened from `sealed`).
+    private func deliver(_ message: ControlMessage) {
         switch message {
         case .status(let status):
             latestStatus = status
@@ -332,7 +414,6 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
                 return
             }
         case .pairAccept, .hello, .auth, .authFailed, .sealed:
-            // Pairing and authentication are wired in the adapter step of T09.
             return
         }
         onControl?(message)

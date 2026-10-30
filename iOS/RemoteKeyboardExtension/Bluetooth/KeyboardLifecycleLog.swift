@@ -3,13 +3,67 @@ import OSLog
 import os
 
 /// Notice-level lifecycle log. Notice level persists into a device sysdiagnose, which is what the device test needs.
-/// Carries counters, owner changes and sizes only, never text.
+/// Carries counters, owner tokens and sizes only, never text. Only the fixed `Event` cases can be logged, so no free
+/// string (a typed character, a key, an app name) can be passed in by mistake.
 enum KeyboardLifecycleLog {
+    enum Event {
+        case ownerChanged(owner: UUID, hadPrevious: Bool)
+        case ownerReleasedByDeinit(owner: UUID)
+        case staleDisappearIgnored(owner: UUID)
+        case vacantOwnerReclaimed(owner: UUID)
+        case managerCreated
+        /// Full Access is off: the peripheral manager of an earlier controller was torn down.
+        case managerReleasedNoFullAccess
+        case removeAllServicesBeforeAdd
+        case addService
+        case removeAllServices
+        case staleDidAddIgnored(ok: Bool)
+        case subscribed(maxUpdateValueLength: Int)
+        case unsubscribed(maxUpdateValueLength: Int)
+        case pairKeyMissing
+        case handshakeStarted
+        case handshakeAuthenticated
+        case handshakeFailed
+    }
+
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "lifecycle")
     private static let live = OSAllocatedUnfairLock(initialState: 0)
 
-    static func note(_ message: String) {
-        logger.notice("\(message, privacy: .public)")
+    static func note(_ event: Event) {
+        switch event {
+        case .ownerChanged(let owner, let hadPrevious):
+            logger.notice("owner changed to \(owner.uuidString.prefix(8), privacy: .public) hadPrevious=\(hadPrevious, privacy: .public)")
+        case .ownerReleasedByDeinit(let owner):
+            logger.notice("owner released by deinit \(owner.uuidString.prefix(8), privacy: .public)")
+        case .staleDisappearIgnored(let owner):
+            logger.notice("disappear ignored for stale \(owner.uuidString.prefix(8), privacy: .public)")
+        case .vacantOwnerReclaimed(let owner):
+            logger.notice("vacant owner reclaimed by \(owner.uuidString.prefix(8), privacy: .public)")
+        case .managerCreated:
+            logger.notice("manager created")
+        case .managerReleasedNoFullAccess:
+            logger.notice("manager released, no Full Access")
+        case .removeAllServicesBeforeAdd:
+            logger.notice("removeAllServices before add")
+        case .addService:
+            logger.notice("addService")
+        case .removeAllServices:
+            logger.notice("removeAllServices")
+        case .staleDidAddIgnored(let ok):
+            logger.notice("stale didAdd ignored ok=\(ok, privacy: .public)")
+        case .subscribed(let length):
+            logger.notice("subscribed maxUpdateValueLength=\(length, privacy: .public)")
+        case .unsubscribed(let length):
+            logger.notice("unsubscribed maxUpdateValueLength=\(length, privacy: .public)")
+        case .pairKeyMissing:
+            logger.notice("no pair key")
+        case .handshakeStarted:
+            logger.notice("handshake started")
+        case .handshakeAuthenticated:
+            logger.notice("handshake authenticated")
+        case .handshakeFailed:
+            logger.notice("handshake failed")
+        }
     }
 
     static func controllerCreated(token: UUID) {

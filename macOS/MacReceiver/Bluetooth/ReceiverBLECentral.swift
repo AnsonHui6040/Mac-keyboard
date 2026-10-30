@@ -45,6 +45,11 @@ final class ReceiverBLECentral: ObservableObject {
     /// When the peripheral that is now being connected was accepted, not merely seen.
     private var discoveredAtMs: Int64?
 
+    /// Peripherals that failed authentication (or offered to pair outside a pairing window) in the current receiving
+    /// session. They are not connected to again until the session ends: the list is emptied when receiving arms and
+    /// when it disarms.
+    private var skippedPeripherals: Set<UUID> = []
+
     /// Puts the frames of each `event` notification back into whole messages. One per connected peripheral; the
     /// central holds a single connection, and the reassembler is reset whenever that connection stops being ready.
     private var reassembler = FrameReassembler()
@@ -115,6 +120,31 @@ final class ReceiverBLECentral: ObservableObject {
         driver?.writeControl(data)
     }
 
+    /// Drops the connection in progress (or ready), if any, and goes back to scanning. With `skipForSession` the
+    /// peripheral is also not connected to again for the rest of the receiving session.
+    func disconnectCurrent(skipForSession: Bool) {
+        let id: UUID
+        switch link.state {
+        case .connecting(let current), .discovering(let current), .ready(let current): id = current
+        default: return
+        }
+        if skipForSession {
+            skippedPeripherals.insert(id)
+            Self.log.info("peripheral skipped for this receiving session")
+        }
+        // A service that went away is how the link machine already expresses "drop this peripheral and look again".
+        handleLink(.serviceInvalidated(id))
+    }
+
+    /// Forgets every skipped peripheral and starts a fresh scan (the driver reports a peripheral once per scan), so a
+    /// phone seen before is reported again. Also ends a live connection. Does nothing while receiving is not armed.
+    func restartScanning() {
+        skippedPeripherals.removeAll()
+        guard isArmed else { return }
+        handleLink(.stop)
+        handleLink(.start)
+    }
+
     func handleSession(_ input: ReceiverSessionInput) {
         let effects = session.handle(input, now: clock())
         isArmed = session.isArmed
@@ -123,10 +153,12 @@ final class ReceiverBLECentral: ObservableObject {
         for effect in effects {
             switch effect {
             case .arm:
+                skippedPeripherals.removeAll()
                 if driver == nil { driver = makeDriver(self) }
                 startTicking()
                 handleLink(.start)
             case .disarm:
+                skippedPeripherals.removeAll()
                 stopTicking()
                 idleTimer?.invalidate()
                 idleTimer = nil
@@ -163,6 +195,7 @@ final class ReceiverBLECentral: ObservableObject {
     // MARK: Link
 
     func handleLink(_ input: ReceiverLinkInput) {
+        if case .discovered(let id) = input, skippedPeripherals.contains(id) { return }
         if case .power(let new) = input { power = new }
         let before = link.state
         let effects = link.handle(input)

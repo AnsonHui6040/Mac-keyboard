@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import RemoteKeyboardCore
 import XCTest
 @testable import MacReceiver
@@ -53,23 +54,11 @@ final class FocusTransitionTests: XCTestCase {
     }
 }
 
-/// The coordinator against a real `ReceiverBLECentral` with a fake radio and a real `EventPipeline` with fake input.
-/// Nothing here touches Bluetooth, Accessibility or the real input stream.
+/// The coordinator against a real `ReceiverBLECentral` with a fake radio, a real `ReceiverSecurity` with a paired fake
+/// iPhone, and a real `EventPipeline` with fake input. Nothing here touches Bluetooth, Accessibility, the Keychain or
+/// the real input stream.
 @MainActor
 final class ReceiverCoordinatorWiringTests: XCTestCase {
-    @MainActor private final class FakeDriver: CentralDriving {
-        var controlWrites: [Data] = []
-        func startScan() {}
-        func stopScan() {}
-        func connect(_ id: UUID) {}
-        func discover(_ id: UUID) {}
-        func cancel(_ id: UUID) {}
-        func forget(_ id: UUID) {}
-        func writeControl(_ data: Data) { controlWrites.append(data) }
-        var messages: [ControlMessage] { controlWrites.compactMap { try? ControlCodec.decode($0) } }
-        var acks: [Ack] { messages.compactMap { if case .ack(let ack) = $0 { ack } else { nil } } }
-    }
-
     @MainActor private final class CountingPoster: EventPosting {
         var batches = 0
         func post(_ events: [CGEvent]) { batches += 1 }
@@ -80,53 +69,85 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         func select(_ id: String) -> Bool { true }
     }
 
-    private struct Rig {
+    @MainActor private final class Rig {
         let coordinator: ReceiverCoordinator
         let central: ReceiverBLECentral
+        let security: ReceiverSecurity
         let focus: FocusMonitor
-        let driver: FakeDriver
-        let poster: CountingPoster
+        let driver = RecordingDriver()
+        let poster = CountingPoster()
+        let phone: TestPhone
+        let pairKey: SymmetricKey
         let peripheral = UUID()
+        let session = UUID()
+        private var consumed = 0
+        private(set) var delivered: [ControlMessage] = []
+        private var messageSeq: UInt64 = 0
+
+        init(pairKey: SymmetricKey) {
+            self.pairKey = pairKey
+            let name = "rk.tests.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: name)!
+            defaults.removePersistentDomain(forName: name)
+            let driver = driver
+            central = ReceiverBLECentral(defaults: defaults, makeDriver: { _ in driver })
+            security = ReceiverSecurity(central: central, store: FakePairKeyStore(key: pairKey))
+            focus = FocusMonitor()
+            let poster = poster
+            let current = ReceiverCoordinatorWiringTests.editable(epoch: 3)
+            let security = security
+            let pipeline = EventPipeline(
+                snapshot: { current },
+                switcher: InputSourceSwitcher(controller: AsciiController(), composition: nil, settle: { _ in }),
+                injector: TextInjector(poster: poster),
+                sendAck: { [weak security] ack in security?.send(.ack(ack)) },
+                noteValidEvent: { [weak central] in central?.noteEvent() }
+            )
+            coordinator = ReceiverCoordinator(focus: focus, central: central, security: security, pipeline: pipeline)
+            phone = TestPhone(pairKey: pairKey)
+            coordinator.start()
+        }
+
+        /// Reads what the Mac wrote since the last call as the iPhone would: plain handshake messages drive the phone
+        /// reducer, sealed ones are opened and collected in `delivered`.
+        func pump() throws {
+            while consumed < driver.controlWrites.count {
+                let data = driver.controlWrites[consumed]
+                consumed += 1
+                switch phone.receive(data) {
+                case .send(let reply):
+                    for frame in try phone.frames(reply) { central.receive(eventData: frame) }
+                case .deliver(let message):
+                    delivered.append(message)
+                case .authenticated, .none, .failed:
+                    break
+                }
+            }
+        }
+
+        var acks: [Ack] { delivered.compactMap { if case .ack(let ack) = $0 { ack } else { nil } } }
+        var statuses: [ReceiverStatus] { delivered.compactMap { if case .status(let status) = $0 { status } else { nil } } }
+
+        func deliver(_ kind: EventKind, id: UUID = UUID(), seq: UInt64? = nil) throws -> UUID {
+            messageSeq += 1
+            let message = try phone.sealed(kind, session: session, seq: seq ?? messageSeq, epoch: 3, id: id)
+            for frame in try phone.frames(message) { central.receive(eventData: frame) }
+            return id
+        }
     }
 
-    private func rig() -> Rig {
-        let name = "rk.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        let driver = FakeDriver()
-        let central = ReceiverBLECentral(defaults: defaults, makeDriver: { _ in driver })
-        let focus = FocusMonitor()
-        let poster = CountingPoster()
-        let current = Self.editable(epoch: 3)
-        let pipeline = EventPipeline(
-            snapshot: { current },
-            switcher: InputSourceSwitcher(controller: AsciiController(), composition: nil, settle: { _ in }),
-            injector: TextInjector(poster: poster),
-            sendAck: { [weak central] ack in central?.send(.ack(ack)) },
-            noteValidEvent: { [weak central] in central?.noteEvent() }
-        )
-        let coordinator = ReceiverCoordinator(focus: focus, central: central, pipeline: pipeline)
-        coordinator.start()
-        return Rig(coordinator: coordinator, central: central, focus: focus, driver: driver, poster: poster)
-    }
+    private func rig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32))) }
 
     private static func editable(epoch: UInt64) -> FocusSnapshot {
         FocusSnapshot(axTrusted: true, frontmostPID: 42, appName: "TextEdit", editable: true, epoch: epoch)
     }
 
-    private func bringLinkUp(_ r: Rig) {
+    private func bringLinkUp(_ r: Rig) throws {
         r.central.handleLink(.power(.poweredOn))
         r.central.handleLink(.discovered(r.peripheral))
         r.central.handleLink(.connected(r.peripheral))
         r.central.handleLink(.linkReady(r.peripheral))
-    }
-
-    private func deliver(_ kind: EventKind, id: UUID = UUID(), to central: ReceiverBLECentral) throws -> UUID {
-        let event = KeyboardEvent(
-            protocolVersion: KeyboardEvent.currentVersion, eventId: id, sessionId: UUID(), seq: 1, focusEpoch: 3, kind: kind)
-        let message = try PeripheralCodec.encode(.event(event))
-        for frame in try FrameCodec.split(message, messageId: 0, maxFrameBytes: 182) { central.receive(eventData: frame) }
-        return id
+        try r.pump()
     }
 
     private func waitUntil(_ condition: () -> Bool) async {
@@ -143,47 +164,70 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         r.focus.onChange?(Self.editable(epoch: 3))
         XCTAssertTrue(r.central.isArmed, "clicking an editable field arms receiving")
 
-        bringLinkUp(r)
-        XCTAssertEqual(r.driver.messages, [.status(ReceiverStatus(ready: true, appName: "TextEdit", focusEpoch: 3))],
-                       "the first status is written when the link becomes ready")
+        try bringLinkUp(r)
+        XCTAssertEqual(r.delivered, [.status(ReceiverStatus(ready: true, appName: "TextEdit", focusEpoch: 3))],
+                       "the first status is written once the phone is authenticated, and it is sealed")
 
-        let id = try deliver(.text("A"), to: r.central)
-        await waitUntil { !r.driver.acks.isEmpty }
-        XCTAssertEqual(r.driver.acks, [Ack(eventId: id, result: .posted)])
+        let id = try r.deliver(.text("A"))
+        await waitUntil { try? r.pump(); return !r.acks.isEmpty }
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .posted)])
         XCTAssertEqual(r.poster.batches, 1)
+    }
+
+    func testNoStatusIsWrittenBeforeThePhoneAuthenticates() throws {
+        let r = rig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        r.central.handleLink(.power(.poweredOn))
+        r.central.handleLink(.discovered(r.peripheral))
+        r.central.handleLink(.connected(r.peripheral))
+        r.central.handleLink(.linkReady(r.peripheral))
+        XCTAssertEqual(r.driver.writes.count, 1, "only hello")
+        r.coordinator.sendStatus()
+        XCTAssertEqual(r.driver.writes.count, 1, "a status changed by focus before auth is not written")
     }
 
     func testPingReachesThePipelineAndIsAckedPong() async throws {
         let r = rig()
         r.focus.onChange?(Self.editable(epoch: 3))
-        bringLinkUp(r)
-        let id = try deliver(.ping(shownAtMs: 1, connectedAtMs: 2), to: r.central)
-        await waitUntil { !r.driver.acks.isEmpty }
-        XCTAssertEqual(r.driver.acks, [Ack(eventId: id, result: .pong)])
+        try bringLinkUp(r)
+        let id = try r.deliver(.ping(shownAtMs: 1, connectedAtMs: 2))
+        await waitUntil { try? r.pump(); return !r.acks.isEmpty }
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .pong)])
         XCTAssertEqual(r.poster.batches, 0)
     }
 
     func testLinkLossDropsQueuedEventsButKeepsTheDeduplicator() async throws {
         let r = rig()
         r.focus.onChange?(Self.editable(epoch: 3))
-        bringLinkUp(r)
+        try bringLinkUp(r)
 
-        let id = try deliver(.text("A"), to: r.central)
-        await waitUntil { r.driver.acks.count == 1 }
+        let id = try r.deliver(.text("A"), seq: 1)
+        await waitUntil { try? r.pump(); return r.acks.count == 1 }
         XCTAssertEqual(r.poster.batches, 1)
 
         // Queued behind nothing yet read: the link drops before the consumer runs, so they are never typed.
-        _ = try deliver(.text("B"), to: r.central)
+        _ = try r.deliver(.text("B"), seq: 2)
         r.central.handleLink(.disconnected(r.peripheral))
-        bringLinkUp(r)
+        try bringLinkUpAgain(r)
         try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(r.driver.acks.count, 1, "the event queued before the link loss is dropped, not typed later")
+        try r.pump()
+        XCTAssertEqual(r.acks.count, 1, "the event queued before the link loss is dropped, not typed later")
         XCTAssertEqual(r.poster.batches, 1)
 
         // The same event again after the reconnect is recognised: acked with the original code, not typed twice.
-        _ = try deliver(.text("A"), id: id, to: r.central)
-        await waitUntil { r.driver.acks.count == 2 }
-        XCTAssertEqual(r.driver.acks.last, Ack(eventId: id, result: .posted))
+        _ = try r.deliver(.text("A"), id: id, seq: 1)
+        await waitUntil { try? r.pump(); return r.acks.count == 2 }
+        XCTAssertEqual(r.acks.last, Ack(eventId: id, result: .posted))
         XCTAssertEqual(r.poster.batches, 1)
+    }
+
+    /// After a link loss the same phone comes back: a new connection, so a new handshake and a new session key.
+    private func bringLinkUpAgain(_ r: Rig) throws {
+        r.central.handleLink(.rescanTimer)
+        r.central.handleLink(.discovered(r.peripheral))
+        r.central.handleLink(.connected(r.peripheral))
+        r.central.handleLink(.linkReady(r.peripheral))
+        r.phone.handshake = PhoneHandshake(pairKey: r.pairKey, phoneNonce: Pairing.randomNonce())
+        try r.pump()
     }
 }

@@ -74,12 +74,13 @@ final class EventPipelineTests: XCTestCase {
         return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state)
     }
 
+    /// Events reach the pipeline already verified and decrypted (`ReceiverSecurity`), so the tests hand it events.
     private func frame(
-        _ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), version: Int = KeyboardEvent.currentVersion,
-        seq: UInt64 = 1, session: UUID = UUID()
-    ) throws -> (Data, UUID) {
-        let event = KeyboardEvent(protocolVersion: version, eventId: id, sessionId: session, seq: seq, focusEpoch: epoch, kind: kind)
-        return (try PeripheralCodec.encode(.event(event)), id)
+        _ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), seq: UInt64 = 1, session: UUID = UUID()
+    ) throws -> (KeyboardEvent, UUID) {
+        let event = KeyboardEvent(
+            protocolVersion: KeyboardEvent.currentVersion, eventId: id, sessionId: session, seq: seq, focusEpoch: epoch, kind: kind)
+        return (event, id)
     }
 
     // MARK: Decision to ack mapping
@@ -215,14 +216,25 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(h.poster.batches.count, 0)
     }
 
-    func testUndecodableBytesAckMalformedWithoutCountingAsActivity() async throws {
+    func testMalformedPayloadAcksMalformedWithoutCountingAsActivity() async throws {
         let h = harness(snapshots: [snapshot()])
-        await h.pipeline.process(Data("{".utf8))
-        await h.pipeline.process(try frame(.text("A"), version: 1).0)
-        XCTAssertEqual(h.state.acks, [Ack(eventId: Ack.unknownEventId, result: .malformed),
-                                      Ack(eventId: Ack.unknownEventId, result: .malformed)])
+        h.pipeline.processMalformed()
+        XCTAssertEqual(h.state.acks, [Ack(eventId: Ack.unknownEventId, result: .malformed)])
         XCTAssertEqual(h.state.noted, 0)
         XCTAssertEqual(h.poster.batches.count, 0)
+    }
+
+    func testSubmittedMalformedPayloadIsAckedInOrderWithTheEvents() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (first, firstId) = try frame(.text("A"), seq: 1)
+        let (second, secondId) = try frame(.text("B"), seq: 2)
+        h.pipeline.submit(first)
+        h.pipeline.submitMalformed()
+        h.pipeline.submit(second)
+        await waitUntil { h.state.acks.count == 3 }
+        XCTAssertEqual(h.state.acks, [Ack(eventId: firstId, result: .posted),
+                                      Ack(eventId: Ack.unknownEventId, result: .malformed),
+                                      Ack(eventId: secondId, result: .posted)])
     }
 
     func testLongTextIsChunkedAndAcksPostedOnce() async throws {
