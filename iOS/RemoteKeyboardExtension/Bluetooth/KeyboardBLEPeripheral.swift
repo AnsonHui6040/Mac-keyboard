@@ -305,7 +305,19 @@ final class KeyboardBLEPeripheral: NSObject {
             KeyboardLifecycleLog.note(.removeAllServices)
             eventCharacteristic = nil
             queue.removeAll()
+            // The connection went with the service; nothing about it may outlive it.
+            dropConnectionState()
         }
+    }
+
+    /// Forgets the Mac connection: the bound central, the handshake and what the Mac last said. CoreBluetooth does not
+    /// reliably report an unsubscribe when the radio goes away or the service is removed, so this must not wait for one;
+    /// a stale authenticated handshake would otherwise lock out the Mac's next connection.
+    private func dropConnectionState() {
+        binding.clear()
+        subscribedCentral = nil
+        handshake = nil
+        latestStatus = nil
     }
 
     private static func map(_ state: CBManagerState) -> PeripheralPower {
@@ -321,7 +333,12 @@ final class KeyboardBLEPeripheral: NSObject {
 
 extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        feed(.power(Self.map(peripheral.state)))
+        let power = Self.map(peripheral.state)
+        if power != .poweredOn {
+            binding.powerChanged(power)
+            dropConnectionState()
+        }
+        feed(.power(power))
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
@@ -345,7 +362,10 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         guard characteristic.uuid == Self.eventID else { return }
         // While the bound Mac is authenticated, another central can neither take its place nor reset its handshake.
         let outcome = binding.subscribe(central.identifier, locked: handshake?.canSendEvents == true)
-        guard outcome != .refused, outcome != .keptExisting else { return }
+        guard outcome == .bound else { return }
+        // A subscription, even a repeat one from the same Mac, is a new connection: nothing of the old one carries over.
+        latestStatus = nil
+        queue.removeAll()
         subscribedCentral = central
         DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
         KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))

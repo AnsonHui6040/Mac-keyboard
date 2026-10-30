@@ -8,11 +8,10 @@ import Foundation
 /// nor reset its handshake. Pure decisions only; the adapters hold the radio objects.
 public struct CentralBinding: Sendable {
     public enum Outcome: Equatable, Sendable {
-        /// This central is now the bound one: start a fresh handshake (or attempt) for it.
+        /// This central is now the bound one: start a fresh handshake (or attempt) for it. Also the answer when the bound
+        /// central subscribes again: a new subscription is a new connection on the Mac side, so nothing of the old one stays valid.
         case bound
-        /// The bound central subscribed again while locked: keep everything as it is.
-        case keptExisting
-        /// Another central subscribed while the bound one is locked: ignore it.
+        /// A different central subscribed while the bound one is locked: ignore it.
         case refused
     }
 
@@ -27,8 +26,7 @@ public struct CentralBinding: Sendable {
             subscribed = central
             return .bound
         }
-        if current == central { return locked ? .keptExisting : .bound }
-        guard !locked else { return .refused }
+        guard current == central || !locked else { return .refused }
         subscribed = central
         return .bound
     }
@@ -44,4 +42,10 @@ public struct CentralBinding: Sendable {
     public func shouldAcceptWrite(from central: UUID) -> Bool { subscribed == central }
 
     public mutating func clear() { subscribed = nil }
+
+    /// CoreBluetooth does not reliably report an unsubscribe when the radio goes away, so any state other than powered on
+    /// releases the binding.
+    public mutating func powerChanged(_ power: PeripheralPower) {
+        if power != .poweredOn { subscribed = nil }
+    }
 }

@@ -234,7 +234,16 @@ final class PairingPeripheral: NSObject, ObservableObject {
 
 extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
-        feed(.power(Self.map(peripheral.state)))
+        let power = Self.map(peripheral.state)
+        if power != .poweredOn {
+            // No unsubscribe is reliably reported when the radio goes away: the connection and any attempt on it are gone.
+            binding.powerChanged(power)
+            subscribedCentral = nil
+            queue.removeAll()
+            if phase == .confirmed { return end(.paired) }
+            if attempt != nil { return end(.failed(.connectionLost)) }
+        }
+        feed(.power(power))
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didAdd service: CBService, error: Error?) {
