@@ -7,7 +7,15 @@ import SwiftUI
 struct RemoteKeyboardApp: App {
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if let name = UserDefaults.standard.string(forKey: "rkPreview") {
+                KeyboardPreviewView(stateName: name, width: UserDefaults.standard.double(forKey: "rkPreviewWidth"))
+            } else {
+                ContentView()
+            }
+            #else
             ContentView()
+            #endif
         }
     }
 }
