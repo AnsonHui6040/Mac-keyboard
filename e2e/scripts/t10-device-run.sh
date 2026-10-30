@@ -312,114 +312,98 @@ RUN_DIR="$OUT/run.$(date +%Y%m%d-%H%M%S).$$"
 # Runs AppleScript from stdin. Arguments are passed to `on run argv`.
 osa() { osascript - "$@" 2>/dev/null; }
 
-# New document; prints the id of its window, or ERR. The id is found by identity: the window ids before and after
-# `make new document` must differ by exactly one, and that window's document must be empty.
-textedit_new_window() {
-  osa <<'AS'
--- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
-on neverSaved(d)
-  set saved to true
+# The test document is an empty file in this run's directory, opened in TextEdit. TextEdit then edits it in place, so
+# nothing is autosaved to iCloud Drive, the text is plain text, and ownership is checkable: a document is ours only if
+# its path is inside $RUN_DIR. The test texts therefore stay under the run directory.
+HANDLERS='-- Ours: the document has a path and that path is inside the run directory.
+on ownsDoc(d, dirPath)
   try
-    tell application "TextEdit" to set p to path of d
-    if p is missing value then set saved to false
+    tell application "TextEdit" to set pt to path of d
+    return (pt as text) starts with dirPath
   on error
-    set saved to false
+    return false
   end try
-  return not saved
-end neverSaved
+end ownsDoc
 
 on isEmptyDoc(d)
   tell application "TextEdit" to set t to text of d
   return (length of t) is 0
 end isEmptyDoc
+'
 
-tell application "TextEdit"
-  activate
-  set beforeIds to id of every window
-  make new document
-  delay 0.5
-  set afterIds to id of every window
-  set newIds to {}
-  repeat with k from 1 to count of afterIds
-    set candidate to item k of afterIds
-    if beforeIds does not contain candidate then set end of newIds to candidate
-  end repeat
-  -- Anything created here that is not the one empty, never-saved window we want is closed again (new, never saved).
-  if (count of newIds) is not 1 then
+# Opens the (empty) file $1 in TextEdit and prints the id of the one new window, or ERR. The id is found by identity:
+# the window ids before and after must differ by exactly one, that document's path must be the file, and it must be
+# empty. Any window opened here that fails that is closed again (only if inside the run directory).
+textedit_new_window() {
+  { printf '%s\n' "$HANDLERS"; cat <<'AS'
+on run argv
+  set targetPath to item 1 of argv
+  set dirPath to item 2 of argv
+  set targetFile to POSIX file targetPath
+  tell application "TextEdit"
+    activate
+    set beforeIds to id of every window
+    open targetFile
+    delay 0.8
+    set afterIds to id of every window
+    set newIds to {}
+    repeat with k from 1 to count of afterIds
+      set candidate to item k of afterIds
+      if beforeIds does not contain candidate then set end of newIds to candidate
+    end repeat
+    set good to false
+    if (count of newIds) is 1 then
+      set d to document of (first window whose id is (item 1 of newIds))
+      try
+        tell application "TextEdit" to set pt to path of d
+        if (pt as text) is targetPath and my isEmptyDoc(d) then set good to true
+      end try
+    end if
+    if good then return (item 1 of newIds) as string
     repeat with k from 1 to count of newIds
       try
         set d to document of (first window whose id is (item k of newIds))
-        if my neverSaved(d) and my isEmptyDoc(d) then close d saving no
+        if my ownsDoc(d, dirPath) then close d saving no
       end try
     end repeat
     return "ERR"
-  end if
-  set wid to item 1 of newIds
-  set d to document of (first window whose id is wid)
-  if not my neverSaved(d) or not my isEmptyDoc(d) then
-    try
-      if my neverSaved(d) then close d saving no
-    end try
-    return "ERR"
-  end if
-  return wid as string
-end tell
+  end tell
+end run
 AS
+  } | osa "$1" "$RUN_DIR/"
 }
 
 # Closes the test window's document without saving. Does nothing when that window no longer exists or its document
-# has a file behind it (the test document is never saved, so a file means it is not ours any more).
+# is not inside the run directory.
 textedit_close_window() {
   [ -n "$1" ] || return 0
-  osa "$1" <<'AS' >/dev/null
--- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
-on neverSaved(d)
-  set saved to true
-  try
-    tell application "TextEdit" to set p to path of d
-    if p is missing value then set saved to false
-  on error
-    set saved to false
-  end try
-  return not saved
-end neverSaved
-
+  { printf '%s\n' "$HANDLERS"; cat <<'AS'
 on run argv
   set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     try
       set d to document of (first window whose id is wid)
-      if my neverSaved(d) then close d saving no
+      if my ownsDoc(d, item 2 of argv) then close d saving no
     end try
   end tell
 end run
 AS
+  } | osa "$1" "$RUN_DIR/" >/dev/null
 }
 
-# Empties the test window's document. Fails (non-zero) when that window no longer exists or its document has a file.
+# Empties the test window's document. Fails (non-zero) when that window no longer exists or is not inside the run directory.
 textedit_wipe() {
-  osa "$1" <<'AS' >/dev/null
--- Never saved: for such a document TextEdit raises an error for `path`/`file` instead of returning missing value.
-on neverSaved(d)
-  set saved to true
-  try
-    tell application "TextEdit" to set p to path of d
-    if p is missing value then set saved to false
-  on error
-    set saved to false
-  end try
-  return not saved
-end neverSaved
-
+  { printf '%s\n' "$HANDLERS"; cat <<'AS'
 on run argv
   set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     set d to document of (first window whose id is wid)
-    if not my neverSaved(d) then error "the document has a file"
+    if not my ownsDoc(d, item 2 of argv) then error "the document is not in the run directory"
     set text of d to ""
   end tell
 end run
 AS
+  } | osa "$1" "$RUN_DIR/" >/dev/null
 }
 
 # Brings the test window to the front and, only if it really is the front window, puts the cursor in its text.
@@ -523,6 +507,7 @@ fi
 # Build once
 # ---------------------------------------------------------------------------------------------------------------
 mkdir -p "$OUT" "$RUN_DIR"
+RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
 say "  run directory: $RUN_DIR"
 if [ "$SKIP_BUILD" -eq 1 ]; then
   say "== Build skipped (--skip-build), using $DERIVED"
@@ -651,7 +636,8 @@ run_case() {
   FRONT_FAIL=""
   say "== $case_name (steps $steps)"
 
-  WIN_ID="$(textedit_new_window)"
+  : >"$RUN_DIR/$case_name.txt"
+  WIN_ID="$(textedit_new_window "$RUN_DIR/$case_name.txt")"
   if ! [[ "$WIN_ID" =~ ^[0-9]+$ ]]; then
     say "  could not create a TextEdit document with a new, empty window (got '$WIN_ID')"
     record "$case_name" "$steps" "NOT RUN" "FAIL" "no TextEdit document"
