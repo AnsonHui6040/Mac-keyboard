@@ -31,15 +31,24 @@
 結果：TBD
 
 ### 2. 3,000 字元 TEXT
-1. 清空 TextEdit 文件，游標停在文件內。
+1. 清空 TextEdit 文件（純文字格式），游標停在文件內。
 2. 確認狀態列為 `Mac → TextEdit (N ms)`。
-3. 在 iPhone 鍵盤長按 `return` 2 秒後放開。
+3. 在 iPhone 鍵盤長按 `return` 2 秒後放開，等狀態列顯示 `Mac 已輸入`。
+4. 在 TextEdit 按 Command-A、Command-C，再到終端機執行下列三個指令（字數指令已指定 UTF-8 語系，不受終端機設定影響）。
+
+```bash
+pbpaste | LC_ALL=en_US.UTF-8 wc -m
+pbpaste | shasum
+printf '一二三四五六七八九十ABCDEFGHIJ%.0s' {1..150} | shasum
+```
+
+第一行必須輸出 3000；第二、三行的雜湊值必須相同。第三行是 DEBUG 長按入口實際送出的字串（`KeyboardViewController.sendDebugLongText()` 的 `"一二三四五六七八九十ABCDEFGHIJ"` 重複 150 次），在 zsh 下執行。
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
 | 放開後 TextEdit 是否多出換行 | 沒有（長按只觸發測試入口，不送 return） | TBD |
-| TextEdit 收到的字數 | 3,000（TextEdit 選單：格式 › 顯示字數，或全選後看字數統計） | TBD |
-| 內容 | 「一二三四五六七八九十ABCDEFGHIJ」連續 150 次，沒有缺字、重複、亂序 | TBD |
+| TextEdit 收到的字數 | 全選後拷貝，在終端機執行 `pbpaste \| LC_ALL=en_US.UTF-8 wc -m`，輸出 3000 | TBD |
+| 內容 | `pbpaste \| shasum` 的雜湊值與上方第三行指令（預期字串）的 `shasum` 相同（`cfb204f94b4a99c3fe749628cd74c6fe23b53063`），即沒有缺字、重複、亂序 | TBD |
 | 輸入完成後狀態列 | 顯示 `Mac 已輸入` | TBD |
 | 輸入完成後再打一個字母 | 仍然正常輸入（連線與重組狀態沒有卡住） | TBD |
 
@@ -60,13 +69,13 @@
 在 Mac 終端機執行：
 
 ```bash
-log show --last 5m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "frame rejected|event kind"
+log show --last 5m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "frame rejected|partial message dropped|event kind"
 ```
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
 | `event kind=text length=6000` | 步驟 2 出現一行，`ack=posted` | TBD |
-| `frame rejected` | 步驟 1、2 沒有出現；步驟 3 若出現，只含種類與 bytes 長度 | TBD |
+| `frame rejected`、`partial message dropped` | 步驟 1、2 沒有出現；步驟 3 若出現，只含種類、次數與 bytes 長度 | TBD |
 | log 內是否有輸入的文字內容 | 沒有 | TBD |
 
 結果：TBD

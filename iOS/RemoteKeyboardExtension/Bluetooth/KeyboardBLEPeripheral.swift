@@ -28,11 +28,13 @@ final class KeyboardBLEPeripheral: NSObject {
     private var manager: CBPeripheralManager?
     private var eventCharacteristic: CBMutableCharacteristic?
 
+    /// Identifies a message across its frames. Never reset, not even by a new session: a session start does not
+    /// always break the link, so ids stay unique across sessions on the same link. Wraps at 65,536.
+    private var messageId: UInt16 = 0
+
     // Send path. All of this belongs to one keyboard appearance and is reset when it starts or ends.
     private var sessionId = UUID()
     private var seq: UInt64 = 0
-    /// Identifies a message across its frames. Wraps; the Receiver only compares it with the message in progress.
-    private var messageId: UInt16 = 0
     private var queue = NotifyQueue()
     private var subscribedCentral: CBCentral?
     private(set) var latestStatus: ReceiverStatus?

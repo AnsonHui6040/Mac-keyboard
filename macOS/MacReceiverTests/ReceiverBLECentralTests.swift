@@ -226,6 +226,21 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(seen, [payload], "three frames, one handler call")
     }
 
+    func testLeavingReadyResetsReassemblerWithoutANewReady() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let p = makeReady(central)
+        let frames = try FrameCodec.split(Data(repeating: 7, count: 300), messageId: 6, maxFrameBytes: 182)
+        XCTAssertEqual(frames.count, 2)
+        central.receive(eventData: frames[0])
+        central.handleLink(.disconnected(p))
+        // No new ready follows, so only the reset on leaving ready can have dropped the partial message.
+        if case .ready = central.linkState { return XCTFail("link should have left ready") }
+        central.receive(eventData: frames[1])
+        XCTAssertTrue(seen.isEmpty, "the second frame must not complete the old message")
+    }
+
     func testNewMessageAfterAnUnfinishedOneStillReachesTheHandler() throws {
         let central = make()
         var seen: [Data] = []
