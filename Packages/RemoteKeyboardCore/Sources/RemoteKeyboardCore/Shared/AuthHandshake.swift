@@ -61,6 +61,23 @@ public struct PhoneHandshake: Sendable {
     /// True only after the Mac's `auth` proof verified. Until then the iPhone sends no `KeyboardEvent`.
     public var canSendEvents: Bool { state == .authenticated }
 
+    /// Where the handshake stands, for deciding whether a connected link is worth keeping.
+    public enum Progress: Equatable, Sendable {
+        /// Waiting for `hello` or for the Mac's proof.
+        case inProgress
+        case authenticated
+        /// Sticky: this connection will never carry an event.
+        case failed
+    }
+
+    public var progress: Progress {
+        switch state {
+        case .awaitingHello, .awaitingAuth: .inProgress
+        case .authenticated: .authenticated
+        case .failed: .failed
+        }
+    }
+
     public mutating func receive(_ message: ControlMessage) -> PhoneHandshakeOutput {
         if state == .failed { return .none }
         switch message {

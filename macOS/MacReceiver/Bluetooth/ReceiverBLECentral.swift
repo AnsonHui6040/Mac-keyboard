@@ -517,7 +517,8 @@ extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(
         _ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?
     ) {
-        guard characteristic.uuid == Self.control else { return }
+        // Only the active peripheral's answers count; a stale one must not release a goodbye early.
+        guard characteristic.uuid == Self.control, active == peripheral.identifier else { return }
         // Success or failure, the write is answered; a waiting goodbye may now close the connection.
         owner?.controlWriteCompleted()
         guard let error else { return }

@@ -117,7 +117,16 @@ final class KeyboardBLEPeripheral: NSObject {
         if !hasFullAccess { releaseManager() }
         // A replacement controller can appear on a link the Mac already left without iOS saying so (the system keeps its
         // own link up after the Mac cancels). Ask the Mac; no answer in 2 seconds publishes the service again.
-        if appearanceStarts { probeLinkIfConnected() }
+        if appearanceStarts {
+            // A connected link whose handshake already failed can never recover by itself; a live one is probed instead.
+            if LinkRecovery.shouldResetOnAppear(
+                linkConnected: machine.state == .connected, handshake: handshake?.progress, hasPairKey: pairKey != nil
+            ) {
+                resetLink()
+            } else {
+                probeLinkIfConnected()
+            }
+        }
     }
 
     /// Honored only for the current owner; a stale controller's late disappear must not tear down the new owner's link.
@@ -290,6 +299,7 @@ final class KeyboardBLEPeripheral: NSObject {
     /// reset drops the connection state (binding, handshake, status) with the service; `messageId` is never reset.
     private func resetLink() {
         cancelProbe()
+        pingEventId = nil
         KeyboardLifecycleLog.note(.linkReset)
         feed(.linkReset)
     }
@@ -487,6 +497,9 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             // An unpaired keyboard already says so in the status line; only a failed proof needs a note.
             if pairKey != nil { onNote?("配對驗證失敗") }
             onStateChange?(machine.state)
+            // The Mac drops the connection, but iOS may keep the link and never report it. Publish the service again so
+            // the keyboard does not sit "connected" forever. The Mac's skip list stops it from reconnecting meanwhile.
+            if LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: pairKey != nil) { resetLink() }
         }
     }
 
