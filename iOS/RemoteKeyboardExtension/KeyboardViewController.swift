@@ -86,6 +86,8 @@ final class KeyboardViewController: UIInputViewController {
     private static let dictationCountersKey = "rk.dictationProbeCounters"
     private var dictationProbeOn = false
     private var dictationSentIds: Set<UUID> = []
+    /// T15: the 10,000-line burst (long press on 換行 for four seconds).
+    private let burst = BurstGenerator()
     #endif
 
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
@@ -114,6 +116,7 @@ final class KeyboardViewController: UIInputViewController {
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
+        root.onDebugBurst = { [weak self] in self?.toggleBurst() }
         root.onDebugLongStatus = { [weak self] in self?.toggleDictationProbe() }
         restoreDictationProbe()
         #endif
@@ -164,6 +167,9 @@ final class KeyboardViewController: UIInputViewController {
         isOnScreen = false
         #if DEBUG
         dictationDisappeared()
+        #endif
+        #if DEBUG
+        burst.cancel()
         #endif
         imeQueue.reset()
         resetQuick()
@@ -216,6 +222,52 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         peripheral.send(.text(String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)))
+    }
+
+    /// T15: a four-second press on 換行 starts the burst, and another four-second press stops it. Remote mode only.
+    /// Each line goes through `router` like a typed key (instant, empty draft), so the draft and the dictation sync
+    /// are not touched.
+    private func toggleBurst() {
+        reclaimPeripheralIfVacant()
+        if burst.isRunning {
+            burst.cancel()
+            return
+        }
+        guard mode == .remote, isReady else {
+            showNote("Mac 尚未就緒，未輸入")
+            return
+        }
+        showNote("burst 開始")
+        burst.start(
+            isReady: { [weak self] in self.map { $0.mode == .remote && $0.isReady } ?? false },
+            pending: { [weak self] in self?.peripheral.pendingKeyCount ?? Int.max },
+            send: { [weak self] n in self?.sendBurstLine(n) ?? false },
+            onProgress: { [weak self] sent in self?.showNote("burst \(sent)/\(BurstGenerator.defaultTotal)") },
+            onFinish: { [weak self] outcome in self?.showNote(Self.burstNote(outcome)) })
+    }
+
+    /// Line `n` is two actions, the same ones a user produces: the text `#n`, then the return key.
+    private func sendBurstLine(_ n: Int) -> Bool {
+        var scratch = DraftBuffer()
+        let before = peripheral.pendingKeyCount
+        for action in [KeyAction.character("#\(n)"), .returnKey] {
+            let outcome = router.route(action, mode: mode, transmit: .instant, ready: true, draft: &scratch)
+            guard outcome == .enqueuedRemote else { return false }
+        }
+        return peripheral.pendingKeyCount == before + 2
+    }
+
+    private static func burstNote(_ outcome: BurstGenerator.Outcome) -> String {
+        switch outcome {
+        case .finished(let sent): "burst 完成，已送 \(sent) 行"
+        case .cancelled(let sent): "burst 已取消，已送 \(sent) 行"
+        case .stopped(let sent, let reason):
+            switch reason {
+            case .notReady: "burst 中止（Mac 未就緒），已送 \(sent) 行"
+            case .sendRefused: "burst 中止（送出失敗），已送 \(sent) 行"
+            case .stalled: "burst 中止（等不到回覆），已送 \(sent) 行"
+            }
+        }
     }
 
     /// T10 step 31 hook: fills the draft with `a` until it holds the cap, so nobody has to tap 1,000 keys. Remote mode

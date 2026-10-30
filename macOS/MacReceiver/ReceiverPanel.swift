@@ -12,6 +12,9 @@ struct ReceiverPanel: View {
     @ObservedObject var testInsert: TestInsertController
     @ObservedObject var loginItem: LoginItem
     @ObservedObject var security: ReceiverSecurity
+    #if DEBUG
+    @ObservedObject var burstVerifier: BurstVerifier
+    #endif
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
@@ -59,6 +62,15 @@ struct ReceiverPanel: View {
             Text(testInsert.status)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+            #if DEBUG
+            Divider()
+            Text("除錯").font(.headline)
+            Button("驗證 burst") { burstVerifier.verify() }
+                .disabled(burstVerifier.isRunning)
+            Text(burstVerifier.status)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            #endif
             Divider()
             Toggle("登入時啟動", isOn: Binding(
                 get: { loginItem.isOn },
