@@ -208,6 +208,8 @@ final class ReceiverSecurity: ObservableObject {
         do {
             try store.save(key)
         } catch {
+            // A failed save may have removed the old key; show what the store really holds.
+            refreshPairedState()
             return endPairing(.storeFailed)
         }
         isPaired = true
@@ -280,14 +282,20 @@ final class ReceiverSecurity: ObservableObject {
         lastResult = result
     }
 
-    /// Ends the window and any attempt in it, and drops the pairing connection. Receiving that the window turned on
-    /// turns off with it.
+    /// Ends the window and any attempt in it. The pairing connection is dropped (and receiving that the window turned on
+    /// turned off); an authenticated keyboard that happened to connect during the window is not the pairing connection and
+    /// is left alone, so receiving then stays on.
     private func endPairing(_ result: PairingResult) {
+        let keyboardConnected = handshake?.isAuthenticated == true
         discardAttempt(result)
+        Self.log.info("pairing ended")
+        if keyboardConnected {
+            armedByPairing = false
+            return
+        }
         handshake = nil
         handshakeTimer?.invalidate()
         handshakeTimer = nil
-        Self.log.info("pairing ended")
         if armedByPairing {
             armedByPairing = false
             central.stopReceiving()

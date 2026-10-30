@@ -45,6 +45,8 @@ final class PairingPeripheral: NSObject, ObservableObject {
     private var pendingService = PendingServiceTracker<ObjectIdentifier>()
     private var pendingServiceObject: CBMutableService?
     private var subscribedCentral: CBCentral?
+    /// The attempt belongs to the first central that subscribed; others are ignored until it leaves.
+    private var binding = CentralBinding()
     private var queue = NotifyQueue()
     private var messageId: UInt16 = 0
 
@@ -194,6 +196,7 @@ final class PairingPeripheral: NSObject, ObservableObject {
         manager?.delegate = nil
         manager = nil
         subscribedCentral = nil
+        binding.clear()
         eventCharacteristic = nil
         queue.removeAll()
         machine = KeyboardLinkStateMachine()
@@ -246,6 +249,7 @@ extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didSubscribeTo characteristic: CBCharacteristic) {
         guard characteristic.uuid == Self.eventID, phase == .waiting else { return }
+        guard binding.subscribe(central.identifier, locked: true) == .bound else { return }
         subscribedCentral = central
         feed(.subscribed)
         // A new attempt: a key nobody has seen, committed to before the Mac's key is known.
@@ -255,7 +259,7 @@ extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, central: CBCentral, didUnsubscribeFrom characteristic: CBCharacteristic) {
-        guard characteristic.uuid == Self.eventID else { return }
+        guard characteristic.uuid == Self.eventID, binding.unsubscribe(central.identifier) else { return }
         subscribedCentral = nil
         queue.removeAll()
         // The Mac ended the connection (cancel, timeout, or its own failure). An unfinished attempt is gone.
@@ -286,6 +290,7 @@ extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             return
         }
         peripheral.respond(to: first, withResult: .success)
+        guard binding.shouldAcceptWrite(from: first.central.identifier) else { return }
         // Only the Mac's `pairAccept` matters here. Its `hello` (it may hold an older pairing) is not for this screen.
         guard phase != .confirmed, case .pairAccept = message, var pairing = attempt else { return }
         let output = pairing.receive(message)

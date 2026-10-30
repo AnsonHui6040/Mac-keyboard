@@ -98,6 +98,8 @@ final class ReceiverBLECentral: ObservableObject {
     /// Called by the driver for every `event` notification (one frame). Only a complete message reaches the handler;
     /// decoding and the idle deadline belong to the handler. A rejected frame is logged by kind and size only.
     func receive(eventData: Data) {
+        // Notifications only count on a ready link; anything else (a stale callback, a connection still being set up) is dropped.
+        guard case .ready = link.state else { return }
         let droppedBefore = reassembler.droppedPartialMessages
         let result = reassembler.accept(eventData)
         let dropped = reassembler.droppedPartialMessages - droppedBefore
@@ -422,7 +424,8 @@ extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(
         _ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?
     ) {
-        guard error == nil, characteristic.uuid == Self.event, let data = characteristic.value else { return }
+        guard error == nil, characteristic.uuid == Self.event, active == peripheral.identifier,
+              let data = characteristic.value else { return }
         owner?.receive(eventData: data)
     }
 

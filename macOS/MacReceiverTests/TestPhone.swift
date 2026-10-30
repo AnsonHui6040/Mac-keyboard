@@ -29,7 +29,11 @@ final class FakePairKeyStore: PairKeyStoring {
     init(key: SymmetricKey? = nil) { self.key = key }
     func load() -> SymmetricKey? { key }
     func save(_ key: SymmetricKey) throws {
-        if failSave { throw CocoaError(.fileWriteUnknown) }
+        if failSave {
+            // Like `MacPairingStore.save`, which deletes the old item before it adds the new one.
+            self.key = nil
+            throw CocoaError(.fileWriteUnknown)
+        }
         saves += 1
         self.key = key
     }

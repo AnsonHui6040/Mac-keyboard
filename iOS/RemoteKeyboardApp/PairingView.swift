@@ -4,6 +4,7 @@ import SwiftUI
 struct PairingView: View {
     @StateObject private var peripheral = PairingPeripheral()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     /// Called when the screen goes away, so the caller can re-read whether a pair key is stored.
     var onFinish: () -> Void = {}
 
@@ -61,6 +62,14 @@ struct PairingView: View {
         }
         .navigationTitle("配對 Mac")
         .onAppear { peripheral.start() }
+        // Nothing stays published while the app is in the background; coming back starts a new window.
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background: peripheral.stop()
+            case .active: if peripheral.phase == .idle { peripheral.start() }
+            default: break
+            }
+        }
         .onDisappear {
             peripheral.stop()
             onFinish()

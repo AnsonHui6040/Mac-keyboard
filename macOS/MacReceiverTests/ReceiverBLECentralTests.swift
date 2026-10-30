@@ -202,6 +202,7 @@ final class ReceiverBLECentralTests: XCTestCase {
         let central = make()
         var seen: [Data] = []
         central.eventHandler = { seen.append($0) }
+        _ = makeReady(central)
         for (id, body) in [(UInt16(1), "a"), (2, "b")] {
             for frame in try FrameCodec.split(Data(body.utf8), messageId: id, maxFrameBytes: 182) {
                 central.receive(eventData: frame)
@@ -212,10 +213,33 @@ final class ReceiverBLECentralTests: XCTestCase {
 
     // MARK: T07 framing
 
+    func testEventDataIsIgnoredUnlessTheLinkIsReady() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let frames = try FrameCodec.split(Data("x".utf8), messageId: 1, maxFrameBytes: 182)
+        for frame in frames { central.receive(eventData: frame) }
+        XCTAssertTrue(seen.isEmpty, "idle")
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        let p = UUID()
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        for frame in frames { central.receive(eventData: frame) }
+        XCTAssertTrue(seen.isEmpty, "a connection that is not ready yet has no notification channel")
+        central.handleLink(.linkReady(p))
+        for frame in frames { central.receive(eventData: frame) }
+        XCTAssertEqual(seen, [Data("x".utf8)])
+        central.stopReceiving()
+        for frame in frames { central.receive(eventData: frame) }
+        XCTAssertEqual(seen.count, 1, "and none after the link is gone")
+    }
+
     func testCentralReassemblesBeforeHandingToPipeline() throws {
         let central = make()
         var seen: [Data] = []
         central.eventHandler = { seen.append($0) }
+        _ = makeReady(central)
         let payload = Data((0..<400).map { UInt8(truncatingIfNeeded: $0) })
         let frames = try FrameCodec.split(payload, messageId: 3, maxFrameBytes: 182)
         XCTAssertEqual(frames.count, 3)
@@ -245,6 +269,7 @@ final class ReceiverBLECentralTests: XCTestCase {
         let central = make()
         var seen: [Data] = []
         central.eventHandler = { seen.append($0) }
+        _ = makeReady(central)
         let first = try FrameCodec.split(Data(repeating: 1, count: 400), messageId: 1, maxFrameBytes: 182)
         central.receive(eventData: first[0])
         for frame in try FrameCodec.split(Data([2]), messageId: 2, maxFrameBytes: 182) { central.receive(eventData: frame) }
@@ -255,6 +280,7 @@ final class ReceiverBLECentralTests: XCTestCase {
         let central = make()
         var seen: [Data] = []
         central.eventHandler = { seen.append($0) }
+        _ = makeReady(central)
         central.receive(eventData: Data("{\"protocolVersion\":1}".utf8))
         central.receive(eventData: Data())
         XCTAssertTrue(seen.isEmpty)

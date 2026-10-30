@@ -399,6 +399,63 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertFalse(rig.security.isPaired)
     }
 
+    func testStoreFailureReportsRealPairedState() throws {
+        let rig = SecurityRig(pairKey: nil)
+        var p = PairingPhone()
+        rig.store.failSave = true
+        openWindowAndConnect(rig)
+        try runPairingUntilSAS(rig, &p)
+        rig.security.confirmPairing()
+        XCTAssertEqual(rig.security.lastResult, .storeFailed)
+        XCTAssertFalse(rig.security.isPaired)
+        XCTAssertEqual(rig.security.phase, .idle)
+    }
+
+    func testStoreFailureShowsTheStateOfTheStoreEvenWhenItLostTheOldKey() throws {
+        let rig = SecurityRig(pairKey: key)
+        var p = PairingPhone()
+        rig.store.failSave = true
+        rig.security.openPairingWindow()
+        rig.connect()
+        _ = rig.newWrites()
+        try runPairingUntilSAS(rig, &p)
+        XCTAssertTrue(rig.security.isPaired)
+        rig.security.confirmPairing()
+        XCTAssertEqual(rig.security.lastResult, .storeFailed)
+        XCTAssertNil(rig.store.load(), "a failed save left no key (the real store deletes the old one first)")
+        XCTAssertFalse(rig.security.isPaired, "the panel must not claim a pairing the store no longer has")
+    }
+
+    func testWindowExpiryDoesNotDropAnAuthenticatedKeyboard() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        rig.central.startReceiving()
+        rig.security.openPairingWindow()
+        rig.connect()
+        try rig.authenticate(phone)
+        rig.now = rig.now.addingTimeInterval(PairingWindow.duration + 1)
+        rig.security.windowTimerFired()
+        XCTAssertEqual(rig.security.phase, .idle)
+        XCTAssertTrue(rig.cancels.isEmpty, "the keyboard that is typing is not the pairing connection")
+        XCTAssertTrue(rig.central.isArmed)
+        XCTAssertTrue(rig.security.isAuthenticated)
+        let message = try phone.sealed(.text("A"), session: UUID())
+        try rig.deliver(message, from: phone)
+        XCTAssertEqual(rig.events.count, 1)
+    }
+
+    func testCancelDoesNotStopReceivingWhileAKeyboardIsAuthenticated() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        XCTAssertFalse(rig.central.isArmed)
+        rig.security.openPairingWindow()       // arms receiving
+        rig.connect()
+        try rig.authenticate(phone)
+        rig.security.cancelPairing()
+        XCTAssertTrue(rig.central.isArmed, "an authenticated keyboard keeps the receiving session alive")
+        XCTAssertTrue(rig.cancels.isEmpty)
+    }
+
     func testConfirmWithoutASASPromptStoresNothing() {
         let rig = SecurityRig(pairKey: nil)
         rig.security.confirmPairing()

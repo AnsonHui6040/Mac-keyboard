@@ -38,12 +38,12 @@
 ### 1. 配對成功，兩邊配對碼相同
 1. Mac 選單列按「配對新 iPhone」。面板顯示「請在 iPhone 的 Remote Keyboard 開啟「配對 Mac」」與剩餘時間（120 秒起算）。
 2. iPhone 開啟 Remote Keyboard 主 App，點「配對 Mac」。
-3. 兩邊自動連線後，各自顯示 6 位數配對碼。記錄兩邊的數字（只記在這份文件，不要貼進任何 log 或聊天）。
+3. 兩邊自動連線後，各自顯示 6 位數配對碼。肉眼比對兩邊，文件只記錄「相同」或「不同」，不要把數字寫進文件、log 或聊天。
 4. 兩邊都按「確認」。按下確認的那一邊會顯示「已儲存…」並保持連線，讓另一邊還能按確認；兩邊都確認之後，再在任一邊按「完成」。
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 兩邊配對碼 | 兩邊顯示的 6 位數完全相同 | TBD |
+| 兩邊配對碼 | 兩邊顯示的 6 位數完全相同（記錄：相同／不同） | TBD |
 | 先按確認的一邊 | 先按確認的那一邊顯示「已儲存…」，連線沒有中斷，另一邊仍顯示配對碼可按確認（iPhone 先按、Mac 先按各做一次） | TBD |
 | 配對完成 | 按「完成」後，iPhone 顯示「已配對 Mac」，Mac 面板顯示「配對完成」與「配對：已配對 iPhone」 | TBD |
 | 配對後鍵盤可打字 | 鍵盤切到遠端模式，狀態列顯示 `Mac → TextEdit (N ms)`；打 `abc` 後 TextEdit 出現 `abc` | TBD |
@@ -55,7 +55,8 @@
 
 - 2a：兩邊出現配對碼後，只在 Mac 按「取消」。
 - 2b：兩邊出現配對碼後，只在 iPhone 按「取消」。
-- 2c：兩邊出現配對碼後，兩邊都不按，等待 2 分鐘。
+- 2c：先開 Mac 的配對時段，再開 iPhone 的配對畫面；兩邊出現配對碼後，兩邊都不按，等待 2 分鐘。Mac 的時段先開始，所以先到期的是 Mac。
+- 2e：先開 iPhone 的「配對 Mac」畫面，約 10 秒後才按 Mac 的「配對新 iPhone」；兩邊出現配對碼後，兩邊都不按，等待 2 分鐘。這次先到期的是 iPhone。
 - 2d：兩邊出現配對碼後，只有 iPhone 按「確認」，Mac 按「取消」。目前沒有訊息通知對方「我已確認」，所以這種情況 iPhone 已經自己儲存了金鑰，Mac 沒有；這是已知的行為，不是失敗。看到 iPhone 顯示「已配對 Mac」但 Mac 未配對時，在 iPhone 按「解除配對」。
 
 每次結束後，把鍵盤切到遠端模式並打 `abc`。
@@ -64,9 +65,10 @@
 |---|---|---|
 | 2a Mac 取消 | iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 顯示「配對已取消」；兩邊都是未配對 | TBD |
 | 2b iPhone 取消 | Mac 顯示「配對失敗，未儲存」（連線中斷）；兩邊都是未配對 | TBD |
-| 2c 逾時 | 約 120 秒時兩邊都回到未配對，Mac 顯示「配對逾時，未儲存」，iPhone 顯示「配對逾時，未儲存。」 | TBD |
+| 2c Mac 先逾時 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」；Mac 先中斷連線，所以 iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對 | TBD |
+| 2e iPhone 先逾時 | iPhone 先到期，顯示「配對逾時，未儲存。」；Mac 因連線被中斷，顯示「配對失敗，未儲存」；兩邊都是未配對 | TBD |
 | 2d 只有一邊確認 | iPhone 已儲存、Mac 未儲存；鍵盤打字 TextEdit 收到 0 個字元（Mac 沒有配對，直接拒絕） | TBD |
-| 取消後遠端打字 | 2a 到 2c 之後，鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 收到 0 個字元 | TBD |
+| 取消後遠端打字 | 2a、2b、2c、2e 之後，鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 收到 0 個字元 | TBD |
 
 結果：TBD
 
@@ -79,7 +81,7 @@
 | 項目 | 預期 | 結果 |
 |---|---|---|
 | 3a iPhone 解除配對 | 鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 字元數不變 | TBD |
-| 3a 對照組：只刪 iPhone 端、Mac 仍有金鑰 | Mac 面板連線狀態不是 ready 後持續連著；TextEdit 字元數不變（另一台未配對裝置同理無法注入） | TBD |
+| 3a 對照組：只刪 iPhone 端、Mac 仍有金鑰 | 連線先變成 ready，iPhone 沒有金鑰所以不回應 Mac 的 hello；約 5 秒後 Mac 寫出 authFailed 並中斷，這一次接收時段內不再連這支 iPhone（Mac 面板回到 scanning）；TextEdit 字元數不變。另一台沒有配對過的裝置同理無法注入 | TBD |
 | 3b Mac 解除配對 | Mac 面板顯示「配對：尚未配對」；鍵盤打字 TextEdit 字元數不變；已連線的鍵盤在解除當下被中斷 | TBD |
 | 解除配對的反向保證 | 兩種情況下 Mac 都沒有收到任何一個字元（0 個） | TBD |
 
@@ -87,18 +89,20 @@
 
 ### 4. 第二次配對可以成功
 1. 解除兩邊配對後，重新做一次步驟 1。
-2. 把這次的配對碼和步驟 1 第一次的配對碼比對。
+2. 把這次的配對碼和步驟 1 第一次的配對碼比對，記錄「相同」或「不同」。
+3. 配對時段外的測試前置：Mac 要在「接收中」（已按「開始接收」），且沒有開著配對時段。
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
 | 第二次配對成功 | 兩邊顯示相同的配對碼，按確認後配對完成，鍵盤可打字 | TBD |
-| 每次配對碼不同 | 第二次的配對碼和第一次不同（每次配對都用新的金鑰） | TBD |
-| 配對時段外不接受配對 | Mac 沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面：Mac 不顯示配對碼，iPhone 在連線被中斷後顯示失敗訊息 | TBD |
+| 每次配對碼不同 | 第二次的配對碼和第一次不同（記錄：不同） | TBD |
+| 配對時段外不接受配對 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面：Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」 | TBD |
+| 副作用 | 這支 iPhone 在這一次接收時段內被 Mac 略過，不會再連上（再開鍵盤也連不上）；這是設計。按「配對新 iPhone」或「停止接收」再「開始接收」會清除略過名單 | TBD |
 
 結果：TBD
 
 ### 5. 鍵盤重開 20 次，連線時間
-前置：已配對，Mac 已按「開始接收」，30 分鐘內完成。
+前置：已配對，30 分鐘內完成。先在 Mac 按「停止接收」，再按「開始接收」，清掉步驟 4 留下的略過名單，否則這支 iPhone 會連不上。
 
 1. 在備忘錄（Notes）新建一則空白備忘錄。
 2. 重複 20 次：收起鍵盤，再點進備忘錄叫出鍵盤；等狀態列顯示 `Mac → ... (N ms)` 後，記下 N，再收起。
@@ -118,7 +122,7 @@ log show --last 20m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 結果：TBD
 
 ### 6. Mac log 檢查
-在 Mac 終端機執行（時間範圍涵蓋步驟 1 到 5）。請把第二、三個指令裡的字串，換成自己實際輸入過的單字、記下的配對碼，以及前景 App 名稱。
+在 Mac 終端機執行（時間範圍涵蓋步驟 1 到 5）。請把第二、三個指令裡的字串，換成自己實際輸入過的單字、步驟 1 的配對碼（只在終端機輸入），以及前景 App 名稱。
 
 ```bash
 log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "security|pairing|authentication" | sort | uniq -c
@@ -131,6 +135,36 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 | 只有事件種類 | 第一個指令只出現 `authentication failed, peripheral dropped`、`pairing window opened`、`pairing ended`、`pair message ignored outside the pairing window`、`peripheral skipped for this receiving session` 這類固定句子 | TBD |
 | 沒有輸入內容、配對碼、App 名稱 | 第二個指令輸出 0 | TBD |
 | 沒有金鑰、nonce、proof | 第三個指令輸出 0 | TBD |
+
+第二個指令裡的配對碼只在終端機輸入，不要寫進這份文件。
+
+結果：TBD
+
+### 7. iPhone 端 log 檢查
+1. 在 Mac 開啟 Console，左側選這支 iPhone，開始串流。
+2. 搜尋欄選「子系統」，輸入 `com.ansonhui.remotekeyboard`（涵蓋鍵盤 Extension 與主 App）。
+3. 完成步驟 1 到 5 之後，在搜尋欄分別輸入實際打過的單字、步驟 1 的配對碼（只在搜尋欄輸入）、`TextEdit`、`Notes`、`pairKey`、`nonce`、`proof`。
+
+| 項目 | 預期 | 結果 |
+|---|---|---|
+| 只有固定事件 | 子系統內只有 `owner changed`、`manager created`、`subscribed`、`handshake started`、`handshake authenticated`、`no pair key` 這類固定句子與數字 | TBD |
+| 沒有輸入內容、配對碼、金鑰 | 上面每個搜尋都是 0 筆 | TBD |
+
+結果：TBD
+
+### 8. 主 App 輸入框同時開著鍵盤時配對（只發佈一份服務）
+1. 在 iPhone 主 App 首頁的「在這裡輸入」輸入框點一下，叫出 Remote Keyboard（鍵盤開著）。
+2. 在 Mac 按「配對新 iPhone」，再點 iPhone 的「配對 Mac」。
+3. 在 Mac 執行：
+
+```bash
+log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep "keyboard service"
+```
+
+| 項目 | 預期 | 結果 |
+|---|---|---|
+| 只有一份服務 | 輸出為 `discovered 1 keyboard service(s)`，不是 2 | TBD |
+| 配對仍可完成 | 兩邊顯示配對碼，可完成配對 | TBD |
 
 結果：TBD
 
@@ -145,6 +179,8 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 | 4 第二次配對 | TBD |
 | 5 重開 20 次連線時間 | TBD |
 | 6 Mac log 無敏感內容 | TBD |
+| 7 iPhone 端 log 無敏感內容 | TBD |
+| 8 鍵盤開著時配對只發佈一份服務 | TBD |
 
 ### 備註
 - 同一台手機被判定驗證失敗之後，Mac 在這一次接收時段內不會再連它；按「停止接收」再「開始接收」，或按「配對新 iPhone」會重新開始。

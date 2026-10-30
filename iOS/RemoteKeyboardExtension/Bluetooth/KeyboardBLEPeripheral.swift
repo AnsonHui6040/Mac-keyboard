@@ -38,6 +38,8 @@ final class KeyboardBLEPeripheral: NSObject {
     private var sender = EventSender(sessionId: UUID())
     private var queue = NotifyQueue()
     private var subscribedCentral: CBCentral?
+    /// Which central the handshake belongs to. Anything else that subscribes or writes is ignored once it is authenticated.
+    private var binding = CentralBinding()
     private(set) var latestStatus: ReceiverStatus?
 
     /// The pair key as of the last appearance or connection; `nil` when this iPhone is not paired (or the Extension has
@@ -144,6 +146,7 @@ final class KeyboardBLEPeripheral: NSObject {
         self.manager = nil
         eventCharacteristic = nil
         subscribedCentral = nil
+        binding.clear()
         handshake = nil
         latestStatus = nil
         queue.removeAll()
@@ -164,6 +167,7 @@ final class KeyboardBLEPeripheral: NSObject {
         handshake = nil
         startSession()
         subscribedCentral = nil
+        binding.clear()
         latestStatus = nil
         tracker.reset()
         pingEventId = nil
@@ -339,6 +343,9 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didSubscribeTo characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
+        // While the bound Mac is authenticated, another central can neither take its place nor reset its handshake.
+        let outcome = binding.subscribe(central.identifier, locked: handshake?.canSendEvents == true)
+        guard outcome != .refused, outcome != .keptExisting else { return }
         subscribedCentral = central
         DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
         KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
@@ -354,6 +361,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         didUnsubscribeFrom characteristic: CBCharacteristic
     ) {
         guard characteristic.uuid == Self.eventID else { return }
+        // A central that never was the bound one leaving changes nothing.
+        guard binding.unsubscribe(central.identifier) else { return }
         KeyboardLifecycleLog.note(.unsubscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
         // Keys typed for the old connection are not replayed into a later one.
         subscribedCentral = nil
@@ -378,6 +387,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             return
         }
         peripheral.respond(to: first, withResult: .success)
+        // The ATT request is answered either way; only the bound central's bytes reach the handshake.
+        guard binding.shouldAcceptWrite(from: first.central.identifier) else { return }
         if case .pairAccept = message { return }  // pairing happens in the host App, never in the keyboard
         guard var current = handshake else { return }
         let output = current.receive(message)
