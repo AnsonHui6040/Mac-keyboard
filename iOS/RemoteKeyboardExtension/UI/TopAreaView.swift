@@ -149,9 +149,10 @@ final class TopAreaView: UIView {
         draftView.set(draft: state.draft)
         setSendEnabled(top.sendEnabled)
         probeLabel.text = state.probeText
-        candidateBar.setCandidates(state.candidates)
+        candidateBar.setCandidates(state.candidates, composing: state.composing)
         let isChinesePage = state.page == .chinese
-        candidateBar.setBackspaceVisible(isChinesePage)
+        // Handwriting has its delete key at the right end of this row; Quick uses the one on its letter rows.
+        candidateBar.setBackspaceVisible(isChinesePage && state.chineseMethod == .handwriting)
         // The small build line gives way to the candidates and, on the Chinese page, to the delete key.
         probeLabel.isHidden = !state.candidates.isEmpty || isChinesePage
     }

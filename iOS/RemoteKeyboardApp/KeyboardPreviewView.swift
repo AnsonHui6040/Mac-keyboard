@@ -8,7 +8,8 @@ import UIKit
 /// `symbolsEnglish2`, `symbolsChinese1`, `symbolsChinese2`, `symbolsChinese3` (symbols layers; `symbols` is English layer 1),
 /// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
 /// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
-/// yet), `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist panel over the English letter rows).
+/// yet), `handwritingNoModel` (the model is missing), `quick` (T12b: Chinese page with the Quick radical keys, nothing typed),
+/// `quickComposing` (the code 日月 and its candidates), `dictationProbe` (T13 checklist panel over the English letter rows).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -72,14 +73,15 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         func make(
             mode: KeyboardMode = .remote, transmit: TransmitMode = .instant, page: KeyboardPage = .english,
             ready: Bool = true, draft: DraftBuffer = DraftBuffer(), status: String = "● Mac → TextEdit",
-            link: String = "connected", candidates: [String] = [], message: String? = nil
+            link: String = "connected", candidates: [String] = [], message: String? = nil,
+            method: ChineseInputMethodID = .handwriting, composing: String = ""
         ) -> KeyboardViewState {
             KeyboardViewState(
                 mode: mode, transmit: transmit, page: page,
                 top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false),
                 draft: draft, statusText: status, linkName: link, probeText: "AppGroup: OK  版本 預覽",
-                showsGlobe: true, chineseAvailable: true, candidates: candidates, handwritingMessage: message,
-                hapticsEnabled: false)
+                showsGlobe: true, chineseAvailable: true, candidates: candidates, chineseMethod: method,
+                composing: composing, handwritingMessage: message, hapticsEnabled: false)
         }
         func draft(_ text: String, cursorBack: Int = 0) -> DraftBuffer {
             var buffer = DraftBuffer()
@@ -108,6 +110,14 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (make(page: .chinese), .off)
         case "handwritingNoModel":
             return (make(page: .chinese, message: "請先在 App 下載手寫模型"), .off)
+        case "quick":
+            return (make(page: .chinese, method: .quick), .off)
+        case "quickComposing":
+            return (
+                make(
+                    page: .chinese, candidates: ["明", "盟", "萌", "盼", "朋", "胡", "朗", "有", "肌"], method: .quick,
+                    composing: "日月"),
+                .off)
         case "dictationProbe":
             var state = make()
             state.dictationProbeLines = [

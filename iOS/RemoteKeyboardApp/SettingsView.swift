@@ -22,18 +22,15 @@ struct SettingsView: View {
             }
             Section {
                 methodRow("手寫", id: .handwriting)
-                HStack {
-                    Label("速成", systemImage: "circle")
-                    Spacer()
-                    Text("即將推出").foregroundStyle(.secondary)
-                }
-                .foregroundStyle(.tertiary)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("rk.settings.quick")
+                methodRow("速成", id: .quick)
             } header: {
                 Text("中文輸入")
             } footer: {
-                Text("在鍵盤的「中英」鍵切換中文與英文。手寫需要在鍵盤開啟「允許完整取用」。")
+                Text("在鍵盤的「中英」鍵切換中文與英文。手寫需要在鍵盤開啟「允許完整取用」；沒有完整取用時，中文頁會改用速成。更改後，重新開啟鍵盤才會生效。")
+            }
+            Section {
+                NavigationLink("授權") { LicensesView() }
+                    .accessibilityIdentifier("rk.settings.licenses")
             }
             Section {
                 Text(statusText)
@@ -88,8 +85,12 @@ struct SettingsView: View {
         .accessibilityAddTraits(method == id ? .isSelected : [])
     }
 
-    /// Quick is not selectable yet, so the choice shown is always handwriting.
-    private static func savedMethod() -> ChineseInputMethodID { .handwriting }
+    /// The choice the keyboard reads; handwriting until the user picks another.
+    private static func savedMethod() -> ChineseInputMethodID {
+        ChineseInputMethodID.stored(
+            rawValue: UserDefaults(suiteName: AppGroup.identifier)?.string(forKey: AppGroup.Key.chineseMethod))
+            ?? .handwriting
+    }
 
     // MARK: Model
 
@@ -117,4 +118,30 @@ struct SettingsView: View {
     private static func megabytes(_ bytes: Int64) -> String {
         String(format: "%.0f MB", Double(bytes) / 1_048_576)
     }
+}
+
+/// 「授權」: the third-party data and software the app and keyboard use.
+private struct LicensesView: View {
+    var body: some View {
+        List {
+            Section("手寫辨識") {
+                Text("Google ML Kit Digital Ink Recognition\n條款：https://developers.google.com/ml-kit/terms")
+                    .accessibilityIdentifier("rk.licenses.mlkit")
+            }
+            Section("速成字碼表") {
+                Text(Self.quickLicense)
+                    .font(.footnote)
+                    .accessibilityIdentifier("rk.licenses.quick")
+            }
+        }
+        .navigationTitle("授權")
+    }
+
+    private static let quickLicense: String = {
+        guard
+            let url = Bundle.main.url(forResource: "quick-table-LICENSE", withExtension: "txt"),
+            let text = try? String(contentsOf: url, encoding: .utf8)
+        else { return "找不到授權檔。" }
+        return text
+    }()
 }

@@ -23,6 +23,8 @@ final class CandidateBarView: UIView {
     private let backspaceKey = KeyButton(
         style: .function, symbol: "delete.left", label: "刪除", identifier: "rk.hwDelete")
     private(set) var candidates: [String] = []
+    /// The Quick input code (as radicals) shown at the left end, before the candidates; empty for handwriting.
+    private(set) var composing = ""
     private var showsBackspace = false
 
     override init(frame: CGRect) {
@@ -72,7 +74,7 @@ final class CandidateBarView: UIView {
     }
 
     private func updateVisibility() {
-        isHidden = candidates.isEmpty && !showsBackspace
+        isHidden = candidates.isEmpty && composing.isEmpty && !showsBackspace
     }
 
     override func layoutSubviews() {
@@ -86,10 +88,23 @@ final class CandidateBarView: UIView {
         }
     }
 
-    func setCandidates(_ list: [String]) {
-        guard list != candidates else { return }
+    func setCandidates(_ list: [String], composing code: String = "") {
+        guard list != candidates || code != composing else { return }
         candidates = list
+        composing = code
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        if !code.isEmpty {
+            let label = UILabel()
+            label.text = code
+            label.font = .systemFont(ofSize: 20, weight: .medium)
+            label.textColor = .systemBlue
+            label.textAlignment = .center
+            label.accessibilityIdentifier = "rk.quick.composing"
+            label.accessibilityLabel = "輸入碼"
+            label.accessibilityValue = code
+            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+            stack.addArrangedSubview(label)
+        }
         for (index, text) in list.enumerated() {
             var configuration = UIButton.Configuration.plain()
             configuration.title = text

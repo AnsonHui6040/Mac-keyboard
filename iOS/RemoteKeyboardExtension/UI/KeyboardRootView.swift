@@ -17,6 +17,12 @@ struct KeyboardViewState: Equatable {
     var chineseAvailable: Bool
     /// Handwriting candidates for the candidate row; empty outside the Chinese page.
     var candidates: [String] = []
+    /// The Chinese method behind the Chinese page (handwriting draws the writing area, Quick the radical keys).
+    var chineseMethod: ChineseInputMethodID = .handwriting
+    /// Quick: the input code as radicals, drawn before the candidates.
+    var composing: String = ""
+    /// Quick: a one-shot Shift is waiting; the input method's state, so the key follows it.
+    var quickShift: Bool = false
     /// Shown over the writing area instead of letting the user write (the model is missing or still importing).
     var handwritingMessage: String?
     /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
@@ -38,6 +44,8 @@ final class KeyboardRootView: UIView {
     var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
     var onSelectCandidate: ((Int) -> Void)?
     var onClearInk: (() -> Void)?
+    /// Quick: a radical key or Shift was pressed.
+    var onIMEInput: ((IMEInput) -> Void)?
     #if DEBUG
     var onDebugLongReturn: (() -> Void)? {
         get { bottomRow.onDebugLongReturn }
@@ -64,6 +72,9 @@ final class KeyboardRootView: UIView {
     private let symbols = SymbolPageView()
     private var symbolsOrigin: SymbolOrigin?
     private let handwriting = HandwritingPageView()
+    private let quick = QuickPageView()
+    /// The input code last drawn; a press that clears it must not turn into a held delete of the text behind it.
+    private var quickComposing = ""
     private let bottomRow = BottomRowView()
     #if DEBUG
     private let dictationPanel = DictationProbePanel()
@@ -75,7 +86,7 @@ final class KeyboardRootView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        for view in [topArea, english, symbols, handwriting, bottomRow] { addSubview(view) }
+        for view in [topArea, english, symbols, handwriting, quick, bottomRow] { addSubview(view) }
         #if DEBUG
         dictationPanel.isHidden = true
         addSubview(dictationPanel)
@@ -95,7 +106,12 @@ final class KeyboardRootView: UIView {
         // A press that clears ink or candidates must not turn into a held delete of the text behind them.
         topArea.backspaceAllowsRepeat = { [weak self] in !(self?.handwriting.hasInk ?? false) }
         bottomRow.onClear = { [weak self] in self?.onClearInk?() }
+        quick.onLetter = { [weak self] letter in self?.onIMEInput?(.key(letter)) }
+        quick.onShift = { [weak self] in self?.onIMEInput?(.shift) }
+        quick.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        quick.backspaceAllowsRepeat = { [weak self] in self?.quickComposing.isEmpty ?? true }
         handwriting.isHidden = true
+        quick.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -120,10 +136,15 @@ final class KeyboardRootView: UIView {
         } else {
             symbolsOrigin = nil
         }
+        let isHandwriting = isChinese && state.chineseMethod == .handwriting
+        let isQuick = isChinese && state.chineseMethod == .quick
         english.isHidden = isSymbols || isChinese
         symbols.isHidden = !isSymbols
-        handwriting.isHidden = !isChinese
-        bottomRow.setClearVisible(isChinese)
+        handwriting.isHidden = !isHandwriting
+        quick.isHidden = !isQuick
+        quickComposing = state.composing
+        quick.setShift(isQuick && state.quickShift)
+        bottomRow.setClearVisible(isHandwriting)
         handwriting.setMessage(state.handwritingMessage)
         #if DEBUG
         // The panel covers the three English letter rows only in Remote mode; Local mode and the Chinese and symbols
@@ -136,10 +157,10 @@ final class KeyboardRootView: UIView {
         }
         #endif
         let rows = state.top.visibleRowCount
-        if rows != topRows || isChinese != showsHandwriting {
+        if rows != topRows || isHandwriting != showsHandwriting {
             topRows = rows
-            showsHandwriting = isChinese
-            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: rows, handwriting: isChinese))
+            showsHandwriting = isHandwriting
+            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: rows, handwriting: isHandwriting))
             invalidateIntrinsicContentSize()
             setNeedsLayout()
         }
@@ -207,6 +228,7 @@ final class KeyboardRootView: UIView {
         let pageFrame = CGRect(x: side, y: keysTop, width: width - 2 * side, height: letterHeight)
         english.frame = pageFrame
         symbols.frame = pageFrame
+        quick.frame = pageFrame
         #if DEBUG
         // A few points taller than the keys, so their shadows do not show under the panel.
         dictationPanel.frame = pageFrame.insetBy(dx: 0, dy: -3).offsetBy(dx: 0, dy: 3)

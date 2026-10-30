@@ -31,8 +31,8 @@ final class KeyboardViewController: UIInputViewController {
     static let pageDefaultsKey = "rk.page"
     static let transmitDefaultsKey = "rk.transmit"
     private static let noteSeconds: Double = 2
-    /// The Chinese methods this build contains. Quick (速成) arrives in T12b.
-    private static let installedMethods: Set<ChineseInputMethodID> = [.handwriting]
+    /// The Chinese methods this build contains.
+    private static let installedMethods: Set<ChineseInputMethodID> = [.handwriting, .quick]
     /// ML Kit's model is moved through the App Group, which needs Full Access.
     private static let handwritingNeedsFullAccess = true
 
@@ -52,6 +52,12 @@ final class KeyboardViewController: UIInputViewController {
     private var transmit: TransmitMode = .instant
     private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: false)
     private let chinese = ChineseInputCoordinator()
+    /// The Chinese method this appearance of the keyboard uses; read from the host App's setting when the keyboard
+    /// appears, so a changed setting takes effect the next time the keyboard opens.
+    private var activeChineseMethod: ChineseInputMethodID?
+    /// Quick (速成): the pure input method, created when the Chinese page first needs it (the table loads in a few ms).
+    private var quick: QuickInputMethod?
+    private var quickOutput = IMEOutput()
     /// Keys that wait behind an input-method key (a space that waits for a recognition) run in order through this.
     private let imeQueue = OrderedActionQueue()
     /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
@@ -102,6 +108,7 @@ final class KeyboardViewController: UIInputViewController {
         root.onStrokesEnded = { [weak self] strokes, size in self?.chinese.session.strokesEnded(strokes, size: size) }
         root.onSelectCandidate = { [weak self] index in self?.enqueueIME(.selectCandidate(index)) }
         root.onClearInk = { [weak self] in self?.enqueueIME(.clear) }
+        root.onIMEInput = { [weak self] input in self?.enqueueIME(input) }
         chinese.onChange = { [weak self] in self?.refreshStatus() }
         chinese.onClearInk = { [weak self] in self?.rootView?.clearInk() }
         #if DEBUG
@@ -159,6 +166,7 @@ final class KeyboardViewController: UIInputViewController {
         dictationDisappeared()
         #endif
         imeQueue.reset()
+        resetQuick()
         chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
@@ -515,7 +523,8 @@ final class KeyboardViewController: UIInputViewController {
     /// Starts from the saved letter page; the field type may override it (email and URL open English, numbers open symbols).
     private func updateNavigator() {
         let last = KeyboardPage.stored(rawValue: UserDefaults.standard.string(forKey: Self.pageDefaultsKey))
-        navigator = PageNavigator(lastPage: last, field: fieldKind(), chineseAvailable: chineseMethod != nil)
+        activeChineseMethod = chineseMethod
+        navigator = PageNavigator(lastPage: last, field: fieldKind(), chineseAvailable: activeChineseMethod != nil)
     }
 
     /// The Chinese method in use: the host App's choice, if this build has it and Full Access allows it.
@@ -527,13 +536,37 @@ final class KeyboardViewController: UIInputViewController {
             installed: Self.installedMethods)
     }
 
-    /// Loads the handwriting engine while the Chinese page is showing; leaving the page drops ink and candidates.
+    /// Loads the engine of the Chinese method in use while the Chinese page is showing; leaving the page drops ink,
+    /// the input code and candidates.
     private func syncChineseEngine() {
-        if navigator.page == .chinese {
-            chinese.activate()
-        } else {
+        guard navigator.page == .chinese else {
             chinese.resetComposition()
+            resetQuick()
+            return
         }
+        if activeChineseMethod == .quick {
+            loadQuickIfNeeded()
+        } else {
+            chinese.activate()
+        }
+    }
+
+    private func loadQuickIfNeeded() {
+        guard quick == nil else { return }
+        guard
+            let url = Bundle(for: KeyboardViewController.self).url(forResource: "quick-table", withExtension: "txt"),
+            let text = try? String(contentsOf: url, encoding: .utf8),
+            let dictionary = try? QuickDictionary(tableText: text)
+        else {
+            showNote("速成字碼表無法載入")
+            return
+        }
+        quick = QuickInputMethod(dictionary: dictionary)
+    }
+
+    private func resetQuick() {
+        quick?.reset()
+        quickOutput = IMEOutput()
     }
 
     private func fieldKind() -> FieldKind {
@@ -581,10 +614,29 @@ final class KeyboardViewController: UIInputViewController {
     /// input method was waiting (the keyboard went away) drops the result.
     private func performIME(_ input: IMEInput, run: OrderedActionQueue.Run) async {
         reclaimPeripheralIfVacant()
-        let output = await chinese.session.handle(input)
+        let output: IMEOutput
+        if activeChineseMethod == .quick {
+            loadQuickIfNeeded()
+            output = quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input))
+            quickOutput = IMEOutput(composing: output.composing, candidates: output.candidates, shift: output.shift)
+            refreshStatus()
+        } else {
+            output = await chinese.session.handle(input)
+        }
         guard run.isCurrent else { return }
         if let text = output.commit { route(.character(text)) }
         if let key = output.passThrough { route(key) }
+    }
+
+    /// What a key does when the Quick table could not be loaded: it types like a key of the English page.
+    private static func fallbackKey(for input: IMEInput) -> KeyAction? {
+        switch input {
+        case .space: .space
+        case .backspace: .backspace
+        case .returnKey: .returnKey
+        case .key(let text): .character(text)
+        default: nil
+        }
     }
 
     @discardableResult
@@ -643,6 +695,7 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshStatus() {
         guard let rootView else { return }
         let link = peripheral.linkState
+        let isQuick = activeChineseMethod == .quick
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
             paired: peripheral.isPaired)
@@ -658,8 +711,11 @@ final class KeyboardViewController: UIInputViewController {
             probeText: Self.probeStatusText(),
             showsGlobe: needsInputModeSwitchKey,
             chineseAvailable: navigator.chineseAvailable,
-            candidates: navigator.page == .chinese ? chinese.candidates : [],
-            handwritingMessage: navigator.page == .chinese ? Self.message(for: chinese.modelStatus) : nil,
+            candidates: navigator.page == .chinese ? (isQuick ? quickOutput.candidates : chinese.candidates) : [],
+            chineseMethod: activeChineseMethod ?? .handwriting,
+            composing: navigator.page == .chinese && isQuick ? quickOutput.composing : "",
+            quickShift: navigator.page == .chinese && isQuick && quickOutput.shift,
+            handwritingMessage: navigator.page == .chinese && !isQuick ? Self.message(for: chinese.modelStatus) : nil,
             hapticsEnabled: hasFullAccess)
         #if DEBUG
         var state = built
