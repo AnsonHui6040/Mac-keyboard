@@ -31,7 +31,7 @@ public struct Ack: Codable, Equatable, Sendable {
 public enum ControlMessage: Codable, Equatable, Sendable {
     case ack(Ack)
     case status(ReceiverStatus)
-    /// Pairing: the Mac's ephemeral public key (x9.63, 65 bytes), the answer to `pairOffer`.
+    /// Pairing step 2: the Mac's ephemeral public key (x9.63, 65 bytes), the answer to `pairOffer`.
     case pairAccept(publicKey: Data)
     /// Start of the challenge: the Mac's nonce (16 bytes).
     case hello(macNonce: Data)
@@ -39,6 +39,9 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case auth(proof: Data)
     /// The Mac rejected the iPhone and is about to disconnect.
     case authFailed
+    /// After authentication every `ack` and `status` travels here: `SessionCrypto` (`.macToPhone`) over the encoded inner
+    /// message. Only `ack` and `status` are allowed inside.
+    case sealed(Data)
 }
 
 public enum ControlCodec {

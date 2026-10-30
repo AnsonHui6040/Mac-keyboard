@@ -17,6 +17,8 @@ public enum Pairing {
     private static let sasInfo = Data("rk-sas".utf8)
     private static let phoneLabel = Data("phone".utf8)
     private static let macLabel = Data("mac".utf8)
+    private static let commitLabel = Data("rk-commit".utf8)
+    public static let commitmentLength = 32
 
     /// A public key as it travels: the x9.63 representation, 65 bytes.
     public static func publicKeyData(_ key: P256.KeyAgreement.PrivateKey) -> Data {
@@ -29,12 +31,31 @@ public enum Pairing {
         return Data((0..<nonceLength).map { _ in UInt8.random(in: .min ... .max, using: &generator) })
     }
 
+    /// SHA-256(`rk-commit` ‖ phonePublic x9.63). The iPhone sends this in `pairOffer` and reveals the key only after the
+    /// Mac's key is on the wire, so nobody can grind a key whose 6-digit SAS matches after seeing the other side's key.
+    public static func commitment(phonePublic: Data) -> Data {
+        Data(SHA256.hash(data: commitLabel + phonePublic))
+    }
+
+    /// Constant-time check of a revealed key against the commitment.
+    public static func verifyCommitment(_ commitment: Data, phonePublic: Data) -> Bool {
+        guard commitment.count == commitmentLength else { return false }
+        let expected = Self.commitment(phonePublic: phonePublic)
+        var difference: UInt8 = 0
+        for (a, b) in zip(commitment, expected) { difference |= a ^ b }
+        return difference == 0
+    }
+
     /// ECDH followed by HKDF-SHA256 (salt `rk-pair-v1`, info = macPublic ‖ phonePublic, 32 bytes). Binding both public
     /// keys into the info makes a swapped key show up as a different key and a different SAS.
+    /// The transcript must be exactly {my own public key, `peerPublic`} in one of the two slots, and the peer's key must
+    /// not be mine; anything else throws `.invalidPublicKey`.
     public static func sharedKey(
         myPrivate: P256.KeyAgreement.PrivateKey, peerPublic: Data, macPublic: Data, phonePublic: Data
     ) throws -> SymmetricKey {
-        guard macPublic.count == publicKeyLength, phonePublic.count == publicKeyLength,
+        let mine = myPrivate.publicKey.x963Representation
+        let ownsOneSlot = (mine == macPublic && peerPublic == phonePublic) || (mine == phonePublic && peerPublic == macPublic)
+        guard ownsOneSlot, peerPublic != mine, macPublic.count == publicKeyLength, phonePublic.count == publicKeyLength,
               let peer = try? P256.KeyAgreement.PublicKey(x963Representation: peerPublic),
               let secret = try? myPrivate.sharedSecretFromKeyAgreement(with: peer) else {
             throw PairingError.invalidPublicKey

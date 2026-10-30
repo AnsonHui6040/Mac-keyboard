@@ -9,11 +9,20 @@ import Foundation
 //   Mac    → auth(macProof)                       only after the phone proof verified
 //   iPhone → sealed(...)                          only after the Mac proof verified
 //
+// After `auth` verified, both directions are sealed with their own session key (see `SessionCrypto.Direction`): events
+// as `PeripheralMessage.sealed`, `ack` and `status` as `ControlMessage.sealed`. Before that only `hello`, `auth`,
+// `authFailed` and `pairAccept` travel in the clear on `control`, and the app name never does.
+//
+// Both reducers are single-use: one instance per connection, constructed with a fresh `Pairing.randomNonce()`. Reusing a
+// nonce across connections would make a recorded `helloReply` valid again. A new connection needs new reducers.
+//
 // Nothing in the log or in any output carries keys, nonces, proofs or typed text.
 
 public enum HandshakeError: Error, Equatable, Sendable {
-    /// `sealEvent` was called before the Mac proved itself, or after the handshake failed.
+    /// `sealEvent` / `sealControl` was called before authentication, or after the handshake failed.
     case notAuthenticated
+    /// `sealControl` was given something other than `ack` or `status`.
+    case invalidControlMessage
 }
 
 // MARK: iPhone side
@@ -38,9 +47,12 @@ public struct PhoneHandshake: Sendable {
     private let phoneNonce: Data
     private var state = State.awaitingHello
     private var macNonce = Data()
-    private var crypto: SessionCrypto?
+    private var eventCrypto: SessionCrypto?
+    private var controlCrypto: SessionCrypto?
 
-    /// - Parameter pairKey: `nil` when this iPhone holds no pairing; the handshake then fails on the first `hello`.
+    /// - Parameters:
+    ///   - pairKey: `nil` when this iPhone holds no pairing; the handshake then fails on the first `hello`.
+    ///   - phoneNonce: a fresh `Pairing.randomNonce()` for this connection. Single-use: build a new reducer per connection.
     public init(pairKey: SymmetricKey?, phoneNonce: Data) {
         self.pairKey = pairKey
         self.phoneNonce = phoneNonce
@@ -53,7 +65,8 @@ public struct PhoneHandshake: Sendable {
         if state == .failed { return .none }
         switch message {
         case .hello(let nonce):
-            guard state == .awaitingHello else { return .none }
+            // A second hello, before or after auth, is a protocol violation.
+            guard state == .awaitingHello else { return fail() }
             guard let pairKey, nonce.count == Pairing.nonceLength, phoneNonce.count == Pairing.nonceLength else { return fail() }
             macNonce = nonce
             state = .awaitingAuth
@@ -62,14 +75,22 @@ public struct PhoneHandshake: Sendable {
         case .auth(let proof):
             guard state == .awaitingAuth, let pairKey,
                   Pairing.verifyMacProof(proof, key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce) else { return fail() }
-            crypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+            eventCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .phoneToMac)
+            controlCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .macToPhone)
             state = .authenticated
             return .authenticated
         case .authFailed:
             return fail()
         case .ack, .status:
-            // The Mac sends these only to an authenticated phone; before that they are dropped.
-            return state == .authenticated ? .deliver(message) : .none
+            // After auth the Mac only sends these sealed, so a plain one is a violation. Before auth they are dropped.
+            return state == .authenticated ? fail() : .none
+        case .sealed(let payload):
+            guard state == .authenticated, let controlCrypto, let plain = try? controlCrypto.open(payload),
+                  let inner = try? ControlCodec.decode(plain) else { return fail() }
+            switch inner {
+            case .ack, .status: return .deliver(inner)
+            default: return fail()
+            }
         case .pairAccept:
             // Pairing is handled outside the handshake.
             return .none
@@ -78,13 +99,14 @@ public struct PhoneHandshake: Sendable {
 
     /// Wraps one event for the wire: `PeripheralCodec` bytes sealed into `.sealed`. Throws until authenticated.
     public func sealEvent(_ event: KeyboardEvent) throws -> PeripheralMessage {
-        guard state == .authenticated, let crypto else { throw HandshakeError.notAuthenticated }
-        return .sealed(try crypto.seal(PeripheralCodec.encode(.event(event))))
+        guard state == .authenticated, let eventCrypto else { throw HandshakeError.notAuthenticated }
+        return .sealed(try eventCrypto.seal(PeripheralCodec.encode(.event(event))))
     }
 
     private mutating func fail() -> PhoneHandshakeOutput {
         state = .failed
-        crypto = nil
+        eventCrypto = nil
+        controlCrypto = nil
         return .failed
     }
 }
@@ -98,8 +120,10 @@ public enum MacHandshakeOutput: Equatable, Sendable {
     case send(ControlMessage)
     /// The phone proof verified. Write `reply` (`auth`) to `control`; `statusToSend` now releases the app name.
     case authenticated(reply: ControlMessage)
-    /// Pairing request. Only the adapter knows whether a pairing window is open; outside it, ignore and disconnect.
-    case pairOffer(publicKey: Data)
+    /// Pairing step 1 (key commitment). Only the adapter knows whether a pairing window is open; outside it, ignore and disconnect.
+    case pairOffer(commitment: Data)
+    /// Pairing step 3 (key reveal), forwarded for `MacPairing`. Same window rule as `pairOffer`.
+    case pairReveal(publicKey: Data)
     /// A verified, decrypted keyboard event.
     case event(KeyboardEvent)
     /// Authenticated and decrypted, but the inner event could not be parsed. Answer `AckCode.malformed`.
@@ -115,9 +139,14 @@ public struct MacHandshake: Sendable {
     private let pairKey: SymmetricKey?
     private let macNonce: Data
     private var state: State
-    private var crypto: SessionCrypto?
+    private var eventCrypto: SessionCrypto?
+    private var controlCrypto: SessionCrypto?
+    /// The failure was already handed to the caller (a Mac built with a bad nonce reports it from `begin()`).
+    private var failureReported = false
 
-    /// - Parameter pairKey: `nil` when the Mac holds no pairing (never paired or revoked): every `helloReply` fails.
+    /// - Parameters:
+    ///   - pairKey: `nil` when the Mac holds no pairing (never paired or revoked): every `helloReply` fails.
+    ///   - macNonce: a fresh `Pairing.randomNonce()` for this connection. Single-use: build a new reducer per connection.
     public init(pairKey: SymmetricKey?, macNonce: Data) {
         self.pairKey = pairKey
         self.macNonce = macNonce
@@ -130,7 +159,7 @@ public struct MacHandshake: Sendable {
 
     /// Starts the challenge once the keyboard link is ready.
     public mutating func begin() -> MacHandshakeOutput {
-        guard state == .idle else { return state == .failed ? fail() : .none }
+        guard state == .idle else { return state == .failed && !failureReported ? fail() : .none }
         state = .awaitingReply
         return .send(.hello(macNonce: macNonce))
     }
@@ -147,18 +176,22 @@ public struct MacHandshake: Sendable {
         switch message {
         case .event:
             return fail()
-        case .pairOffer(let publicKey):
+        case .pairOffer(let commitment):
+            guard state != .authenticated, commitment.count == Pairing.commitmentLength else { return fail() }
+            return .pairOffer(commitment: commitment)
+        case .pairReveal(let publicKey):
             guard state != .authenticated, publicKey.count == Pairing.publicKeyLength,
                   (try? P256.KeyAgreement.PublicKey(x963Representation: publicKey)) != nil else { return fail() }
-            return .pairOffer(publicKey: publicKey)
+            return .pairReveal(publicKey: publicKey)
         case .helloReply(let phoneNonce, let proof):
             guard state == .awaitingReply, let pairKey,
                   Pairing.verifyPhoneProof(proof, key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce) else { return fail() }
-            crypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+            eventCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .phoneToMac)
+            controlCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .macToPhone)
             state = .authenticated
             return .authenticated(reply: .auth(proof: Pairing.macProof(key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)))
         case .sealed(let payload):
-            guard state == .authenticated, let crypto, let plain = try? crypto.open(payload) else { return fail() }
+            guard state == .authenticated, let eventCrypto, let plain = try? eventCrypto.open(payload) else { return fail() }
             switch try? PeripheralCodec.decode(plain) {
             case .event(let event)?: return .event(event)
             case nil: return .malformedPayload
@@ -167,9 +200,21 @@ public struct MacHandshake: Sendable {
         }
     }
 
+    /// Wraps an `ack` or `status` for the wire. After authentication the Mac sends nothing else on `control` except
+    /// `authFailed`; anything but `ack` and `status` is refused.
+    public func sealControl(_ message: ControlMessage) throws -> ControlMessage {
+        guard state == .authenticated, let controlCrypto else { throw HandshakeError.notAuthenticated }
+        switch message {
+        case .ack, .status: return .sealed(try controlCrypto.seal(ControlCodec.encode(message)))
+        default: throw HandshakeError.invalidControlMessage
+        }
+    }
+
     private mutating func fail() -> MacHandshakeOutput {
         state = .failed
-        crypto = nil
+        eventCrypto = nil
+        controlCrypto = nil
+        failureReported = true
         return .authFailed
     }
 }

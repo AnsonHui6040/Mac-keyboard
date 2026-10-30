@@ -46,12 +46,47 @@ final class PairingTests: XCTestCase {
         XCTAssertNotEqual(Pairing.sas(macSide), Pairing.sas(phoneSide))
     }
 
-    func testSharedKeyIsBoundToBothPublicKeys() throws {
-        // Same ECDH secret, different transcript (info) gives a different key.
-        let honest = try macKey()
-        let relabelled = try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(attackerA), phonePublic: publicData(phone))
-        XCTAssertNotEqual(bytes(honest), bytes(relabelled))
+    func testSharedKeyRejectsATranscriptThatDoesNotContainMyOwnKey() {
+        // Same ECDH secret, but the transcript names the attacker's key instead of mine.
+        XCTAssertThrowsError(try Pairing.sharedKey(
+            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(attackerA), phonePublic: publicData(phone))) {
+            XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
+        }
+        // The transcript must be exactly {mine, peer}: a third key in either slot is rejected.
+        XCTAssertThrowsError(try Pairing.sharedKey(
+            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(mac), phonePublic: publicData(attackerA))) {
+            XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
+        }
+    }
+
+    func testSharedKeyRejectsReflectedOwnKeyAsPeer() {
+        XCTAssertThrowsError(try Pairing.sharedKey(
+            myPrivate: mac, peerPublic: publicData(mac), macPublic: publicData(mac), phonePublic: publicData(mac))) {
+            XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
+        }
+    }
+
+    func testSharedKeyWorksInEitherRoleOrder() throws {
+        // The roles are decided by the transcript slots, not by who calls.
+        XCTAssertEqual(bytes(try macKey()), bytes(try phoneKey()))
+    }
+
+    func testCommitmentIsSHA256OfLabelAndKey() {
+        let key = publicData(phone)
+        let c = Pairing.commitment(phonePublic: key)
+        XCTAssertEqual(c.count, 32)
+        XCTAssertEqual(c, Data(SHA256.hash(data: Data("rk-commit".utf8) + key)))
+        XCTAssertNotEqual(c, Pairing.commitment(phonePublic: publicData(attackerA)))
+    }
+
+    func testVerifyCommitment() {
+        let key = publicData(phone)
+        let c = Pairing.commitment(phonePublic: key)
+        XCTAssertTrue(Pairing.verifyCommitment(c, phonePublic: key))
+        XCTAssertFalse(Pairing.verifyCommitment(c, phonePublic: publicData(attackerA)))
+        XCTAssertFalse(Pairing.verifyCommitment(c.dropLast(), phonePublic: key))
+        XCTAssertFalse(Pairing.verifyCommitment(Data(), phonePublic: key))
+        XCTAssertFalse(Pairing.verifyCommitment(c + [0], phonePublic: key))
     }
 
     func testSASFormulaMatchesSpec() {

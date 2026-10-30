@@ -331,7 +331,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
                 pingEventId = nil
                 return
             }
-        case .pairAccept, .hello, .auth, .authFailed:
+        case .pairAccept, .hello, .auth, .authFailed, .sealed:
             // Pairing and authentication are wired in the adapter step of T09.
             return
         }

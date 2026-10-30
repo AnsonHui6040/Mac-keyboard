@@ -89,18 +89,20 @@ public enum EventCodec {
 /// it only travels inside `.sealed` and the Receiver treats a bare `.event` as a protocol violation.
 public enum PeripheralMessage: Codable, Equatable, Sendable {
     case event(KeyboardEvent)
-    /// Pairing: the iPhone's ephemeral public key (x9.63, 65 bytes).
-    case pairOffer(publicKey: Data)
+    /// Pairing step 1: `Pairing.commitment` of the iPhone's ephemeral public key (32 bytes); the key itself follows later.
+    case pairOffer(commitment: Data)
+    /// Pairing step 3, after the Mac's `pairAccept`: the iPhone's public key (x9.63, 65 bytes) the commitment covers.
+    case pairReveal(publicKey: Data)
     /// Answer to the Mac's `hello`: the iPhone's nonce (16 bytes) and its proof (32 bytes).
     case helloReply(phoneNonce: Data, proof: Data)
     /// `SessionCrypto.seal` output over a `PeripheralCodec`-encoded `.event`.
     case sealed(Data)
 
     private enum CodingKeys: String, CodingKey {
-        case type, protocolVersion, publicKey, phoneNonce, proof, payload
+        case type, protocolVersion, commitment, publicKey, phoneNonce, proof, payload
     }
     private enum WireType: String {
-        case event, pairOffer, helloReply, sealed
+        case event, pairOffer, pairReveal, helloReply, sealed
     }
 
     public init(from decoder: Decoder) throws {
@@ -112,7 +114,9 @@ public enum PeripheralMessage: Codable, Equatable, Sendable {
         case .event:
             self = .event(try KeyboardEvent(from: decoder))
         case .pairOffer:
-            self = .pairOffer(publicKey: try container.decode(Data.self, forKey: .publicKey))
+            self = .pairOffer(commitment: try container.decode(Data.self, forKey: .commitment))
+        case .pairReveal:
+            self = .pairReveal(publicKey: try container.decode(Data.self, forKey: .publicKey))
         case .helloReply:
             self = .helloReply(
                 phoneNonce: try container.decode(Data.self, forKey: .phoneNonce), proof: try container.decode(Data.self, forKey: .proof))
@@ -127,8 +131,12 @@ public enum PeripheralMessage: Codable, Equatable, Sendable {
         case .event(let event):
             try container.encode(WireType.event.rawValue, forKey: .type)
             try event.encode(to: encoder)
-        case .pairOffer(let publicKey):
+        case .pairOffer(let commitment):
             try container.encode(WireType.pairOffer.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
+            try container.encode(commitment, forKey: .commitment)
+        case .pairReveal(let publicKey):
+            try container.encode(WireType.pairReveal.rawValue, forKey: .type)
             try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
             try container.encode(publicKey, forKey: .publicKey)
         case .helloReply(let phoneNonce, let proof):

@@ -71,7 +71,8 @@ final class EventCodecTests: XCTestCase {
         let key = Data(repeating: 4, count: 65)
         let messages: [PeripheralMessage] = [
             .event(makeEvent()),
-            .pairOffer(publicKey: key),
+            .pairOffer(commitment: Data(repeating: 5, count: 32)),
+            .pairReveal(publicKey: key),
             .helloReply(phoneNonce: Data(repeating: 1, count: 16), proof: Data(repeating: 2, count: 32)),
             .sealed(Data(repeating: 3, count: 80))
         ]
@@ -82,7 +83,7 @@ final class EventCodecTests: XCTestCase {
 
     func testEveryPeripheralMessageCarriesTheVersionAtTheTopLevel() throws {
         let messages: [PeripheralMessage] = [
-            .pairOffer(publicKey: Data([1])), .helloReply(phoneNonce: Data([1]), proof: Data([2])), .sealed(Data([3]))
+            .pairOffer(commitment: Data([1])), .pairReveal(publicKey: Data([4])), .helloReply(phoneNonce: Data([1]), proof: Data([2])), .sealed(Data([3]))
         ]
         for message in messages {
             let object = try JSONSerialization.jsonObject(with: PeripheralCodec.encode(message)) as? [String: Any]
@@ -92,7 +93,7 @@ final class EventCodecTests: XCTestCase {
     }
 
     func testOldVersionPairOfferIsRejectedAsUnsupported() {
-        let old = Data(#"{"protocolVersion":2,"type":"pairOffer","publicKey":"AQ=="}"#.utf8)
+        let old = Data(#"{"protocolVersion":2,"type":"pairOffer","commitment":"AQ=="}"#.utf8)
         XCTAssertThrowsError(try PeripheralCodec.decode(old)) { XCTAssertEqual($0 as? EventCodecError, .unsupportedVersion(2)) }
     }
 
@@ -105,7 +106,8 @@ final class EventCodecTests: XCTestCase {
 
     func testSealedLargestTextEventFitsOneMessage() throws {
         let key = SymmetricKey(data: Data(repeating: 5, count: 32))
-        let crypto = SessionCrypto(pairKey: key, macNonce: Data(repeating: 1, count: 16), phoneNonce: Data(repeating: 2, count: 16))
+        let crypto = SessionCrypto(
+            pairKey: key, macNonce: Data(repeating: 1, count: 16), phoneNonce: Data(repeating: 2, count: 16), direction: .phoneToMac)
         let event = makeEvent(kind: .text(String(repeating: "香", count: 200)))
         let sealed = try crypto.seal(PeripheralCodec.encode(.event(event)))
         let wire = try PeripheralCodec.encode(.sealed(sealed))

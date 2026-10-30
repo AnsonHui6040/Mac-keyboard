@@ -7,15 +7,32 @@ public enum SessionCryptoError: Error, Equatable, Sendable {
     case sealFailed
 }
 
-/// ChaCha20-Poly1305 over the bytes of one `PeripheralCodec`-encoded event. The session key mixes both handshake
-/// nonces into the pair key, so a sealed event recorded in one session does not open in another.
+/// ChaCha20-Poly1305 for one direction of one session. The session key mixes both handshake nonces and the direction
+/// into the pair key, so ciphertext recorded in one session, or sent the other way, does not open.
+///
+/// - `.phoneToMac`: the `PeripheralCodec`-encoded event (`PeripheralMessage.sealed`).
+/// - `.macToPhone`: the `ControlCodec`-encoded `ack` or `status` (`ControlMessage.sealed`).
+///
+/// Replay inside one session is not prevented here (random AEAD nonce, no counter): the Mac's `EventDeduplicator`
+/// catches it. The same `eventId` is a duplicate; an id that was evicted from the window has a lower `seq` and is
+/// answered `outOfOrder`.
 public struct SessionCrypto: Sendable {
-    private static let info = Data("rk-session".utf8)
+    public enum Direction: Sendable {
+        case phoneToMac, macToPhone
+
+        fileprivate var info: Data {
+            switch self {
+            case .phoneToMac: Data("rk-session-p2m".utf8)
+            case .macToPhone: Data("rk-session-m2p".utf8)
+            }
+        }
+    }
+
     private let key: SymmetricKey
 
-    public init(pairKey: SymmetricKey, macNonce: Data, phoneNonce: Data) {
+    public init(pairKey: SymmetricKey, macNonce: Data, phoneNonce: Data, direction: Direction) {
         key = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: Self.info + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: direction.info + macNonce + phoneNonce, outputByteCount: 32)
     }
 
     /// Returns `nonce(12) ‖ ciphertext ‖ tag(16)`; the nonce is fresh random for every call.

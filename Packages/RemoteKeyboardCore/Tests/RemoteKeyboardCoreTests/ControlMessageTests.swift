@@ -32,7 +32,8 @@ final class ControlMessageTests: XCTestCase {
             .pairAccept(publicKey: Data(repeating: 4, count: 65)),
             .hello(macNonce: Data(repeating: 1, count: 16)),
             .auth(proof: Data(repeating: 2, count: 32)),
-            .authFailed
+            .authFailed,
+            .sealed(Data(repeating: 6, count: 60))
         ]
         for m in messages { XCTAssertEqual(try ControlCodec.decode(ControlCodec.encode(m)), m) }
     }

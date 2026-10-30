@@ -7,8 +7,8 @@ final class SessionCryptoTests: XCTestCase {
     private let macNonce = Data(repeating: 1, count: 16)
     private let phoneNonce = Data(repeating: 2, count: 16)
 
-    private func session(_ key: SymmetricKey? = nil, mac: Data? = nil, phone: Data? = nil) -> SessionCrypto {
-        SessionCrypto(pairKey: key ?? pairKey, macNonce: mac ?? macNonce, phoneNonce: phone ?? phoneNonce)
+    private func session(_ key: SymmetricKey? = nil, mac: Data? = nil, phone: Data? = nil, direction: SessionCrypto.Direction = .phoneToMac) -> SessionCrypto {
+        SessionCrypto(pairKey: key ?? pairKey, macNonce: mac ?? macNonce, phoneNonce: phone ?? phoneNonce, direction: direction)
     }
 
     func testSealOpenRoundTripAndTamperFails() throws {
@@ -68,8 +68,25 @@ final class SessionCryptoTests: XCTestCase {
 
     func testSessionKeyDerivationMatchesSpec() throws {
         let expected = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session".utf8) + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-p2m".utf8) + macNonce + phoneNonce, outputByteCount: 32)
         let box = try ChaChaPoly.seal(Data("probe".utf8), using: expected)
         XCTAssertEqual(try session().open(box.combined), Data("probe".utf8))
+    }
+
+    func testControlDirectionKeyDerivationMatchesSpec() throws {
+        let expected = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-m2p".utf8) + macNonce + phoneNonce, outputByteCount: 32)
+        let box = try ChaChaPoly.seal(Data("probe".utf8), using: expected)
+        XCTAssertEqual(try session(direction: .macToPhone).open(box.combined), Data("probe".utf8))
+    }
+
+    func testControlSealedRoundTripAndWrongDirectionFails() throws {
+        let events = session(direction: .phoneToMac)
+        let control = session(direction: .macToPhone)
+        let plain = Data("{\"status\":{}}".utf8)
+        XCTAssertEqual(try control.open(try control.seal(plain)), plain)
+        // An event-direction ciphertext must not open as control, and the other way round.
+        XCTAssertThrowsError(try control.open(try events.seal(plain))) { XCTAssertEqual($0 as? SessionCryptoError, .openFailed) }
+        XCTAssertThrowsError(try events.open(try control.seal(plain))) { XCTAssertEqual($0 as? SessionCryptoError, .openFailed) }
     }
 }

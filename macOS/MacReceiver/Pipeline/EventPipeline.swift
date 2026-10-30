@@ -115,7 +115,7 @@ final class EventPipeline {
             switch try PeripheralCodec.decode(data) {
             case .event(let decoded): event = decoded
             // Pairing and sealed messages are wired in the adapter step of T09; until then they are not events.
-            case .pairOffer, .helloReply, .sealed: throw EventCodecError.malformed
+            case .pairOffer, .pairReveal, .helloReply, .sealed: throw EventCodecError.malformed
             }
         } catch {
             Self.log.info("event rejected bytes=\(data.count, privacy: .public) ack=malformed")
