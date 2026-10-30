@@ -11,6 +11,11 @@ final class BottomRowView: UIView {
     var onDebugLongReturn: (() -> Void)?
     /// Long-pressing space for two seconds; the debug build uses it to fill the draft to its cap (T10 device test).
     var onDebugLongSpace: (() -> Void)?
+    /// Long-pressing return for four seconds; the debug build uses it to start the T15 burst.
+    var onDebugBurst: (() -> Void)?
+    /// Counts the second half of a return press (two seconds after the two-second mark). While it is pending, the
+    /// two-second action waits for the release, so a four-second press starts only the burst.
+    private var burstArm: Task<Void, Never>?
     #endif
 
     /// The controller adds `handleInputModeList(from:with:)` to this button.
@@ -50,7 +55,27 @@ final class BottomRowView: UIView {
 
     #if DEBUG
     @objc private func debugLongReturn(_ recognizer: UILongPressGestureRecognizer) {
-        if recognizer.state == .began { onDebugLongReturn?() }
+        switch recognizer.state {
+        case .began:
+            burstArm?.cancel()
+            burstArm = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, let self else { return }
+                self.burstArm = nil
+                self.onDebugBurst?()
+            }
+        case .ended:
+            // Released between two and four seconds: the old two-second action, now on release.
+            guard burstArm != nil else { return }
+            burstArm?.cancel()
+            burstArm = nil
+            onDebugLongReturn?()
+        case .cancelled, .failed:
+            burstArm?.cancel()
+            burstArm = nil
+        default:
+            break
+        }
     }
 
     @objc private func debugLongSpace(_ recognizer: UILongPressGestureRecognizer) {

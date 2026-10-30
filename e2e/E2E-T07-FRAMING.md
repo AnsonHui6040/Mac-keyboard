@@ -33,7 +33,7 @@
 ### 2. 3,000 字元 TEXT
 1. 清空 TextEdit 文件（純文字格式），游標停在文件內。
 2. 確認狀態列為 `Mac → TextEdit (N ms)`。
-3. 在 iPhone 鍵盤長按 `return` 2 秒後放開，等狀態列顯示 `Mac 已輸入`。
+3. 在 iPhone 鍵盤長按 `return` 2 秒後放開（要在 4 秒內放開，否則會改為啟動 T15 的 burst），等狀態列顯示 `Mac 已輸入`。
 4. 在 TextEdit 按 Command-A、Command-C，再到終端機執行下列三個指令（字數指令已指定 UTF-8 語系，不受終端機設定影響）。
 
 ```bash
