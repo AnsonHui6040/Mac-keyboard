@@ -1,0 +1,6 @@
+# T09 Mac Receiver log 摘要（2026-10-30 12:44–13:4x 實機，subsystem com.ansonhui.remotekeyboard.receiver，共 400 行）
+# 只列事件種類、長度、ACK 與連線狀態；搜尋 abc、ok、hello、TextEdit、Notes、備忘錄：0 筆（無輸入文字、無 App 名稱）
+  77 event kind=text length=1 ack=posted
+   9 event kind=ping length=0 ack=pong
+   7 event kind=backspace length=0 ack=posted
+peripheral skipped for this receiving session: 1

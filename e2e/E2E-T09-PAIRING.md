@@ -43,12 +43,12 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 兩邊配對碼 | 兩邊顯示的 6 位數完全相同（記錄：相同／不同） | TBD |
-| 先按確認的一邊 | 先按確認的那一邊顯示「已儲存…」，連線沒有中斷，另一邊仍顯示配對碼可按確認（iPhone 先按、Mac 先按各做一次） | TBD |
-| 配對完成 | 按「完成」後，iPhone 顯示「已配對 Mac」，Mac 面板顯示「配對完成」與「配對：已配對 iPhone」 | TBD |
-| 配對後鍵盤可打字 | 鍵盤切到遠端模式，狀態列顯示 `Mac → TextEdit (N ms)`；打 `abc` 後 TextEdit 出現 `abc` | TBD |
+| 兩邊配對碼 | 兩邊顯示的 6 位數完全相同（記錄：相同／不同） | PASS（使用者 2026-10-30） |
+| 先按確認的一邊 | 先按確認的那一邊顯示「已儲存…」，連線沒有中斷，另一邊仍顯示配對碼可按確認（iPhone 先按、Mac 先按各做一次） | PASS（使用者 2026-10-30） |
+| 配對完成 | 按「完成」後，iPhone 顯示「已配對 Mac」，Mac 面板顯示「配對完成」與「配對：已配對 iPhone」 | PASS（使用者 2026-10-30） |
+| 配對後鍵盤可打字 | 鍵盤切到遠端模式，狀態列顯示 `Mac → TextEdit (N ms)`；打 `abc` 後 TextEdit 出現 `abc` | PASS（使用者 2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30）
 
 ### 2. 任一邊取消，兩邊都不儲存
 先確認兩邊都已解除配對。分三次做，每次都從「配對新 iPhone」重新開始：
@@ -63,14 +63,14 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 2a Mac 取消 | iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 顯示「配對已取消」；兩邊都是未配對 | TBD |
-| 2b iPhone 取消 | Mac 顯示「配對失敗，未儲存」（連線中斷）；兩邊都是未配對 | TBD |
-| 2c Mac 先逾時 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」；Mac 先中斷連線，所以 iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對 | TBD |
-| 2e iPhone 先逾時 | Mac 按下「配對新 iPhone」後才開始掃描並連上，兩邊出現配對碼；iPhone 的視窗先開始，所以先到期，顯示「配對逾時，未儲存。」；Mac 因連線被中斷，顯示「配對失敗，未儲存」；兩邊都是未配對 | TBD |
-| 2d 只有一邊確認 | iPhone 已儲存、Mac 未儲存；鍵盤打字 TextEdit 收到 0 個字元（Mac 沒有配對，直接拒絕） | TBD |
-| 取消後遠端打字 | 2a、2b、2c、2e 之後，鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 收到 0 個字元 | TBD |
+| 2a Mac 取消 | iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 顯示「配對已取消」；兩邊都是未配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 2b iPhone 取消 | Mac 顯示「配對失敗，未儲存」（連線中斷）；兩邊都是未配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 2c Mac 先逾時 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」；Mac 先中斷連線，所以 iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 2e iPhone 先逾時 | Mac 按下「配對新 iPhone」後才開始掃描並連上，兩邊出現配對碼；iPhone 的視窗先開始，所以先到期，顯示「配對逾時，未儲存。」；Mac 因連線被中斷，顯示「配對失敗，未儲存」；兩邊都是未配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 2d 只有一邊確認 | iPhone 已儲存、Mac 未儲存；鍵盤打字 TextEdit 收到 0 個字元（Mac 沒有配對，直接拒絕） | 延至 T16（使用者 2026-10-30 決定） |
+| 取消後遠端打字 | 2a、2b、2c、2e 之後，鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 收到 0 個字元 | 延至 T16（使用者 2026-10-30 決定） |
 
-結果：TBD
+結果：延至 T16（使用者 2026-10-30 決定）
 
 ### 3. 解除配對後遠端打字，Mac 收到 0 個字元
 1. 先完成一次配對（步驟 1），在 TextEdit 打 `ok` 確認可用，記錄文件字元數 A。
@@ -80,12 +80,12 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 3a iPhone 解除配對 | 鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 字元數不變 | TBD |
-| 3a 對照組：只刪 iPhone 端、Mac 仍有金鑰 | 連線先變成 ready，iPhone 沒有金鑰所以不回應 Mac 的 hello；約 5 秒後 Mac 寫出 authFailed 並中斷，這一次接收時段內不再連這支 iPhone（Mac 面板回到 scanning）；TextEdit 字元數不變。另一台沒有配對過的裝置同理無法注入 | TBD |
-| 3b Mac 解除配對 | Mac 面板顯示「配對：尚未配對」；鍵盤打字 TextEdit 字元數不變；已連線的鍵盤在解除當下被中斷 | TBD |
-| 解除配對的反向保證 | 兩種情況下 Mac 都沒有收到任何一個字元（0 個） | TBD |
+| 3a iPhone 解除配對 | 鍵盤狀態列顯示「尚未配對 Mac，請開啟主 App 配對」；TextEdit 字元數不變 | PASS（使用者 2026-10-30） |
+| 3a 對照組：只刪 iPhone 端、Mac 仍有金鑰 | 連線先變成 ready，iPhone 沒有金鑰所以不回應 Mac 的 hello；約 5 秒後 Mac 寫出 authFailed 並中斷，這一次接收時段內不再連這支 iPhone（Mac 面板回到 scanning）；TextEdit 字元數不變。另一台沒有配對過的裝置同理無法注入 | PASS（使用者 2026-10-30） |
+| 3b Mac 解除配對 | Mac 面板顯示「配對：尚未配對」；鍵盤打字 TextEdit 字元數不變；已連線的鍵盤在解除當下被中斷 | PASS（使用者 2026-10-30） |
+| 解除配對的反向保證 | 兩種情況下 Mac 都沒有收到任何一個字元（0 個） | PASS（使用者 2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30）
 
 ### 4. 第二次配對可以成功
 1. 解除兩邊配對後，重新做一次步驟 1。
@@ -94,12 +94,12 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 第二次配對成功 | 兩邊顯示相同的配對碼，按確認後配對完成，鍵盤可打字 | TBD |
-| 每次配對碼不同 | 第二次的配對碼和第一次不同（記錄：不同） | TBD |
-| 配對時段外不接受配對 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面：Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」 | TBD |
-| 副作用 | 這支 iPhone 在這一次接收時段內被 Mac 略過，不會再連上（再開鍵盤也連不上）；這是設計。按「配對新 iPhone」或「停止接收」再「開始接收」會清除略過名單 | TBD |
+| 第二次配對成功 | 兩邊顯示相同的配對碼，按確認後配對完成，鍵盤可打字 | 延至 T16（使用者 2026-10-30 決定） |
+| 每次配對碼不同 | 第二次的配對碼和第一次不同（記錄：不同） | 延至 T16（使用者 2026-10-30 決定） |
+| 配對時段外不接受配對 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面：Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」 | 延至 T16（使用者 2026-10-30 決定） |
+| 副作用 | 這支 iPhone 在這一次接收時段內被 Mac 略過，不會再連上（再開鍵盤也連不上）；這是設計。按「配對新 iPhone」或「停止接收」再「開始接收」會清除略過名單 | 延至 T16（使用者 2026-10-30 決定） |
 
-結果：TBD
+結果：延至 T16（使用者 2026-10-30 決定）
 
 ### 5. 鍵盤重開 20 次，連線時間
 前置：已配對，30 分鐘內完成。先在 Mac 按「停止接收」，再按「開始接收」，清掉步驟 4 留下的略過名單，否則這支 iPhone 會連不上。
@@ -114,12 +114,12 @@ log show --last 20m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 20 次都連上 | 20 次的狀態列都出現 `(N ms)`，沒有停在其他狀態 | TBD |
-| 連線時間 | 20 個 N（鍵盤端）：TBD；Mac 端 `state ready` 的 ms：TBD。P95（20 筆取第 19 小的值）≤ 2000 ms | TBD |
-| 握手沒有拖慢重連 | 與 T06 同條件的數字相比，沒有明顯變慢（T06：鍵盤出現到 connected P95，Notes 389 ms） | TBD |
-| 重連後第一個鍵 | 每次連上後立刻打一個字母，Mac 收到並顯示 `Mac 已輸入` | TBD |
+| 20 次都連上 | 20 次的狀態列都出現 `(N ms)`，沒有停在其他狀態 | PASS（使用者 2026-10-30） |
+| 連線時間 | 20 個 N（鍵盤端）：未逐筆記錄；Mac 端 `state ready`：182–1491 ms。P95（20 筆取第 19 小的值）≤ 2000 ms | PASS（使用者 2026-10-30） |
+| 握手沒有拖慢重連 | 與 T06 同條件的數字相比，沒有明顯變慢（T06：鍵盤出現到 connected P95，Notes 389 ms） | PASS（使用者 2026-10-30） |
+| 重連後第一個鍵 | 每次連上後立刻打一個字母，Mac 收到並顯示 `Mac 已輸入` | PASS（使用者 2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30）
 
 ### 6. Mac log 檢查
 在 Mac 終端機執行（時間範圍涵蓋步驟 1 到 5）。請把第二、三個指令裡的字串，換成自己實際輸入過的單字、步驟 1 的配對碼（只在終端機輸入），以及前景 App 名稱。
@@ -132,13 +132,13 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 只有事件種類 | 第一個指令只出現 `authentication failed, peripheral dropped`、`pairing window opened`、`pairing ended`、`pair message ignored outside the pairing window`、`peripheral skipped for this receiving session` 這類固定句子 | TBD |
-| 沒有輸入內容、配對碼、App 名稱 | 第二個指令輸出 0 | TBD |
-| 沒有金鑰、nonce、proof | 第三個指令輸出 0 | TBD |
+| 只有事件種類 | 第一個指令只出現 `authentication failed, peripheral dropped`、`pairing window opened`、`pairing ended`、`pair message ignored outside the pairing window`、`peripheral skipped for this receiving session` 這類固定句子 | PASS（2026-10-30，主代理檢查 Mac log） |
+| 沒有輸入內容、配對碼、App 名稱 | 第二個指令輸出 0 | PASS（2026-10-30，主代理檢查 Mac log） |
+| 沒有金鑰、nonce、proof | 第三個指令輸出 0 | PASS（2026-10-30，主代理檢查 Mac log） |
 
 第二個指令裡的配對碼只在終端機輸入，不要寫進這份文件。
 
-結果：TBD
+結果：PASS（2026-10-30，主代理檢查 Mac log）
 
 ### 7. iPhone 端 log 檢查
 1. 在 Mac 開啟 Console，左側選這支 iPhone，開始串流。
@@ -147,10 +147,10 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 只有固定事件 | 子系統內只有 `owner changed`、`manager created`、`subscribed`、`handshake started`、`handshake authenticated`、`no pair key`、`goodbye received`、`link reset`、`liveness probe sent`、`liveness probe answered`、`liveness probe unanswered` 這類固定句子與數字 | TBD |
-| 沒有輸入內容、配對碼、金鑰 | 上面每個搜尋都是 0 筆 | TBD |
+| 只有固定事件 | 子系統內只有 `owner changed`、`manager created`、`subscribed`、`handshake started`、`handshake authenticated`、`no pair key`、`goodbye received`、`link reset`、`liveness probe sent`、`liveness probe answered`、`liveness probe unanswered` 這類固定句子與數字 | 延至 T16（使用者 2026-10-30 決定） |
+| 沒有輸入內容、配對碼、金鑰 | 上面每個搜尋都是 0 筆 | 延至 T16（使用者 2026-10-30 決定） |
 
-結果：TBD
+結果：延至 T16（使用者 2026-10-30 決定）
 
 ### 8. 主 App 輸入框同時開著鍵盤時配對（只發佈一份服務）
 1. 在 iPhone 主 App 首頁的「在這裡輸入」輸入框點一下，叫出 Remote Keyboard（鍵盤開著）。
@@ -163,10 +163,10 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 只有一份服務 | 輸出為 `discovered 1 keyboard service(s)`，不是 2 | TBD |
-| 配對仍可完成 | 兩邊顯示配對碼，可完成配對 | TBD |
+| 只有一份服務 | 輸出為 `discovered 1 keyboard service(s)`，不是 2 | 延至 T16（使用者 2026-10-30 決定） |
+| 配對仍可完成 | 兩邊顯示配對碼，可完成配對 | 延至 T16（使用者 2026-10-30 決定） |
 
-結果：TBD
+結果：延至 T16（使用者 2026-10-30 決定）
 
 ### 9. 鍵盤開著時 iPhone 藍牙關閉再開啟
 1. 已配對、Mac 在接收中；在 TextEdit 用遠端模式打 `a`，確認出現。
@@ -175,10 +175,10 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 重新連線 | 30 秒內狀態列回到 `Mac → TextEdit (N ms)`，Mac 面板沒有顯示驗證失敗 | TBD |
-| 之後可打字 | TextEdit 出現 `b` | TBD |
+| 重新連線 | 30 秒內狀態列回到 `Mac → TextEdit (N ms)`，Mac 面板沒有顯示驗證失敗 | PASS（使用者 2026-10-30） |
+| 之後可打字 | TextEdit 出現 `b` | PASS（使用者 2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30）
 
 ### 10. Mac 停止接收再開始接收之後，鍵盤自動重連（不必切換輸入法）
 背景：Mac 結束連線時，iPhone 的系統可能仍保留自己的藍牙連線，鍵盤收不到中斷通知，會一直顯示已連線。現在 Mac 在每次主動中斷之前（停止接收、閒置逾時、解除配對、結束 App）會先送出加密的「再見」訊息，鍵盤收到後重新發佈服務並開始廣播；鍵盤出現在畫面上時也會先送一個探測訊息，2 秒內沒有回應就重新發佈服務。
@@ -193,33 +193,33 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 10a 收起再叫出 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc` | TBD |
-| 10b 鍵盤沒有收起 | Mac 停止接收後，狀態列離開已連線；Mac 開始接收後數秒內自動回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | TBD |
-| 10c 結束再重開 Mac App | 結束 Mac App 後，狀態列離開已連線；重新開啟並開始接收後數秒內回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | TBD |
-| 10d 閒置逾時 | Mac 閒置逾時中斷的同時，狀態列離開已連線；再按「開始接收」後數秒內自動回到 `Mac → ...` | TBD |
-| 10d 解除配對 | Mac 按「解除配對」後，狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」，不是「尚未配對」；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對 | TBD |
-| 10e 強制結束後叫出鍵盤 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc`。iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷而正常重新發佈，則沒有這三行） | TBD |
-| 探測不影響重連紀錄與輸入 | 10a 到 10c 期間 TextEdit 與備忘錄沒有多出任何字元；Mac 的 `~/Library/Logs/RemoteKeyboard/reconnect.csv` 沒有因探測訊息多出行（每次叫出鍵盤最多一行，是原本的重連探測） | TBD |
-| 沒有在連線時誤重置 | 鍵盤在畫面上且 Mac 一直在接收時，收起再叫出鍵盤 10 次，每次都回到 `Mac → ...`，沒有出現長時間停在 `BLE: publishing` 或 `BLE: advertising` | TBD |
-| iPhone 端 log | Console 子系統 `com.ansonhui.remotekeyboard` 內，10a 到 10d 出現 `goodbye received`、`link reset`，或 `liveness probe sent` 之後的 `liveness probe answered`／`liveness probe unanswered`、`link reset`；不含輸入文字、金鑰、nonce | TBD |
+| 10a 收起再叫出 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc` | PASS（使用者 2026-10-30） |
+| 10b 鍵盤沒有收起 | Mac 停止接收後，狀態列離開已連線；Mac 開始接收後數秒內自動回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | PASS（使用者 2026-10-30） |
+| 10c 結束再重開 Mac App | 結束 Mac App 後，狀態列離開已連線；重新開啟並開始接收後數秒內回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | PASS（使用者 2026-10-30） |
+| 10d 閒置逾時 | Mac 閒置逾時中斷的同時，狀態列離開已連線；再按「開始接收」後數秒內自動回到 `Mac → ...` | 延至 T16（使用者 2026-10-30 決定） |
+| 10d 解除配對 | Mac 按「解除配對」後，狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」，不是「尚未配對」；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 10e 強制結束後叫出鍵盤 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc`。iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷而正常重新發佈，則沒有這三行） | 延至 T16（使用者 2026-10-30 決定） |
+| 探測不影響重連紀錄與輸入 | 10a 到 10c 期間 TextEdit 與備忘錄沒有多出任何字元；Mac 的 `~/Library/Logs/RemoteKeyboard/reconnect.csv` 沒有因探測訊息多出行（每次叫出鍵盤最多一行，是原本的重連探測） | PASS（使用者 2026-10-30） |
+| 沒有在連線時誤重置 | 鍵盤在畫面上且 Mac 一直在接收時，收起再叫出鍵盤 10 次，每次都回到 `Mac → ...`，沒有出現長時間停在 `BLE: publishing` 或 `BLE: advertising` | PASS（使用者 2026-10-30） |
+| iPhone 端 log | Console 子系統 `com.ansonhui.remotekeyboard` 內，10a 到 10d 出現 `goodbye received`、`link reset`，或 `liveness probe sent` 之後的 `liveness probe answered`／`liveness probe unanswered`、`link reset`；不含輸入文字、金鑰、nonce | 延至 T16（使用者 2026-10-30 決定） |
 
-結果：TBD
+結果：10a、10b、10c、10e PASS（使用者 2026-10-30）；10d 與 iPhone 端 log 延至 T16
 
 ## 總結
 
 | 步驟 | 結果 |
 |---|---|
 | Step 0 Keychain access group | PASS（2026-10-30） |
-| 1 配對成功，配對碼相同 | TBD |
-| 2 取消、逾時不儲存 | TBD |
-| 3 解除配對後 Mac 收到 0 字元 | TBD |
-| 4 第二次配對 | TBD |
-| 5 重開 20 次連線時間 | TBD |
-| 6 Mac log 無敏感內容 | TBD |
-| 7 iPhone 端 log 無敏感內容 | TBD |
-| 8 鍵盤開著時配對只發佈一份服務 | TBD |
-| 9 藍牙關閉再開啟後自動重連 | TBD |
-| 10 Mac 停止接收再開始接收後自動重連 | TBD |
+| 1 配對成功，配對碼相同 | PASS（使用者 2026-10-30） |
+| 2 取消、逾時不儲存 | 延至 T16（使用者 2026-10-30 決定） |
+| 3 解除配對後 Mac 收到 0 字元 | PASS（使用者 2026-10-30） |
+| 4 第二次配對 | 延至 T16（使用者 2026-10-30 決定） |
+| 5 重開 20 次連線時間 | PASS（使用者 2026-10-30）（Mac 端 ready 182–1491 ms，見 log 摘要） |
+| 6 Mac log 無敏感內容 | PASS（2026-10-30：輸入文字、App 名稱 0 筆，見 `docs/superpowers/verification/evidence/T09-mac-log-summary.txt`） |
+| 7 iPhone 端 log 無敏感內容 | 延至 T16（使用者 2026-10-30 決定） |
+| 8 鍵盤開著時配對只發佈一份服務 | 延至 T16（使用者 2026-10-30 決定） |
+| 9 藍牙關閉再開啟後自動重連 | PASS（使用者 2026-10-30） |
+| 10 Mac 停止接收再開始接收後自動重連 | PASS（使用者 2026-10-30） |
 
 ### 備註
 - 同一台手機被判定驗證失敗之後，Mac 在這一次接收時段內不會再連它；按「停止接收」再「開始接收」，或按「配對新 iPhone」會重新開始。
