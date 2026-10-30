@@ -11,9 +11,9 @@ final class BottomRowLayoutTests: XCTestCase {
     func testChinesePageWithClearAndWithoutGlobe() {
         let width = 396.0
         let list = BottomRowLayout.placements(totalWidth: width, showsGlobe: false, showsClear: true)
-        XCTAssertEqual(list.map(\.key), [.chineseEnglish, .symbols, .space, .clear, .returnKey])
-        XCTAssertEqual(placement(.chineseEnglish, in: list), BottomRowPlacement(key: .chineseEnglish, x: 0, width: 56))
-        XCTAssertEqual(placement(.symbols, in: list), BottomRowPlacement(key: .symbols, x: 62, width: 56))
+        XCTAssertEqual(list.map(\.key), [.symbols, .chineseEnglish, .space, .clear, .returnKey])
+        XCTAssertEqual(placement(.symbols, in: list), BottomRowPlacement(key: .symbols, x: 0, width: 56))
+        XCTAssertEqual(placement(.chineseEnglish, in: list), BottomRowPlacement(key: .chineseEnglish, x: 62, width: 56))
         XCTAssertEqual(placement(.returnKey, in: list), BottomRowPlacement(key: .returnKey, x: width - 72, width: 72))
         // 重寫 sits between space and return, as wide as 中英 and 符號.
         XCTAssertEqual(placement(.clear, in: list), BottomRowPlacement(key: .clear, x: width - 72 - gap - 56, width: 56))
@@ -23,7 +23,7 @@ final class BottomRowLayoutTests: XCTestCase {
 
     func testPagesWithoutClearHaveNoClearKey() {
         let list = BottomRowLayout.placements(totalWidth: 396, showsGlobe: false, showsClear: false)
-        XCTAssertEqual(list.map(\.key), [.chineseEnglish, .symbols, .space, .returnKey])
+        XCTAssertEqual(list.map(\.key), [.symbols, .chineseEnglish, .space, .returnKey])
         XCTAssertNil(placement(.clear, in: list))
         // Same geometry the bottom row had before 重寫 moved here: space runs up to return minus one gap.
         XCTAssertEqual(placement(.space, in: list), BottomRowPlacement(key: .space, x: 124, width: 396 - 72 - gap - 124))
@@ -32,10 +32,10 @@ final class BottomRowLayoutTests: XCTestCase {
     func testGlobeShiftsEverythingRightByItsWidthAndGap() throws {
         let without = BottomRowLayout.placements(totalWidth: 396, showsGlobe: false, showsClear: true)
         let with = BottomRowLayout.placements(totalWidth: 396, showsGlobe: true, showsClear: true)
-        XCTAssertEqual(with.map(\.key), [.globe, .chineseEnglish, .symbols, .space, .clear, .returnKey])
+        XCTAssertEqual(with.map(\.key), [.globe, .symbols, .chineseEnglish, .space, .clear, .returnKey])
         XCTAssertEqual(placement(.globe, in: with), BottomRowPlacement(key: .globe, x: 0, width: 44))
-        XCTAssertEqual(placement(.chineseEnglish, in: with)?.x, 50)
-        XCTAssertEqual(placement(.symbols, in: with)?.x, 112)
+        XCTAssertEqual(placement(.symbols, in: with)?.x, 50)
+        XCTAssertEqual(placement(.chineseEnglish, in: with)?.x, 112)
         XCTAssertEqual(placement(.space, in: with)?.x, 174)
         let spaceWith = try XCTUnwrap(placement(.space, in: with))
         let spaceWithout = try XCTUnwrap(placement(.space, in: without))
@@ -72,5 +72,42 @@ final class BottomRowLayoutTests: XCTestCase {
     func testTooNarrowRowKeepsSpaceAtZeroWidth() {
         let list = BottomRowLayout.placements(totalWidth: 200, showsGlobe: true, showsClear: true)
         XCTAssertEqual(placement(.space, in: list)?.width, 0)
+    }
+
+    /// D19: 符號 sits left of 中英 on every page, with or without the globe, at both phone widths. Only the two
+    /// positions swap; the widths do not change.
+    func testSymbolsComesBeforeChineseEnglishEverywhere() throws {
+        for keyboardWidth in [375.0, 402.0] {
+            let width = keyboardWidth - 2 * KeyboardMetrics.keyAreaSideInset
+            for globe in [false, true] {
+                for clear in [false, true] {
+                    let label = "\(keyboardWidth) globe \(globe) clear \(clear)"
+                    let list = BottomRowLayout.placements(totalWidth: width, showsGlobe: globe, showsClear: clear)
+                    var expected: [BottomRowKey] = globe ? [.globe] : []
+                    expected += [.symbols, .chineseEnglish, .space]
+                    if clear { expected.append(.clear) }
+                    expected.append(.returnKey)
+                    XCTAssertEqual(list.map(\.key), expected, label)
+                    let symbols = try XCTUnwrap(placement(.symbols, in: list), label)
+                    let chineseEnglish = try XCTUnwrap(placement(.chineseEnglish, in: list), label)
+                    XCTAssertEqual(symbols.width, BottomRowLayout.wideKeyWidth, label)
+                    XCTAssertEqual(chineseEnglish.width, BottomRowLayout.wideKeyWidth, label)
+                    XCTAssertEqual(chineseEnglish.x, symbols.x + symbols.width + gap, accuracy: 0.0001, label)
+                    XCTAssertEqual(globe ? 50 : 0, symbols.x, accuracy: 0.0001, label)
+                }
+            }
+        }
+    }
+
+    /// The handwriting page: 符號, 中英, space, 重寫, return, with 重寫 right before return.
+    func testHandwritingPageOrderAt375And402() throws {
+        for keyboardWidth in [375.0, 402.0] {
+            let width = keyboardWidth - 2 * KeyboardMetrics.keyAreaSideInset
+            let list = BottomRowLayout.placements(totalWidth: width, showsGlobe: false, showsClear: true)
+            XCTAssertEqual(list.map(\.key), [.symbols, .chineseEnglish, .space, .clear, .returnKey])
+            let clear = try XCTUnwrap(placement(.clear, in: list))
+            let ret = try XCTUnwrap(placement(.returnKey, in: list))
+            XCTAssertEqual(ret.x - (clear.x + clear.width), gap, accuracy: 0.0001)
+        }
     }
 }

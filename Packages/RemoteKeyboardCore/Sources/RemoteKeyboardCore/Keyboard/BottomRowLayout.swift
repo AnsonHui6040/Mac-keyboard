@@ -30,7 +30,7 @@ public enum BottomRowLayout {
     public static let wideKeyWidth: Double = 56
     public static let returnWidth: Double = 72
 
-    /// Keys left to right: globe (when iOS asks for it), 中英, 符號, space, 重寫 (Chinese page only), return.
+    /// Keys left to right (D19): globe (when iOS asks for it), 符號, 中英, space, 重寫 (Chinese page only), return.
     public static func placements(
         totalWidth: Double, showsGlobe: Bool, showsClear: Bool, gap: Double = KeyboardMetrics.keyGap
     ) -> [BottomRowPlacement] {
@@ -41,8 +41,8 @@ public enum BottomRowLayout {
             x += width + gap
         }
         if showsGlobe { place(.globe, width: globeWidth) }
-        place(.chineseEnglish, width: wideKeyWidth)
         place(.symbols, width: wideKeyWidth)
+        place(.chineseEnglish, width: wideKeyWidth)
         // Space ends one gap before the first key on its right.
         let rightWidth = returnWidth + (showsClear ? gap + wideKeyWidth : 0)
         let spaceWidth = max(0, totalWidth - x - rightWidth - gap)

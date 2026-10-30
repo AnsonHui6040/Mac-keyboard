@@ -1,7 +1,7 @@
 import RemoteKeyboardCore
 import UIKit
 
-/// The bottom row, left to right: globe (only when iOS asks for it), 中英, 符號, space, 重寫 (Chinese page only), return.
+/// The bottom row, left to right: globe (only when iOS asks for it), 符號, 中英, space, 重寫 (Chinese page only), return (D19).
 final class BottomRowView: UIView {
     var onAction: ((KeyAction) -> Void)?
     /// 重寫 was tapped (Chinese page only).
@@ -43,7 +43,7 @@ final class BottomRowView: UIView {
         spacePress.minimumPressDuration = 2
         spaceKey.addGestureRecognizer(spacePress)
         #endif
-        for key in [globeKey, chineseEnglishKey, symbolsKey, spaceKey, clearKey, returnKey] { addSubview(key) }
+        for key in [globeKey, symbolsKey, chineseEnglishKey, spaceKey, clearKey, returnKey] { addSubview(key) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

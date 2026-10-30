@@ -13,5 +13,8 @@ public enum AppGroup {
         public static let probe = "probe"
         /// The Chinese input method the host App chose (`ChineseInputMethodID` raw value).
         public static let chineseMethod = "rk.chineseMethod"
+        /// 「聽寫同步到 Mac」, a `Bool` written by the host App and read by the Extension. Not set means on
+        /// (`DictationSync.isEnabled`).
+        public static let dictationSync = "rk.dictationSync"
     }
 }

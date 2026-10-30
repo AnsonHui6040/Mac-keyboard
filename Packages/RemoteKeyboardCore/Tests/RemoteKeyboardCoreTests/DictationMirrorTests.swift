@@ -288,4 +288,181 @@ final class DictationMirrorTests: XCTestCase {
         XCTAssertFalse(DictationMirror.isLeaseValid(startedAt: nil, now: 5))
         XCTAssertFalse(DictationMirror.isLeaseValid(startedAt: 100, now: 50))
     }
+
+    // MARK: 2026-10-31 device observation: the draft no longer ends with the text iOS revises
+
+    private enum Landed: Equatable { case draft, mac, skipped }
+
+    /// What the controller does with one difference: in draft mode a difference with backspaces is applied only when the
+    /// draft cursor sits right behind the text being deleted; otherwise the whole difference is dropped.
+    @discardableResult
+    private func apply(
+        _ outcome: DictationMirror.Outcome, mirror: inout DictationMirror, draft: inout DraftBuffer,
+        transmit: TransmitMode = .draft, ready: Bool = true
+    ) -> Landed? {
+        guard case .events(let events) = outcome else { return nil }
+        let toDraft = DictationSync.goesToDraft(transmit: transmit, draftEmpty: draft.isEmpty, ready: ready)
+        guard toDraft else { return .mac }
+        if events.contains(.backspace), !DictationSync.draftAccepts(deleted: mirror.lastDeleted, draft: draft) {
+            mirror.noteDraftSkipped()
+            return .skipped
+        }
+        for event in events {
+            switch event {
+            case .text(let text): _ = draft.insert(text)
+            case .backspace: draft.deleteBackward()
+            default: break
+            }
+        }
+        return .draft
+    }
+
+    /// "吃法" -> "吃法 good" (iOS's guess) in the draft, ready for the revision "吃法 Good day".
+    private func draftWithAGuess(_ mirror: inout DictationMirror) -> DraftBuffer {
+        var draft = DraftBuffer()
+        mirror.rebaseline(before: "", after: "")
+        apply(mirror.observe(before: "吃法", after: "", at: 0), mirror: &mirror, draft: &draft)
+        apply(mirror.observe(before: "吃法 good", after: "", at: 1), mirror: &mirror, draft: &draft)
+        return draft
+    }
+
+    func testTheDeletedTextIsOfferedForTheDraftCheck() {
+        var mirror = DictationMirror()
+        mirror.rebaseline(before: "今天天氣", after: "")
+        XCTAssertEqual(mirror.lastDeleted, "")
+        _ = mirror.observe(before: "今天的天氣", after: "", at: 1)
+        XCTAssertEqual(mirror.lastDeleted, "天氣")
+        // A pure growth deletes nothing, and a difference that is not sent leaves nothing behind.
+        _ = mirror.observe(before: "今天的天氣好", after: "", at: 2)
+        XCTAssertEqual(mirror.lastDeleted, "")
+    }
+
+    /// The case that produced "Good daygood" before: the draft cursor was moved away from the guess.
+    func testReviseAfterTheDraftCursorMovedAwayIsDroppedWhole() {
+        var mirror = DictationMirror()
+        var draft = draftWithAGuess(&mirror)
+        XCTAssertEqual(draft.text, "吃法 good")
+        for _ in 0..<4 { draft.moveLeft() }
+        let outcome = mirror.observe(before: "吃法 Good day", after: "", at: 2)
+        XCTAssertEqual(apply(outcome, mirror: &mirror, draft: &draft), .skipped)
+        // Nothing is eaten, nothing is doubled; the new text of the revision is dropped with it.
+        XCTAssertEqual(draft.text, "吃法 good")
+        XCTAssertEqual(mirror.counters.draftSkipped, 1)
+    }
+
+    func testReviseAfterMovingTheCursorAwayAndBackIsApplied() {
+        var mirror = DictationMirror()
+        var draft = draftWithAGuess(&mirror)
+        for _ in 0..<4 { draft.moveLeft() }
+        for _ in 0..<4 { draft.moveRight() }
+        let outcome = mirror.observe(before: "吃法 Good day", after: "", at: 2)
+        XCTAssertEqual(apply(outcome, mirror: &mirror, draft: &draft), .draft)
+        XCTAssertEqual(draft.text, "吃法 Good day")
+        XCTAssertEqual(mirror.counters.draftSkipped, 0)
+    }
+
+    func testReviseAfterTypingAndDeletingInTheDraftIsApplied() {
+        var mirror = DictationMirror()
+        var draft = draftWithAGuess(&mirror)
+        _ = draft.insert("x")
+        draft.deleteBackward()
+        let outcome = mirror.observe(before: "吃法 Good day", after: "", at: 2)
+        XCTAssertEqual(apply(outcome, mirror: &mirror, draft: &draft), .draft)
+        XCTAssertEqual(draft.text, "吃法 Good day")
+    }
+
+    func testReviseAfterTypingInTheDraftIsDroppedBecauseTheTextNoLongerLinesUp() {
+        var mirror = DictationMirror()
+        var draft = draftWithAGuess(&mirror)
+        _ = draft.insert("x")
+        let outcome = mirror.observe(before: "吃法 Good day", after: "", at: 2)
+        XCTAssertEqual(apply(outcome, mirror: &mirror, draft: &draft), .skipped)
+        XCTAssertEqual(draft.text, "吃法 goodx")
+    }
+
+    func testGrowthIsAlwaysAddedAtTheDraftCursor() {
+        var mirror = DictationMirror()
+        var draft = DraftBuffer()
+        mirror.rebaseline(before: "", after: "")
+        apply(mirror.observe(before: "吃法", after: "", at: 0), mirror: &mirror, draft: &draft)
+        draft.moveLeft()
+        let outcome = mirror.observe(before: "吃法 good", after: "", at: 1)
+        XCTAssertEqual(outcome, .events([.text(" good")]))
+        XCTAssertEqual(apply(outcome, mirror: &mirror, draft: &draft), .draft)
+        XCTAssertEqual(draft.text, "吃 good法")
+    }
+
+    func testInstantModeIsNotCheckedAgainstTheDraftEvenAfterSending() {
+        var mirror = DictationMirror()
+        var draft = DraftBuffer()
+        mirror.rebaseline(before: "", after: "")
+        // Instant mode with the Mac ready and an empty draft (as right after 傳送): the difference goes to the Mac.
+        let first = mirror.observe(before: "吃法 good", after: "", at: 0)
+        XCTAssertEqual(apply(first, mirror: &mirror, draft: &draft, transmit: .instant, ready: true), .mac)
+        let revision = mirror.observe(before: "吃法 Good day", after: "", at: 1)
+        XCTAssertEqual(apply(revision, mirror: &mirror, draft: &draft, transmit: .instant, ready: true), .mac)
+        XCTAssertEqual(mirror.counters.draftSkipped, 0)
+    }
+
+    func testWhereADifferenceGoes() {
+        XCTAssertTrue(DictationSync.goesToDraft(transmit: .draft, draftEmpty: true, ready: true))
+        XCTAssertTrue(DictationSync.goesToDraft(transmit: .instant, draftEmpty: false, ready: true))
+        XCTAssertTrue(DictationSync.goesToDraft(transmit: .instant, draftEmpty: true, ready: false))
+        XCTAssertFalse(DictationSync.goesToDraft(transmit: .instant, draftEmpty: true, ready: true))
+    }
+
+    func testTheDraftCheckComparesCharactersBeforeTheCursor() {
+        var draft = DraftBuffer()
+        _ = draft.insert("吃法 good")
+        XCTAssertTrue(DictationSync.draftAccepts(deleted: "", draft: draft))
+        XCTAssertTrue(DictationSync.draftAccepts(deleted: "good", draft: draft))
+        XCTAssertFalse(DictationSync.draftAccepts(deleted: "goods", draft: draft))
+        draft.moveLeft()
+        XCTAssertFalse(DictationSync.draftAccepts(deleted: "good", draft: draft))
+        XCTAssertTrue(DictationSync.draftAccepts(deleted: "goo", draft: draft))
+        // An empty draft has nothing to delete.
+        XCTAssertFalse(DictationSync.draftAccepts(deleted: "a", draft: DraftBuffer()))
+    }
+
+    // MARK: D18 sync conditions
+
+    func testSyncRunsOnlyInRemoteModeWithTheSettingOn() {
+        XCTAssertTrue(DictationSync.isActive(mode: .remote, storedSetting: true))
+        XCTAssertFalse(DictationSync.isActive(mode: .remote, storedSetting: false))
+        XCTAssertFalse(DictationSync.isActive(mode: .local, storedSetting: true))
+        XCTAssertFalse(DictationSync.isActive(mode: .local, storedSetting: false))
+    }
+
+    func testTheSettingDefaultsToOnWhenNothingWasStored() {
+        XCTAssertTrue(DictationSync.isEnabled(stored: nil))
+        XCTAssertTrue(DictationSync.isActive(mode: .remote, storedSetting: nil))
+        XCTAssertTrue(DictationSync.isEnabled(stored: true))
+        XCTAssertFalse(DictationSync.isEnabled(stored: false))
+        // Something that is not a Bool (a damaged suite) is also treated as not set.
+        XCTAssertTrue(DictationSync.isEnabled(stored: "no"))
+    }
+
+    func testTheAppGroupKeyIsStable() {
+        XCTAssertEqual(AppGroup.Key.dictationSync, "rk.dictationSync")
+    }
+
+    // MARK: First baseline of a keyboard that was just built
+
+    func testALoadedTextIsAlwaysTheBaseline() {
+        for phase in [DictationMirror.BaselinePhase.willChange, .didChangeOrAppear] {
+            XCTAssertEqual(DictationMirror.initialBaselineText(before: "你好", hasText: true, phase: phase), "你好")
+            XCTAssertEqual(DictationMirror.initialBaselineText(before: "", hasText: false, phase: phase), "")
+        }
+    }
+
+    func testOnlyTheWillChangePathMayTakeNilAsAnEmptyField() {
+        // textWillChange: the field is about to be edited; nil and "has no text" is an empty field.
+        XCTAssertEqual(
+            DictationMirror.initialBaselineText(before: nil, hasText: false, phase: .willChange), "")
+        // nil and the field says it has text: the cursor is at the start or the field is not loaded. Never guess.
+        XCTAssertNil(DictationMirror.initialBaselineText(before: nil, hasText: true, phase: .willChange))
+        // textDidChange and viewDidAppear: the field may simply not be loaded yet, whatever hasText says.
+        XCTAssertNil(DictationMirror.initialBaselineText(before: nil, hasText: false, phase: .didChangeOrAppear))
+        XCTAssertNil(DictationMirror.initialBaselineText(before: nil, hasText: true, phase: .didChangeOrAppear))
+    }
 }
