@@ -15,6 +15,8 @@ struct KeyboardViewState: Equatable {
     var probeText: String
     var showsGlobe: Bool
     var chineseAvailable: Bool
+    /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
+    var hapticsEnabled: Bool
 }
 
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
@@ -57,6 +59,7 @@ final class KeyboardRootView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func apply(_ state: KeyboardViewState) {
+        KeyFeedback.isEnabled = state.hapticsEnabled
         topArea.apply(state)
         bottomRow.setGlobeVisible(state.showsGlobe)
         bottomRow.setChineseAvailable(state.chineseAvailable)

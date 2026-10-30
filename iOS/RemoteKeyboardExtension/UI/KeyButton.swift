@@ -1,5 +1,19 @@
 import UIKit
 
+/// A light tap on every key at touch down. Off unless the keyboard has Full Access: the controller sets the flag
+/// through `KeyboardViewState.hapticsEnabled`, so no view needs to know about Full Access.
+@MainActor
+enum KeyFeedback {
+    static var isEnabled = false
+    private static let generator = UIImpactFeedbackGenerator(style: .light)
+
+    static func touchDown() {
+        guard isEnabled else { return }
+        generator.impactOccurred()
+        generator.prepare()
+    }
+}
+
 /// One key. Letter keys are light, function keys darker, an active function key (Shift on) turns light.
 /// Plain system colours and fonts only; nothing is copied from Apple's keyboard assets.
 final class KeyButton: UIButton {
@@ -80,6 +94,7 @@ final class KeyButton: UIButton {
     }
 
     private func touchDown() {
+        KeyFeedback.touchDown()
         guard let onRepeat else { return }
         onRepeat()
         repeatTask?.cancel()
