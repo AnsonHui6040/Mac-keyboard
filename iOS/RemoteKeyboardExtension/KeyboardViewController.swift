@@ -73,6 +73,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        keyboardView?.setProbeText(Self.probeStatusText())
         claimPeripheral()
         keyboardView?.setMode(mode)
         refreshStatus()
@@ -174,6 +175,6 @@ final class KeyboardViewController: UIInputViewController {
     private static func probeStatusText() -> String {
         let value = UserDefaults(suiteName: "group.com.ansonhui.remotekeyboard")?.object(forKey: "probe")
         let group = value == nil ? "AppGroup: NIL" : "AppGroup: OK"
-        return "\(group)  版本 \(BuildStamp.current())"
+        return "\(group)  \(PairingStore.probeSummary())  版本 \(BuildStamp.current())"
     }
 }

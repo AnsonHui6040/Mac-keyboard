@@ -41,6 +41,7 @@ extension BluetoothPermission: @preconcurrency CBCentralManagerDelegate {
 
 private struct ContentView: View {
     @State private var probeStatus = "未寫入"
+    @State private var keychainStatus = "未寫入"
     @StateObject private var bluetooth = BluetoothPermission()
     @State private var draft = ""
 
@@ -58,6 +59,13 @@ private struct ContentView: View {
                         probeStatus = AppGroupProbe.write() ? "已寫入" : "寫入失敗"
                     }
                     Text(probeStatus)
+                }
+                Section("Keychain") {
+                    Button("寫入 Keychain probe") {
+                        let result = PairingStore.writeProbe()
+                        keychainStatus = "主要：\(result.primary)　備用：\(result.fallback)"
+                    }
+                    Text(keychainStatus)
                 }
                 Section("藍牙") {
                     Button("允許藍牙") { bluetooth.request() }
