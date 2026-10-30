@@ -1,6 +1,8 @@
 # iPhone → Mac Remote Keyboard — 設計規格
 
-**版本**：v1.2 | **日期**：2026-10-29 | **狀態**：APPROVED（使用者於 2026-10-29 批准 v1.2）；非已實作產品
+**版本**：v1.3 | **日期**：2026-10-30 | **狀態**：DRAFT（待使用者批准；v1.2 於 2026-10-29 批准）；T01–T06 已實作
+
+**v1.3 變更**：M2 規劃（2026-10-30 brainstorming）。鍵盤分為中文、英文、符號三頁，底列改為「中英／符號」（D14）；中文輸入法採統一介面，先做手寫、後做速成，主 App 設定頁選擇（D15、D16）；符號頁由中文頁進入時先顯示全形標點（D14）；頂部區三行配置（D17）；草稿列改為鍵盤上可切換的「即時／草稿」，並加左右鍵（D6 修訂）。改寫 §2、§3、§4、§7、§12。
 
 **v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向、D13 Mac 常駐與接收時段與 §13 實機資訊。
 
@@ -12,15 +14,40 @@
 
 ## 2. 已定義功能
 
-- iOS 第三方 Keyboard Extension：英文 QWERTY，Shift／Caps Lock／長按、刪除、Space、Return；數字 `123` 和特殊符號 `#+=` 兩層；繁體中文手寫頁、候選字；系統 globe／語言切換；語音輸入入口。
+- iOS 第三方 Keyboard Extension，分三頁（D14）：
+  - 中文頁：使用主 App 設定頁選定的中文輸入法（D15）。先做繁體中文手寫，後做速成（D16）；兩者皆有候選字列。手寫採 Google ML Kit Digital Ink（使用者 2026-10-30 決定），需下載模型，因此需 Full Access；未開 Full Access 時手寫頁顯示「手寫需開啟完整取用」，中文頁改用速成（速成完成前改為英文頁）。
+  - 英文頁：QWERTY，Shift／Caps Lock／長按、刪除、Space、Return。
+  - 符號頁：由英文頁進入時同 Apple 原生，第一層數字 `123`、第二層特殊符號 `#+=`，皆為半形；由中文頁進入時，第一層為數字加全形中文標點（`，。？！、：；「」『』…`），半形符號在下一層。
+  - 底列由左至右為 `中英`、`符號`、空白鍵、Return。`中英` 在中文頁與英文頁之間切換；`符號` 進入符號頁，再按一次回到進入前的頁面。系統 globe 與麥克風由 iOS 顯示在鍵盤下方。
+  - 語音輸入入口見 §6。
 - 英文外觀及使用習慣參考 Apple 原生鍵盤，但不複製 Apple 私有資產、預測字詞引擎或私有系統鍵盤 View。關鍵動作應原生風格而非假裝能重用 Apple keyboard。
 - Mac 具 menu-bar Receiver、首次配對、連線狀態、焦點狀態、接收暫停／解除配對。
 - Mac 常駐與接收時段（D13）：Receiver 登入時自動啟動並常駐 menu bar，平時待命（不掃描、不連線）。使用者在 Mac 點擊可編輯輸入框時開始接收（掃描並連入 iPhone 鍵盤）；30 分鐘沒有活動即停止掃描並斷線回到待命。每收到一個鍵盤事件、iPhone 鍵盤連上 Mac，或再次點擊可編輯輸入框，30 分鐘重新計算（鍵盤連上計為活動：使用者 2026-10-29 於 T03b 實機後決定）。焦點離開輸入框時連線保留，只令注入 fail closed。menu 另有手動「開始接收／停止接收」。
 - 預設 Local Mode：iPhone 本地正常輸入，毋須 Full Access；Remote Mode 必須由使用者明確啟用並授權，且有持續可見狀態；不能暗地將其他 App 的文字複製到 Mac。
-- Remote Mode 行為：按鍵只送往 Mac，iPhone 目前欄位不出字；鍵盤收起或切換 App 後重新開啟，沿用上次模式；鍵盤頂部常駐狀態列顯示「Mac → 目前 App 名稱」，點一下即切回 Local。
-- 未就緒時的草稿列：Remote Mode 開啟但 BLE 未連線、或 Mac 沒有可編輯焦點時，按鍵寫入鍵盤頂部草稿列，「傳送」為灰色不可按。就緒後「傳送」轉為可用，由使用者手動送出，不自動送出；送出後恢復逐字即時傳送。草稿送出時使用當下的 `focusEpoch`。草稿只存在記憶體，Extension 被終止或切換 App 即消失，不寫入磁碟。
+- Remote Mode 行為：按鍵只送往 Mac，iPhone 目前欄位不出字；鍵盤收起或切換 App 後重新開啟，沿用上次模式。
+- 鍵盤頂部區（D17），由上而下：
+  1. 第一行：`本機｜遠端` 切換、狀態（例如「● Mac → TextEdit」、「未連接」）、`即時｜草稿` 切換。`即時｜草稿` 只在遠端模式顯示。
+  2. 第二行：草稿列，由左至右為 `◀`、`▶`、草稿文字（含游標）、`傳送`。只在遠端模式且為草稿狀態時顯示；即時狀態收起。
+  3. 第三行：中文輸入法的候選字列（輸入碼或手寫候選字），本機與遠端模式皆有。
+  - 本機模式只顯示 `本機｜遠端` 與候選字列。
+- 即時／草稿（D6 修訂）：
+  - 即時：每個已提交的字即時送往 Mac（現行行為）。
+  - 草稿：字先寫入草稿列，按 `傳送` 才一次送出。`◀ ▶` 每按一次移動游標一個字元（以 grapheme 計），新字插入游標處，刪除鍵刪除游標前一個字元。
+  - 未就緒（BLE 未連線、或 Mac 沒有可編輯焦點）時一律寫入草稿列，`傳送` 為灰色不可按；就緒後 `傳送` 轉為可用，由使用者手動送出，不自動送出。
+  - 由草稿切回即時時，草稿列若仍有文字則保留並維持顯示，直到送出或清空。
+  - `◀ ▶` 只移動草稿內的游標，不送往 Mac。
+  - `即時｜草稿` 的選擇與 `本機｜遠端` 一樣，重開鍵盤沿用上次選擇。
+  - 草稿送出時使用當下的 `focusEpoch`。草稿只存在記憶體，Extension 被終止或切換 App 即消失，不寫入磁碟。
+- v1.3 細節（主代理決定，2026-10-30 builder check 後補充；使用者可於批准時更改）：
+  - 草稿列仍有文字時，所有按鍵（含刪除與 Return）都編輯草稿，直到送出或清空才恢復即時；避免文字或刪除送錯位置。
+  - Return 在草稿中插入換行；送出時依換行切成 `TEXT` 與 `RETURN` 事件依序送出。草稿上限 1,000 個字元，超過時不再接受輸入。草稿送出依賴 T07 分幀。
+  - 即時狀態但未就緒時，草稿列自動出現並保留，直到送出或清空。
+  - 由遠端切到本機時，草稿隱藏並保留在記憶體，切回遠端再顯示；本機模式按鍵直接寫入 iPhone 欄位。
+  - 重開鍵盤回到上次的中文或英文頁；欄位類型為 email、URL 時開在英文頁，數字類欄位開在符號頁。
+  - 速成輸入碼最多兩碼，第三碼不接受；字碼表為繁體中文表，表內收錄的字皆可選，不另分台灣與香港字形。
+  - 手寫頁版面與鍵盤總高度在 T12 開工前以示意圖交使用者選擇；T10 可視頂部三行需要調高鍵盤。
 - 優先 BLE 自訂 GATT（D11）：iPhone Keyboard Extension 為 Peripheral／GATT Server，鍵盤顯示期間廣播並以 notify 送出事件；Mac Receiver 為 Central／GATT Client，執行期間持續掃描並自動連入，以 write 回傳 ACK 與 Receiver 狀態。Mac 使用 AX 聚焦與 CGEvent Unicode 注入。LAN WebSocket 為後備（D8），目前不實作。**不以 BLE HID 作主路徑**。
-- iPhone 主 App：安裝教學、Full Access 提示、初次配對、管理配對 Mac、顯示診斷及語音方案說明。主 App **不假設**能長期代 Extension 維持 BLE 連線；Remote 傳輸由 Extension 自己的 Peripheral 負責。
+- iPhone 主 App：安裝教學、Full Access 提示、初次配對、管理配對 Mac、顯示診斷及語音方案說明；設定頁選擇中文輸入法（目前為「手寫」或「速成」單選，D15）。主 App **不假設**能長期代 Extension 維持 BLE 連線；Remote 傳輸由 Extension 自己的 Peripheral 負責。
 
 ## 3. 最重要的平台限制
 
@@ -32,7 +59,9 @@
 6. 若 iPhone 用戶在其他 App 打開鍵盤，遠端模式只發送由本鍵盤**直接產生**並明確選擇發往 Mac 的事件；不收集 host App 既有文字或複製通用打字紀錄。
 7. 同一 iCloud 的 iPhone 與 Mac 已有系統 LE 連線，且第三方 App 無法經 `retrieveConnectedPeripherals` 取得；iPhone 主動連 Mac 的新連線在 link layer 即斷（reason 762），Mac 主動連 iPhone 可成功（實測 514–561 ms）。因此 iPhone 只能當 Peripheral（D11）。
 8. Extension 只在鍵盤顯示期間存在：Peripheral 只在鍵盤可見且已開 Full Access 時廣播；鍵盤收起即停止廣播並斷線，下次叫出鍵盤由 Mac 重新連入。
-9. `PencilKit PKStrokeRecognizer` 支援與部署最低版本、繁體中文辨識語言及 Extension 記憶體佔用須實機查證；未通過則用 ML Kit Digital Ink `zh-Hani-TW` 或 `zh-Hani-HK` 評估回退。
+9. 手寫辨識採 Google ML Kit Digital Ink（`zh-Hani-TW` 或 `zh-Hani-HK`，使用者 2026-10-30 決定）。Extension 內的記憶體佔用、模型下載與儲存位置、辨識品質須實機查證（O7）；`PencilKit` 不再作為主路徑。
+10. 速成字碼表必須來自授權允許隨 App 散布的開源資料（含授權檔與出處），使用前查證授權並記錄（O9）；授權不明者不得放入 App。
+11. Full Access 關閉時，Extension 能否讀取 App Group 中主 App 寫入的設定未實測（O3 僅證明可讀）；讀不到時中文頁使用速成（速成完成前為英文頁），不得因此無法打字。
 
 ## 4. 架構
 
@@ -42,7 +71,9 @@
              ▼
 [Keyboard Extension, UIKit/UIInputViewController]
   ├─ Local mode (textDocumentProxy -> iPhone current field)
-  └─ Remote mode (English / Symbols / Handwriting -> SemanticEvent queue)
+  ├─ Pages: 中文 (ChineseInputMethod: Handwriting | 速成 | future) / English / Symbols
+  │    composition 與候選字在 iPhone 完成，只有已提交文字離開輸入法
+  └─ Remote mode (committed text -> 即時 send | 草稿列 -> 傳送 -> SemanticEvent queue)
              │ CBPeripheralManager：廣播 service；event 以 notify 送出，control 收 write
              ▲ Mac 為 Central：scan → connect → subscribe event／write control
 [Mac Receiver CBCentralManager]
@@ -79,6 +110,7 @@
 
 - 不製作觸控板、鍵盤 HID 配對、Mac 無 Receiver 模式、通用鍵盤事件側錄、跨 App 靜默同步、遠端任意系統快捷鍵、雲端中繼、強制喚醒 iPhone 鍵盤。
 - 不保證模仿 Apple 私有自動修正、滑動輸入、iOS 系統語音 API 的內部操作。
+- v1.3 不做：GIF 頁、emoji 頁、速成聯想字、候選字依字頻排序、學習使用者常用字、主 App「新增頁面」（英文與符號頁固定存在）、`◀ ▶` 遠端移動 Mac 游標。
 
 ## 8. 接受標準／非功能需求
 
@@ -101,7 +133,7 @@
 
 ## 10. 設計文件狀態
 
-本設計 v1.2 已於 2026-10-29 獲使用者批准。未宣稱任何真機測試已通過。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，依其 v1.2 的 T03a、T03b、T04–T06 執行。
+本設計 v1.2 已於 2026-10-29 獲使用者批准；v1.3 為 M2 規劃草稿，待批准。T01–T06 已實機 PASS（見驗收報告）。下一文件 `docs/superpowers/plans/2026-10-29-remote-keyboard-implementation.md` 是對應的執行計劃，依其 v1.2 的 T03a、T03b、T04–T06 執行。
 
 ## 11. 核心證據鏈（Apple 官方）
 
@@ -116,7 +148,7 @@
 - Handwriting: https://developer.apple.com/documentation/pencilkit/recognizing-handwriting-and-converting-to-text
 - ML Kit Digital Ink: https://developers.google.com/ml-kit/vision/digital-ink-recognition/ios
 
-## 12. 設計決定總表（v1.2，2026-10-29）
+## 12. 設計決定總表（v1.3，2026-10-30）
 
 | # | 範疇 | 決定 | 影響任務 |
 |---|---|---|---|
@@ -125,7 +157,7 @@
 | D3 | 配對備案 | App Group 不可用時，鍵盤內輸入 6 位配對碼，秘密存於 Extension 自身 Keychain（§5） | T09 |
 | D4 | Mac 輸入法 | 注入前自動切換至 ABC、注入後切回；Mac 正在組字時先取消組字（刪除未完成文字）再切換，App 不提供組字狀態時照常切換（未完成文字可能被提交）；切換後驗證失敗則 fail closed（§5；組字規則為使用者 2026-10-29 修訂） | T04、T05、T14 |
 | D5 | Remote 行為 | 只送 Mac；重開沿用上次模式；常駐狀態列，一點切回 Local（§2） | T05、T09、T10 |
-| D6 | 未就緒輸入 | 寫入草稿列，「傳送」灰色；就緒後由使用者手動送出；草稿只存記憶體（§2） | T06、T08、T10 |
+| D6 | 未就緒輸入與草稿（2026-10-30 修訂） | 遠端模式下鍵盤可切換「即時／草稿」；草稿以 `◀ ▶` 移游標、插入與刪除，按「傳送」送出；未就緒時一律草稿且「傳送」灰色；左右鍵不送 Mac；草稿只存記憶體（§2） | T08、T10 |
 | D7 | 語音 | 系統麥克風加 context diff 同步；T13 未通過改用主 App 手動語音頁（§6） | T13 |
 | D8 | BLE 備案 | 接受 LAN WebSocket 備案，僅在 BLE 證實不可行後做限時 PoC（§9） | T03、T05、T15 |
 | D9 | 重連測試 | T06 的 100 次以 XCUITest 在真機自動執行，使用者親手抽查 10 次並錄影；XCUITest 無法切換第三方鍵盤時，改由使用者親手完成 100 次 | T06 |
@@ -133,6 +165,10 @@
 | D11 | 傳輸角色（2026-10-29 批准） | 角色對調：iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central。原因：同一 iCloud 的 iPhone 主動連 Mac 在實機失敗（T03），Mac 主動連 iPhone 成功（spike）。v1.2 已改寫 §2–§5、§9；D8 LAN 保留為後備 | T03–T06 |
 | D12 | GATT 方向 | iPhone 發佈 service；`event` notify 送事件、`control` 收 Mac 的 write（ACK、狀態）；Mac 只用掃描路徑；notify 受 `maximumUpdateValueLength` 限制並處理佇列滿（§5） | T03–T06 |
 | D13 | Mac 常駐與接收時段 | 登入自動啟動、常駐 menu bar；點擊可編輯輸入框才開始掃描連線；30 分鐘無活動自動停止，收到事件、鍵盤連上或再點輸入框即延長；焦點離開輸入框不斷線（§2） | T03b、T05 |
+| D14 | 頁面與底列（2026-10-30） | 中文、英文、符號三頁；底列 `中英`、`符號`、空白鍵、Return；`符號` 再按回到原頁；由中文頁進入符號頁時第一層為數字加全形中文標點（§2） | T10、T11 |
+| D15 | 中文輸入法介面（2026-10-30） | 所有中文輸入法實作同一介面（按鍵或筆跡輸入 → 輸入碼／候選字 → 已提交文字），以後可加倉頡、注音、粵拼而不改鍵盤其他部分；主 App 設定頁單選，經 App Group 傳給 Extension；讀不到或未開 Full Access 時用速成（§3） | T12、T12b |
+| D16 | 中文輸入法次序與速成範圍（2026-10-30） | 先做手寫（T12，含 O7；引擎為 Google ML Kit，需 Full Access），後做速成（T12b）。速成鍵面顯示倉頡字根；候選字依字碼表次序；空白鍵選第一個候選字；字碼表須授權清楚（O9）；聯想字、字頻、學習常用字不做 | T12、T12b |
+| D17 | 頂部區（2026-10-30） | 三行：①本機／遠端、狀態、即時／草稿；②草稿列（`◀ ▶` 在左、`傳送` 在右）；③候選字列；即時狀態收起第二行，本機模式只有本機／遠端與候選字（§2） | T10 |
 
 ## 13. 開發環境（2026-10-29 實測）
 
