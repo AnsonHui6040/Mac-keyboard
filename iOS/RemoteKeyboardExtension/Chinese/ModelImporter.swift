@@ -45,9 +45,11 @@ actor ModelImporter {
     }
 
     private static func work(failedStamp: String?, onImportStart: @Sendable () -> Void) -> Result {
-        let group = HandwritingModelStore.groupStamp()
+        let groupState = HandwritingModelStore.groupCopyState()
+        var group: String?
+        if case .complete(let stamp) = groupState { group = stamp }
         let action = ModelImportPolicy.decide(
-            modelPresent: MLKitHandwriting.isModelDownloaded(), groupStamp: group,
+            modelPresent: MLKitHandwriting.isModelDownloaded(), group: groupState,
             localStamp: HandwritingModelStore.localStamp(), failedStamp: failedStamp)
         switch action {
         case .useLocal:

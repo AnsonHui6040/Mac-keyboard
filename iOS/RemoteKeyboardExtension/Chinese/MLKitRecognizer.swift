@@ -35,9 +35,25 @@ enum MLKitHandwriting {
 
 #if canImport(MLKitDigitalInkRecognition)
 
+/// Lets exactly one of the recognizer's callback and the deadline resume the continuation.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.withLock {
+            if claimed { return false }
+            claimed = true
+            return true
+        }
+    }
+}
+
 actor MLKitRecognizer: HandwritingRecognizing {
     /// More than the 9 candidates the input method keeps, because non-Han results are dropped afterwards.
     private static let maxResults = 12
+    /// A call that has not answered by then throws, so a hung ML Kit call never blocks the actor for good.
+    private static let deadlineSeconds = 3.0
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "handwriting")
 
     private let recognizer: DigitalInkRecognizer
@@ -66,12 +82,18 @@ actor MLKitRecognizer: HandwritingRecognizing {
             writingArea: WritingArea(width: Float(size.width), height: Float(size.height)))
         let started = ContinuousClock.now
         let outcome: Result<[String], NSError> = await withCheckedContinuation { continuation in
+            let once = ResumeOnce()
             recognizer.recognize(ink: ink, context: context) { @Sendable result, error in
+                guard once.claim() else { return }
                 if let error {
                     continuation.resume(returning: .failure(error as NSError))
                 } else {
                     continuation.resume(returning: .success(result?.candidates.map(\.text) ?? []))
                 }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.deadlineSeconds) {
+                guard once.claim() else { return }
+                continuation.resume(returning: .failure(NSError(domain: "HandwritingRecognizer", code: -2)))
             }
         }
         let elapsed = started.duration(to: .now)

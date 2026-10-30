@@ -3,39 +3,48 @@ import XCTest
 
 final class ModelImportPolicyTests: XCTestCase {
     private func decide(
-        present: Bool, group: String?, local: String?, failed: String? = nil
+        present: Bool, group: ModelImportPolicy.GroupCopy, local: String?, failed: String? = nil
     ) -> ModelImportPolicy.Action {
-        ModelImportPolicy.decide(modelPresent: present, groupStamp: group, localStamp: local, failedStamp: failed)
+        ModelImportPolicy.decide(modelPresent: present, group: group, localStamp: local, failedStamp: failed)
     }
 
     func testMatchingStampsUseTheLocalModel() {
-        XCTAssertEqual(decide(present: true, group: "a", local: "a"), .useLocal)
+        XCTAssertEqual(decide(present: true, group: .complete(stamp: "a"), local: "a"), .useLocal)
     }
 
     func testMissingModelWithGroupCopyImports() {
-        XCTAssertEqual(decide(present: false, group: "a", local: nil), .importFromGroup)
+        XCTAssertEqual(decide(present: false, group: .complete(stamp: "a"), local: nil), .importFromGroup)
     }
 
     func testChangedGroupStampImportsAgain() {
-        XCTAssertEqual(decide(present: true, group: "b", local: "a"), .importFromGroup)
-        XCTAssertEqual(decide(present: true, group: "b", local: nil), .importFromGroup)
+        XCTAssertEqual(decide(present: true, group: .complete(stamp: "b"), local: "a"), .importFromGroup)
+        XCTAssertEqual(decide(present: true, group: .complete(stamp: "b"), local: nil), .importFromGroup)
     }
 
     func testFailedStampBacksOffUntilTheStampChanges() {
-        XCTAssertEqual(decide(present: false, group: "a", local: nil, failed: "a"), .missing)
-        XCTAssertEqual(decide(present: true, group: "a", local: "old", failed: "a"), .useLocal)
-        XCTAssertEqual(decide(present: false, group: "b", local: nil, failed: "a"), .importFromGroup)
+        XCTAssertEqual(decide(present: false, group: .complete(stamp: "a"), local: nil, failed: "a"), .missing)
+        XCTAssertEqual(decide(present: true, group: .complete(stamp: "a"), local: "old", failed: "a"), .useLocal)
+        XCTAssertEqual(decide(present: false, group: .complete(stamp: "b"), local: nil, failed: "a"), .importFromGroup)
     }
 
-    func testNoGroupCopyAndNoModelIsMissing() {
-        XCTAssertEqual(decide(present: false, group: nil, local: nil), .missing)
+    func testNoGroupFolderAndNoModelIsMissing() {
+        XCTAssertEqual(decide(present: false, group: .absent, local: nil), .missing)
     }
 
-    func testGroupCopyDeletedDropsTheModelThatCameFromIt() {
-        XCTAssertEqual(decide(present: true, group: nil, local: "a"), .dropLocal)
+    func testOnlyATrulyAbsentGroupFolderDropsTheModelThatCameFromIt() {
+        XCTAssertEqual(decide(present: true, group: .absent, local: "a"), .dropLocal)
     }
 
-    func testModelNotImportedFromTheGroupIsKeptWithoutGroupCopy() {
-        XCTAssertEqual(decide(present: true, group: nil, local: nil), .useLocal)
+    func testModelNotImportedFromTheGroupIsKeptWithoutGroupFolder() {
+        XCTAssertEqual(decide(present: true, group: .absent, local: nil), .useLocal)
+    }
+
+    func testUnavailableOrUnfinishedGroupNeverDropsTheLocalModel() {
+        for group in [ModelImportPolicy.GroupCopy.unavailable, .exporting] {
+            XCTAssertEqual(decide(present: true, group: group, local: "a"), .useLocal, "\(group)")
+            XCTAssertEqual(decide(present: true, group: group, local: nil), .useLocal, "\(group)")
+            XCTAssertEqual(decide(present: false, group: group, local: nil), .missing, "\(group)")
+            XCTAssertEqual(decide(present: false, group: group, local: "a"), .missing, "\(group)")
+        }
     }
 }

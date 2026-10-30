@@ -25,6 +25,21 @@ private actor FakeRecognizer: HandwritingRecognizing {
     }
 }
 
+/// Answers the first call from its script and hangs on every later one.
+private actor HangingRecognizer: HandwritingRecognizing {
+    private var first: [String]?
+    init(first: [String]) { self.first = first }
+
+    func recognize(strokes: [[InkPoint]], in size: CGSize, preContext: String) async throws -> [String] {
+        if let answer = first {
+            first = nil
+            return answer
+        }
+        try await Task.sleep(for: .seconds(120))
+        return []
+    }
+}
+
 @MainActor
 private final class Clock {
     var blocked = false
@@ -200,6 +215,55 @@ final class HandwritingSessionTests: XCTestCase {
         session.setRecognizer(recognizer)
         await session.settle()
         XCTAssertEqual(session.candidates, ["香"])
+    }
+
+    func testSpaceGivesUpWaitingAfterTheDeadlineAndUsesTheCurrentCandidates() async {
+        let clock = Clock()
+        let recognizer = HangingRecognizer(first: ["十", "千"])
+        let session = HandwritingSession(sleep: { [clock] _ in
+            if clock.blocked { try await Task.sleep(for: .seconds(60)) }
+        }, waitTimeout: .milliseconds(20))
+        session.setRecognizer(recognizer)
+        session.strokesEnded(ink(1), size: size)
+        await session.settle()
+        XCTAssertEqual(session.candidates, ["十", "千"])
+
+        clock.blocked = true
+        session.strokesEnded(ink(2), size: size)  // its recognition hangs
+        let output = await session.handle(.space)
+        XCTAssertEqual(output.commit, "十", "after the deadline the key falls back to the current candidates")
+        XCTAssertEqual(session.candidates, [])
+    }
+
+    func testPassThroughDeleteTrimsThePreContext() async {
+        let recognizer = FakeRecognizer(answers: [["一"], ["二"], ["三"]])
+        let session = makeSession(recognizer)
+        for _ in 0..<2 {
+            session.strokesEnded(ink(), size: size)
+            await session.settle()
+            _ = await session.handle(.space)
+        }
+        let output = await session.handle(.backspace)  // no ink: a normal delete in the text
+        XCTAssertEqual(output.passThrough, .backspace)
+        session.strokesEnded(ink(), size: size)
+        await session.settle()
+        let calls = await recognizer.calls
+        XCTAssertEqual(calls.last?.preContext, "一")
+    }
+
+    func testBackspaceThatOnlyClearsInkKeepsThePreContext() async {
+        let recognizer = FakeRecognizer(answers: [["一"], ["二"], ["三"]])
+        let session = makeSession(recognizer)
+        session.strokesEnded(ink(), size: size)
+        await session.settle()
+        _ = await session.handle(.space)
+        session.strokesEnded(ink(), size: size)
+        await session.settle()
+        _ = await session.handle(.backspace)  // clears the ink; the text is untouched
+        session.strokesEnded(ink(), size: size)
+        await session.settle()
+        let calls = await recognizer.calls
+        XCTAssertEqual(calls.last?.preContext, "一")
     }
 
     func testDeactivateDropsEverything() async {

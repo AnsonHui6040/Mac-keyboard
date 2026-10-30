@@ -12,21 +12,37 @@ public enum ModelImportPolicy {
         case missing
     }
 
+    /// What the keyboard could tell about the App Group copy. Only `.absent` means the host app deleted it; a copy that
+    /// cannot be read right now (container unavailable) or is being written (no finished marker yet) says nothing.
+    public enum GroupCopy: Equatable, Sendable {
+        /// The container is readable and has no handwriting model folder.
+        case absent
+        /// The container could not be reached.
+        case unavailable
+        /// The folder exists without a readable finished marker (the host app is still copying, or it is unreadable).
+        case exporting
+        case complete(stamp: String)
+    }
+
     /// - Parameters:
     ///   - modelPresent: ML Kit reports the model as downloaded in the keyboard's container.
-    ///   - groupStamp: stamp of the finished App Group copy, nil when there is none.
+    ///   - group: what is known about the App Group copy.
     ///   - localStamp: stamp recorded when the keyboard imported its copy, nil when it never imported one.
     ///   - failedStamp: the group stamp an earlier import failed for; nothing is copied again until the stamp changes.
     public static func decide(
-        modelPresent: Bool, groupStamp: String?, localStamp: String?, failedStamp: String?
+        modelPresent: Bool, group: GroupCopy, localStamp: String?, failedStamp: String?
     ) -> Action {
-        guard let group = groupStamp else {
+        switch group {
+        case .absent:
             guard modelPresent else { return .missing }
             return localStamp != nil ? .dropLocal : .useLocal
+        case .unavailable, .exporting:
+            return modelPresent ? .useLocal : .missing
+        case .complete(let stamp):
+            if modelPresent, localStamp == stamp { return .useLocal }
+            if failedStamp == stamp { return modelPresent ? .useLocal : .missing }
+            return .importFromGroup
         }
-        if modelPresent, localStamp == group { return .useLocal }
-        if failedStamp == group { return modelPresent ? .useLocal : .missing }
-        return .importFromGroup
     }
 }
 

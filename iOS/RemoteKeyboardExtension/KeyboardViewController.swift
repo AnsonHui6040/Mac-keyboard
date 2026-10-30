@@ -29,7 +29,8 @@ final class KeyboardViewController: UIInputViewController {
     private var transmit: TransmitMode = .instant
     private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: false)
     private let chinese = ChineseInputCoordinator()
-    private var imeChain: Task<Void, Never>?
+    /// Keys that wait behind an input-method key (a space that waits for a recognition) run in order through this.
+    private let imeQueue = OrderedActionQueue()
     /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
     private var draft = DraftBuffer()
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
@@ -101,9 +102,16 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         isOnScreen = false
+        imeQueue.reset()
         chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
+    }
+
+    /// The host's text or selection changed, so what was committed no longer sits right before the cursor.
+    override func textWillChange(_ textInput: UITextInput?) {
+        super.textWillChange(textInput)
+        chinese.resetHistory()
     }
 
     override func viewWillLayoutSubviews() {
@@ -198,6 +206,12 @@ final class KeyboardViewController: UIInputViewController {
             enqueueIME(input)
             return true
         }
+        // While an input-method key is still pending, every key waits behind it (symbols, cursor keys, 傳送, the
+        // toggles, 中英), so nothing overtakes a commit that has not happened yet.
+        if imeQueue.isBusy {
+            imeQueue.enqueue { [weak self] _ in self?.route(action) }
+            return true
+        }
         return route(action)
     }
 
@@ -211,20 +225,16 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// Runs the input keys one after another: a space that waits for a pending recognition must finish before the
-    /// next key is handled.
     private func enqueueIME(_ input: IMEInput) {
-        let previous = imeChain
-        imeChain = Task { @MainActor [weak self] in
-            await previous?.value
-            await self?.performIME(input)
-        }
+        imeQueue.enqueue { [weak self] run in await self?.performIME(input, run: run) }
     }
 
-    /// Feeds the input method, then routes what it commits or passes through like typed keys.
-    private func performIME(_ input: IMEInput) async {
+    /// Feeds the input method, then routes what it commits or passes through like typed keys. A queue reset while the
+    /// input method was waiting (the keyboard went away) drops the result.
+    private func performIME(_ input: IMEInput, run: OrderedActionQueue.Run) async {
         reclaimPeripheralIfVacant()
         let output = await chinese.session.handle(input)
+        guard run.isCurrent else { return }
         if let text = output.commit { route(.character(text)) }
         if let key = output.passThrough { route(key) }
     }
