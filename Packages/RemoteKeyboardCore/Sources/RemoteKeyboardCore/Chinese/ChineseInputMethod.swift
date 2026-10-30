@@ -37,12 +37,18 @@ public struct IMEOutput: Equatable, Sendable {
     public var composing: String
     public var candidates: [String]
     public var passThrough: KeyAction?
+    /// Quick: a one-shot Shift is waiting for the next letter (the Shift key is drawn from this).
+    public var shift: Bool
 
-    public init(commit: String? = nil, composing: String = "", candidates: [String] = [], passThrough: KeyAction? = nil) {
+    public init(
+        commit: String? = nil, composing: String = "", candidates: [String] = [], passThrough: KeyAction? = nil,
+        shift: Bool = false
+    ) {
         self.commit = commit
         self.composing = composing
         self.candidates = candidates
         self.passThrough = passThrough
+        self.shift = shift
     }
 }
 

@@ -20,7 +20,13 @@ targets:
     type: application
     platform: iOS
     # The keyboard's UI views are compiled here too, so the debug preview can show them without the extension.
-    sources: [iOS/RemoteKeyboardApp, iOS/Shared, iOS/RemoteKeyboardExtension/UI]
+    sources:
+      - iOS/RemoteKeyboardApp
+      - iOS/Shared
+      - iOS/RemoteKeyboardExtension/UI
+      # The Settings page shows the licence of the Quick table.
+      - path: iOS/RemoteKeyboardExtension/Resources
+        includes: [quick-table-LICENSE.txt]
     dependencies:
       - target: RemoteKeyboardExtension
         embed: true
