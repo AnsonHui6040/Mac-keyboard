@@ -77,14 +77,14 @@ final class FrameCodecTests: XCTestCase {
         }
     }
 
-    func testCurrentVersionIsTwo() { XCTAssertEqual(KeyboardEvent.currentVersion, 2) }
+    func testCurrentVersionIsThree() { XCTAssertEqual(KeyboardEvent.currentVersion, 3) }
 
     func testPeripheralCodecRejectsUnknownTypeAndGarbage() throws {
         XCTAssertThrowsError(try PeripheralCodec.decode(Data("{".utf8))) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
-        let unknown = Data("{\"protocolVersion\":2,\"type\":\"nope\"}".utf8)
+        let unknown = Data("{\"protocolVersion\":3,\"type\":\"nope\"}".utf8)
         XCTAssertThrowsError(try PeripheralCodec.decode(unknown)) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
-        let future = Data("{\"protocolVersion\":3,\"type\":\"event\"}".utf8)
-        XCTAssertThrowsError(try PeripheralCodec.decode(future)) { XCTAssertEqual($0 as? EventCodecError, .unsupportedVersion(3)) }
+        let future = Data("{\"protocolVersion\":4,\"type\":\"event\"}".utf8)
+        XCTAssertThrowsError(try PeripheralCodec.decode(future)) { XCTAssertEqual($0 as? EventCodecError, .unsupportedVersion(4)) }
     }
 
     func testEncodeOverMaxMessageThrowsTooLarge() {

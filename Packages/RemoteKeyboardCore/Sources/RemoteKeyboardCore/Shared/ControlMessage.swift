@@ -31,6 +31,14 @@ public struct Ack: Codable, Equatable, Sendable {
 public enum ControlMessage: Codable, Equatable, Sendable {
     case ack(Ack)
     case status(ReceiverStatus)
+    /// Pairing: the Mac's ephemeral public key (x9.63, 65 bytes), the answer to `pairOffer`.
+    case pairAccept(publicKey: Data)
+    /// Start of the challenge: the Mac's nonce (16 bytes).
+    case hello(macNonce: Data)
+    /// The Mac's proof (32 bytes) after it verified the iPhone's `helloReply`.
+    case auth(proof: Data)
+    /// The Mac rejected the iPhone and is about to disconnect.
+    case authFailed
 }
 
 public enum ControlCodec {

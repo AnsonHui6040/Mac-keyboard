@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import RemoteKeyboardCore
 
@@ -40,9 +41,9 @@ final class EventCodecTests: XCTestCase {
     }
 
     func testRejectsUnknownVersion() throws {
-        let data = try EventCodec.encode(makeEvent(version: 3), maxBytes: 400)
+        let data = try EventCodec.encode(makeEvent(version: 4), maxBytes: 400)
         XCTAssertThrowsError(try EventCodec.decode(data)) { error in
-            XCTAssertEqual(error as? EventCodecError, .unsupportedVersion(3))
+            XCTAssertEqual(error as? EventCodecError, .unsupportedVersion(4))
         }
     }
 
@@ -57,8 +58,59 @@ final class EventCodecTests: XCTestCase {
     func testMalformedDataRejected() {
         XCTAssertThrowsError(try EventCodec.decode(Data("{".utf8))) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
         XCTAssertThrowsError(try EventCodec.decode(Data())) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
-        XCTAssertThrowsError(try EventCodec.decode(Data("{\"protocolVersion\":2}".utf8))) {
+        XCTAssertThrowsError(try EventCodec.decode(Data("{\"protocolVersion\":3}".utf8))) {
             XCTAssertEqual($0 as? EventCodecError, .malformed)
         }
+    }
+
+    // MARK: Protocol v3 (T09)
+
+    func testProtocolVersionIsThree() { XCTAssertEqual(KeyboardEvent.currentVersion, 3) }
+
+    func testPeripheralMessageRoundTripsEveryCase() throws {
+        let key = Data(repeating: 4, count: 65)
+        let messages: [PeripheralMessage] = [
+            .event(makeEvent()),
+            .pairOffer(publicKey: key),
+            .helloReply(phoneNonce: Data(repeating: 1, count: 16), proof: Data(repeating: 2, count: 32)),
+            .sealed(Data(repeating: 3, count: 80))
+        ]
+        for message in messages {
+            XCTAssertEqual(try PeripheralCodec.decode(PeripheralCodec.encode(message)), message)
+        }
+    }
+
+    func testEveryPeripheralMessageCarriesTheVersionAtTheTopLevel() throws {
+        let messages: [PeripheralMessage] = [
+            .pairOffer(publicKey: Data([1])), .helloReply(phoneNonce: Data([1]), proof: Data([2])), .sealed(Data([3]))
+        ]
+        for message in messages {
+            let object = try JSONSerialization.jsonObject(with: PeripheralCodec.encode(message)) as? [String: Any]
+            XCTAssertEqual(object?["protocolVersion"] as? Int, 3)
+            XCTAssertNotNil(object?["type"] as? String)
+        }
+    }
+
+    func testOldVersionPairOfferIsRejectedAsUnsupported() {
+        let old = Data(#"{"protocolVersion":2,"type":"pairOffer","publicKey":"AQ=="}"#.utf8)
+        XCTAssertThrowsError(try PeripheralCodec.decode(old)) { XCTAssertEqual($0 as? EventCodecError, .unsupportedVersion(2)) }
+    }
+
+    func testUnknownTypeAndMissingFieldsAreMalformed() {
+        for json in [#"{"protocolVersion":3,"type":"nope"}"#, #"{"protocolVersion":3,"type":"sealed"}"#,
+                     #"{"protocolVersion":3,"type":"helloReply","phoneNonce":"AQ=="}"#, #"{"protocolVersion":3}"#] {
+            XCTAssertThrowsError(try PeripheralCodec.decode(Data(json.utf8)), json) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
+        }
+    }
+
+    func testSealedLargestTextEventFitsOneMessage() throws {
+        let key = SymmetricKey(data: Data(repeating: 5, count: 32))
+        let crypto = SessionCrypto(pairKey: key, macNonce: Data(repeating: 1, count: 16), phoneNonce: Data(repeating: 2, count: 16))
+        let event = makeEvent(kind: .text(String(repeating: "香", count: 200)))
+        let sealed = try crypto.seal(PeripheralCodec.encode(.event(event)))
+        let wire = try PeripheralCodec.encode(.sealed(sealed))
+        XCTAssertLessThan(wire.count, FrameCodec.maxMessageBytes)
+        guard case .sealed(let back) = try PeripheralCodec.decode(wire) else { return XCTFail() }
+        XCTAssertEqual(try PeripheralCodec.decode(crypto.open(back)), .event(event))
     }
 }
