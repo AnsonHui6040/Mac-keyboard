@@ -32,6 +32,8 @@ final class KeyButton: UIButton {
     var onTap: (() -> Void)?
     /// When set, the key fires at touch down and then repeats while held: after 0.5 s, then every 0.1 s.
     var onRepeat: (() -> Void)?
+    /// Asked at touch down, before the first fire: false means this press fires once and does not repeat.
+    var allowsRepeat: (() -> Bool)?
 
     private let style: Style
     private var repeatTask: Task<Void, Never>?
@@ -102,7 +104,9 @@ final class KeyButton: UIButton {
     private func touchDown() {
         KeyFeedback.touchDown()
         guard let onRepeat else { return }
+        let repeats = allowsRepeat?() ?? true
         onRepeat()
+        guard repeats else { return }
         repeatTask?.cancel()
         repeatTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(500))

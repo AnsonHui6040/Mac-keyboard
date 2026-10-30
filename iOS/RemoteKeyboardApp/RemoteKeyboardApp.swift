@@ -69,6 +69,9 @@ private struct ContentView: View {
                     }
                     Text(probeStatus)
                 }
+                Section("鍵盤") {
+                    NavigationLink("中文輸入設定") { SettingsView() }
+                }
                 Section("Mac 配對") {
                     Text(isPaired ? "已配對 Mac" : "尚未配對")
                     NavigationLink("配對 Mac") {

@@ -4,7 +4,9 @@ import SwiftUI
 import UIKit
 
 /// Debug only. Launch the app with `-rkPreview <state>` to see the keyboard views at their real height with fake
-/// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`.
+/// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
+/// `handwriting` (Chinese page with sample ink and the candidates 香 秤 港), `handwritingEmpty` (nothing written yet),
+/// `handwritingNoModel` (the model is missing).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -32,6 +34,7 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         let preview = Self.preview(named: stateName)
         root.apply(preview.state)
         root.setShift(preview.shift)
+        if stateName == "handwriting" { root.showSampleInk() }
 
         for view in [backdrop, root] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -60,13 +63,14 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         func make(
             mode: KeyboardMode = .remote, transmit: TransmitMode = .instant, page: KeyboardPage = .english,
             ready: Bool = true, draft: DraftBuffer = DraftBuffer(), status: String = "● Mac → TextEdit",
-            link: String = "connected"
+            link: String = "connected", candidates: [String] = [], message: String? = nil
         ) -> KeyboardViewState {
             KeyboardViewState(
                 mode: mode, transmit: transmit, page: page,
                 top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false),
                 draft: draft, statusText: status, linkName: link, probeText: "AppGroup: OK  版本 預覽",
-                showsGlobe: true, chineseAvailable: false, hapticsEnabled: false)
+                showsGlobe: true, chineseAvailable: true, candidates: candidates, handwritingMessage: message,
+                hapticsEnabled: false)
         }
         func draft(_ text: String, cursorBack: Int = 0) -> DraftBuffer {
             var buffer = DraftBuffer()
@@ -83,6 +87,12 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (make(ready: false, draft: draft("abc"), status: "Mac（無輸入欄位）"), .off)
         case "symbols":
             return (make(page: .symbols(origin: .english)), .off)
+        case "handwriting":
+            return (make(page: .chinese, candidates: ["香", "秤", "港"]), .off)
+        case "handwritingEmpty":
+            return (make(page: .chinese), .off)
+        case "handwritingNoModel":
+            return (make(page: .chinese, message: "請先在 App 下載手寫模型"), .off)
         case "caps":
             return (make(), .capsLock)
         default:

@@ -73,6 +73,11 @@ final class SegmentToggle: UIControl {
 /// row 1 mode toggle, status, transmit toggle; row 2 the draft (cursor keys, text, send); row 3 candidates.
 final class TopAreaView: UIView {
     var onAction: ((KeyAction) -> Void)?
+    /// The user tapped the candidate at this index.
+    var onSelectCandidate: ((Int) -> Void)? {
+        get { candidateBar.onSelect }
+        set { candidateBar.onSelect = newValue }
+    }
 
     private let modeToggle = SegmentToggle(
         titles: ["本機", "遠端"], identifier: "rk.mode", accessibilityName: "輸入位置")
@@ -88,6 +93,7 @@ final class TopAreaView: UIView {
     private let sendButton = UIButton(type: .system)
 
     private let candidateRow = UIView()
+    private let candidateBar = CandidateBarView()
     private let probeLabel = UILabel()
     private let stack = UIStackView()
 
@@ -127,6 +133,9 @@ final class TopAreaView: UIView {
         draftView.set(draft: state.draft)
         setSendEnabled(top.sendEnabled)
         probeLabel.text = state.probeText
+        candidateBar.setCandidates(state.candidates)
+        // The small build line gives way to the candidates.
+        probeLabel.isHidden = !state.candidates.isEmpty
     }
 
     // MARK: Rows
@@ -205,8 +214,16 @@ final class TopAreaView: UIView {
         sendButton.setTitleColor(.tertiaryLabel, for: .disabled)
     }
 
-    /// Blank until the Chinese candidates arrive. It carries the small build line the earlier tasks showed.
+    /// The Chinese candidates when there are any; otherwise the small build line the earlier tasks showed.
     private func buildCandidateRow() {
+        candidateBar.translatesAutoresizingMaskIntoConstraints = false
+        candidateRow.addSubview(candidateBar)
+        NSLayoutConstraint.activate([
+            candidateBar.leadingAnchor.constraint(equalTo: candidateRow.leadingAnchor),
+            candidateBar.trailingAnchor.constraint(equalTo: candidateRow.trailingAnchor),
+            candidateBar.topAnchor.constraint(equalTo: candidateRow.topAnchor),
+            candidateBar.bottomAnchor.constraint(equalTo: candidateRow.bottomAnchor)
+        ])
         probeLabel.font = .systemFont(ofSize: 9)
         probeLabel.textColor = .tertiaryLabel
         probeLabel.textAlignment = .right

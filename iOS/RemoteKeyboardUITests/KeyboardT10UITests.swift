@@ -304,22 +304,23 @@ final class KeyboardT10UITests: XCTestCase {
 
     // MARK: Steps 34-35
 
-    /// The symbols page types into both targets; 中英 is disabled and does nothing.
+    /// The symbols page types into both targets; 中英 switches between the English and the Chinese (handwriting) page.
     func testSymbolsAndPages() throws {
         try prepare()
-        XCTAssertFalse(element("rk.zhEn").isEnabled, "step 35: 中英 must be disabled")
         tapID("rk.symbols")
         XCTAssertTrue(wait(3) { element("rk.symbols").label == Self.backToEnglishLabel }, "step 34: symbols page not shown")
         XCTAssertFalse(letterKey("q").exists, "step 34: letters must be hidden on the symbols page")
         tapKey("1")
         tapKey("@")
-        XCTAssertFalse(element("rk.zhEn").isEnabled, "step 35: 中英 must stay disabled on the symbols page")
         tapID("rk.symbols")
         XCTAssertTrue(wait(3) { element("rk.symbols").label == Self.symbolsLabel }, "step 34: did not return to English")
         XCTAssertTrue(letterKey("q").waitForExistence(timeout: 3), "step 34: letters must be back")
+        // Full Access is on in this test setup, so the Chinese page exists: 中英 opens it and back.
         element("rk.zhEn").tap()
-        Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertTrue(letterKey("q").exists, "step 35: tapping 中英 must change nothing")
+        XCTAssertTrue(element("rk.hwDelete").waitForExistence(timeout: 3), "step 35: 中英 must open the handwriting page")
+        XCTAssertFalse(letterKey("q").exists, "step 35: letters must be hidden on the handwriting page")
+        element("rk.zhEn").tap()
+        XCTAssertTrue(letterKey("q").waitForExistence(timeout: 3), "step 35: 中英 must return to English")
         XCTAssertEqual(bodyText(), "", "step 34: the note must stay empty in Remote mode")
         drain()
 
@@ -451,6 +452,7 @@ final class KeyboardT10UITests: XCTestCase {
     private func prepare(transmit: String = KeyboardT10UITests.instant, needMac: Bool = true) throws {
         try openFreshNote()
         try ensureKeyboard()
+        ensureEnglishPage()
         setMode(Self.remote)
         if let leftover = draftText(), !leftover.isEmpty {
             guard leftover.count <= 60 else {
@@ -462,6 +464,13 @@ final class KeyboardT10UITests: XCTestCase {
         }
         setTransmit(transmit)
         if needMac { waitForMacReady() }
+    }
+
+    /// Since T12 the keyboard may open on the Chinese (handwriting) page; these tests type on the English page.
+    private func ensureEnglishPage() {
+        guard element("rk.hwDelete").exists else { return }
+        element("rk.zhEn").tap()
+        _ = letterKey("q").waitForExistence(timeout: 3)
     }
 
     private func openFreshNote() throws {

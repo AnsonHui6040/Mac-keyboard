@@ -132,15 +132,15 @@ scripts/make-quick-table.swift
 
 | 用途 | 指令 | 通過條件 |
 |---|---|---|
-| 產生 project | `xcodegen generate` | exit 0 |
+| 產生 project | `xcodegen generate && pod install`（`pod install` 需 `LANG=en_US.UTF-8`；`xcodegen generate` 會清掉 Pods 整合，每次都要接著跑 `pod install`） | exit 0 |
 | 純邏輯測試 | `swift test --package-path Packages/RemoteKeyboardCore` | `0 failures` |
-| iOS 模擬器 build | `xcodebuild build -project RemoteKeyboard.xcodeproj -scheme RemoteKeyboardApp -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' CODE_SIGNING_ALLOWED=NO -quiet` | exit 0 |
-| macOS build | `xcodebuild build -project RemoteKeyboard.xcodeproj -scheme MacReceiver -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO -quiet` | exit 0 |
-| macOS adapter 測試 | `xcodebuild test -project RemoteKeyboard.xcodeproj -scheme MacReceiver -destination 'platform=macOS,arch=arm64'` | `** TEST SUCCEEDED **` |
-| iOS 真機 build | `xcodebuild build -project RemoteKeyboard.xcodeproj -scheme RemoteKeyboardApp -destination 'generic/platform=iOS' -allowProvisioningUpdates -quiet` | exit 0 |
+| iOS 模擬器 build | `xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' CODE_SIGNING_ALLOWED=NO -quiet` | exit 0 |
+| macOS build | `xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO -quiet` | exit 0 |
+| macOS adapter 測試 | `xcodebuild test -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS,arch=arm64'` | `** TEST SUCCEEDED **` |
+| iOS 真機 build | `xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'generic/platform=iOS' -allowProvisioningUpdates -quiet` | exit 0 |
 | 空白檢查 | `git diff --check` | 無輸出 |
 
-以下各 Task 的「Run all」即依序執行上表全部指令（macOS adapter 測試需 `-allowProvisioningUpdates`）。
+T12 起手寫採 Google ML Kit（CocoaPods）：ML Kit 沒有 arm64 模擬器版本，`Podfile` 的 `post_install` 讓 App 與 Extension 只在真機（`sdk=iphoneos*`）搜尋並連結 ML Kit，模擬器 build 編譯替身辨識器。以下各 Task 的「Run all」即依序執行上表全部指令（macOS adapter 測試需 `-allowProvisioningUpdates`）。
 
 ---
 

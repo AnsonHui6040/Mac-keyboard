@@ -14,8 +14,10 @@ final class KeyboardViewController: UIInputViewController {
     static let pageDefaultsKey = "rk.page"
     static let transmitDefaultsKey = "rk.transmit"
     private static let noteSeconds: Double = 2
-    /// There is no Chinese page yet; `中英` stays disabled until one exists.
-    private static let chineseAvailable = false
+    /// The Chinese methods this build contains. Quick (速成) arrives in T12b.
+    private static let installedMethods: Set<ChineseInputMethodID> = [.handwriting]
+    /// ML Kit's model is moved through the App Group, which needs Full Access.
+    private static let handwritingNeedsFullAccess = true
 
     private var rootView: KeyboardRootView?
     private var heightConstraint: NSLayoutConstraint?
@@ -25,7 +27,10 @@ final class KeyboardViewController: UIInputViewController {
     private lazy var router = InputRouter(local: TextDocumentProxySink(proxy: textDocumentProxy), remote: peripheral)
     private var savedMode: KeyboardMode = .local
     private var transmit: TransmitMode = .instant
-    private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: KeyboardViewController.chineseAvailable)
+    private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: false)
+    private let chinese = ChineseInputCoordinator()
+    /// Keys that wait behind an input-method key (a space that waits for a recognition) run in order through this.
+    private let imeQueue = OrderedActionQueue()
     /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
     private var draft = DraftBuffer()
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
@@ -47,6 +52,12 @@ final class KeyboardViewController: UIInputViewController {
 
         let root = KeyboardRootView()
         root.onAction = { [weak self] action in self?.perform(action) ?? false }
+        root.onStrokeBegan = { [weak self] in self?.chinese.session.strokeBegan() }
+        root.onStrokesEnded = { [weak self] strokes, size in self?.chinese.session.strokesEnded(strokes, size: size) }
+        root.onSelectCandidate = { [weak self] index in self?.enqueueIME(.selectCandidate(index)) }
+        root.onClearInk = { [weak self] in self?.enqueueIME(.clear) }
+        chinese.onChange = { [weak self] in self?.refreshStatus() }
+        chinese.onClearInk = { [weak self] in self?.rootView?.clearInk() }
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
@@ -78,6 +89,7 @@ final class KeyboardViewController: UIInputViewController {
         super.viewWillAppear(animated)
         isOnScreen = true
         updateNavigator()
+        syncChineseEngine()
         claimPeripheral()
         refreshStatus()
     }
@@ -90,8 +102,16 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         isOnScreen = false
+        imeQueue.reset()
+        chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
+    }
+
+    /// The host's text or selection changed, so what was committed no longer sits right before the cursor.
+    override func textWillChange(_ textInput: UITextInput?) {
+        super.textWillChange(textInput)
+        chinese.resetHistory()
     }
 
     override func viewWillLayoutSubviews() {
@@ -147,7 +167,25 @@ final class KeyboardViewController: UIInputViewController {
     /// Starts from the saved letter page; the field type may override it (email and URL open English, numbers open symbols).
     private func updateNavigator() {
         let last = KeyboardPage.stored(rawValue: UserDefaults.standard.string(forKey: Self.pageDefaultsKey))
-        navigator = PageNavigator(lastPage: last, field: fieldKind(), chineseAvailable: Self.chineseAvailable)
+        navigator = PageNavigator(lastPage: last, field: fieldKind(), chineseAvailable: chineseMethod != nil)
+    }
+
+    /// The Chinese method in use: the host App's choice, if this build has it and Full Access allows it.
+    private var chineseMethod: ChineseInputMethodID? {
+        let saved = ChineseInputMethodID.stored(
+            rawValue: UserDefaults(suiteName: AppGroup.identifier)?.string(forKey: AppGroup.Key.chineseMethod))
+        return ChineseMethodResolver.effective(
+            saved: saved, hasFullAccess: hasFullAccess, handwritingNeedsFullAccess: Self.handwritingNeedsFullAccess,
+            installed: Self.installedMethods)
+    }
+
+    /// Loads the handwriting engine while the Chinese page is showing; leaving the page drops ink and candidates.
+    private func syncChineseEngine() {
+        if navigator.page == .chinese {
+            chinese.activate()
+        } else {
+            chinese.resetComposition()
+        }
     }
 
     private func fieldKind() -> FieldKind {
@@ -164,6 +202,45 @@ final class KeyboardViewController: UIInputViewController {
     @discardableResult
     private func perform(_ action: KeyAction) -> Bool {
         reclaimPeripheralIfVacant()
+        if navigator.page == .chinese, let input = Self.imeInput(for: action) {
+            enqueueIME(input)
+            return true
+        }
+        // While an input-method key is still pending, every key waits behind it (symbols, cursor keys, 傳送, the
+        // toggles, 中英), so nothing overtakes a commit that has not happened yet.
+        if imeQueue.isBusy {
+            imeQueue.enqueue { [weak self] _ in self?.route(action) }
+            return true
+        }
+        return route(action)
+    }
+
+    /// The keys the Chinese page hands to the input method first; the others are never its business.
+    private static func imeInput(for action: KeyAction) -> IMEInput? {
+        switch action {
+        case .space: .space
+        case .backspace: .backspace
+        case .returnKey: .returnKey
+        default: nil
+        }
+    }
+
+    private func enqueueIME(_ input: IMEInput) {
+        imeQueue.enqueue { [weak self] run in await self?.performIME(input, run: run) }
+    }
+
+    /// Feeds the input method, then routes what it commits or passes through like typed keys. A queue reset while the
+    /// input method was waiting (the keyboard went away) drops the result.
+    private func performIME(_ input: IMEInput, run: OrderedActionQueue.Run) async {
+        reclaimPeripheralIfVacant()
+        let output = await chinese.session.handle(input)
+        guard run.isCurrent else { return }
+        if let text = output.commit { route(.character(text)) }
+        if let key = output.passThrough { route(key) }
+    }
+
+    @discardableResult
+    private func route(_ action: KeyAction) -> Bool {
         let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
         handle(outcome, for: action)
         return outcome != .draftFull && outcome != .rejected
@@ -175,6 +252,7 @@ final class KeyboardViewController: UIInputViewController {
             // Persist what actually took effect, so a refused Remote (no Full Access) is not remembered as Remote.
             let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
             savedMode = applied
+            chinese.resetHistory()
             UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
             showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)
         case .transmitToggled(let requested):
@@ -184,6 +262,7 @@ final class KeyboardViewController: UIInputViewController {
         case .pageChanged:
             if action == .switchSymbols { navigator.switchSymbols() } else { navigator.switchChineseEnglish() }
             UserDefaults.standard.set(navigator.persistablePage.storageValue, forKey: Self.pageDefaultsKey)
+            syncChineseEngine()
             refreshStatus()
         case .draftFull:
             showNote("草稿已達 1,000 字上限")
@@ -223,11 +302,21 @@ final class KeyboardViewController: UIInputViewController {
             linkName: link.name,
             probeText: Self.probeStatusText(),
             showsGlobe: needsInputModeSwitchKey,
-            chineseAvailable: Self.chineseAvailable,
+            chineseAvailable: navigator.chineseAvailable,
+            candidates: navigator.page == .chinese ? chinese.candidates : [],
+            handwritingMessage: navigator.page == .chinese ? Self.message(for: chinese.modelStatus) : nil,
             hapticsEnabled: hasFullAccess)
         rootView.apply(state)
         let height = rootView.preferredHeight
         if heightConstraint?.constant != height { heightConstraint?.constant = height }
+    }
+
+    private static func message(for status: ChineseInputCoordinator.ModelStatus) -> String? {
+        switch status {
+        case .idle, .ready: nil
+        case .importing: "正在匯入手寫模型…"
+        case .missing: "請先在 App 下載手寫模型"
+        }
     }
 
     private func showNote(_ text: String?) {
