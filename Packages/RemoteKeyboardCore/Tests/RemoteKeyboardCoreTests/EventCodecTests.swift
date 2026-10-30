@@ -2,12 +2,12 @@ import XCTest
 @testable import RemoteKeyboardCore
 
 final class EventCodecTests: XCTestCase {
-    private func makeEvent(version: Int = 1, kind: EventKind = .text("A"), epoch: UInt64? = 7) -> KeyboardEvent {
+    private func makeEvent(version: Int = KeyboardEvent.currentVersion, kind: EventKind = .text("A"), epoch: UInt64? = 7) -> KeyboardEvent {
         KeyboardEvent(protocolVersion: version, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: epoch, kind: kind)
     }
 
     func testTextARoundTrip() throws {
-        let e = KeyboardEvent(protocolVersion: 1, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: 7, kind: .text("A"))
+        let e = KeyboardEvent(protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: 7, kind: .text("A"))
         XCTAssertEqual(try EventCodec.decode(EventCodec.encode(e, maxBytes: 182)), e)
     }
 
@@ -22,7 +22,7 @@ final class EventCodecTests: XCTestCase {
     func testPingWithDaysOfUptimeFitsTheSmallestNotifyPayload() throws {
         // 182 is the smallest maximumUpdateValueLength seen; 9-digit milliseconds is eleven days of process uptime.
         let e = KeyboardEvent(
-            protocolVersion: 1, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: nil,
+            protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: UUID(), seq: 1, focusEpoch: nil,
             kind: .ping(shownAtMs: 999_999_000, connectedAtMs: 999_999_999))
         let data = try EventCodec.encode(e, maxBytes: 182)
         XCTAssertLessThanOrEqual(data.count, 182)
@@ -34,17 +34,15 @@ final class EventCodecTests: XCTestCase {
         for kind in [EventKind.text("A"), .backspace, .returnKey] { XCTAssertTrue(kind.carriesFocusEpoch) }
     }
 
-    func testCurrentVersionIsOne() { XCTAssertEqual(KeyboardEvent.currentVersion, 1) }
-
     func testEncodingIsDeterministicSortedKeys() throws {
         let e = makeEvent()
         XCTAssertEqual(try EventCodec.encode(e, maxBytes: 400), try EventCodec.encode(e, maxBytes: 400))
     }
 
     func testRejectsUnknownVersion() throws {
-        let data = try EventCodec.encode(makeEvent(version: 2), maxBytes: 400)
+        let data = try EventCodec.encode(makeEvent(version: 3), maxBytes: 400)
         XCTAssertThrowsError(try EventCodec.decode(data)) { error in
-            XCTAssertEqual(error as? EventCodecError, .unsupportedVersion(2))
+            XCTAssertEqual(error as? EventCodecError, .unsupportedVersion(3))
         }
     }
 
@@ -59,7 +57,7 @@ final class EventCodecTests: XCTestCase {
     func testMalformedDataRejected() {
         XCTAssertThrowsError(try EventCodec.decode(Data("{".utf8))) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
         XCTAssertThrowsError(try EventCodec.decode(Data())) { XCTAssertEqual($0 as? EventCodecError, .malformed) }
-        XCTAssertThrowsError(try EventCodec.decode(Data("{\"protocolVersion\":1}".utf8))) {
+        XCTAssertThrowsError(try EventCodec.decode(Data("{\"protocolVersion\":2}".utf8))) {
             XCTAssertEqual($0 as? EventCodecError, .malformed)
         }
     }

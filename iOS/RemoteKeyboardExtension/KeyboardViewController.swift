@@ -48,6 +48,9 @@ final class KeyboardViewController: UIInputViewController {
             self.reclaimPeripheralIfVacant()
             self.handle(router.route(action, mode: self.mode))
         }
+        #if DEBUG
+        view.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
+        #endif
         view.globeButton.addTarget(
             self,
             action: #selector(handleInputModeList(from:with:)),
@@ -109,6 +112,18 @@ final class KeyboardViewController: UIInputViewController {
         claimPeripheral()
         refreshStatus()
     }
+
+    #if DEBUG
+    /// T07 check: one `TEXT` of 3,000 characters (6,000 UTF-8 bytes) in a single message, many frames.
+    private func sendDebugLongText() {
+        reclaimPeripheralIfVacant()
+        guard mode == .remote, peripheral.isRemoteReady(for: lifecycle.token) else {
+            showNote("Mac 尚未就緒，未輸入")
+            return
+        }
+        peripheral.send(.text(String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)))
+    }
+    #endif
 
     // MARK: Routing results
 

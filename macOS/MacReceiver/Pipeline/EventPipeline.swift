@@ -106,7 +106,9 @@ final class EventPipeline {
         let started = ContinuousClock.now
         let event: KeyboardEvent
         do {
-            event = try EventCodec.decode(data)
+            switch try PeripheralCodec.decode(data) {
+            case .event(let decoded): event = decoded
+            }
         } catch {
             Self.log.info("event rejected bytes=\(data.count, privacy: .public) ack=malformed")
             sendAck(Ack(eventId: Ack.unknownEventId, result: .malformed))

@@ -45,7 +45,11 @@ final class ReceiverBLECentral: ObservableObject {
     /// When the peripheral that is now being connected was accepted, not merely seen.
     private var discoveredAtMs: Int64?
 
-    /// Receives the raw bytes of every `event` notification, in arrival order.
+    /// Puts the frames of each `event` notification back into whole messages. One per connected peripheral; the
+    /// central holds a single connection, and the reassembler is reset whenever that connection stops being ready.
+    private var reassembler = FrameReassembler()
+
+    /// Receives the bytes of every complete message (all of its frames), in arrival order.
     var eventHandler: (@MainActor (Data) -> Void)?
     /// Fires each time the link newly reaches ready (control characteristic is known by then).
     var onLinkReady: (@MainActor () -> Void)?
@@ -86,8 +90,24 @@ final class ReceiverBLECentral: ObservableObject {
     /// The focused Mac field became editable (D13): arms receiving, or extends it when already armed.
     func focusGainedEditable() { handleSession(.editableFocusGained) }
 
-    /// Called by the driver for every `event` notification. Decoding and the idle deadline belong to the handler.
-    func receive(eventData: Data) { eventHandler?(eventData) }
+    /// Called by the driver for every `event` notification (one frame). Only a complete message reaches the handler;
+    /// decoding and the idle deadline belong to the handler. A rejected frame is logged by kind and size only.
+    func receive(eventData: Data) {
+        let droppedBefore = reassembler.droppedPartialMessages
+        let result = reassembler.accept(eventData)
+        let dropped = reassembler.droppedPartialMessages - droppedBefore
+        if dropped > 0 {
+            Self.log.info("partial message dropped count=\(dropped, privacy: .public) bytes=\(eventData.count, privacy: .public)")
+        }
+        switch result {
+        case .incomplete:
+            break
+        case .complete(let message):
+            eventHandler?(message)
+        case .rejected(let error):
+            Self.log.info("frame rejected \(String(describing: error), privacy: .public) bytes=\(eventData.count, privacy: .public)")
+        }
+    }
 
     /// Writes a control message with response. Dropped unless the link is ready.
     func send(_ message: ControlMessage) {
@@ -158,10 +178,14 @@ final class ReceiverBLECentral: ObservableObject {
         }
         for effect in effects { apply(effect) }
         if after != before, case .ready = after {
+            reassembler.reset()
             handleSession(.linkReady)
             onLinkReady?()
         }
-        if case .ready = before, after != before { onLinkLost?() }
+        if case .ready = before, after != before {
+            reassembler.reset()
+            onLinkLost?()
+        }
     }
 
     private func record(_ state: ReceiverLinkState) {
