@@ -231,8 +231,18 @@ final class KeyboardViewController: UIInputViewController {
     private var textContext: (before: String?, after: String?, documentId: UUID?) {
         (
             textDocumentProxy.documentContextBeforeInput, textDocumentProxy.documentContextAfterInput,
-            textDocumentProxy.documentIdentifier
+            documentIdentifier
         )
+    }
+
+    /// `documentIdentifier` is declared non-optional (`UUID`) but iOS answers nil in some fields (such as the
+    /// container app's own text fields); reading it as a Swift `UUID` traps while bridging, so go through Objective-C.
+    /// Second layer: key-value coding throws NSUnknownKeyException when the proxy lacks the getter, so ask first and
+    /// answer nil if it does not respond.
+    private var documentIdentifier: UUID? {
+        let proxy = textDocumentProxy as AnyObject
+        guard proxy.responds(to: NSSelectorFromString("documentIdentifier")) else { return nil }
+        return proxy.value(forKey: "documentIdentifier") as? UUID
     }
 
     private static func storedDictationSetting() -> Any? {

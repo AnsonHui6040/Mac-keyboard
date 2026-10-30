@@ -183,13 +183,14 @@ public struct DictationMirror: Equatable, Sendable {
         before: String, after: String, documentId: UUID?, at time: TimeInterval
     ) -> Outcome {
         lastDeleted = ""
-        let current = Snapshot(before: before, after: after, documentId: documentId)
+        // A `nil` identifier means iOS did not say, not "another field": keep the last known one.
+        let current = Snapshot(before: before, after: after, documentId: documentId ?? baseline?.documentId)
         guard let previous = baseline else {
             baseline = current
             counters.baselines += 1
             return .baselineSet
         }
-        if previous.documentId != documentId {
+        if let old = previous.documentId, let new = documentId, old != new {
             baseline = current
             counters.documentChanges += 1
             return .documentChanged
