@@ -1,4 +1,4 @@
-# Remote Keyboard Implementation Plan v1.3
+# Remote Keyboard Implementation Plan v1.4
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -983,6 +983,28 @@ func testMalformedTableLineThrows() { }
 - [ ] **Step 3: 探測 build：遠端模式加 DEBUG 開關，聽寫期間只記錄差分長度（不記文字）。Run all。**
 - [ ] **Step 4: 實機 Gate（使用者，標 TBD）。** 中英各 50 句，記錄五項結果。全部 PASS 才把同步功能開放於正式設定；任一 FAIL 或 INCONCLUSIVE：語音 Gate 記 FAIL，停下回報，主 App 手動語音頁另以 writing-plans 規劃（D7）。
 - [ ] **Step 5: 更新驗收報告 T13，commit。**
+
+### Task 13b: 聽寫同步正式化與底列鍵序
+
+**Branch:** `t13b-dictation-sync`（spec v1.4，D18、D19；使用者 2026-10-31 批准）
+
+**Files:**
+- Modify: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Keyboard/DictationMirror.swift`（如需要）、`BottomRowLayout.swift`（鍵序）
+- Modify: `iOS/RemoteKeyboardExtension/KeyboardViewController.swift`（同步不再依賴 DEBUG 探測開關：遠端模式＋App Group 設定開啟即運作；DEBUG 面板與長按保留）
+- Modify: `iOS/RemoteKeyboardExtension/UI/BottomRowView.swift`、`iOS/RemoteKeyboardApp/SettingsView.swift`（新增「聽寫同步到 Mac」開關，預設開）、`iOS/Shared/` 或既有 `AppGroup` 鍵定義（新增設定鍵）
+- Test: `DictationMirrorTests.swift`、`BottomRowLayoutTests.swift`
+- Evidence: `e2e/E2E-T13B-DICTATION-SYNC.md`、預覽截圖 402／375 pt
+
+**Interfaces:**
+- App Group 設定鍵（例如 `AppGroup.Key.dictationSync`，Bool，未設定時視為開）。主 App 寫，Extension 在 `viewWillAppear` 讀。
+- 同步條件：`mode == .remote` 且設定開啟（DEBUG 與 Release 相同）。Release build 不顯示面板、不可長按開啟面板。
+- `BottomRowLayout.placements`：鍵序 `.symbols`、`.chineseEnglish`、`.space`、（`.clear`）、`.returnKey`；地球儀鍵在最左（iOS 要求時）。
+
+- [ ] **Step 1: 寫失敗測試**：底列鍵序（有／無地球儀、有／無重寫、375／402 pt）；DictationMirror：設定關閉時不產生事件、本機模式不送；草稿模式下聽寫中途移動草稿游標（重現 2026-10-31 實機「good good」觀察），判斷結果是否錯誤。
+- [ ] **Step 2: 執行，預期 FAIL；實作；執行，預期 PASS。**若游標移動確實造成重複，修正（例如游標移動後重設基準）；若屬預期，草稿列顯示提示。
+- [ ] **Step 3: 主 App 設定頁開關，Extension 讀取；Release build 確認沒有面板與長按探測。Run all：Core、iOS 模擬器、真機、Release build。**
+- [ ] **Step 4: 實機（使用者，TBD）**：遠端即時模式不長按即同步一句中文、一句英文；草稿模式聽寫後編輯再傳送；主 App 關閉開關後不再同步；底列位置。
+- [ ] **Step 5: 更新驗收報告 T13（附 T13b）、README、交接文件，commit。**
 
 ### Task 14: 跨 App 相容性與焦點安全矩陣
 

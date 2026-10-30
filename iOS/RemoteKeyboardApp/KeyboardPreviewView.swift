@@ -106,7 +106,7 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
                 "① 麥克風  請目視確認下方有麥克風",
                 "② 寫入欄位  是 12",
                 "③ 鍵盤收到變化  did 12  will 12  隱 0  基準 1",
-                "④ 差分  退 2 字 13  過大 1  截斷 1  換檔 1",
+                "④ 差分  退 2 字 13  過大 1  截斷 1  換檔 1  略過 1",
                 "⑤ Mac  送 12 回 12 稿 3"
             ]
             return (state, .off)

@@ -1,14 +1,25 @@
 import RemoteKeyboardCore
 import SwiftUI
 
-/// 「中文輸入設定」: which Chinese input method the keyboard uses, and the handwriting model it needs.
+/// 「中文輸入設定」: which Chinese input method the keyboard uses, and the handwriting model it needs. Also holds
+/// 「聽寫同步到 Mac」, the one switch the keyboard reads from the App Group for the dictation sync (D18).
 struct SettingsView: View {
     @StateObject private var downloader = HandwritingModelDownloader()
     @State private var method = Self.savedMethod()
     @State private var confirmsDelete = false
+    @State private var syncsDictation = DictationSync.isEnabled(
+        stored: UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.dictationSync))
 
     var body: some View {
         Form {
+            Section {
+                Toggle("聽寫同步到 Mac", isOn: $syncsDictation)
+                    .accessibilityIdentifier("rk.settings.dictationSync")
+            } header: {
+                Text("聽寫")
+            } footer: {
+                Text("遠端模式下，用 iPhone 聽寫寫進欄位的文字（包括修改與刪除）會同步到 Mac。關閉後，聽寫只會寫進 iPhone 的欄位。本機模式不會同步。")
+            }
             Section {
                 methodRow("手寫", id: .handwriting)
                 HStack {
@@ -48,6 +59,9 @@ struct SettingsView: View {
         }
         .navigationTitle("中文輸入設定")
         .onAppear { downloader.refresh() }
+        .onChange(of: syncsDictation) { _, enabled in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.dictationSync)
+        }
         .confirmationDialog("刪除手寫模型？", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("刪除", role: .destructive) { downloader.delete() }
             Button("取消", role: .cancel) {}
