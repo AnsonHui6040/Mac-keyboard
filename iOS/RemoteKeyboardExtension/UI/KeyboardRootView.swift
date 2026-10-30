@@ -61,7 +61,8 @@ final class KeyboardRootView: UIView {
 
     private let topArea = TopAreaView()
     private let english = EnglishPageView()
-    private let symbols = SymbolsPageView()
+    private let symbols = SymbolPageView()
+    private var symbolsOrigin: SymbolOrigin?
     private let handwriting = HandwritingPageView()
     private let bottomRow = BottomRowView()
     #if DEBUG
@@ -112,6 +113,13 @@ final class KeyboardRootView: UIView {
         case .chinese: (isSymbols, isChinese) = (false, true)
         case .english: (isSymbols, isChinese) = (false, false)
         }
+        if case .symbols(let origin) = state.page {
+            // Every entry to the symbols page, and a change of origin, starts from the first layer.
+            if symbolsOrigin != origin { symbols.enter(origin: origin) }
+            symbolsOrigin = origin
+        } else {
+            symbolsOrigin = nil
+        }
         english.isHidden = isSymbols || isChinese
         symbols.isHidden = !isSymbols
         handwriting.isHidden = !isChinese
@@ -152,6 +160,11 @@ final class KeyboardRootView: UIView {
         handwriting.showSampleInk()
     }
     #endif
+
+    /// Debug preview only: shows a symbols layer without any taps.
+    func showSymbolLayer(_ index: Int) {
+        symbols.showLayer(index)
+    }
 
     /// Debug preview only: shows a Shift state without any taps.
     func setShift(_ mode: ShiftState.Mode) {
@@ -204,56 +217,5 @@ final class KeyboardRootView: UIView {
         bottomRow.frame = CGRect(
             x: side, y: keysTop + letterHeight + extra + KeyboardMetrics.rowGap,
             width: width - 2 * side, height: KeyboardMetrics.keyRowHeight)
-    }
-}
-
-/// Temporary symbols page (T11 replaces it with the real layouts): digits, a few punctuation rows and delete.
-final class SymbolsPageView: UIView {
-    var onSymbol: ((String) -> Void)?
-    var onBackspace: (() -> Void)?
-
-    private static let rows = ["1234567890", "-/:;()$&@\"", ".,?!'"]
-    private var rowKeys: [[KeyButton]] = []
-    private let backspaceKey = KeyButton(
-        style: .function, symbol: "delete.left", label: "刪除", identifier: "rk.backspace")
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        for row in Self.rows {
-            var keys: [KeyButton] = []
-            for symbol in row {
-                let text = String(symbol)
-                let key = KeyButton(style: .letter, title: text, label: text)
-                key.onTap = { [weak self] in self?.onSymbol?(text) }
-                addSubview(key)
-                keys.append(key)
-            }
-            rowKeys.append(keys)
-        }
-        backspaceKey.onRepeat = { [weak self] in self?.onBackspace?() }
-        addSubview(backspaceKey)
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let gap = KeyboardMetrics.keyGap
-        let height = KeyboardMetrics.keyRowHeight
-        let rowStep = height + KeyboardMetrics.rowGap
-        let width = bounds.width
-        for row in 0..<2 {
-            for (index, frame) in KeyRowLayout.equalKeys(count: 10, x: 0, width: width, gap: gap).enumerated() {
-                rowKeys[row][index].frame = CGRect(x: frame.x, y: Double(row) * rowStep, width: frame.width, height: height)
-            }
-        }
-        let key = (width - 9 * gap) / 10
-        let function = key * 1.5
-        let y = 2 * rowStep
-        let symbolsWidth = width - function - 2 * gap
-        for (index, frame) in KeyRowLayout.equalKeys(count: 5, x: 0, width: symbolsWidth, gap: gap).enumerated() {
-            rowKeys[2][index].frame = CGRect(x: frame.x, y: y, width: frame.width, height: height)
-        }
-        backspaceKey.frame = CGRect(x: width - function, y: y, width: function, height: height)
     }
 }
