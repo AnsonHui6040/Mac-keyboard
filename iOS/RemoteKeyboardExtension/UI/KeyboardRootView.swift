@@ -28,6 +28,10 @@ final class KeyboardRootView: UIView {
         get { bottomRow.onDebugLongReturn }
         set { bottomRow.onDebugLongReturn = newValue }
     }
+    var onDebugLongSpace: (() -> Void)? {
+        get { bottomRow.onDebugLongSpace }
+        set { bottomRow.onDebugLongSpace = newValue }
+    }
     #endif
 
     /// The controller adds the system input-mode-list target to this button.

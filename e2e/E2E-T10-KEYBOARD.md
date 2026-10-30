@@ -19,6 +19,76 @@
 - Mac 執行本分支的 MacReceiver，開啟 TextEdit 並新建純文字文件，讓游標停在文件內。
 - 在 iPhone 的備忘錄或 Safari 開啟文字欄位，切換到 Remote Keyboard。
 
+## 自動化執行
+
+使用者決定把大部分手動步驟改為自動執行。自動化分兩部分：iPhone 上的 XCUITest（`KeyboardT10UITests`）操作備忘錄與鍵盤，檢查 iPhone 畫面上看得到的結果；Mac 上的腳本 `e2e/scripts/t10-device-run.sh` 檢查 TextEdit 實際收到的文字，最後再檢查 Receiver 紀錄沒有輸入的明文。下表「結果」欄在使用者確認前一律維持 TBD。
+
+前置條件：
+1. iPhone 以線連接 Mac 並解鎖，已完成 Mac 配對（T09）、開啟「允許完整取用」，且 Remote Keyboard 是目前使用的鍵盤。
+2. Mac 執行本分支的 MacReceiver，已按「開始接收」。Receiver 閒置 30 分鐘會逾時，整個流程較長時請再按一次。
+3. 備忘錄已關閉，或停在備忘錄清單。測試只會新增自己的備忘錄，且只點新備忘錄的空白內文；本機模式打的字會在案例結束前刪除。
+4. 一次性設定：若 UI 測試的簽名需要，先在 Xcode 選擇 iPhone 為目的地，執行 Product > Build For Testing 一次。
+5. 執行腳本的 App（例如 Terminal）要允許控制 TextEdit 與 System Events（系統設定 > 隱私權與安全性 > 自動操作、輔助使用）。
+6. 若 TextEdit 開啟「自動修正拼字」，最終文字可能被改寫；請在 TextEdit 的 編輯 > 拼字與文法 中關閉。腳本無法替沙盒中的 TextEdit 更改或確認這個設定，只會在最終文字不符時提示。
+7. 步驟 31 與步驟 32、33 已由使用者延後到 T16 手動測試，預設不執行。`testDraftCap` 目前一律略過（填滿草稿的掛鉤在 XCUITest 的長按下不會觸發），步驟 31 改由人工長按空白 2 秒完成；`testFieldKinds` 仍可指定名稱執行。
+8. 若某個本機模式案例失敗，備忘錄裡可能留下一則測試用的備忘錄，請手動刪除。`testFieldKinds` 會在 Safari 目前的分頁開啟一個 `data:` 網址。
+
+指令：
+
+```
+e2e/scripts/t10-device-run.sh                      # 建置一次，依序執行全部案例
+e2e/scripts/t10-device-run.sh testDraftEditing     # 只執行指定案例
+e2e/scripts/t10-device-run.sh --skip-build         # 沿用上次建置
+e2e/scripts/t10-device-run.sh --list               # 列出案例與 Mac 端預期，不執行
+```
+
+腳本每個案例都新建一份 TextEdit 文件並讓它取得焦點，同時每 0.3 秒記錄文件內容，案例結束後比對預期。每次執行的紀錄放在 `$T10_OUT/run.<時間>.<行程編號>/`（預設 `/tmp/t10-device-run`），摘要寫入該資料夾的 `summary.csv`，並複製一份到 `$T10_OUT/summary.csv`。腳本為每個案例在執行資料夾內建立一個空白的 `<案例名稱>.txt` 並用 TextEdit 開啟，所以測試輸入的文字會存在執行資料夾裡（純文字檔），不會被自動儲存到 iCloud 雲碟；只有路徑在該資料夾內的文件才算自己的。腳本以視窗編號鎖定這個 TextEdit 視窗，只對該視窗讀取、清空與關閉（不儲存）；該視窗不存在，或其文件路徑不在執行資料夾內時，什麼都不做，不會改用名稱去找其他文件。每個案例開始前會確認 TextEdit 在最前面且最前面的視窗就是它自己的，否則該案例判為失敗。
+
+判定規則：略過（skip）除了 `testFieldKinds` 與 `testDraftCap` 以外一律算失敗；XCUITest 必須出現該案例的 passed 行且實際執行 1 個測試才算通過；Mac 端讀取 TextEdit 時只要出現讀不到、取樣間隔超過 3 秒或紀錄沒有正常結束，就判失敗；每個有執行且預期 Mac 收到文字的案例，在它自己的時間範圍內必須有 `event kind=` 行，否則 Receiver 紀錄判失敗；只跑預期為空的案例時，紀錄能讀取即可。若 iPhone 鎖定，xcodebuild 紀錄會出現 `Unlock … to Continue`，腳本顯示「請解鎖 iPhone」並等待，環境變數 `T10_LOCK_WAIT_S`（預設 60 秒）內仍未解鎖就停止，該案例判為「iPhone locked」失敗，其餘案例不再執行。
+
+| 步驟 | 方式 | 說明 | 結果 |
+|---|---|---|---|
+| 1 | 自動（testAccessibilityLabels）加手動 | 自動檢查 `AppGroup: OK` 這行；本版 build 時間仍需人工核對 | TBD |
+| 2 | 自動（testShiftAndInstant） | 檢查狀態列為 `Mac → …` 且頂部只有兩行 | TBD |
+| 3 | 自動（testShiftAndInstant） | | TBD |
+| 4 | 自動（testShiftAndInstant） | 以系統雙擊動作觸發 Caps Lock | TBD |
+| 5 | 自動（testShiftAndInstant） | | TBD |
+| 6 | 自動（testShiftAndInstant） | 兩次點擊間隔 0.6 秒 | TBD |
+| 7 | 自動（testShiftAndInstant） | iPhone 備忘錄保持空白；Mac 端比對 `AABCde hello` 加換行 | TBD |
+| 8 | 自動（testShiftAndInstant） | 同上 | TBD |
+| 9 | 自動（testRemoteLongPressDelete） | 打 30 個字母後長按刪除 1 秒；Mac 端接受剩下 15 至 27 個字母 | TBD |
+| 10 | 自動（testLocalModeAndLongPressDelete） | 本機長按刪除，備忘錄內文逐字減少至少 3 個 | TBD |
+| 11 | 自動（testLocalModeAndLongPressDelete） | 本機打 `abc`，頂部沒有 `即時｜草稿` | TBD |
+| 12 | 自動（testLocalModeAndLongPressDelete） | 回到遠端後狀態文字與 `即時｜草稿` 出現 | TBD |
+| 13 | 自動（testLocalModeAndLongPressDelete） | | TBD |
+| 14 | 自動（testDraftEditing） | 含鍵盤高度增加約 36 pt | TBD |
+| 15 | 自動（testDraftEditing） | iPhone 備忘錄保持空白；Mac 端只確認途中沒有不屬於最終草稿的字，並要求第一個字在開始記錄 12 秒後才出現，無法證明送出前完全沒有字 | TBD |
+| 16 | 自動（testDraftEditing） | | TBD |
+| 17 | 自動（testDraftEditing） | | TBD |
+| 18 | 自動（testDraftEditing） | iPhone 端確認草稿文字沒有變；Mac 端只確認最終文字正確，沒有逐一比對游標移動期間的內容 | TBD |
+| 19 | 自動（testDraftEditing） | | TBD |
+| 20 | 自動（testDraftEditing） | 草稿放 4 秒後才傳送；Mac 端確認最終文字完整且途中沒有多餘的字，沒有送出時間點可以對照 | TBD |
+| 21 | 自動（testDraftEditing） | 草稿內含換行，Mac 端比對 `abXcab`、換行、`cdd` | TBD |
+| 22 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 23 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 24 | 自動（testInstantWithDraftEditsDraft） | | TBD |
+| 25 | 自動（testInstantWithDraftEditsDraft） | Mac 端比對最終文字 `xzq` 且途中沒有多餘的字 | TBD |
+| 26 | 自動（testNotReadyGoesToDraft） | 腳本讓 TextEdit 失去焦點；Mac 端確認沒有任何字 | TBD |
+| 27 | 自動（testNotReadyGoesToDraft） | 約 15 秒後焦點恢復，測試等待 `傳送` 變藍並確認不會自動送出，再按下傳送 | TBD |
+| 28 | 自動（testPersistence） | 含收起鍵盤與切到 Safari 再回來；此案例不要求 Mac 就緒，TextEdit 為空只代表沒有字送達 | TBD |
+| 29 | 自動（testModeSwitchKeepsDraft） | 含鍵盤高度減少約 36 pt；此案例保持 Mac 就緒，漏到 Mac 的字會被看到，TextEdit 必須全程為空 | TBD |
+| 30 | 自動（testModeSwitchKeepsDraft） | 以再打一個字確認游標位置還在 | TBD |
+| 31 | 延後至 T16 手動 | 填滿草稿的測試掛鉤只存在於 Debug 建置，且不會在 XCUITest 的長按下觸發，所以 `testDraftCap` 會直接略過。手動做法：用 Debug 建置，在遠端模式長按空白 2 秒即可把草稿填到 1,000 字，再打一個字確認出現上限提示，傳送後再次可打 | TBD |
+| 32 | 延後至 T16 手動 | `testFieldKinds` 預設不執行，指定名稱才會跑 | TBD |
+| 33 | 延後至 T16 手動 | 同上 | TBD |
+| 34 | 自動（testSymbolsAndPages） | 遠端與本機各打一次 `1` 與 `@` | TBD |
+| 35 | 自動（testSymbolsAndPages） | | TBD |
+| 36 | 手動 | 地球鍵與長按選鍵盤需要人工操作 | TBD |
+| 37 | 自動（testPersistence）加手動 | 自動部分不含重新啟動 App，該部分手動 | TBD |
+| 38 | 自動（testAccessibilityLabels）加手動 | 自動檢查每顆鍵的標籤文字（此案例不要求 Mac 就緒，TextEdit 為空只代表沒有字送達）；VoiceOver 實際朗讀仍需手動 | TBD |
+| 39 | 手動 | 需要 iPhone SE 3 或 mini | TBD |
+| 40 | 自動（腳本）加手動 | 腳本檢查 Mac 端 Receiver 紀錄沒有任何輸入字串；iPhone 端診斷紀錄仍需手動 | TBD |
+
 ## 步驟
 
 | 步驟 | 操作 | 預期 | 結果 |
