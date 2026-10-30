@@ -73,9 +73,9 @@ final class EventPipelineTests: XCTestCase {
         return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state)
     }
 
-    private func frame(_ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), version: Int = 1) throws -> (Data, UUID) {
+    private func frame(_ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), version: Int = KeyboardEvent.currentVersion) throws -> (Data, UUID) {
         let event = KeyboardEvent(protocolVersion: version, eventId: id, sessionId: UUID(), seq: 1, focusEpoch: epoch, kind: kind)
-        return (try EventCodec.encode(event, maxBytes: 400), id)
+        return (try PeripheralCodec.encode(.event(event)), id)
     }
 
     // MARK: Decision to ack mapping
@@ -214,7 +214,7 @@ final class EventPipelineTests: XCTestCase {
     func testUndecodableBytesAckMalformedWithoutCountingAsActivity() async throws {
         let h = harness(snapshots: [snapshot()])
         await h.pipeline.process(Data("{".utf8))
-        await h.pipeline.process(try frame(.text("A"), version: 2).0)
+        await h.pipeline.process(try frame(.text("A"), version: 1).0)
         XCTAssertEqual(h.state.acks, [Ack(eventId: Ack.unknownEventId, result: .malformed),
                                       Ack(eventId: Ack.unknownEventId, result: .malformed)])
         XCTAssertEqual(h.state.noted, 0)

@@ -3,6 +3,10 @@ import RemoteKeyboardCore
 
 final class MinimalKeyboardView: UIView {
     var onAction: ((KeyAction) -> Void)?
+    #if DEBUG
+    /// Long-pressing `return` for two seconds; the debug build uses it to send one 3,000-character text (T07 check).
+    var onDebugLongReturn: (() -> Void)?
+    #endif
     let globeButton = UIButton(type: .system)
     private let modeButton = UIButton(type: .system)
     private let statusLabel = UILabel()
@@ -84,6 +88,11 @@ final class MinimalKeyboardView: UIView {
         bottom.addArrangedSubview(space)
         let returnKey = makeKey(title: "return") { [weak self] in self?.onAction?(.returnKey) }
         bottom.addArrangedSubview(returnKey)
+        #if DEBUG
+        let longPress = UILongPressGestureRecognizer(target: self, action: #selector(debugLongReturn(_:)))
+        longPress.minimumPressDuration = 2
+        returnKey.addGestureRecognizer(longPress)
+        #endif
         // Hidden arranged subviews take no space in a fill stack, so these hold in both states.
         let spaceRatio = space.widthAnchor.constraint(equalTo: returnKey.widthAnchor, multiplier: 4)
         spaceRatio.priority = UILayoutPriority(999)
@@ -114,6 +123,12 @@ final class MinimalKeyboardView: UIView {
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
         ])
     }
+
+    #if DEBUG
+    @objc private func debugLongReturn(_ recognizer: UILongPressGestureRecognizer) {
+        if recognizer.state == .began { onDebugLongReturn?() }
+    }
+    #endif
 
     private func makeRow() -> UIStackView {
         let row = UIStackView()

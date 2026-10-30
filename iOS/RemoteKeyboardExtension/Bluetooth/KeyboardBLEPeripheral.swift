@@ -28,6 +28,10 @@ final class KeyboardBLEPeripheral: NSObject {
     private var manager: CBPeripheralManager?
     private var eventCharacteristic: CBMutableCharacteristic?
 
+    /// Identifies a message across its frames. Never reset, not even by a new session: a session start does not
+    /// always break the link, so ids stay unique across sessions on the same link. Wraps at 65,536.
+    private var messageId: UInt16 = 0
+
     // Send path. All of this belongs to one keyboard appearance and is reset when it starts or ends.
     private var sessionId = UUID()
     private var seq: UInt64 = 0
@@ -142,13 +146,18 @@ final class KeyboardBLEPeripheral: NSObject {
         let event = KeyboardEvent(
             protocolVersion: KeyboardEvent.currentVersion, eventId: eventId, sessionId: sessionId,
             seq: seq + 1, focusEpoch: kind.carriesFocusEpoch ? latestStatus?.focusEpoch : nil, kind: kind)
-        let frame: Data
+        let frames: [Data]
         do {
-            frame = try EventCodec.encode(event, maxBytes: central.maximumUpdateValueLength)
+            let message = try PeripheralCodec.encode(.event(event))
+            // Each notification carries at most the subscribed central's maximumUpdateValueLength, header included.
+            frames = try FrameCodec.split(message, messageId: messageId, maxFrameBytes: central.maximumUpdateValueLength)
         } catch {
             // The router already accepted this key, so say what happened instead of dropping it silently.
             let tooLarge: Bool
-            if case EventCodecError.tooLarge = error { tooLarge = true } else { tooLarge = false }
+            switch error {
+            case EventCodecError.tooLarge, is FrameError: tooLarge = true
+            default: tooLarge = false
+            }
             if let (key, length) = Self.diagnosticKey(kind) {
                 DiagnosticEvent.keyDropped(kind: key, utf8Length: length, reason: tooLarge ? .tooLarge : .encodeFailed).log()
             }
@@ -156,7 +165,9 @@ final class KeyboardBLEPeripheral: NSObject {
             return nil
         }
         seq += 1
-        queue.enqueue(frame)
+        messageId &+= 1
+        // All frames of one message go into the FIFO together, so another key can never interleave with them.
+        for frame in frames { queue.enqueue(frame) }
         if let (key, length) = Self.diagnosticKey(kind) {
             DiagnosticEvent.keySent(kind: key, utf8Length: length).log()
         }

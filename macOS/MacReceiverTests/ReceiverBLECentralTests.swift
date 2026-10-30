@@ -198,13 +198,86 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(fired, 1)
     }
 
-    func testEventDataReachesTheHandlerInOrder() {
+    func testEventDataReachesTheHandlerInOrder() throws {
         let central = make()
         var seen: [Data] = []
         central.eventHandler = { seen.append($0) }
-        central.receive(eventData: Data("a".utf8))
-        central.receive(eventData: Data("b".utf8))
+        for (id, body) in [(UInt16(1), "a"), (2, "b")] {
+            for frame in try FrameCodec.split(Data(body.utf8), messageId: id, maxFrameBytes: 182) {
+                central.receive(eventData: frame)
+            }
+        }
         XCTAssertEqual(seen, [Data("a".utf8), Data("b".utf8)])
+    }
+
+    // MARK: T07 framing
+
+    func testCentralReassemblesBeforeHandingToPipeline() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let payload = Data((0..<400).map { UInt8(truncatingIfNeeded: $0) })
+        let frames = try FrameCodec.split(payload, messageId: 3, maxFrameBytes: 182)
+        XCTAssertEqual(frames.count, 3)
+        central.receive(eventData: frames[0])
+        central.receive(eventData: frames[1])
+        XCTAssertTrue(seen.isEmpty, "a partial message never reaches the handler")
+        central.receive(eventData: frames[2])
+        XCTAssertEqual(seen, [payload], "three frames, one handler call")
+    }
+
+    func testLeavingReadyResetsReassemblerWithoutANewReady() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let p = makeReady(central)
+        let frames = try FrameCodec.split(Data(repeating: 7, count: 300), messageId: 6, maxFrameBytes: 182)
+        XCTAssertEqual(frames.count, 2)
+        central.receive(eventData: frames[0])
+        central.handleLink(.disconnected(p))
+        // No new ready follows, so only the reset on leaving ready can have dropped the partial message.
+        if case .ready = central.linkState { return XCTFail("link should have left ready") }
+        central.receive(eventData: frames[1])
+        XCTAssertTrue(seen.isEmpty, "the second frame must not complete the old message")
+    }
+
+    func testNewMessageAfterAnUnfinishedOneStillReachesTheHandler() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let first = try FrameCodec.split(Data(repeating: 1, count: 400), messageId: 1, maxFrameBytes: 182)
+        central.receive(eventData: first[0])
+        for frame in try FrameCodec.split(Data([2]), messageId: 2, maxFrameBytes: 182) { central.receive(eventData: frame) }
+        XCTAssertEqual(seen, [Data([2])])
+    }
+
+    func testBytesThatAreNotAFrameNeverReachTheHandler() {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        central.receive(eventData: Data("{\"protocolVersion\":1}".utf8))
+        central.receive(eventData: Data())
+        XCTAssertTrue(seen.isEmpty)
+    }
+
+    func testLinkLostResetsReassembler() throws {
+        let central = make()
+        var seen: [Data] = []
+        central.eventHandler = { seen.append($0) }
+        let p = makeReady(central)
+        let frames = try FrameCodec.split(Data(repeating: 7, count: 400), messageId: 4, maxFrameBytes: 182)
+        central.receive(eventData: frames[0])
+        central.handleLink(.disconnected(p))
+        central.handleLink(.rescanTimer)
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        central.handleLink(.linkReady(p))
+        // The rest of the old message arrives on the new connection: it must not be completed from stale state.
+        central.receive(eventData: frames[1])
+        central.receive(eventData: frames[2])
+        XCTAssertTrue(seen.isEmpty)
+        for frame in try FrameCodec.split(Data([1]), messageId: 5, maxFrameBytes: 182) { central.receive(eventData: frame) }
+        XCTAssertEqual(seen, [Data([1])])
     }
 
     func testEditableFocusArmsAnIdleReceiver() {
