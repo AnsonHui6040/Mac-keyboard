@@ -18,6 +18,64 @@ final class InjectionAdapterTests: XCTestCase {
         func post(_ events: [CGEvent]) { batches.append(events) }
     }
 
+    // MARK: Test insert focus recheck
+
+    @MainActor private final class FakeSource: InputSourceControlling {
+        var current: String
+        init(_ current: String) { self.current = current }
+        func currentID() -> String { current }
+        func select(_ id: String) -> Bool { current = id; return true }
+    }
+
+    @MainActor private final class FakeComposing: CompositionControlling {
+        func state() -> CompositionState { .composing }
+        func cancel() {}
+    }
+
+    private func testInsert(
+        reads: [FocusReadResult], current: String = InputSourceSwitcher.asciiID, composition: CompositionControlling? = nil
+    ) -> (TestInsertController, RecordingPoster, InputSourceNotice, InputSourceSwitcher) {
+        let poster = RecordingPoster()
+        let monitor = FocusMonitor(reader: ScriptedFocusReader(reads), environment: FocusFixtures.environment())
+        let notice = InputSourceNotice()
+        let switcher = InputSourceSwitcher(controller: FakeSource(current), composition: composition, settle: { _ in })
+        let controller = TestInsertController(
+            focus: monitor,
+            injector: TextInjector(poster: poster),
+            switcher: switcher,
+            defaults: UserDefaults(suiteName: "rk.tests.\(UUID().uuidString)")!,
+            notice: notice
+        )
+        return (controller, poster, notice, switcher)
+    }
+
+    func testTestInsertRechecksFocusAfterGate() async {
+        let (controller, poster, _, switcher) = testInsert(reads: [FocusFixtures.elementA, FocusFixtures.elementB])
+        // Another call holds the switcher's gate; the test insert passes its first check and then waits behind it.
+        let holder = Task { await switcher.withASCII { try? await Task.sleep(for: .milliseconds(300)) } }
+        try? await Task.sleep(for: .milliseconds(50))
+        await controller.run(TestInsertItem.all[0])
+        _ = await holder.value
+        XCTAssertEqual(poster.batches.count, 0, "focus moved while queued behind the gate, nothing may be typed")
+        XCTAssertEqual(controller.status, "未插入：焦點已改變")
+    }
+
+    func testTestInsertRechecksBeforeEscapeWhenFocusMovesBehindTheGate() async {
+        let (controller, poster, _, _) = testInsert(
+            reads: [FocusFixtures.elementA, FocusFixtures.elementB], current: "com.apple.inputmethod.TCIM.Zhuyin",
+            composition: FakeComposing())
+        await controller.run(TestInsertItem.all[0])
+        XCTAssertEqual(poster.batches.count, 0)
+        XCTAssertEqual(controller.status, "未插入：焦點已改變")
+    }
+
+    func testTestInsertTypesWhenFocusHolds() async {
+        let (controller, poster, _, _) = testInsert(reads: [FocusFixtures.elementA])
+        await controller.run(TestInsertItem.all[0])
+        XCTAssertEqual(poster.batches.count, 1)
+        XCTAssertTrue(controller.status.hasPrefix("已插入"))
+    }
+
     // MARK: Editable classifier
 
     func testEditableRolesAreEditable() {

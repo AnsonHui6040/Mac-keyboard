@@ -12,6 +12,7 @@ struct ReceiverPanel: View {
     @ObservedObject var testInsert: TestInsertController
     @ObservedObject var loginItem: LoginItem
     @ObservedObject var security: ReceiverSecurity
+    @ObservedObject var notice: InputSourceNotice
     #if DEBUG
     @ObservedObject var burstVerifier: BurstVerifier
     #endif
@@ -39,6 +40,11 @@ struct ReceiverPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let snapshot = focus.snapshot, !snapshot.axTrusted {
                 Button("授權輔助使用") { focus.requestTrustPrompt() }
+            }
+            if let message = notice.message {
+                Text(message)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
             Text("測試插入").font(.headline)
