@@ -128,22 +128,20 @@ final class InkCanvasView: UIView {
     }
 }
 
-/// The handwriting page: the writing area on the left over the three upper key rows, a column of two keys on the right
-/// (delete above, 重寫 below). The bottom row is `BottomRowView`, shared with the other pages.
+/// The handwriting page: the writing area over the three upper key rows, the full width. Delete sits at the right end
+/// of the candidate row and 重寫 in the bottom row, so this view holds nothing else. The bottom row is `BottomRowView`,
+/// shared with the other pages.
 final class HandwritingPageView: UIView {
     /// A stroke started or ended; see `InkCanvasView`.
     var onStrokeBegan: (() -> Void)?
     var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
-    var onBackspace: (() -> Void)?
-    var onClear: (() -> Void)?
-
-    private static let sideColumnWidth: Double = 72
 
     private let canvas = InkCanvasView()
     private let messageLabel = UILabel()
-    private let deleteKey = KeyButton(style: .function, symbol: "delete.left", label: "刪除", identifier: "rk.hwDelete")
-    private let clearKey = KeyButton(style: .function, title: "重寫", label: "重寫", identifier: "rk.hwClear")
     private var message: String?
+
+    /// Whether there are strokes on the writing area; the delete key uses it to decide if a press may repeat.
+    var hasInk: Bool { canvas.hasInk }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -152,11 +150,7 @@ final class HandwritingPageView: UIView {
         messageLabel.textAlignment = .center
         messageLabel.numberOfLines = 0
         messageLabel.accessibilityIdentifier = "rk.hwMessage"
-        deleteKey.onRepeat = { [weak self] in self?.onBackspace?() }
-        // A press that clears ink or candidates must not turn into a held delete of the text behind them.
-        deleteKey.allowsRepeat = { [weak self] in !(self?.canvas.hasInk ?? false) }
-        clearKey.onTap = { [weak self] in self?.onClear?() }
-        for view in [canvas, messageLabel, deleteKey, clearKey] { addSubview(view) }
+        for view in [canvas, messageLabel] { addSubview(view) }
         canvas.onStrokeBegan = { [weak self] in
             self?.updateMessage()
             self?.onStrokeBegan?()
@@ -183,7 +177,7 @@ final class HandwritingPageView: UIView {
     #if DEBUG
     func showSampleInk() {
         let width = 160.0, height = 120.0
-        let x = 70.0, y = 14.0
+        let x = 110.0, y = 14.0
         func scaled(_ points: [(Double, Double)]) -> [CGPoint] {
             points.map { CGPoint(x: x + $0.0 * width, y: y + $0.1 * height) }
         }
@@ -213,15 +207,7 @@ final class HandwritingPageView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let gap = KeyboardMetrics.keyGap
-        let column = Self.sideColumnWidth
-        let height = bounds.height
-        let keyHeight = (height - KeyboardMetrics.rowGap) / 2
-        let canvasWidth = bounds.width - column - gap
-        canvas.frame = CGRect(x: 0, y: 0, width: canvasWidth, height: height)
+        canvas.frame = bounds
         messageLabel.frame = canvas.frame.insetBy(dx: 16, dy: 8)
-        deleteKey.frame = CGRect(x: bounds.width - column, y: 0, width: column, height: keyHeight)
-        clearKey.frame = CGRect(
-            x: bounds.width - column, y: keyHeight + KeyboardMetrics.rowGap, width: column, height: keyHeight)
     }
 }

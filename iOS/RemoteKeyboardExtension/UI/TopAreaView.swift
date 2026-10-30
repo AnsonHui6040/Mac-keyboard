@@ -70,13 +70,25 @@ final class SegmentToggle: UIControl {
 }
 
 /// The top area, two or three rows of 36 pt:
-/// row 1 mode toggle, status, transmit toggle; row 2 the draft (cursor keys, text, send); row 3 candidates.
+/// row 1 mode toggle, status, transmit toggle; row 2 the draft (cursor keys, text, send); row 3 candidates (with the
+/// delete key at the right end on the Chinese page). The stack divides its height equally, so every row is 36 pt.
 final class TopAreaView: UIView {
     var onAction: ((KeyAction) -> Void)?
     /// The user tapped the candidate at this index.
     var onSelectCandidate: ((Int) -> Void)? {
         get { candidateBar.onSelect }
         set { candidateBar.onSelect = newValue }
+    }
+
+    /// The delete key at the right end of the candidate row (Chinese page only).
+    var onBackspace: (() -> Void)? {
+        get { candidateBar.onBackspace }
+        set { candidateBar.onBackspace = newValue }
+    }
+    /// Asked at touch down: false means this delete press fires once and does not repeat.
+    var backspaceAllowsRepeat: (() -> Bool)? {
+        get { candidateBar.backspaceAllowsRepeat }
+        set { candidateBar.backspaceAllowsRepeat = newValue }
     }
 
     private let modeToggle = SegmentToggle(
@@ -134,8 +146,10 @@ final class TopAreaView: UIView {
         setSendEnabled(top.sendEnabled)
         probeLabel.text = state.probeText
         candidateBar.setCandidates(state.candidates)
-        // The small build line gives way to the candidates.
-        probeLabel.isHidden = !state.candidates.isEmpty
+        let isChinesePage = state.page == .chinese
+        candidateBar.setBackspaceVisible(isChinesePage)
+        // The small build line gives way to the candidates and, on the Chinese page, to the delete key.
+        probeLabel.isHidden = !state.candidates.isEmpty || isChinesePage
     }
 
     // MARK: Rows
