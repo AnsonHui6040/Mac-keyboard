@@ -178,6 +178,41 @@ final class DictationMirrorTests: XCTestCase {
         XCTAssertEqual(mirror.observe(before: "abc", after: "", documentId: UUID(), at: 1), .documentChanged)
     }
 
+    // MARK: Unknown document identifier (iOS answers nil in some fields)
+
+    func testNilIdentifierAfterAKnownOneIsNotAFieldChange() {
+        let id = UUID()
+        var mirror = DictationMirror()
+        _ = mirror.observe(before: "ab", after: "", documentId: id, at: 0)
+        XCTAssertEqual(mirror.observe(before: "abc", after: "", documentId: nil, at: 1), .events([.text("c")]))
+        XCTAssertEqual(mirror.counters.documentChanges, 0)
+    }
+
+    func testKnownIdentifierAfterANilOneIsNotAFieldChange() {
+        let id = UUID()
+        var mirror = DictationMirror()
+        _ = mirror.observe(before: "ab", after: "", documentId: nil, at: 0)
+        XCTAssertEqual(mirror.observe(before: "abc", after: "", documentId: id, at: 1), .events([.text("c")]))
+        XCTAssertEqual(mirror.counters.documentChanges, 0)
+    }
+
+    func testTheKnownIdentifierSurvivesANilReading() {
+        let first = UUID()
+        let second = UUID()
+        var mirror = DictationMirror()
+        _ = mirror.observe(before: "ab", after: "", documentId: first, at: 0)
+        _ = mirror.observe(before: "ab", after: "", documentId: nil, at: 1)
+        // Two real, different identifiers are still a field change.
+        XCTAssertEqual(mirror.observe(before: "xy", after: "", documentId: second, at: 2), .documentChanged)
+    }
+
+    func testNilIdentifierTwiceBehavesAsBefore() {
+        var mirror = DictationMirror()
+        _ = mirror.observe(before: "ab", after: "", documentId: nil, at: 0)
+        XCTAssertEqual(mirror.observe(before: "abc", after: "", documentId: nil, at: 1), .events([.text("c")]))
+        XCTAssertEqual(mirror.counters.documentChanges, 0)
+    }
+
     // MARK: A window that slid or jumped
 
     func testReplacingTheWholeLongWindowIsUntrusted() {
