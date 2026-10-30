@@ -10,7 +10,6 @@
 #   T10_CASE_TIMEOUT_S    per-case limit for xcodebuild (default 480)
 #   T10_NOTREADY_HOLD_S   how long the Mac stays not ready in the not-ready case (default 15)
 #   T10_LOCK_WAIT_S       how long to wait for an unlock when the iPhone is locked (default 60)
-#   T10_DISABLE_AUTOCORRECT=1  turn TextEdit's spelling autocorrect off for the run and restore it afterwards
 #
 # The script creates a new TextEdit document for each case and addresses that window by its window id only. It reads,
 # wipes and closes (without saving) only that window, and never falls back to a name. The expectations of every case
@@ -308,7 +307,6 @@ START_TS="$(date '+%Y-%m-%d %H:%M:%S')"
 ABORT=0
 LOCKED=0
 CASES_RUN=0
-AUTOCORRECT_RESTORE=""
 RUN_DIR="$OUT/run.$(date +%Y%m%d-%H%M%S).$$"
 
 # Runs AppleScript from stdin. Arguments are passed to `on run argv`.
@@ -329,15 +327,27 @@ tell application "TextEdit"
     set candidate to item k of afterIds
     if beforeIds does not contain candidate then set end of newIds to candidate
   end repeat
-  if (count of newIds) is not 1 then return "ERR"
+  if (count of newIds) is not 1 then
+    -- Close only windows that are new, empty and never saved.
+    repeat with k from 1 to count of newIds
+      try
+        set d to document of (first window whose id is (item k of newIds))
+        if (file of d) is missing value and (length of (text of d)) is 0 then close d saving no
+      end try
+    end repeat
+    return "ERR"
+  end if
   set wid to item 1 of newIds
-  if (length of (text of document of (first window whose id is wid))) is not 0 then return "ERR"
+  set d to document of (first window whose id is wid)
+  if (file of d) is not missing value then return "ERR"
+  if (length of (text of d)) is not 0 then return "ERR"
   return wid as string
 end tell
 AS
 }
 
-# Closes the test window's document without saving. Does nothing when that window no longer exists.
+# Closes the test window's document without saving. Does nothing when that window no longer exists or its document
+# has a file behind it (the test document is never saved, so a file means it is not ours any more).
 textedit_close_window() {
   [ -n "$1" ] || return 0
   osa "$1" <<'AS' >/dev/null
@@ -345,19 +355,24 @@ on run argv
   set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     try
-      close (document of (first window whose id is wid)) saving no
+      set d to document of (first window whose id is wid)
+      if (file of d) is missing value then close d saving no
     end try
   end tell
 end run
 AS
 }
 
-# Empties the test window's document. Fails (non-zero) when that window no longer exists.
+# Empties the test window's document. Fails (non-zero) when that window no longer exists or its document has a file.
 textedit_wipe() {
   osa "$1" <<'AS' >/dev/null
 on run argv
   set wid to (item 1 of argv) as integer
-  tell application "TextEdit" to set text of (document of (first window whose id is wid)) to ""
+  tell application "TextEdit"
+    set d to document of (first window whose id is wid)
+    if (file of d) is not missing value then error "the document has a file"
+    set text of d to ""
+  end tell
 end run
 AS
 }
@@ -414,12 +429,6 @@ cleanup() {
   pkill -f "poller $RUN_DIR/" 2>/dev/null
   [ -n "$XCODE_PID" ] && kill "$XCODE_PID" 2>/dev/null
   textedit_close_window "$WIN_ID"
-  case "$AUTOCORRECT_RESTORE" in
-    "") ;;
-    absent) defaults delete com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null ;;
-    true) defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool true ;;
-    false) defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false ;;
-  esac
 }
 trap cleanup EXIT
 
@@ -456,28 +465,7 @@ for tool in xcodegen xcodebuild osascript python3; do
   command -v "$tool" >/dev/null 2>&1 || { say "  $tool        NOT found"; fail_pre=1; }
 done
 
-CORRECT="$(defaults read com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null || echo unset)"
-if [ "$CORRECT" = "0" ]; then
-  say "  autocorrect      off in TextEdit"
-elif [ "${T10_DISABLE_AUTOCORRECT:-0}" = "1" ]; then
-  if defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false 2>/dev/null \
-    && [ "$(defaults read com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null)" = "0" ]; then
-    case "$CORRECT" in
-      unset) AUTOCORRECT_RESTORE=absent ;;
-      0|false|NO|no) AUTOCORRECT_RESTORE=false ;;
-      *) AUTOCORRECT_RESTORE=true ;;
-    esac
-    say "  autocorrect      switched off for this run (was: $CORRECT), restored on exit"
-  else
-    AUTOCORRECT_RESTORE=""
-    say "  autocorrect      COULD NOT be changed (TextEdit's sandboxed container refused the write); it is still '$CORRECT'."
-    say "                   Turn off Edit > Spelling and Grammar > Correct Spelling Automatically by hand."
-  fi
-else
-  say "  autocorrect      TextEdit value is '$CORRECT'; spelling autocorrect can change typed words."
-  say "                   Turn off Edit > Spelling and Grammar > Correct Spelling Automatically,"
-  say "                   or run with T10_DISABLE_AUTOCORRECT=1"
-fi
+say "  若 TextEdit 開啟『自動修正拼字』，最終文字可能被改寫；請在 TextEdit 的 編輯 > 拼字與文法 中關閉"
 say "  the first run may ask for Automation / Accessibility permission for the app running this script"
 say "  Receiver idle timeout is 30 minutes; press 開始接收 again if a long run stalls"
 
@@ -524,10 +512,17 @@ case_list() {
   fi
 }
 
+# True while the xcodebuild log shows the device-locked message and no test has started.
+device_locked_in_log() {
+  grep -qE "Unlock .* to Continue" "$XLOG" 2>/dev/null && ! grep -qE "Test [Cc]ase .* started" "$XLOG" 2>/dev/null
+}
+
 # Waits for xcodebuild to finish, but not longer than the case limit. A locked iPhone shows up in the xcodebuild log
-# as "Unlock ... to Continue": say so once, wait up to 60 s for the unlock, then stop and mark the case as locked.
+# as "Unlock ... to Continue": say so once, wait up to T10_LOCK_WAIT_S for the unlock (the timer restarts whenever the
+# message is gone or a test has started), then stop xcodebuild. If xcodebuild ends on its own with that message and
+# no test started, the case is also "iPhone locked".
 wait_for_xcode() {
-  local deadline=$(( $(date +%s) + CASE_TIMEOUT_S )) lock_since=0
+  local deadline=$(( $(date +%s) + CASE_TIMEOUT_S )) lock_since=0 told=0
   LOCKED=0
   while kill -0 "$XCODE_PID" 2>/dev/null; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
@@ -537,24 +532,27 @@ wait_for_xcode() {
       kill -9 "$XCODE_PID" 2>/dev/null
       break
     fi
-    if [ "$LOCKED" -eq 0 ] && grep -qE "Unlock .* to Continue|deviceprep.*Code=-3" "$XLOG" 2>/dev/null \
-      && ! grep -qE "Test [Cc]ase .* started" "$XLOG" 2>/dev/null; then
-      if [ "$lock_since" -eq 0 ]; then
+    if device_locked_in_log; then
+      if [ "$told" -eq 0 ]; then
         say "  請解鎖 iPhone (waiting up to ${LOCK_WAIT_S} s)"
-        lock_since=$(date +%s)
-      elif [ $(( $(date +%s) - lock_since )) -ge "$LOCK_WAIT_S" ]; then
+        told=1
+      fi
+      [ "$lock_since" -eq 0 ] && lock_since=$(date +%s)
+      if [ $(( $(date +%s) - lock_since )) -ge "$LOCK_WAIT_S" ]; then
         say "  iPhone still locked: stopping xcodebuild"
-        LOCKED=1
         kill "$XCODE_PID" 2>/dev/null
         sleep 2
         kill -9 "$XCODE_PID" 2>/dev/null
         break
       fi
+    else
+      lock_since=0
     fi
     sleep 1
   done
   wait "$XCODE_PID" 2>/dev/null
   XCODE_RC=$?
+  if device_locked_in_log; then LOCKED=1; fi
 }
 
 # Not-ready case: wait for the pulse letter, wipe it, take the focus away, give it back later.
@@ -736,22 +734,20 @@ if [ "$CASES_RUN" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------------------------------------------
-# Receiver log: none of the typed test strings may appear (E2E step 40, Mac side)
+# Receiver log: none of the typed test strings may appear (E2E step 40, Mac side). Every executed case that expects
+# Mac text must also have an "event kind=" line in its own time window.
 # ---------------------------------------------------------------------------------------------------------------
 say "== Receiver log (E2E step 40, Mac side)"
 LOGFILE="$RUN_DIR/receiver.log"
 if /usr/bin/log show --start "$START_TS" --info --debug \
   --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' >"$LOGFILE" 2>"$RUN_DIR/receiver.log.err"; then
   LINES="$(wc -l <"$LOGFILE" | tr -d ' ')"
-  EVENTS="$(grep -c "event kind=" "$LOGFILE")"
   PATTERNS=()
   while IFS= read -r str; do PATTERNS+=(-e "$str"); done < <(py strings)
   HITS="$(grep -w -F "${PATTERNS[@]}" "$LOGFILE" | wc -l | tr -d ' ')"
-  if [ "$LINES" -eq 0 ] || [ "$EVENTS" -eq 0 ]; then
-    say "  FAIL: the log window holds $LINES lines and $EVENTS 'event kind=' lines, so it proves nothing"
-    record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$LINES lines, $EVENTS event lines: nothing to check"
-    OVERALL=1
-  elif [ "$HITS" -eq 0 ]; then
+  # Event lines are required only for executed cases that expect Mac text (py events); a run of empty-rule cases
+  # only needs a readable log, even an empty one.
+  if [ "$HITS" -eq 0 ]; then
     WINDOWS="$RUN_DIR/windows.tsv"
     [ -f "$WINDOWS" ] || : >"$WINDOWS"
     EV="$(py events "$LOGFILE" "$WINDOWS" 2>&1)"

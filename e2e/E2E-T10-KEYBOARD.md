@@ -29,7 +29,7 @@
 3. 備忘錄已關閉，或停在備忘錄清單。測試只會新增自己的備忘錄，且只點新備忘錄的空白內文；本機模式打的字會在案例結束前刪除。
 4. 一次性設定：若 UI 測試的簽名需要，先在 Xcode 選擇 iPhone 為目的地，執行 Product > Build For Testing 一次。
 5. 執行腳本的 App（例如 Terminal）要允許控制 TextEdit 與 System Events（系統設定 > 隱私權與安全性 > 自動操作、輔助使用）。
-6. TextEdit 的「自動修正拼字」要關閉，否則輸入的字可能被改寫；也可以加上 `T10_DISABLE_AUTOCORRECT=1`，腳本會在執行期間關閉並於結束時還原。
+6. 若 TextEdit 開啟「自動修正拼字」，最終文字可能被改寫；請在 TextEdit 的 編輯 > 拼字與文法 中關閉。腳本無法替沙盒中的 TextEdit 更改或確認這個設定，只會在最終文字不符時提示。
 7. 步驟 31 與步驟 32、33 已由使用者延後到 T16 手動測試，預設不執行。`testDraftCap` 目前一律略過（填滿草稿的掛鉤在 XCUITest 的長按下不會觸發），步驟 31 改由人工長按空白 2 秒完成；`testFieldKinds` 仍可指定名稱執行。
 8. 若某個本機模式案例失敗，備忘錄裡可能留下一則測試用的備忘錄，請手動刪除。`testFieldKinds` 會在 Safari 目前的分頁開啟一個 `data:` 網址。
 
@@ -44,7 +44,7 @@ e2e/scripts/t10-device-run.sh --list               # 列出案例與 Mac 端預�
 
 腳本每個案例都新建一份 TextEdit 文件並讓它取得焦點，同時每 0.3 秒記錄文件內容，案例結束後比對預期。每次執行的紀錄放在 `$T10_OUT/run.<時間>.<行程編號>/`（預設 `/tmp/t10-device-run`），摘要寫入該資料夾的 `summary.csv`，並複製一份到 `$T10_OUT/summary.csv`。腳本以視窗編號鎖定自己新建的 TextEdit 視窗，只對該視窗讀取、清空與關閉（不儲存）；該視窗不存在時什麼都不做，不會改用名稱去找其他文件。每個案例開始前會確認 TextEdit 在最前面且最前面的視窗就是它自己的，否則該案例判為失敗。
 
-判定規則：略過（skip）除了 `testFieldKinds` 與 `testDraftCap` 以外一律算失敗；XCUITest 必須出現該案例的 passed 行且實際執行 1 個測試才算通過；Mac 端讀取 TextEdit 時只要出現讀不到、取樣間隔超過 3 秒或紀錄沒有正常結束，就判失敗；Receiver 紀錄為空或沒有任何 `event kind=` 行也判失敗，因為這樣的紀錄什麼都證明不了。
+判定規則：略過（skip）除了 `testFieldKinds` 與 `testDraftCap` 以外一律算失敗；XCUITest 必須出現該案例的 passed 行且實際執行 1 個測試才算通過；Mac 端讀取 TextEdit 時只要出現讀不到、取樣間隔超過 3 秒或紀錄沒有正常結束，就判失敗；每個有執行且預期 Mac 收到文字的案例，在它自己的時間範圍內必須有 `event kind=` 行，否則 Receiver 紀錄判失敗；只跑預期為空的案例時，紀錄能讀取即可。若 iPhone 鎖定，xcodebuild 紀錄會出現 `Unlock … to Continue`，腳本顯示「請解鎖 iPhone」並等待，環境變數 `T10_LOCK_WAIT_S`（預設 60 秒）內仍未解鎖就停止，該案例判為「iPhone locked」失敗，其餘案例不再執行。
 
 | 步驟 | 方式 | 說明 | 結果 |
 |---|---|---|---|
