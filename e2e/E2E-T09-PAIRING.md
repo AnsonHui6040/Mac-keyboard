@@ -168,6 +168,18 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 結果：TBD
 
+### 9. 鍵盤開著時 iPhone 藍牙關閉再開啟
+1. 已配對、Mac 在接收中；在 TextEdit 用遠端模式打 `a`，確認出現。
+2. 鍵盤保持在畫面上，從控制中心關閉 iPhone 藍牙，等 5 秒再開啟。
+3. 等狀態列回到 `Mac → TextEdit (N ms)` 後打 `b`。
+
+| 項目 | 預期 | 結果 |
+|---|---|---|
+| 重新連線 | 30 秒內狀態列回到 `Mac → TextEdit (N ms)`，Mac 面板沒有顯示驗證失敗 | TBD |
+| 之後可打字 | TextEdit 出現 `b` | TBD |
+
+結果：TBD
+
 ## 總結
 
 | 步驟 | 結果 |
@@ -181,6 +193,7 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 | 6 Mac log 無敏感內容 | TBD |
 | 7 iPhone 端 log 無敏感內容 | TBD |
 | 8 鍵盤開著時配對只發佈一份服務 | TBD |
+| 9 藍牙關閉再開啟後自動重連 | TBD |
 
 ### 備註
 - 同一台手機被判定驗證失敗之後，Mac 在這一次接收時段內不會再連它；按「停止接收」再「開始接收」，或按「配對新 iPhone」會重新開始。

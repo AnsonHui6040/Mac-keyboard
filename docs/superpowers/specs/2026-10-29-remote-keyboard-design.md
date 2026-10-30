@@ -92,6 +92,7 @@
 - 事件：`TEXT(UTF-8 committed string)`、`BACKSPACE(1)`、`RETURN`、`MOVE_CURSOR`（非 MVP）、`PING`；每事件有 `sessionId`、`seq`、`focusEpoch`、`eventId`。握手要版本與 capability negotiation；驗證字節長度、chunk 重組、UTF-8 有效性及 framing。
 - Mac AX 每次 commit 前查詢前台程序和 focused editable UI element；沒有焦點、失去權限、焦點世代更換時 fail closed；不把舊輸入重播至新 App。remote mode 有使用者明確開關，狀態標識清楚。
 - 透過 BLE 加密權限及應用層 challenge-response/Keychain secret 雙重驗證；禁止僅以 device name/BLE identifier 認定已配對 Mac；敏感文字不寫入一般診斷 log。
+- T09 實作（主代理 2026-10-30 裁定）：以應用層加密取代 BLE characteristic 加密權限（避免系統配對對話框拖慢重連）。配對採 ECDH P256 加公鑰承諾（iPhone 先送公鑰雜湊，Mac 回公鑰後 iPhone 才公開）與 6 位數比對碼，兩端各自按確認才儲存；每次連線雙向 challenge-response 後，事件（iPhone → Mac）與 ACK／狀態（Mac → iPhone）分別以方向不同的 session key 經 ChaChaPoly 加密。
 - 配對路徑：首選由主 App 配對，經 App Group／Keychain sharing 交給 Extension。若 T01 實測 Personal Team 無法使用 App Group，改為在鍵盤內輸入 Mac 顯示的 6 位配對碼，配對秘密存於 Extension 自身的 Keychain，主 App 只負責教學與診斷。
 - Mac 輸入法：注入前若目前輸入法不是 ABC，以 TIS API 切換至 ABC，注入後切回原輸入法。若焦點元素的 `AXTextInputMarkedTextMarkerRange` 顯示正在組字，先在原輸入法下送 Escape 取消組字（刪除未完成文字），確認組字已清除才切換；仍在組字則 fail closed 拒收。App 不支援此屬性時視為未組字，照常切換，未完成文字可能被提交。切換後再驗證一次，仍不是 ABC 則 fail closed 拒收。需測試切換未生效即注入、連續事件之間反覆切換的 race。
 - `CGEventKeyboardSetUnicodeString` 單一事件有長度上限，Receiver 須自行切段注入，目前每段 20 UTF-16；輸入法切回前等待 0.05 秒（可用 `rk.settleSeconds` 調整）。實際上限與注音狀態下的 settle 值延至 T16 實測後寫入本節（使用者 2026-10-30 決定）。
