@@ -28,6 +28,7 @@ final class SegmentToggle: UIControl {
         highlight.layer.shadowOffset = CGSize(width: 0, height: 0.5)
         addSubview(highlight)
         labels.forEach(addSubview)
+        addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
         isAccessibilityElement = true
         accessibilityIdentifier = identifier
         accessibilityLabel = accessibilityName
@@ -174,6 +175,7 @@ final class TopAreaView: UIView {
         sendButton.layer.cornerRadius = 6
         sendButton.accessibilityIdentifier = "rk.send"
         sendButton.accessibilityLabel = "傳送草稿"
+        sendButton.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
         sendButton.addAction(UIAction { [weak self] _ in self?.onAction?(.sendDraft) }, for: .touchUpInside)
         setSendEnabled(false)
 

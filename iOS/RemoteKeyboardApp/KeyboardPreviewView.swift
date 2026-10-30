@@ -66,7 +66,7 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
                 mode: mode, transmit: transmit, page: page,
                 top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false),
                 draft: draft, statusText: status, linkName: link, probeText: "AppGroup: OK  版本 預覽",
-                showsGlobe: true, chineseAvailable: false)
+                showsGlobe: true, chineseAvailable: false, hapticsEnabled: false)
         }
         func draft(_ text: String, cursorBack: Int = 0) -> DraftBuffer {
             var buffer = DraftBuffer()
