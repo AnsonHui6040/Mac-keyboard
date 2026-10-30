@@ -19,7 +19,8 @@ targets:
   RemoteKeyboardApp:
     type: application
     platform: iOS
-    sources: [iOS/RemoteKeyboardApp, iOS/Shared]
+    # The keyboard's UI views are compiled here too, so the debug preview can show them without the extension.
+    sources: [iOS/RemoteKeyboardApp, iOS/Shared, iOS/RemoteKeyboardExtension/UI]
     dependencies:
       - target: RemoteKeyboardExtension
         embed: true

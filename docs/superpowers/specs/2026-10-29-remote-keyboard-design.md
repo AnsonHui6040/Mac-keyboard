@@ -46,6 +46,7 @@
   - 重開鍵盤回到上次的中文或英文頁；欄位類型為 email、URL 時開在英文頁，數字類欄位開在符號頁。
   - 速成輸入碼最多兩碼，第三碼不接受；字碼表為繁體中文表，表內收錄的字皆可選，不另分台灣與香港字形。
   - 手寫頁版面與鍵盤總高度在 T12 開工前以示意圖交使用者選擇；T10 可視頂部三行需要調高鍵盤。
+  - T10 尺寸：頂部每行 36 pt；按鍵區 4 行，每行 46 pt、行距 10 pt，上下共留 8 pt。鍵盤總高 = 按鍵區 222 pt + 可見頂部行數 × 36 pt，即本機或即時（兩行）294 pt、顯示草稿列（三行）330 pt；候選字列在 T12 前為空白占位。
 - 優先 BLE 自訂 GATT（D11）：iPhone Keyboard Extension 為 Peripheral／GATT Server，鍵盤顯示期間廣播並以 notify 送出事件；Mac Receiver 為 Central／GATT Client，執行期間持續掃描並自動連入，以 write 回傳 ACK 與 Receiver 狀態。Mac 使用 AX 聚焦與 CGEvent Unicode 注入。LAN WebSocket 為後備（D8），目前不實作。**不以 BLE HID 作主路徑**。
 - iPhone 主 App：安裝教學、Full Access 提示、初次配對、管理配對 Mac、顯示診斷及語音方案說明；設定頁選擇中文輸入法（目前為「手寫」或「速成」單選，D15）。主 App **不假設**能長期代 Extension 維持 BLE 連線；Remote 傳輸由 Extension 自己的 Peripheral 負責。
 

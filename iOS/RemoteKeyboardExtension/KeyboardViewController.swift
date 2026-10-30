@@ -11,13 +11,23 @@ struct TextDocumentProxySink: @preconcurrency TextSink {
 
 final class KeyboardViewController: UIInputViewController {
     static let modeDefaultsKey = "rk.mode"
+    static let pageDefaultsKey = "rk.page"
+    static let transmitDefaultsKey = "rk.transmit"
     private static let noteSeconds: Double = 2
+    /// There is no Chinese page yet; `中英` stays disabled until one exists.
+    private static let chineseAvailable = false
 
-    private var keyboardView: MinimalKeyboardView?
+    private var rootView: KeyboardRootView?
+    private var heightConstraint: NSLayoutConstraint?
     private let peripheral = KeyboardBLEPeripheral.shared
     /// Counts this controller and releases peripheral ownership when it is deallocated.
     private let lifecycle = ControllerLifecycle()
+    private lazy var router = InputRouter(local: TextDocumentProxySink(proxy: textDocumentProxy), remote: peripheral)
     private var savedMode: KeyboardMode = .local
+    private var transmit: TransmitMode = .instant
+    private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: KeyboardViewController.chineseAvailable)
+    /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
+    private var draft = DraftBuffer()
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
     private var note: String?
     private var noteTask: Task<Void, Never>?
@@ -26,56 +36,48 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
     private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
+    private var isReady: Bool { peripheral.isRemoteReady(for: lifecycle.token) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        savedMode = ModeResolver.saved(rawValue: UserDefaults.standard.string(forKey: Self.modeDefaultsKey))
+        let defaults = UserDefaults.standard
+        savedMode = ModeResolver.saved(rawValue: defaults.string(forKey: Self.modeDefaultsKey))
+        transmit = TransmitMode.stored(rawValue: defaults.string(forKey: Self.transmitDefaultsKey))
+        updateNavigator()
 
-        let router = KeyboardActionRouter(
-            local: TextDocumentProxySink(proxy: textDocumentProxy),
-            remote: peripheral,
-            isRemoteReady: { [weak self] in
-                guard let self else { return false }
-                return self.peripheral.isRemoteReady(for: self.lifecycle.token)
-            }
-        )
-        let view = MinimalKeyboardView(
-            showsGlobeKey: needsInputModeSwitchKey,
-            probeText: Self.probeStatusText()
-        )
-        view.onAction = { [weak self] action in
-            guard let self else { return }
-            self.reclaimPeripheralIfVacant()
-            self.handle(router.route(action, mode: self.mode))
-        }
+        let root = KeyboardRootView()
+        root.onAction = { [weak self] action in self?.perform(action) ?? false }
         #if DEBUG
-        view.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
+        root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         #endif
-        view.globeButton.addTarget(
+        root.globeButton.addTarget(
             self,
             action: #selector(handleInputModeList(from:with:)),
             for: .allTouchEvents
         )
 
-        view.translatesAutoresizingMaskIntoConstraints = false
-        self.view.addSubview(view)
+        root.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(root)
+        let height = view.heightAnchor.constraint(equalToConstant: root.preferredHeight)
+        // Below required, so the system's own sizing constraint on the input view never breaks.
+        height.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
-            view.leadingAnchor.constraint(equalTo: self.view.leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: self.view.trailingAnchor),
-            view.topAnchor.constraint(equalTo: self.view.topAnchor),
-            view.bottomAnchor.constraint(equalTo: self.view.bottomAnchor)
+            height,
+            root.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            root.topAnchor.constraint(equalTo: view.topAnchor),
+            root.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-        keyboardView = view
-        view.setMode(mode)
+        rootView = root
+        heightConstraint = height
         refreshStatus()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
-        keyboardView?.setProbeText(Self.probeStatusText())
+        updateNavigator()
         claimPeripheral()
-        keyboardView?.setMode(mode)
         refreshStatus()
     }
 
@@ -92,7 +94,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     override func viewWillLayoutSubviews() {
-        keyboardView?.setGlobeVisible(needsInputModeSwitchKey)
+        rootView?.setGlobeVisible(needsInputModeSwitchKey)
         super.viewWillLayoutSubviews()
     }
 
@@ -118,7 +120,7 @@ final class KeyboardViewController: UIInputViewController {
     /// T07 check: one `TEXT` of 3,000 characters (6,000 UTF-8 bytes) in a single message, many frames.
     private func sendDebugLongText() {
         reclaimPeripheralIfVacant()
-        guard mode == .remote, peripheral.isRemoteReady(for: lifecycle.token) else {
+        guard mode == .remote, isReady else {
             showNote("Mac 尚未就緒，未輸入")
             return
         }
@@ -126,19 +128,57 @@ final class KeyboardViewController: UIInputViewController {
     }
     #endif
 
-    // MARK: Routing results
+    // MARK: Pages
 
-    private func handle(_ outcome: RouteOutcome) {
+    /// Starts from the saved letter page; the field type may override it (email and URL open English, numbers open symbols).
+    private func updateNavigator() {
+        let last = KeyboardPage.stored(rawValue: UserDefaults.standard.string(forKey: Self.pageDefaultsKey))
+        navigator = PageNavigator(lastPage: last, field: fieldKind(), chineseAvailable: Self.chineseAvailable)
+    }
+
+    private func fieldKind() -> FieldKind {
+        switch textDocumentProxy.keyboardType ?? .default {
+        case .emailAddress, .URL, .webSearch: .emailOrURL
+        case .numberPad, .decimalPad, .numbersAndPunctuation, .asciiCapableNumberPad: .number
+        default: .text
+        }
+    }
+
+    // MARK: Keys
+
+    /// Returns whether the key was taken: `false` when the draft was full or the key was refused.
+    @discardableResult
+    private func perform(_ action: KeyAction) -> Bool {
+        reclaimPeripheralIfVacant()
+        let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+        handle(outcome, for: action)
+        return outcome != .draftFull && outcome != .rejected
+    }
+
+    private func handle(_ outcome: RouteOutcome, for action: KeyAction) {
         switch outcome {
         case .modeToggled(let requested):
             // Persist what actually took effect, so a refused Remote (no Full Access) is not remembered as Remote.
             let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
             savedMode = applied
             UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
-            keyboardView?.setMode(applied)
             showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)
+        case .transmitToggled(let requested):
+            transmit = requested
+            UserDefaults.standard.set(requested.rawValue, forKey: Self.transmitDefaultsKey)
+            refreshStatus()
+        case .pageChanged:
+            if action == .switchSymbols { navigator.switchSymbols() } else { navigator.switchChineseEnglish() }
+            UserDefaults.standard.set(navigator.persistablePage.storageValue, forKey: Self.pageDefaultsKey)
+            refreshStatus()
+        case .draftFull:
+            showNote("草稿已達 1,000 字上限")
         case .rejected:
-            showNote("Mac 尚未就緒，未輸入")
+            // A draft key pressed in Local mode does nothing and says nothing; so does 傳送 on an empty draft
+            // while the Mac is ready (the button is grey then anyway).
+            if mode == .remote, !isReady { showNote("Mac 尚未就緒，未輸入") }
+        case .draftEdited, .draftSent:
+            refreshStatus()
         case .insertedLocally, .enqueuedRemote, .advanceInputMode:
             break
         }
@@ -150,14 +190,29 @@ final class KeyboardViewController: UIInputViewController {
         refreshStatus()
     }
 
-    // MARK: Status line
+    // MARK: View state
 
     private func refreshStatus() {
+        guard let rootView else { return }
         let link = peripheral.linkState
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
             paired: peripheral.isPaired)
-        keyboardView?.setStatus(text: StatusLine.appendingNote(line, note: note), linkName: link.name)
+        let state = KeyboardViewState(
+            mode: mode,
+            transmit: transmit,
+            page: navigator.page,
+            top: TopAreaState(
+                mode: mode, transmit: transmit, ready: isReady, draftEmpty: draft.isEmpty, hasNote: note != nil),
+            draft: draft,
+            statusText: StatusLine.appendingNote(line, note: note),
+            linkName: link.name,
+            probeText: Self.probeStatusText(),
+            showsGlobe: needsInputModeSwitchKey,
+            chineseAvailable: Self.chineseAvailable)
+        rootView.apply(state)
+        let height = rootView.preferredHeight
+        if heightConstraint?.constant != height { heightConstraint?.constant = height }
     }
 
     private func showNote(_ text: String?) {
@@ -174,7 +229,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private static func probeStatusText() -> String {
-        let value = UserDefaults(suiteName: "group.com.ansonhui.remotekeyboard")?.object(forKey: "probe")
+        let value = UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.probe)
         let group = value == nil ? "AppGroup: NIL" : "AppGroup: OK"
         return "\(group)  版本 \(BuildStamp.current())"
     }
