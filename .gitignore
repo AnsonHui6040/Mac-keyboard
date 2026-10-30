@@ -3,6 +3,7 @@
 # Xcode（project 由 XcodeGen 產生，project.yml 才是來源）
 *.xcodeproj
 *.xcworkspace
+Pods/
 xcuserdata/
 DerivedData/
 build/

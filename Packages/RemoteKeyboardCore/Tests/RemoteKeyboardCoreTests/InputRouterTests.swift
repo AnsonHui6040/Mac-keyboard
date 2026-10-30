@@ -19,6 +19,25 @@ final class InputRouterTests: XCTestCase {
         return (InputRouter(local: local, remote: remote), local, remote)
     }
 
+    func testCommitInRemoteDraftGoesToDraft() {
+        var draft = DraftBuffer()
+        let (router, local, remote) = makeRouter()
+        // A handwriting commit is routed as a typed character.
+        XCTAssertEqual(router.route(.character("香"), mode: .remote, transmit: .draft, ready: true, draft: &draft), .draftEdited)
+        XCTAssertEqual(draft.text, "香")
+        XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testCommitInRemoteInstantSendsTextAndLocalInsertsIntoField() {
+        var draft = DraftBuffer()
+        let (router, local, remote) = makeRouter()
+        XCTAssertEqual(router.route(.character("港"), mode: .remote, transmit: .instant, ready: true, draft: &draft), .enqueuedRemote)
+        XCTAssertEqual(remote.events, [.text("港")])
+        XCTAssertEqual(router.route(.character("你"), mode: .local, transmit: .instant, ready: true, draft: &draft), .insertedLocally)
+        XCTAssertEqual(local.inserted, ["你"])
+        XCTAssertTrue(draft.isEmpty)
+    }
+
     func testBackspaceEditsDraftWhileDraftNotEmptyInInstant() {
         var draft = DraftBuffer(); _ = draft.insert("香港")
         let (router, _, remote) = makeRouter()

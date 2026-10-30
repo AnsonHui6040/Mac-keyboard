@@ -11,5 +11,7 @@ public enum AppGroup {
     public enum Key {
         /// Time stamp written by the host App so the Extension can check that the suite is shared.
         public static let probe = "probe"
+        /// The Chinese input method the host App chose (`ChineseInputMethodID` raw value).
+        public static let chineseMethod = "rk.chineseMethod"
     }
 }

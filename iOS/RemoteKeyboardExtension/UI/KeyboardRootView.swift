@@ -15,6 +15,10 @@ struct KeyboardViewState: Equatable {
     var probeText: String
     var showsGlobe: Bool
     var chineseAvailable: Bool
+    /// Handwriting candidates for the candidate row; empty outside the Chinese page.
+    var candidates: [String] = []
+    /// Shown over the writing area instead of letting the user write (the model is missing or still importing).
+    var handwritingMessage: String?
     /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
     var hapticsEnabled: Bool
 }
@@ -23,6 +27,12 @@ struct KeyboardViewState: Equatable {
 final class KeyboardRootView: UIView {
     /// Returns whether the key was taken; a refused key (full draft) does not use up a one-shot Shift.
     var onAction: ((KeyAction) -> Bool)?
+    /// Handwriting: a stroke started, a stroke ended (all strokes and the canvas size), a candidate was tapped,
+    /// 重寫 was tapped.
+    var onStrokeBegan: (() -> Void)?
+    var onStrokesEnded: (([[CGPoint]], CGSize) -> Void)?
+    var onSelectCandidate: ((Int) -> Void)?
+    var onClearInk: (() -> Void)?
     #if DEBUG
     var onDebugLongReturn: (() -> Void)? {
         get { bottomRow.onDebugLongReturn }
@@ -42,6 +52,7 @@ final class KeyboardRootView: UIView {
     private let topArea = TopAreaView()
     private let english = EnglishPageView()
     private let symbols = SymbolsPageView()
+    private let handwriting = HandwritingPageView()
     private let bottomRow = BottomRowView()
     private var shift = ShiftState()
     private var topRows = 2
@@ -49,7 +60,7 @@ final class KeyboardRootView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        for view in [topArea, english, symbols, bottomRow] { addSubview(view) }
+        for view in [topArea, english, symbols, handwriting, bottomRow] { addSubview(view) }
 
         topArea.onAction = { [weak self] in _ = self?.onAction?($0) }
         bottomRow.onAction = { [weak self] in _ = self?.onAction?($0) }
@@ -58,6 +69,12 @@ final class KeyboardRootView: UIView {
         english.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
         symbols.onSymbol = { [weak self] text in _ = self?.onAction?(.character(text)) }
         symbols.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        topArea.onSelectCandidate = { [weak self] in self?.onSelectCandidate?($0) }
+        handwriting.onStrokeBegan = { [weak self] in self?.onStrokeBegan?() }
+        handwriting.onStrokesEnded = { [weak self] strokes, size in self?.onStrokesEnded?(strokes, size) }
+        handwriting.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        handwriting.onClear = { [weak self] in self?.onClearInk?() }
+        handwriting.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -69,14 +86,16 @@ final class KeyboardRootView: UIView {
         bottomRow.setGlobeVisible(state.showsGlobe)
         bottomRow.setChineseAvailable(state.chineseAvailable)
         bottomRow.setPage(state.page)
-        // The Chinese page arrives in a later task; until then its place is taken by the English letters.
-        if case .symbols = state.page {
-            english.isHidden = true
-            symbols.isHidden = false
-        } else {
-            english.isHidden = false
-            symbols.isHidden = true
+        let isSymbols: Bool, isChinese: Bool
+        switch state.page {
+        case .symbols: (isSymbols, isChinese) = (true, false)
+        case .chinese: (isSymbols, isChinese) = (false, true)
+        case .english: (isSymbols, isChinese) = (false, false)
         }
+        english.isHidden = isSymbols || isChinese
+        symbols.isHidden = !isSymbols
+        handwriting.isHidden = !isChinese
+        handwriting.setMessage(state.handwritingMessage)
         let rows = state.top.visibleRowCount
         if rows != topRows {
             topRows = rows
@@ -89,6 +108,18 @@ final class KeyboardRootView: UIView {
     func setGlobeVisible(_ visible: Bool) {
         bottomRow.setGlobeVisible(visible)
     }
+
+    /// Drops the handwriting ink (after a commit, 重寫, or leaving the Chinese page).
+    func clearInk() {
+        handwriting.clearInk()
+    }
+
+    #if DEBUG
+    /// Debug preview only: draws a sample character on the writing area.
+    func showSampleInk() {
+        handwriting.showSampleInk()
+    }
+    #endif
 
     /// Debug preview only: shows a Shift state without any taps.
     func setShift(_ mode: ShiftState.Mode) {
@@ -131,6 +162,7 @@ final class KeyboardRootView: UIView {
         let pageFrame = CGRect(x: side, y: keysTop, width: width - 2 * side, height: letterHeight)
         english.frame = pageFrame
         symbols.frame = pageFrame
+        handwriting.frame = pageFrame
         bottomRow.frame = CGRect(
             x: side, y: keysTop + letterHeight + KeyboardMetrics.rowGap,
             width: width - 2 * side, height: KeyboardMetrics.keyRowHeight)

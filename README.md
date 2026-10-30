@@ -14,6 +14,18 @@ iPhone 第三方鍵盤 Extension，透過自訂 BLE GATT 將英文、符號、�
 
 最後更新：2026-10-30
 
+## 建置
+
+```
+xcodegen generate && LANG=en_US.UTF-8 pod install
+xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'generic/platform=iOS' -allowProvisioningUpdates -quiet
+xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' CODE_SIGNING_ALLOWED=NO -quiet
+xcodebuild test -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS,arch=arm64' -allowProvisioningUpdates -quiet
+swift test --package-path Packages/RemoteKeyboardCore
+```
+
+手寫使用 Google ML Kit（CocoaPods）。ML Kit 沒有 arm64 模擬器版本，`Podfile` 讓 App 與 Extension 只在真機連結它；模擬器 build 使用替身辨識器，手寫在模擬器不會產生候選字。
+
 ## 文件
 
 | 文件 | 路徑 |
