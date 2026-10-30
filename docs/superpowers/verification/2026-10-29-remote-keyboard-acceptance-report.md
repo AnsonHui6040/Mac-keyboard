@@ -1,6 +1,6 @@
 # Remote Keyboard 實作驗收報告（模板／目前結果）
 
-**版本：** v1.0 | **最後更新：** 2026-10-29 | **本次工程測試狀態：6/16 PASS（T01–T06，M1 Gate 通過），其餘 NOT_STARTED**
+**版本：** v1.0 | **最後更新：** 2026-10-30 | **本次工程測試狀態：6/17 PASS（T01–T06，M1 Gate 通過；v1.3 新增 T12b），其餘 NOT_STARTED**
 
 > **證據規則：**只有實際執行測試、保存完整輸出並核對結果後才可填 PASS；文獻研究不算 PASS。不可事後推測 log 或填虛構時間。
 
@@ -8,7 +8,7 @@
 
 | 指標 | 結果 |
 |---|---|
-| Product spec | v1.1 APPROVED 2026-10-29（含設計決定 D1–D10） |
+| Product spec | v1.3 APPROVED 2026-10-30（含設計決定 D1–D17） |
 | Research/source review | 深度研究已有報告；未執行 code 實測 |
 | Xcode build | iOS Simulator 與 macOS build 成功（commit c78b6ea，2026-10-29） |
 | `swift test` | 6 tests，0 failures（commit c78b6ea） |
@@ -28,8 +28,9 @@
 | O4 | Keyboard Extension 內 CoreBluetooth 權限與 Full Access 組合 | T03a | T03a | PASS（授權＋Full Access → advertising；無 Full Access → no-full-access；拒絕授權 → unavailable；四格 Local 正常、無 crash） |
 | O5 | `CGEventKeyboardSetUnicodeString` 單一事件長度上限 | T04 | T16 | 延後：使用者 2026-10-30 決定於最後測試（T16）以選單「O5 長度測試」量測；目前以每段 20 UTF-16 切段 |
 | O6 | XCUITest 能否在真機切換到第三方鍵盤（D9） | T06 | T06 | PASS（真機讀到鍵盤 `rk.status`；需先在 Xcode 圖形介面 Build For Testing 一次建立描述檔；iPhone 為繁體中文，按鍵以中英文名稱比對） |
-| O7 | `PKStrokeRecognizer` API 名稱、最低系統版本與繁體中文支援，以 Apple 官方文件核實 | T12 前查證 | T12 | NOT_STARTED |
+| O7 | 手寫辨識引擎：先測 Apple 原生（PencilKit 公開 API、Vision `zh-Hant` 辨識筆跡圖），未過 Gate 才測 Google ML Kit Digital Ink；Gate：記憶體留 20% 餘量、延遲 P95 ≤ 500 ms、20 字首選 ≥ 18（使用者 2026-10-30 決定次序） | T12 Step 1 | T12 | NOT_STARTED |
 | O8 | Keyboard Extension 以 `retrieveConnectedPeripherals(withServices:)` 能否取得已連線的 Mac；取不到時掃描路徑能否完成連線 | T03 | T03 | FAIL → 改採 D11；Mac 掃描連入 iPhone 鍵盤 PASS（T03b） |
+| O9 | 速成字碼表來源授權可隨 App 散布，授權檔附於 App | T12b Step 0 | T12b | NOT_STARTED |
 
 ## 任務逐項驗收狀態
 
@@ -46,13 +47,14 @@
 | T09 | 配對身份認證、隱私與 Local/Remote 模式 | NOT_STARTED | 未配對設備/錯 token/撤銷配對不能注入；模式清晰、Remote 關閉不送 Mac | 尚未測試 | — |
 | T10 | 原生風格英文 QWERTY 操作 | NOT_STARTED | 操作表 40/40、iPhone 尺寸 UI 不重疊 | 尚未測試 | — |
 | T11 | 數字 123／符號 #+= 兩頁 | NOT_STARTED | 全部鍵位 mapping unit tests 100%，不因切換頁重覆注入 | 尚未測試 | — |
-| T12 | 繁體中文手寫與候選字 | NOT_STARTED | 指定 100 字測例 top-3 >=90%，25 字混合詞語輸入無殘留，extension 30 次切換無 OOM | 尚未測試 | — |
+| T12 | 中文輸入法介面、設定頁與繁體中文手寫 | NOT_STARTED | 指定 100 字測例 top-3 >=90%，25 字混合詞語輸入無殘留，extension 30 次切換無 OOM | 尚未測試 | — |
+| T12b | 速成 | NOT_STARTED | 50 個常用字本機與遠端皆正確；無 Full Access 時中文頁為速成可打字；字碼表授權已記錄（O9） | 尚未測試 | — |
 | T13 | 語音聽寫獨立可行性 Gate | NOT_STARTED | 100 句中英語音及修正 100% 正確到 Mac 且 API 合規 | 尚未測試 | — |
 | T14 | 跨 App 相容性、Mac 焦點安全矩陣 | NOT_STARTED | 容許欄位、已建立遠端模式輸入無錯焦；blocked 欄位正確回退 | 尚未測試 | — |
 | T15 | 穩定性、權限、Wi-Fi 降級驗證 | NOT_STARTED | 無授權/無焦點永遠 fail closed，任一失敗可提示及恢復；Wi-Fi 測試有權限和身份驗證 | 尚未測試 | — |
 | T16 | Release Candidate QA、文件與分發審核 | NOT_STARTED | 全部必需 Gate 通過且帶 log/截圖/測試版本，無 blocker | 尚未測試 | — |
 
-## 每項驗收記錄格式（複製一份填 T01–T16）
+## 每項驗收記錄格式（複製一份填 T01–T16、T12b）
 
 ```text
 CASE ID: T__
