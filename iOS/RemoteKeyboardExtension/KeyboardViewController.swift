@@ -144,7 +144,8 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func received(_ message: ControlMessage) {
-        if case .ack(let ack) = message { showNote(StatusLine.ackText(ack.result)) }
+        // A probe's answer has no wording, so it leaves the status line alone.
+        if case .ack(let ack) = message, let text = StatusLine.ackText(ack.result) { showNote(text) }
         refreshStatus()
     }
 

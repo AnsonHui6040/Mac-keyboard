@@ -18,9 +18,14 @@ final class DiagnosticEventTests: XCTestCase {
         XCTAssertEqual(DiagnosticEvent.centralSubscribed(maxUpdateLength: 182), .centralSubscribed(maxUpdateLength: 182))
     }
 
+    func testUnconfirmedDiagnosticIsACountOnly() {
+        XCTAssertEqual(String(describing: DiagnosticEvent.keysUnconfirmed(count: 3)), "keysUnconfirmed(count: 3)")
+    }
+
     func testAckCodeRawValues() {
-        let raw = [AckCode.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed].map(\.rawValue)
-        XCTAssertEqual(raw, ["posted", "notAuthorized", "noFocus", "staleFocus", "switchFailed", "malformed"])
+        let raw = [AckCode.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .injectFailed, .pong, .outOfOrder].map(\.rawValue)
+        XCTAssertEqual(raw, ["posted", "notAuthorized", "noFocus", "staleFocus", "switchFailed", "malformed",
+                             "injectFailed", "pong", "outOfOrder"])
     }
 
     func testLinkUUIDsAreDistinctValidAndDifferFromReceiverService() {

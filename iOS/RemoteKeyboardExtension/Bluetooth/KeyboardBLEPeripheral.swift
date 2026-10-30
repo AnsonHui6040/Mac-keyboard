@@ -33,8 +33,8 @@ final class KeyboardBLEPeripheral: NSObject {
     private var messageId: UInt16 = 0
 
     // Send path. All of this belongs to one keyboard appearance and is reset when it starts or ends.
-    private var sessionId = UUID()
-    private var seq: UInt64 = 0
+    /// Builds each event (session id, seq, epoch) and counts the keys the Receiver has not answered yet.
+    private var sender = EventSender(sessionId: UUID())
     private var queue = NotifyQueue()
     private var subscribedCentral: CBCentral?
     private(set) var latestStatus: ReceiverStatus?
@@ -113,10 +113,9 @@ final class KeyboardBLEPeripheral: NSObject {
         disappear(owner: owner)
     }
 
-    /// A fresh id, seq from 1 and nothing queued.
+    /// A fresh id, seq from 1, nothing queued and nothing awaiting an ack.
     private func startSession() {
-        sessionId = UUID()
-        seq = 0
+        sender = EventSender(sessionId: UUID())
         queue.removeAll()
     }
 
@@ -142,10 +141,7 @@ final class KeyboardBLEPeripheral: NSObject {
     @discardableResult
     func send(_ kind: EventKind) -> UUID? {
         guard let central = subscribedCentral else { return nil }
-        let eventId = UUID()
-        let event = KeyboardEvent(
-            protocolVersion: KeyboardEvent.currentVersion, eventId: eventId, sessionId: sessionId,
-            seq: seq + 1, focusEpoch: kind.carriesFocusEpoch ? latestStatus?.focusEpoch : nil, kind: kind)
+        let event = sender.make(kind, focusEpoch: latestStatus?.focusEpoch)
         let frames: [Data]
         do {
             let message = try PeripheralCodec.encode(.event(event))
@@ -153,6 +149,7 @@ final class KeyboardBLEPeripheral: NSObject {
             frames = try FrameCodec.split(message, messageId: messageId, maxFrameBytes: central.maximumUpdateValueLength)
         } catch {
             // The router already accepted this key, so say what happened instead of dropping it silently.
+            sender.unsent(event)
             let tooLarge: Bool
             switch error {
             case EventCodecError.tooLarge, is FrameError: tooLarge = true
@@ -164,7 +161,6 @@ final class KeyboardBLEPeripheral: NSObject {
             onNote?(tooLarge ? "事件過大，未送出" : "事件編碼失敗，未送出")
             return nil
         }
-        seq += 1
         messageId &+= 1
         // All frames of one message go into the FIFO together, so another key can never interleave with them.
         for frame in frames { queue.enqueue(frame) }
@@ -172,7 +168,7 @@ final class KeyboardBLEPeripheral: NSObject {
             DiagnosticEvent.keySent(kind: key, utf8Length: length).log()
         }
         drain()
-        return eventId
+        return event.eventId
     }
 
     /// One `.ping` per appearance, after the link connected and the first ReceiverStatus arrived (the Receiver refuses
@@ -209,8 +205,19 @@ final class KeyboardBLEPeripheral: NSObject {
         for effect in effects { perform(effect) }
         // Recorded on the transition into connected only, before the status line is refreshed.
         tracker.linkChanged(from: before, to: machine.state, atMs: MonotonicClock.nowMs())
+        if before == .connected, machine.state != .connected { reportLinkLost() }
         if machine.state != before || input == .disappeared { onStateChange?(machine.state) }
         sendPingIfDue()
+    }
+
+    /// The connection ended (unsubscribed, Bluetooth off, or the keyboard went away). Keys without an ack are not
+    /// resent into a later connection, so the user is told how many may not have arrived.
+    private func reportLinkLost() {
+        queue.removeAll()
+        let unconfirmed = sender.linkLost()
+        guard unconfirmed > 0 else { return }
+        DiagnosticEvent.keysUnconfirmed(count: unconfirmed).log()
+        onNote?(StatusLine.unconfirmedText(unconfirmed))
     }
 
     private func perform(_ effect: KeyboardLinkEffect) {
@@ -318,6 +325,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             latestStatus = status
         case .ack(let ack):
             DiagnosticEvent.ackReceived(ack.result).log()
+            sender.acknowledged(ack)
             // The probe's own ack is not a typed key, so it never reaches the status line as "Mac 已輸入".
             if ack.eventId == pingEventId {
                 pingEventId = nil

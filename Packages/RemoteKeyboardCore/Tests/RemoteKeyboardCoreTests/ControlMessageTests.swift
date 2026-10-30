@@ -13,7 +13,8 @@ final class ControlMessageTests: XCTestCase {
     }
 
     func testAckRoundTripForEveryCode() throws {
-        let codes: [AckCode] = [.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .compositionActive]
+        let codes: [AckCode] = [.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .compositionActive,
+                                .injectFailed, .pong, .outOfOrder]
         for code in codes {
             let m = ControlMessage.ack(Ack(eventId: UUID(), result: code))
             XCTAssertEqual(try ControlCodec.decode(ControlCodec.encode(m)), m)

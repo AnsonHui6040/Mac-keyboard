@@ -36,11 +36,9 @@ struct MacReceiverApp: App {
             noteValidEvent: { [weak central] in central?.noteEvent() },
             onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) }
         )
-        let coordinator = ReceiverCoordinator(focus: focus, central: central)
+        let coordinator = ReceiverCoordinator(focus: focus, central: central, pipeline: pipeline)
         if !Self.isRunningUnitTests {
             loginItem.applyDefaultIfNeeded()
-            central.eventHandler = { [pipeline] data in pipeline.submit(data) }
-            central.onLinkLost = { [pipeline] in pipeline.discardQueued() }
             coordinator.start()
             focus.start()
         }

@@ -36,16 +36,24 @@ final class ReceiverCoordinator: ObservableObject {
     private var last: FocusSnapshot?
 
     private let focus: FocusMonitor
+    private let pipeline: EventPipeline?
 
     /// Does not hook anything up; call `start()` for the live wiring.
-    init(focus: FocusMonitor, central: ReceiverBLECentral) {
+    /// - Parameter pipeline: receives every complete message from the central. Nil leaves the central's event handler alone.
+    init(focus: FocusMonitor, central: ReceiverBLECentral, pipeline: EventPipeline? = nil) {
         self.focus = focus
         self.central = central
+        self.pipeline = pipeline
     }
 
     func start() {
         focus.onChange = { [weak self] snapshot in self?.focusChanged(snapshot) }
         central.onLinkReady = { [weak self] in self?.sendStatus() }
+        if let pipeline {
+            central.eventHandler = { [pipeline] data in pipeline.submit(data) }
+            // Queued keys of a lost link are dropped; what the pipeline has already processed stays remembered.
+            central.onLinkLost = { [pipeline] in pipeline.discardQueued() }
+        }
     }
 
     func focusChanged(_ next: FocusSnapshot) {
