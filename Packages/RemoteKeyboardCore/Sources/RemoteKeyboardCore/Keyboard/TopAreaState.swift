@@ -39,6 +39,8 @@ public enum KeyboardMetrics {
     /// Space left and right of the key rows, and between two keys in a row.
     public static let keyAreaSideInset: Double = 3
     public static let keyGap: Double = 6
+    /// The handwriting page is this much taller than the English and symbols pages (user decision 2026-10-30).
+    public static let handwritingExtraHeight: Double = 60
 
     public static var keyAreaHeight: Double {
         Double(keyRowCount) * keyRowHeight + Double(keyRowCount - 1) * rowGap + 2 * keyAreaVerticalInset
@@ -46,5 +48,10 @@ public enum KeyboardMetrics {
 
     public static func height(visibleTopRows: Int) -> Double {
         Double(visibleTopRows) * topRowHeight + keyAreaHeight
+    }
+
+    /// Total keyboard height; the handwriting page adds `handwritingExtraHeight`.
+    public static func height(visibleTopRows: Int, handwriting: Bool) -> Double {
+        height(visibleTopRows: visibleTopRows) + (handwriting ? handwritingExtraHeight : 0)
     }
 }
