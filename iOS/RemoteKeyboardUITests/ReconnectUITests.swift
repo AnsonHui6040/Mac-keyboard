@@ -4,7 +4,9 @@ import XCTest
 /// T06 reconnect gate, driven from outside the keyboard process.
 ///
 /// Run on a physical iPhone only, with the Mac Receiver already armed (press 開始接收 on the Mac first) and
-/// "Remote Keyboard" already selected as the current keyboard.
+/// "Remote Keyboard" already selected as the current keyboard, Full Access on and the Mac paired. The keyboard's mode
+/// does not matter: the warm-up taps the `rk.mode` toggle once if the keyboard is in Local mode, and the saved
+/// Remote mode then holds for every counted reopen (the status line, `rk.status`, is hidden in Local mode).
 ///
 /// Gate evidence is the attached `reconnect-ui.csv`. The gate metric is keyboard visible to connected
 /// (`keyboardToConnectedMs`, P95 at most 2000 ms, and at least 99 of 100 reopens connected). It starts at the first
@@ -15,7 +17,7 @@ import XCTest
 ///
 /// Before running, start with Notes closed or sitting on the notes list. The test creates one new note for itself
 /// and taps only inside that note's body; it never touches an existing note. In Safari it taps only the address bar,
-/// never page content. The test types nothing: a tap is only what makes the keyboard appear.
+/// never page content. The test types nothing: a tap is only what makes the keyboard appear (plus the one mode-toggle tap above).
 ///
 /// A warm-up (not counted) checks that the keyboard is reachable and selects it. The counted reopens start after it.
 /// Whatever was measured is attached to the result even when the test fails part way.
@@ -25,6 +27,9 @@ final class ReconnectUITests: XCTestCase {
     private static let safariID = "com.apple.mobilesafari"
     private static let apps = [notesID, safariID]
     private static let statusIdentifier = "rk.status"
+    private static let modeIdentifier = "rk.mode"
+    /// The `rk.mode` toggle's accessibility value while the keyboard is in Local mode.
+    private static let localModeValue = "本機"
     private static let connectTimeoutSeconds = 10.0
     private static let defaultCount = 100
 
@@ -170,17 +175,25 @@ final class ReconnectUITests: XCTestCase {
         }
         body.tap()
 
-        let status = statusElement(in: notes)
-        var found = status.waitForExistence(timeout: Self.connectTimeoutSeconds)
+        // The status line is hidden in Local mode, so reachability is judged by the mode toggle, which is always there.
+        let mode = notes.descendants(matching: .any).matching(identifier: Self.modeIdentifier).firstMatch
+        var found = mode.waitForExistence(timeout: Self.connectTimeoutSeconds)
         var tries = 0
         while !found && tries < 6 {
             tries += 1
             let next = notes.keyboards.buttons["Next keyboard"]
             guard next.exists else { break }
             next.tap()
-            found = status.waitForExistence(timeout: 2)
+            found = mode.waitForExistence(timeout: 2)
         }
         guard found else { throw XCTSkip("O6: third-party keyboard not reachable") }
+        // The saved mode persists across reopens, so one tap here puts every counted reopen in Remote mode.
+        if (mode.value as? String) == Self.localModeValue { mode.tap() }
+        let status = statusElement(in: notes)
+        guard status.waitForExistence(timeout: Self.connectTimeoutSeconds) else {
+            XCTFail("rk.status did not appear in Remote mode (is Full Access on?)")
+            return
+        }
         guard waitForConnected(status, shownAt: Self.nowMs()) != nil else {
             XCTFail("warm-up never connected")
             return

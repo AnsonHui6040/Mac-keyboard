@@ -127,6 +127,15 @@ final class DraftBufferTests: XCTestCase {
         }
     }
 
+    func testASegmentOfExactlyTheByteLimitIsOneEventBeforeTheLineBreak() {
+        var draft = DraftBuffer()
+        // 666 three-byte characters plus two ASCII ones: 2,000 bytes in 668 characters, under the 1,000 character cap.
+        let exact = String(repeating: "一", count: 666) + "ab"
+        XCTAssertEqual(exact.utf8.count, 2_000)
+        XCTAssertTrue(draft.insert(exact + "\nrest"))
+        XCTAssertEqual(draft.takeEvents(), [.text(exact), .returnKey, .text("rest")])
+    }
+
     func testTextAroundTheCursor() {
         var draft = DraftBuffer()
         _ = draft.insert("香港你好")

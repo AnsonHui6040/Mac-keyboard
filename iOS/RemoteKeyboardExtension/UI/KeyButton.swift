@@ -63,10 +63,13 @@ final class KeyButton: UIButton {
     }
 
     override var isEnabled: Bool {
-        didSet {
-            alpha = isEnabled ? 1 : 0.45
-            updateBackground()
-        }
+        didSet { updateBackground() }
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        // The keyboard can go away mid-press (no touch-up arrives), so a held key must not keep repeating.
+        if newWindow == nil { stopRepeating() }
     }
 
     private func updateBackground() {

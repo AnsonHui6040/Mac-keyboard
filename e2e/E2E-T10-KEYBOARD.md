@@ -11,7 +11,7 @@
 - 每顆鍵都有台灣中文的無障礙標籤。
 - 診斷紀錄不含任何輸入文字。
 
-自動驗證（不需真機）：`swift test`（`DraftBufferTests`、`InputRouterTests`、`PageNavigatorTests`、`TopAreaStateTests`、`ShiftStateTests`、`KeyboardActionRouterTests`）與模擬器預覽截圖（390 pt、375 pt；見 `evidence/T10-*.png`）。這份文件只驗證自動驗證碰不到的部分：真的鍵盤行程、真的藍牙、觸控與長按手感、VoiceOver。
+自動驗證（不需真機）：`swift test`（`DraftBufferTests`、`InputRouterTests`、`PageNavigatorTests`、`TopAreaStateTests`、`ShiftStateTests`、`KeyboardActionRouterTests`）與模擬器預覽截圖（402 pt、375 pt；見 `evidence/T10-*.png`）。這份文件只驗證自動驗證碰不到的部分：真的鍵盤行程、真的藍牙、觸控與長按手感、VoiceOver。
 
 ## 前置條件
 

@@ -46,7 +46,7 @@ final class KeyboardViewController: UIInputViewController {
         updateNavigator()
 
         let root = KeyboardRootView()
-        root.onAction = { [weak self] action in self?.perform(action) }
+        root.onAction = { [weak self] action in self?.perform(action) ?? false }
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         #endif
@@ -146,10 +146,13 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: Keys
 
-    private func perform(_ action: KeyAction) {
+    /// Returns whether the key was taken: `false` when the draft was full or the key was refused.
+    @discardableResult
+    private func perform(_ action: KeyAction) -> Bool {
         reclaimPeripheralIfVacant()
         let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
         handle(outcome, for: action)
+        return outcome != .draftFull && outcome != .rejected
     }
 
     private func handle(_ outcome: RouteOutcome, for action: KeyAction) {
@@ -171,8 +174,9 @@ final class KeyboardViewController: UIInputViewController {
         case .draftFull:
             showNote("草稿已達 1,000 字上限")
         case .rejected:
-            // A draft key pressed in Local mode does nothing and says nothing.
-            if mode == .remote { showNote("Mac 尚未就緒，未輸入") }
+            // A draft key pressed in Local mode does nothing and says nothing; so does 傳送 on an empty draft
+            // while the Mac is ready (the button is grey then anyway).
+            if mode == .remote, !isReady { showNote("Mac 尚未就緒，未輸入") }
         case .draftEdited, .draftSent:
             refreshStatus()
         case .insertedLocally, .enqueuedRemote, .advanceInputMode:

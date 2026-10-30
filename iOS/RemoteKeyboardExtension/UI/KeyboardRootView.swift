@@ -19,7 +19,8 @@ struct KeyboardViewState: Equatable {
 
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
 final class KeyboardRootView: UIView {
-    var onAction: ((KeyAction) -> Void)?
+    /// Returns whether the key was taken; a refused key (full draft) does not use up a one-shot Shift.
+    var onAction: ((KeyAction) -> Bool)?
     #if DEBUG
     var onDebugLongReturn: (() -> Void)? {
         get { bottomRow.onDebugLongReturn }
@@ -44,13 +45,13 @@ final class KeyboardRootView: UIView {
         backgroundColor = .clear
         for view in [topArea, english, symbols, bottomRow] { addSubview(view) }
 
-        topArea.onAction = { [weak self] in self?.onAction?($0) }
-        bottomRow.onAction = { [weak self] in self?.onAction?($0) }
+        topArea.onAction = { [weak self] in _ = self?.onAction?($0) }
+        bottomRow.onAction = { [weak self] in _ = self?.onAction?($0) }
         english.onLetter = { [weak self] text in self?.typeLetter(text) }
         english.onShift = { [weak self] in self?.tapShift() }
-        english.onBackspace = { [weak self] in self?.onAction?(.backspace) }
-        symbols.onSymbol = { [weak self] text in self?.onAction?(.character(text)) }
-        symbols.onBackspace = { [weak self] in self?.onAction?(.backspace) }
+        english.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        symbols.onSymbol = { [weak self] text in _ = self?.onAction?(.character(text)) }
+        symbols.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -104,7 +105,7 @@ final class KeyboardRootView: UIView {
     }
 
     private func typeLetter(_ text: String) {
-        onAction?(.character(text))
+        guard onAction?(.character(text)) ?? false else { return }
         shift.characterTyped()
         english.setShift(shift.mode)
     }

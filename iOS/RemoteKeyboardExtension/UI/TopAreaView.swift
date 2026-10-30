@@ -68,7 +68,7 @@ final class SegmentToggle: UIControl {
     }
 }
 
-/// The top area, one to three rows of 36 pt:
+/// The top area, two or three rows of 36 pt:
 /// row 1 mode toggle, status, transmit toggle; row 2 the draft (cursor keys, text, send); row 3 candidates.
 final class TopAreaView: UIView {
     var onAction: ((KeyAction) -> Void)?
