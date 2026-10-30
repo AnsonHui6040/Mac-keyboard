@@ -30,7 +30,7 @@
 4. 一次性設定：若 UI 測試的簽名需要，先在 Xcode 選擇 iPhone 為目的地，執行 Product > Build For Testing 一次。
 5. 執行腳本的 App（例如 Terminal）要允許控制 TextEdit 與 System Events（系統設定 > 隱私權與安全性 > 自動操作、輔助使用）。
 6. TextEdit 的「自動修正拼字」要關閉，否則輸入的字可能被改寫；也可以加上 `T10_DISABLE_AUTOCORRECT=1`，腳本會在執行期間關閉並於結束時還原。
-7. 步驟 31 與步驟 32、33 已由使用者延後到 T16 手動測試，預設不執行（`testDraftCap`、`testFieldKinds` 仍可指定名稱執行）。
+7. 步驟 31 與步驟 32、33 已由使用者延後到 T16 手動測試，預設不執行。`testDraftCap` 目前一律略過（填滿草稿的掛鉤在 XCUITest 的長按下不會觸發），步驟 31 改由人工長按空白 2 秒完成；`testFieldKinds` 仍可指定名稱執行。
 8. 若某個本機模式案例失敗，備忘錄裡可能留下一則測試用的備忘錄，請手動刪除。`testFieldKinds` 會在 Safari 目前的分頁開啟一個 `data:` 網址。
 
 指令：

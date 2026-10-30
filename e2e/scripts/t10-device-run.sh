@@ -9,6 +9,7 @@
 #   T10_OUT               scratch directory (default /tmp/t10-device-run); each run writes into run.<time>.<pid> inside it
 #   T10_CASE_TIMEOUT_S    per-case limit for xcodebuild (default 480)
 #   T10_NOTREADY_HOLD_S   how long the Mac stays not ready in the not-ready case (default 15)
+#   T10_LOCK_WAIT_S       how long to wait for an unlock when the iPhone is locked (default 60)
 #   T10_DISABLE_AUTOCORRECT=1  turn TextEdit's spelling autocorrect off for the run and restore it afterwards
 #
 # The script creates a new TextEdit document for each case and addresses that window by its window id only. It reads,
@@ -25,6 +26,7 @@ OUT="${T10_OUT:-/tmp/t10-device-run}"
 DERIVED="$OUT/derived"
 CASE_TIMEOUT_S="${T10_CASE_TIMEOUT_S:-480}"
 NOTREADY_HOLD_S="${T10_NOTREADY_HOLD_S:-15}"
+LOCK_WAIT_S="${T10_LOCK_WAIT_S:-60}"
 DRAIN_S=3
 SCHEME=RemoteKeyboardApp
 TEST_CLASS=RemoteKeyboardUITests/KeyboardT10UITests
@@ -193,6 +195,32 @@ def check(case, hist_path, marks):
     return True, "final %r" % final
 
 
+def log_events(log_path, windows_path):
+    """Every case that expects text on the Mac needs at least one `event kind=` line in its own time window.
+    windows_path holds `case<TAB>start<TAB>end` (epoch seconds) for each case that was not skipped."""
+    import datetime
+    stamps = []
+    for line in open(log_path, encoding="utf-8", errors="replace"):
+        if "event kind=" not in line:
+            continue
+        try:
+            stamps.append(datetime.datetime.strptime(line[:31].strip(), "%Y-%m-%d %H:%M:%S.%f%z").timestamp())
+        except ValueError:
+            continue
+    missing, checked = [], 0
+    for line in open(windows_path, encoding="utf-8"):
+        name, start, end = line.rstrip("\n").split("\t")
+        spec = next((c for c in CASES if c[0] == name), None)
+        if spec is None or spec[2] not in ("final", "delete", "notready"):
+            continue
+        checked += 1
+        if not any(float(start) - 1 <= t <= float(end) + 1 for t in stamps):
+            missing.append(name)
+    if missing:
+        return False, "no 'event kind=' line in the log during: " + ", ".join(missing)
+    return True, "%d event lines, every case that expects Mac text has some (%d cases)" % (len(stamps), checked)
+
+
 def poller(out, window_id, limit_s):
     """Samples the text of the test window (by window id, never by name) every 0.3 s. Every sample is written.
     Stops on SIGTERM, when the parent is gone (ppid 1) or after limit_s seconds."""
@@ -221,6 +249,9 @@ def main(argv):
         for name, steps, _, p in CASES:
             if cmd == "listall" or p.get("default", True):
                 print("%s\t%s" % (name, steps))
+    elif cmd == "events":
+        ok, detail = log_events(argv[2], argv[3])
+        print(("PASS" if ok else "FAIL") + "\t" + detail)
     elif cmd == "skipok":
         print("\n".join(name for name, _, _, p in CASES if p.get("skip_ok")))
     elif cmd == "describe":
@@ -253,6 +284,16 @@ if [ "$LIST_ONLY" -eq 1 ]; then
   exit 0
 fi
 
+if [ "${#SELECTED[@]}" -gt 0 ]; then
+  KNOWN="$(py listall | cut -f1)"
+  for wanted in "${SELECTED[@]}"; do
+    if ! printf '%s\n' "$KNOWN" | grep -qx "$wanted"; then
+      echo "unknown case: $wanted (see --list)" >&2
+      exit 2
+    fi
+  done
+fi
+
 # ---------------------------------------------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------------------------------------------
@@ -263,20 +304,35 @@ WIN_ID=""
 POLLER_PID=""
 XCODE_PID=""
 STARTED_AT="$(date +%s)"
+START_TS="$(date '+%Y-%m-%d %H:%M:%S')"
+ABORT=0
+LOCKED=0
+CASES_RUN=0
 AUTOCORRECT_RESTORE=""
 RUN_DIR="$OUT/run.$(date +%Y%m%d-%H%M%S).$$"
 
 # Runs AppleScript from stdin. Arguments are passed to `on run argv`.
 osa() { osascript - "$@" 2>/dev/null; }
 
-# New document; prints the id of its window. The window id is the only handle used from here on.
+# New document; prints the id of its window, or ERR. The id is found by identity: the window ids before and after
+# `make new document` must differ by exactly one, and that window's document must be empty.
 textedit_new_window() {
   osa <<'AS'
 tell application "TextEdit"
   activate
+  set beforeIds to id of every window
   make new document
   delay 0.5
-  return id of front window
+  set afterIds to id of every window
+  set newIds to {}
+  repeat with k from 1 to count of afterIds
+    set candidate to item k of afterIds
+    if beforeIds does not contain candidate then set end of newIds to candidate
+  end repeat
+  if (count of newIds) is not 1 then return "ERR"
+  set wid to item 1 of newIds
+  if (length of (text of document of (first window whose id is wid))) is not 0 then return "ERR"
+  return wid as string
 end tell
 AS
 }
@@ -404,13 +460,19 @@ CORRECT="$(defaults read com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled
 if [ "$CORRECT" = "0" ]; then
   say "  autocorrect      off in TextEdit"
 elif [ "${T10_DISABLE_AUTOCORRECT:-0}" = "1" ]; then
-  case "$CORRECT" in
-    unset) AUTOCORRECT_RESTORE=absent ;;
-    0|false|NO|no) AUTOCORRECT_RESTORE=false ;;
-    *) AUTOCORRECT_RESTORE=true ;;
-  esac
-  defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false
-  say "  autocorrect      switched off for this run (was: $CORRECT), restored on exit"
+  if defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false 2>/dev/null \
+    && [ "$(defaults read com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null)" = "0" ]; then
+    case "$CORRECT" in
+      unset) AUTOCORRECT_RESTORE=absent ;;
+      0|false|NO|no) AUTOCORRECT_RESTORE=false ;;
+      *) AUTOCORRECT_RESTORE=true ;;
+    esac
+    say "  autocorrect      switched off for this run (was: $CORRECT), restored on exit"
+  else
+    AUTOCORRECT_RESTORE=""
+    say "  autocorrect      COULD NOT be changed (TextEdit's sandboxed container refused the write); it is still '$CORRECT'."
+    say "                   Turn off Edit > Spelling and Grammar > Correct Spelling Automatically by hand."
+  fi
 else
   say "  autocorrect      TextEdit value is '$CORRECT'; spelling autocorrect can change typed words."
   say "                   Turn off Edit > Spelling and Grammar > Correct Spelling Automatically,"
@@ -462,9 +524,11 @@ case_list() {
   fi
 }
 
-# Waits for xcodebuild to finish, but not longer than the case limit.
+# Waits for xcodebuild to finish, but not longer than the case limit. A locked iPhone shows up in the xcodebuild log
+# as "Unlock ... to Continue": say so once, wait up to 60 s for the unlock, then stop and mark the case as locked.
 wait_for_xcode() {
-  local deadline=$(( $(date +%s) + CASE_TIMEOUT_S ))
+  local deadline=$(( $(date +%s) + CASE_TIMEOUT_S )) lock_since=0
+  LOCKED=0
   while kill -0 "$XCODE_PID" 2>/dev/null; do
     if [ "$(date +%s)" -ge "$deadline" ]; then
       say "  timeout: stopping xcodebuild"
@@ -472,6 +536,20 @@ wait_for_xcode() {
       sleep 2
       kill -9 "$XCODE_PID" 2>/dev/null
       break
+    fi
+    if [ "$LOCKED" -eq 0 ] && grep -qE "Unlock .* to Continue|deviceprep.*Code=-3" "$XLOG" 2>/dev/null \
+      && ! grep -qE "Test [Cc]ase .* started" "$XLOG" 2>/dev/null; then
+      if [ "$lock_since" -eq 0 ]; then
+        say "  請解鎖 iPhone (waiting up to ${LOCK_WAIT_S} s)"
+        lock_since=$(date +%s)
+      elif [ $(( $(date +%s) - lock_since )) -ge "$LOCK_WAIT_S" ]; then
+        say "  iPhone still locked: stopping xcodebuild"
+        LOCKED=1
+        kill "$XCODE_PID" 2>/dev/null
+        sleep 2
+        kill -9 "$XCODE_PID" 2>/dev/null
+        break
+      fi
     fi
     sleep 1
   done
@@ -524,6 +602,7 @@ record() { # case steps xcuitest mac details
 run_case() {
   local case_name="$1" steps="$2"
   local hist="$RUN_DIR/$case_name.history" xlog="$RUN_DIR/$case_name.xcodebuild.log"
+  XLOG="$xlog"
   T_WIPE=""
   T_REFOCUS=""
   FRONT_FAIL=""
@@ -531,7 +610,7 @@ run_case() {
 
   WIN_ID="$(textedit_new_window)"
   if ! [[ "$WIN_ID" =~ ^[0-9]+$ ]]; then
-    say "  could not create a TextEdit document (got '$WIN_ID')"
+    say "  could not create a TextEdit document with a new, empty window (got '$WIN_ID')"
     record "$case_name" "$steps" "NOT RUN" "FAIL" "no TextEdit document"
     OVERALL=1
     WIN_ID=""
@@ -571,12 +650,25 @@ run_case() {
   XCODE_PID=""
   local t_end
   t_end="$(now)"
+  if [ "$(textedit_front_ok "$WIN_ID")" != "ok" ]; then
+    FRONT_FAIL="${FRONT_FAIL:+$FRONT_FAIL; }test window no longer frontmost when the case ended"
+  fi
   sleep "$DRAIN_S"
   kill -TERM "$POLLER_PID" 2>/dev/null
   wait "$POLLER_PID" 2>/dev/null
   POLLER_PID=""
 
   local xr mac verdict detail marks
+  CASES_RUN=$((CASES_RUN + 1))
+  if [ "$LOCKED" -eq 1 ]; then
+    say "  iPhone locked"
+    record "$case_name" "$steps" "FAIL" "n/a" "iPhone locked (unlock it and run again); remaining cases aborted"
+    OVERALL=1
+    ABORT=1
+    textedit_close_window "$WIN_ID"
+    WIN_ID=""
+    return
+  fi
   xr="$(xcuitest_result "$xlog" "$case_name")"
   marks="$(printf '{"t_start": %s, "t_end": %s, "t_wipe": %s, "t_refocus": %s}' \
     "$t_start" "$t_end" "${T_WIPE:-null}" "${T_REFOCUS:-null}")"
@@ -592,9 +684,14 @@ run_case() {
     mac="n/a"
     detail="skipped by the test: $(grep -E "skipped|XCTSkip" "$xlog" | head -1 | cut -c1-160)"
   else
-    verdict="$(py check "$case_name" "$hist" "$marks")"
+    verdict="$(py check "$case_name" "$hist" "$marks" 2>&1)"
     mac="${verdict%%$'\t'*}"
     detail="${verdict#*$'\t'}"
+    # A checker that crashed or printed nothing must not read as a pass.
+    if [ "$mac" != "PASS" ] && [ "$mac" != "FAIL" ]; then
+      detail="checker produced no verdict: $(printf '%s' "$verdict" | tail -1 | cut -c1-200)"
+      mac="FAIL"
+    fi
   fi
   if [ -n "$FRONT_FAIL" ]; then
     mac="FAIL"
@@ -614,7 +711,11 @@ run_case() {
   fi
   say "  xcuitest $xr, mac $mac: $detail"
   record "$case_name" "$steps" "$xr" "$mac" "$detail"
-  if [ "$xr" = "FAIL" ] || [ "$mac" = "FAIL" ]; then OVERALL=1; fi
+  # Anything but PASS (or n/a for a skip by design or a launch error, which already fail through xcuitest) fails.
+  if [ "$xr" = "FAIL" ] || { [ "$mac" != "PASS" ] && [ "$mac" != "n/a" ]; }; then OVERALL=1; fi
+  if [[ "$xr" != SKIP* ]] && [ -z "$launch_err" ]; then
+    printf '%s\t%s\t%s\n' "$case_name" "$t_start" "$(now)" >>"$RUN_DIR/windows.tsv"
+  fi
 
   textedit_close_window "$WIN_ID"
   WIN_ID=""
@@ -623,15 +724,23 @@ run_case() {
 while IFS=$'\t' read -r case_name steps <&3; do
   [ -n "$case_name" ] || continue
   run_case "$case_name" "$steps"
+  if [ "$ABORT" -eq 1 ]; then
+    say "== Aborting: the remaining cases were not run"
+    break
+  fi
 done 3< <(case_list)
+if [ "$CASES_RUN" -eq 0 ]; then
+  say "== No case ran"
+  record "(none)" "-" "NOT RUN" "FAIL" "no case was run"
+  OVERALL=1
+fi
 
 # ---------------------------------------------------------------------------------------------------------------
 # Receiver log: none of the typed test strings may appear (E2E step 40, Mac side)
 # ---------------------------------------------------------------------------------------------------------------
 say "== Receiver log (E2E step 40, Mac side)"
-MINUTES=$(( ( $(date +%s) - STARTED_AT ) / 60 + 2 ))
 LOGFILE="$RUN_DIR/receiver.log"
-if /usr/bin/log show --last "${MINUTES}m" --info --debug \
+if /usr/bin/log show --start "$START_TS" --info --debug \
   --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' >"$LOGFILE" 2>"$RUN_DIR/receiver.log.err"; then
   LINES="$(wc -l <"$LOGFILE" | tr -d ' ')"
   EVENTS="$(grep -c "event kind=" "$LOGFILE")"
@@ -643,8 +752,17 @@ if /usr/bin/log show --last "${MINUTES}m" --info --debug \
     record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$LINES lines, $EVENTS event lines: nothing to check"
     OVERALL=1
   elif [ "$HITS" -eq 0 ]; then
-    say "  PASS: $LINES log lines ($EVENTS event lines) from the last ${MINUTES} min, no test string in them"
-    record "Receiver log" "40 (Mac side)" "n/a" "PASS" "$LINES lines, $EVENTS event lines, no test string"
+    WINDOWS="$RUN_DIR/windows.tsv"
+    [ -f "$WINDOWS" ] || : >"$WINDOWS"
+    EV="$(py events "$LOGFILE" "$WINDOWS" 2>&1)"
+    if [ "${EV%%$'\t'*}" = "PASS" ]; then
+      say "  PASS: $LINES log lines since $START_TS, no test string in them; ${EV#*$'\t'}"
+      record "Receiver log" "40 (Mac side)" "n/a" "PASS" "$LINES lines, no test string; ${EV#*$'\t'}"
+    else
+      say "  FAIL: ${EV#*$'\t'}"
+      record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "${EV#*$'\t'}"
+      OVERALL=1
+    fi
   else
     say "  FAIL: $HITS log lines contain a test string (see $LOGFILE)"
     record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$HITS lines contain a test string"
