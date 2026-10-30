@@ -30,10 +30,10 @@
 - 部署下限：iOS 18.0、macOS 15.0。
 - Bundle ID：`com.ansonhui.remotekeyboard`（host App）、`com.ansonhui.remotekeyboard.keyboard`（Extension）、`com.ansonhui.remotekeyboard.receiver`（Mac）。App Group：`group.com.ansonhui.remotekeyboard`。
 - 簽名：Personal Team（D2）。Mac Receiver 也用 Personal Team 的 Apple Development 憑證簽名，避免每次重 build 後 Bluetooth／Accessibility 授權失效。
-- v1.3（D14–D17）：鍵盤三頁（中文、英文、符號），底列 `中英`、`符號`、空白鍵、Return；中文輸入法皆實作 `ChineseInputMethod`；手寫用 Google ML Kit Digital Ink，需 Full Access；無 Full Access 時中文頁用速成，速成未完成前為英文頁。
+- v1.3（D14–D17）：鍵盤三頁（中文、英文、符號），底列 `中英`、`符號`、空白鍵、Return；中文輸入法皆實作 `ChineseInputMethod`；手寫引擎先測 Apple 原生（Vision／PencilKit，離線），未過 O7 Gate 才用 Google ML Kit Digital Ink；採 ML Kit 時手寫需 Full Access，未開時中文頁用速成，速成未完成前為英文頁。
 - 遠端模式草稿：草稿非空、草稿狀態或未就緒時，按鍵（含刪除、Return）只編輯草稿；`◀ ▶` 不送 Mac；草稿上限 1,000 字元，只存記憶體。
 - 速成字碼表須授權可散布（O9），授權檔隨 App 附上。
-- 新增依賴前先跑網路 preflight；ML Kit 為本專案唯一第三方依賴，只能在 `MLKitRecognizer.swift` import。
+- 新增依賴前先跑網路 preflight；只有 O7 判定改用 ML Kit 時才加入，且只能在 `MLKitRecognizer.swift` import。
 - 模擬器沒有 CoreBluetooth：T03a、T03b、T05、T06 的驗收只能用實體 iPhone（iPhone 17 Pro，UDID `00008150-000C65DA26C0401C`）。
 
 ## 執行規則
@@ -58,7 +58,7 @@ v1.3 新增（M2–M5）：
 7. **草稿仍有字時按刪除或 Return**：使用者切回即時但草稿未清，刪除若送到 Mac 會刪錯地方。由 T10 `testBackspaceEditsDraftWhileDraftNotEmptyInInstant` 覆蓋。
 8. **斷線時半則訊息與下一則混在一起**：多 frame 訊息中途斷線，殘片不得與重連後的訊息拼接。由 T07 `testResetDropsPartialMessage`、`testNewMessageDropsPartialOne` 覆蓋。
 9. **重連後同一事件再到**：iPhone 未收 ACK 而 Mac 已注入，同一 `eventId` 再到不得注入兩次。由 T08 `testDuplicateEventIsAckedWithOriginalCodeAndInjectedOnce` 覆蓋。
-10. **選了手寫但沒開 Full Access**：鍵盤仍須可打中文或英文，不得空白或 crash。由 T12 `testResolverHandwritingNeedsFullAccess` 覆蓋。
+10. **選了手寫但沒開 Full Access**：鍵盤仍須可打中文或英文，不得空白或 crash。由 T12 `testResolverHandwritingNeedsFullAccess`、`testResolverAppleHandwritingWorksWithoutFullAccess` 覆蓋。
 11. **速成打到表內沒有的碼或第三碼**：不得送出亂碼或 crash。由 T12b `testThirdCodeIsIgnored`、`testUnknownCodeShowsNoCandidatesAndSpaceCommitsNothing` 覆蓋。
 12. **未配對或已解除配對的 Mac 收到事件**：由 T09 `testPhoneSendsNoEventBeforeMacAuth`、`testRevokedPairingCannotAuthenticate` 與實機步驟覆蓋。
 
@@ -856,7 +856,7 @@ func testChineseEnglishDisabledWithoutChinese() { /* chineseAvailable false：sw
 - [ ] **Step 5: 實機驗收（使用者，標 TBD）。** 每層全部鍵在本機（Notes）與遠端（TextEdit）各打一次，字元一致；切換層與頁面不重複送出。
 - [ ] **Step 6: 更新驗收報告 T11，commit。**
 
-### Task 12: 中文輸入法介面、主 App 設定頁與手寫（Google ML Kit）
+### Task 12: 中文輸入法介面、主 App 設定頁與手寫（先測 Apple 原生）
 
 **Branch:** `t12-handwriting`
 
@@ -864,10 +864,11 @@ func testChineseEnglishDisabledWithoutChinese() { /* chineseAvailable false：sw
 - Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Chinese/ChineseInputMethod.swift`（介面與共用型別）
 - Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Chinese/HandwritingInputMethod.swift`（純邏輯：候選字狀態）
 - Create: `Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Chinese/ChineseMethodResolver.swift`
-- Create: `iOS/RemoteKeyboardExtension/Chinese/MLKitRecognizer.swift`（唯一 import ML Kit 的檔案）
+- Create: `iOS/RemoteKeyboardExtension/Chinese/AppleHandwritingRecognizer.swift`（Vision／PencilKit）
+- Create（只在 O7 判定 Apple 不過時）: `iOS/RemoteKeyboardExtension/Chinese/MLKitRecognizer.swift`（唯一 import ML Kit 的檔案）
 - Create: `iOS/RemoteKeyboardExtension/UI/HandwritingPageView.swift`、`UI/CandidateBarView.swift`
 - Create: `iOS/RemoteKeyboardApp/SettingsView.swift`
-- Create: `Podfile`（或 SPM，見 Step 1）
+- Create（只在採 ML Kit 時）: `Podfile` 或 SPM 設定
 - Modify: `project.yml`、`UI/KeyboardRootView.swift`、`UI/TopAreaView.swift`、`KeyboardViewController.swift`、`iOS/RemoteKeyboardApp/RemoteKeyboardApp.swift`
 - Test: `ChineseInputMethodTests.swift`、`HandwritingInputMethodTests.swift`、`ChineseMethodResolverTests.swift`
 - Evidence: `e2e/E2E-T12-HANDWRITING.md`、`evidence/T12-o7-*.md`
@@ -880,19 +881,25 @@ func testChineseEnglishDisabledWithoutChinese() { /* chineseAvailable false：sw
   - `struct IMEOutput: Equatable, Sendable { var commit: String?; var composing: String; var candidates: [String]; var passThrough: KeyAction? }`：`commit` 交 `InputRouter`（本機寫入欄位，遠端依即時／草稿）；`passThrough` 表示輸入法不處理、照一般按鍵處理（例如沒有輸入碼時的刪除、空白、Return）。
   - `protocol ChineseInputMethod: Sendable { var id: ChineseInputMethodID { get }; mutating func handle(_ input: IMEInput) -> IMEOutput; mutating func reset() }`：新增倉頡、注音、粵拼只需新實作與 `ChineseInputMethodID` case，鍵盤其他部分不改。
   - `struct HandwritingInputMethod: ChineseInputMethod`：`.recognized(list)` 更新候選字（最多 9 個）；`.selectCandidate(i)` 送出並清空；`.space` 有候選字時送出第 1 個，否則 passThrough；`.backspace` 有候選字時清空候選字與筆跡，否則 passThrough。
-  - `enum ChineseMethodResolver { static func effective(saved: ChineseInputMethodID?, hasFullAccess: Bool, installed: Set<ChineseInputMethodID>) -> ChineseInputMethodID? }`：手寫需 Full Access；不可用時改用 `installed` 中的速成；都不可用回傳 `nil`（`chineseAvailable = false`）。
-  - `protocol HandwritingRecognizing { func recognize(strokes: [[CGPoint]], in size: CGSize) async throws -> [String] }`，`MLKitRecognizer` 實作；語言標籤以 O7 結果定為 `zh-Hani-TW` 或 `zh-Hani-HK`。
+  - `enum ChineseMethodResolver { static func effective(saved: ChineseInputMethodID?, hasFullAccess: Bool, handwritingNeedsFullAccess: Bool, installed: Set<ChineseInputMethodID>) -> ChineseInputMethodID? }`：`handwritingNeedsFullAccess` 由 O7 選定的引擎決定（Apple 為 `false`、ML Kit 為 `true`）；手寫需要而沒有 Full Access 時；不可用時改用 `installed` 中的速成；都不可用回傳 `nil`（`chineseAvailable = false`）。
+  - `protocol HandwritingRecognizing { func recognize(strokes: [[CGPoint]], in size: CGSize) async throws -> [String] }`：`AppleHandwritingRecognizer` 以筆跡繪成白底黑字圖，交 Vision（語言 `zh-Hant`，`recognitionLevel = .accurate`，取前 9 個候選）或 O7 找到的 PencilKit API；採 ML Kit 時由 `MLKitRecognizer` 實作，語言標籤以 O7 結果定為 `zh-Hani-TW` 或 `zh-Hani-HK`。
 - 同時處理 spec §3 第 11 點：Full Access 關閉時讀取 App Group 的結果記入 E2E。
 
 - [ ] **Step 0: 網路 preflight（`curl -sI https://registry.npmjs.org/ | head -1`、`curl -sI https://cdn.cocoapods.org/ | head -1`）。失敗先查 VPN、LuLu、DNS。**
-- [ ] **Step 1: O7 查證（spike，branch `t12-o7-spike`，不 merge）。** 確認 ML Kit Digital Ink 的 iOS 整合方式（CocoaPods `GoogleMLKit/DigitalInkRecognition` 或官方 SPM）、最低 iOS 版本、能否在 Keyboard Extension 下載與載入模型。實機量測：模型下載時間與大小、辨識延遲 P95、Extension 記憶體峰值（`os_proc_available_memory` 前後差），以 20 個常用字各寫一次比較 `zh-Hani-TW` 與 `zh-Hani-HK` 首選正確數。**Gate**：記憶體峰值低於 Extension 上限並留 20% 餘量、延遲 P95 ≤ 500 ms、首選正確 ≥ 18/20。未過 Gate 即停下回報，不進 Step 2。結果寫 `evidence/T12-o7-result.md`，並更新驗收報告 O7。
+- [ ] **Step 1: O7 查證（spike，branch `t12-o7-spike`，不 merge）。** 分兩段，Gate 相同：記憶體峰值低於 Extension 上限並留 20% 餘量（`os_proc_available_memory` 前後差）、辨識延遲 P95 ≤ 500 ms、20 個常用字各寫一次首選正確 ≥ 18/20。
+  - **1a Apple 原生（先做）**：查 iOS 27 SDK 與官方文件，PencilKit 有無公開筆跡辨識 API；實作 Vision 方案（筆跡繪圖 → `zh-Hant` 文字辨識）。在 Extension 內實機量測，並確認 Full Access 關閉時仍可運作。過 Gate 即採用，跳過 1b，手寫不需 Full Access。
+  - **1b Google ML Kit（只在 1a 未過時）**：確認 iOS 整合方式（CocoaPods `GoogleMLKit/DigitalInkRecognition` 或官方 SPM）、最低 iOS 版本、能否在 Extension 下載與載入模型；量測模型下載時間與大小，比較 `zh-Hani-TW` 與 `zh-Hani-HK`。
+  - 兩段皆未過即停下回報，不進 Step 2。結果寫 `evidence/T12-o7-result.md`，並更新驗收報告 O7。
 - [ ] **Step 2: 手寫頁示意圖交使用者選擇（brainstorming visual companion）。** 2–3 款：書寫區大小與位置、辨識觸發（停筆 0.5 秒自動或按鍵）、清除與刪除鍵位置、鍵盤總高度。使用者選定後寫入 spec §2，才繼續。
 - [ ] **Step 3: 寫失敗測試**
 
 ```swift
 func testResolverHandwritingNeedsFullAccess() {
-    XCTAssertEqual(ChineseMethodResolver.effective(saved: .handwriting, hasFullAccess: false, installed: [.handwriting, .quick]), .quick)
-    XCTAssertNil(ChineseMethodResolver.effective(saved: .handwriting, hasFullAccess: false, installed: [.handwriting]))
+    XCTAssertEqual(ChineseMethodResolver.effective(saved: .handwriting, hasFullAccess: false, handwritingNeedsFullAccess: true, installed: [.handwriting, .quick]), .quick)
+    XCTAssertNil(ChineseMethodResolver.effective(saved: .handwriting, hasFullAccess: false, handwritingNeedsFullAccess: true, installed: [.handwriting]))
+}
+func testResolverAppleHandwritingWorksWithoutFullAccess() {
+    XCTAssertEqual(ChineseMethodResolver.effective(saved: .handwriting, hasFullAccess: false, handwritingNeedsFullAccess: false, installed: [.handwriting]), .handwriting)
 }
 func testResolverMissingSettingUsesHandwritingWhenAllowed() { /* saved nil、FA true → .handwriting */ }
 func testRecognizedFillsCandidatesMaxNine() { /* 12 個結果 → candidates.count == 9 */ }
@@ -905,9 +912,9 @@ func testCommitInRemoteDraftGoesToDraft() { /* InputRouter：commit "香" 在草
 
 - [ ] **Step 4: 執行，預期 FAIL：`cannot find 'ChineseMethodResolver' in scope`。**
 - [ ] **Step 5: 實作 Core 型別，執行 `swift test`，預期 PASS。**
-- [ ] **Step 6: 加入 ML Kit 依賴（依 Step 1 結果），更新 `project.yml` 與「共用指令」表（若改用 `.xcworkspace`，表中 build 指令一併改）。實作 `MLKitRecognizer`、`HandwritingPageView`、`CandidateBarView`、主 App `SettingsView`（「中文輸入：◉ 手寫 ○ 速成」，速成在 T12b 完成前顯示「即將推出」不可選）。**
+- [ ] **Step 6: 依 O7 結果實作辨識器：採 Apple 則實作 `AppleHandwritingRecognizer`，不加第三方依賴；採 ML Kit 則加入依賴、更新 `project.yml` 與「共用指令」表（若改用 `.xcworkspace`，表中 build 指令一併改）並實作 `MLKitRecognizer`。再實作 `HandwritingPageView`、`CandidateBarView`、主 App `SettingsView`（「中文輸入：◉ 手寫 ○ 速成」，速成在 T12b 完成前顯示「即將推出」不可選）。**
 - [ ] **Step 7: Run all，390 與 375 pt 截圖。**
-- [ ] **Step 8: 實機驗收（使用者，標 TBD）。** 依 `e2e/E2E-T12-HANDWRITING.md`：100 字測例首 3 個候選字命中 ≥ 90%；25 字混合詞語在本機與遠端皆無殘留；鍵盤 30 次切換無 OOM；Full Access 關閉時中文頁不可用、英文照常，且記錄 App Group 能否讀取。
+- [ ] **Step 8: 實機驗收（使用者，標 TBD）。** 依 `e2e/E2E-T12-HANDWRITING.md`：100 字測例首 3 個候選字命中 ≥ 90%；25 字混合詞語在本機與遠端皆無殘留；鍵盤 30 次切換無 OOM；Full Access 關閉時：採 Apple 引擎則手寫照常可用，採 ML Kit 則中文頁不可用、英文照常；並記錄 App Group 能否讀取。
 - [ ] **Step 9: 更新驗收報告 T12 與 O7，commit。**
 
 ### Task 12b: 速成

@@ -2,7 +2,7 @@
 
 **版本**：v1.3 | **日期**：2026-10-30 | **狀態**：APPROVED（使用者於 2026-10-30 批准 v1.3）；T01–T06 已實作
 
-**v1.3 變更**：M2 規劃（2026-10-30 brainstorming）。鍵盤分為中文、英文、符號三頁，底列改為「中英／符號」（D14）；中文輸入法採統一介面，先做手寫、後做速成，主 App 設定頁選擇（D15、D16）；符號頁由中文頁進入時先顯示全形標點（D14）；頂部區三行配置（D17）；草稿列改為鍵盤上可切換的「即時／草稿」，並加左右鍵（D6 修訂）。改寫 §2、§3、§4、§7、§12。
+**v1.3 變更**：M2 規劃（2026-10-30 brainstorming）。鍵盤分為中文、英文、符號三頁，底列改為「中英／符號」（D14）；中文輸入法採統一介面，先做手寫（先測 Apple 原生、未過才用 Google ML Kit）、後做速成，主 App 設定頁選擇（D15、D16）；符號頁由中文頁進入時先顯示全形標點（D14）；頂部區三行配置（D17）；草稿列改為鍵盤上可切換的「即時／草稿」，並加左右鍵（D6 修訂）。改寫 §2、§3、§4、§7、§12。
 
 **v1.2 變更**：依 D11 改為角色對調，iPhone Keyboard Extension 為 GATT Peripheral、Mac Receiver 為 Central；改寫 §2、§3、§4、§5、§9，新增 D12 協定方向、D13 Mac 常駐與接收時段與 §13 實機資訊。
 
@@ -15,7 +15,7 @@
 ## 2. 已定義功能
 
 - iOS 第三方 Keyboard Extension，分三頁（D14）：
-  - 中文頁：使用主 App 設定頁選定的中文輸入法（D15）。先做繁體中文手寫，後做速成（D16）；兩者皆有候選字列。手寫採 Google ML Kit Digital Ink（使用者 2026-10-30 決定），需下載模型，因此需 Full Access；未開 Full Access 時手寫頁顯示「手寫需開啟完整取用」，中文頁改用速成（速成完成前改為英文頁）。
+  - 中文頁：使用主 App 設定頁選定的中文輸入法（D15）。先做繁體中文手寫，後做速成（D16）；兩者皆有候選字列。手寫引擎先測 Apple 原生辨識（不需網路），未過 O7 Gate 才改用 Google ML Kit Digital Ink（使用者 2026-10-30 決定）。採 ML Kit 時因需下載模型而需 Full Access，未開 Full Access 時手寫頁顯示「手寫需開啟完整取用」，中文頁改用速成（速成完成前改為英文頁）。
   - 英文頁：QWERTY，Shift／Caps Lock／長按、刪除、Space、Return。
   - 符號頁：由英文頁進入時同 Apple 原生，第一層數字 `123`、第二層特殊符號 `#+=`，皆為半形；由中文頁進入時，第一層為數字加全形中文標點（`，。？！、：；「」『』…`），半形符號在下一層。
   - 底列由左至右為 `中英`、`符號`、空白鍵、Return。`中英` 在中文頁與英文頁之間切換；`符號` 進入符號頁，再按一次回到進入前的頁面。系統 globe 與麥克風由 iOS 顯示在鍵盤下方。
@@ -59,7 +59,7 @@
 6. 若 iPhone 用戶在其他 App 打開鍵盤，遠端模式只發送由本鍵盤**直接產生**並明確選擇發往 Mac 的事件；不收集 host App 既有文字或複製通用打字紀錄。
 7. 同一 iCloud 的 iPhone 與 Mac 已有系統 LE 連線，且第三方 App 無法經 `retrieveConnectedPeripherals` 取得；iPhone 主動連 Mac 的新連線在 link layer 即斷（reason 762），Mac 主動連 iPhone 可成功（實測 514–561 ms）。因此 iPhone 只能當 Peripheral（D11）。
 8. Extension 只在鍵盤顯示期間存在：Peripheral 只在鍵盤可見且已開 Full Access 時廣播；鍵盤收起即停止廣播並斷線，下次叫出鍵盤由 Mac 重新連入。
-9. 手寫辨識採 Google ML Kit Digital Ink（`zh-Hani-TW` 或 `zh-Hani-HK`，使用者 2026-10-30 決定）。Extension 內的記憶體佔用、模型下載與儲存位置、辨識品質須實機查證（O7）；`PencilKit` 不再作為主路徑。
+9. 手寫辨識（O7，使用者 2026-10-30 決定次序）：先實機測 Apple 原生方案，包括 PencilKit 是否有公開的筆跡辨識 API，以及 Vision `RecognizeTextRequest`／`VNRecognizeTextRequest`（`zh-Hant`）辨識筆跡繪成的圖；可在 Extension 內離線運作且過 Gate 即採用，手寫不需 Full Access。未過 Gate 才改用 Google ML Kit Digital Ink（`zh-Hani-TW` 或 `zh-Hani-HK`），並查證其記憶體、模型下載與儲存位置。
 10. 速成字碼表必須來自授權允許隨 App 散布的開源資料（含授權檔與出處），使用前查證授權並記錄（O9）；授權不明者不得放入 App。
 11. Full Access 關閉時，Extension 能否讀取 App Group 中主 App 寫入的設定未實測（O3 僅證明可讀）；讀不到時中文頁使用速成（速成完成前為英文頁），不得因此無法打字。
 
@@ -146,6 +146,7 @@
 - AX: https://developer.apple.com/documentation/applicationservices/axuielement_h
 - Unicode injection: https://developer.apple.com/documentation/coregraphics/cgevent/keyboardsetunicodestring(stringlength:unicodestring:)
 - Handwriting: https://developer.apple.com/documentation/pencilkit/recognizing-handwriting-and-converting-to-text
+- Vision text recognition: https://developer.apple.com/documentation/vision/recognizetextrequest
 - ML Kit Digital Ink: https://developers.google.com/ml-kit/vision/digital-ink-recognition/ios
 
 ## 12. 設計決定總表（v1.3，2026-10-30）
@@ -166,8 +167,8 @@
 | D12 | GATT 方向 | iPhone 發佈 service；`event` notify 送事件、`control` 收 Mac 的 write（ACK、狀態）；Mac 只用掃描路徑；notify 受 `maximumUpdateValueLength` 限制並處理佇列滿（§5） | T03–T06 |
 | D13 | Mac 常駐與接收時段 | 登入自動啟動、常駐 menu bar；點擊可編輯輸入框才開始掃描連線；30 分鐘無活動自動停止，收到事件、鍵盤連上或再點輸入框即延長；焦點離開輸入框不斷線（§2） | T03b、T05 |
 | D14 | 頁面與底列（2026-10-30） | 中文、英文、符號三頁；底列 `中英`、`符號`、空白鍵、Return；`符號` 再按回到原頁；由中文頁進入符號頁時第一層為數字加全形中文標點（§2） | T10、T11 |
-| D15 | 中文輸入法介面（2026-10-30） | 所有中文輸入法實作同一介面（按鍵或筆跡輸入 → 輸入碼／候選字 → 已提交文字），以後可加倉頡、注音、粵拼而不改鍵盤其他部分；主 App 設定頁單選，經 App Group 傳給 Extension；讀不到或未開 Full Access 時用速成（§3） | T12、T12b |
-| D16 | 中文輸入法次序與速成範圍（2026-10-30） | 先做手寫（T12，含 O7；引擎為 Google ML Kit，需 Full Access），後做速成（T12b）。速成鍵面顯示倉頡字根；候選字依字碼表次序；空白鍵選第一個候選字；字碼表須授權清楚（O9）；聯想字、字頻、學習常用字不做 | T12、T12b |
+| D15 | 中文輸入法介面（2026-10-30） | 所有中文輸入法實作同一介面（按鍵或筆跡輸入 → 輸入碼／候選字 → 已提交文字），以後可加倉頡、注音、粵拼而不改鍵盤其他部分；主 App 設定頁單選，經 App Group 傳給 Extension；讀不到設定，或手寫採 ML Kit 而未開 Full Access 時用速成（§3） | T12、T12b |
+| D16 | 中文輸入法次序與速成範圍（2026-10-30） | 先做手寫（T12，含 O7；引擎先測 Apple 原生，未過 Gate 才用 Google ML Kit（需 Full Access）），後做速成（T12b）。速成鍵面顯示倉頡字根；候選字依字碼表次序；空白鍵選第一個候選字；字碼表須授權清楚（O9）；聯想字、字頻、學習常用字不做 | T12、T12b |
 | D17 | 頂部區（2026-10-30） | 三行：①本機／遠端、狀態、即時／草稿；②草稿列（`◀ ▶` 在左、`傳送` 在右）；③候選字列；即時狀態收起第二行，本機模式只有本機／遠端與候選字（§2） | T10 |
 
 ## 13. 開發環境（2026-10-29 實測）
