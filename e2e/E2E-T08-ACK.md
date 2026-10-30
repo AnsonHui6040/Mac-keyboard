@@ -35,13 +35,13 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 字母與空白 | TextEdit 顯示與輸入一致，沒有漏字、重複、亂序 | TBD |
-| 倒退與 return | 每次只刪一個字元、換行一次 | TBD |
-| 狀態列提示 | 每個鍵之後顯示 `Mac 已輸入`；全程沒有出現 `Mac 輸入失敗`、`順序錯誤，未輸入`、`Mac 無法處理` | TBD |
-| 延遲測量回覆 | 剛連線時沒有因為 ping 的回覆而出現額外提示 | TBD |
-| 完整連線後狀態列 | 仍為 `Mac → TextEdit (N ms)`，沒有卡在中斷狀態 | TBD |
+| 字母與空白 | TextEdit 顯示與輸入一致，沒有漏字、重複、亂序 | PASS（2026-10-30） |
+| 倒退與 return | 每次只刪一個字元、換行一次 | PASS（2026-10-30） |
+| 狀態列提示 | 每個鍵之後顯示 `Mac 已輸入`；全程沒有出現 `Mac 輸入失敗`、`順序錯誤，未輸入`、`Mac 無法處理` | PASS（2026-10-30） |
+| 延遲測量回覆 | 剛連線時沒有因為 ping 的回覆而出現額外提示 | PASS（2026-10-30） |
+| 完整連線後狀態列 | 仍為 `Mac → TextEdit (N ms)`，沒有卡在中斷狀態 | PASS（2026-10-30） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測；未確認提示一列交由自動測試確認）
 
 ### 2. 打字途中關閉 iPhone 藍牙
 1. 在 TextEdit 先打 `before`，確認它完整出現且狀態列顯示 `Mac 已輸入`。
@@ -55,13 +55,13 @@
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 狀態列提示 | 出現 `N 個按鍵未確認是否送達`，N 為 1 以上的整數；約 2 秒後消失 | TBD |
-| 提示後的畫面 | 沒有出現 `Mac 已輸入` 以外的錯誤文字；鍵盤沒有當掉 | TBD |
-| 重新連線後不補送 | 字元數 B 等於字元數 A（重新連線與等待 30 秒期間 TextEdit 沒有多出任何字元） | TBD |
-| 之後可正常輸入 | 輸入 `ok` 後 TextEdit 只多出 `ok`，字元數 C 等於 B 加 2，狀態列顯示 `Mac 已輸入` | TBD |
-| 未確認的按鍵 | 提示中的 N 個按鍵可能已打出，也可能沒有；這正是「未確認」的意思，不算失敗。記錄 TextEdit 實際多出幾個字元供參考：TBD | TBD |
+| 狀態列提示 | 出現 `N 個按鍵未確認是否送達`，N 為 1 以上的整數；約 2 秒後消失 | 未能實機觸發（2026-10-30）：Mac 約數十 ms 內即回覆 ACK，手動關藍牙無法在按鍵仍未確認時中斷；使用者判定此列交由自動測試確認。覆蓋：`EventSenderTests.testLinkLostReportsPendingAndNeverResends`、`StatusLineTests.testUnconfirmedText` |
+| 提示後的畫面 | 沒有出現 `Mac 已輸入` 以外的錯誤文字；鍵盤沒有當掉 | PASS（2026-10-30） |
+| 重新連線後不補送 | 字元數 B 等於字元數 A（重新連線與等待 30 秒期間 TextEdit 沒有多出任何字元） | PASS（2026-10-30：A = B = 198） |
+| 之後可正常輸入 | 輸入 `ok` 後 TextEdit 只多出 `ok`，字元數 C 等於 B 加 2，狀態列顯示 `Mac 已輸入` | PASS（2026-10-30：`ok` 正常出現；字元數 C 未記錄） |
+| 未確認的按鍵 | 提示中的 N 個按鍵可能已打出，也可能沒有；這正是「未確認」的意思，不算失敗。記錄 TextEdit 實際多出幾個字元供參考：TBD | 說明列，不判定 |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測；未確認提示一列交由自動測試確認）
 
 ### 3. Mac log 檢查
 在 Mac 終端機執行（時間範圍涵蓋步驟 1、2）：
@@ -79,13 +79,13 @@ log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| ACK 只以代碼名稱出現 | 第一個指令的輸出只包含 `ack=posted`、`ack=pong`（以及 `ack=staleFocus` 等代碼名稱），每個代碼名稱後面沒有任何文字內容 | TBD |
-| 正常打字的 ACK | 步驟 1 的按鍵皆為 `ack=posted`；沒有 `ack=injectFailed`、`ack=outOfOrder`、`ack=malformed` | TBD |
-| 延遲測量 | 每次鍵盤出現後的連線有一行 `kind=ping ... ack=pong` | TBD |
-| 重新連線後沒有補送 | 第二個指令中，最後一次 `state ready` 之後，第一行 `event kind` 是步驟 2 輸入 `ok` 之後的事件（`ping` 之外只有 `ok` 的兩個字母） | TBD |
-| log 內是否有輸入的文字內容 | 第三個指令輸出 0 | TBD |
+| ACK 只以代碼名稱出現 | 第一個指令的輸出只包含 `ack=posted`、`ack=pong`（以及 `ack=staleFocus` 等代碼名稱），每個代碼名稱後面沒有任何文字內容 | PASS（2026-10-30：只有 `ack=posted`、`ack=pong`，見 `docs/superpowers/verification/evidence/T08-mac-log-summary.txt`） |
+| 正常打字的 ACK | 步驟 1 的按鍵皆為 `ack=posted`；沒有 `ack=injectFailed`、`ack=outOfOrder`、`ack=malformed` | PASS（2026-10-30：207 個文字、16 個倒退、7 個 return 皆 `ack=posted`；0 個 injectFailed／outOfOrder／malformed） |
+| 延遲測量 | 每次鍵盤出現後的連線有一行 `kind=ping ... ack=pong` | PASS（2026-10-30：10 次 `kind=ping ... ack=pong`） |
+| 重新連線後沒有補送 | 第二個指令中，最後一次 `state ready` 之後，第一行 `event kind` 是步驟 2 輸入 `ok` 之後的事件（`ping` 之外只有 `ok` 的兩個字母） | PASS（2026-10-30：每次重新 ready 後第一行皆為 ping，之後才是使用者新打的字） |
+| log 內是否有輸入的文字內容 | 第三個指令輸出 0 | PASS（2026-10-30：0） |
 
-結果：TBD
+結果：PASS（使用者 2026-10-30 實測；未確認提示一列交由自動測試確認）
 
 ### 備註
 - 10,000 個事件的受控測試併入 T15，這裡不測。

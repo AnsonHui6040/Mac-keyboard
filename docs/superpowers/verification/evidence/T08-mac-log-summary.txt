@@ -1,0 +1,33 @@
+# T08 Mac Receiver log 摘要（2026-10-30 11:2x–11:33 實機，subsystem com.ansonhui.remotekeyboard.receiver，共 611 行）
+# 只列事件種類、長度、ACK 與連線狀態；原始 log 無任何輸入文字（搜尋 before、hello、ok：0 筆）
+ 207 event kind=text length=1 ack=posted
+  16 event kind=backspace length=0 ack=posted
+  10 event kind=ping length=0 ack=pong
+   7 event kind=return length=0 ack=posted
+11:26:25 state scanning -1 ms
+11:26:25 state ready 275 ms
+11:28:33 state scanning -1 ms
+11:28:34 state ready 723 ms
+11:28:35 state scanning -1 ms
+11:28:36 state ready 276 ms
+11:29:37 state scanning -1 ms
+11:29:38 state ready 822 ms
+11:29:39 state scanning -1 ms
+11:29:39 state ready 182 ms
+11:29:55 state scanning -1 ms
+11:29:57 state ready 1491 ms
+11:29:57 state scanning -1 ms
+11:29:58 state ready 403 ms
+11:30:13 state scanning -1 ms
+11:30:14 state ready 719 ms
+11:30:15 state scanning -1 ms
+11:30:16 state ready 250 ms
+11:32:18 state scanning -1 ms
+11:32:19 state ready 1010 ms
+11:34:09 state scanning -1 ms
+11:34:14 state ready 205 ms
+11:34:15 state scanning -1 ms
+11:34:50 state ready 189 ms
+11:34:50 state scanning -1 ms
+11:35:25 state ready 297 ms
+11:35:25 state scanning -1 ms
