@@ -108,6 +108,10 @@ final class TopAreaView: UIView {
     private let candidateBar = CandidateBarView()
     private let probeLabel = UILabel()
     private let stack = UIStackView()
+    #if DEBUG
+    /// T13: a 2-second press on the status label (Remote mode) turns the dictation probe on or off.
+    var onDebugLongStatus: (() -> Void)?
+    #endif
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -164,6 +168,12 @@ final class TopAreaView: UIView {
         statusLabel.accessibilityValue = KeyboardLinkState.idle.name
         statusLabel.text = KeyboardLinkState.idle.statusText
         statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        #if DEBUG
+        statusLabel.isUserInteractionEnabled = true
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(statusLongPressed(_:)))
+        press.minimumPressDuration = 2
+        statusLabel.addGestureRecognizer(press)
+        #endif
         modeToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleMode) }, for: .touchUpInside)
         transmitToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleTransmit) }, for: .touchUpInside)
         modeToggle.setContentHuggingPriority(.required, for: .horizontal)
@@ -185,6 +195,13 @@ final class TopAreaView: UIView {
         statusRow.addArrangedSubview(spacer)
         statusRow.addArrangedSubview(transmitToggle)
     }
+
+    #if DEBUG
+    @objc private func statusLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        onDebugLongStatus?()
+    }
+    #endif
 
     private func buildDraftRow() {
         cursorLeft.onTap = { [weak self] in self?.onAction?(.cursorLeft) }

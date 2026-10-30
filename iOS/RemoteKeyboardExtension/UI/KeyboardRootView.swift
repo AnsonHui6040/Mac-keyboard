@@ -21,6 +21,11 @@ struct KeyboardViewState: Equatable {
     var handwritingMessage: String?
     /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
     var hapticsEnabled: Bool
+    #if DEBUG
+    /// T13 dictation probe checklist (five lines, one item each), drawn over the English page's letter rows; nil when
+    /// the probe is off.
+    var dictationProbeLines: [String]?
+    #endif
 }
 
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
@@ -42,6 +47,11 @@ final class KeyboardRootView: UIView {
         get { bottomRow.onDebugLongSpace }
         set { bottomRow.onDebugLongSpace = newValue }
     }
+    /// T13: a 2-second press on the status label turns the dictation probe on or off.
+    var onDebugLongStatus: (() -> Void)? {
+        get { topArea.onDebugLongStatus }
+        set { topArea.onDebugLongStatus = newValue }
+    }
     #endif
 
     /// The controller adds the system input-mode-list target to this button.
@@ -54,6 +64,9 @@ final class KeyboardRootView: UIView {
     private let symbols = SymbolsPageView()
     private let handwriting = HandwritingPageView()
     private let bottomRow = BottomRowView()
+    #if DEBUG
+    private let dictationPanel = DictationProbePanel()
+    #endif
     private var shift = ShiftState()
     private var topRows = 2
     private var showsHandwriting = false
@@ -62,6 +75,10 @@ final class KeyboardRootView: UIView {
         super.init(frame: frame)
         backgroundColor = .clear
         for view in [topArea, english, symbols, handwriting, bottomRow] { addSubview(view) }
+        #if DEBUG
+        dictationPanel.isHidden = true
+        addSubview(dictationPanel)
+        #endif
 
         topArea.onAction = { [weak self] in _ = self?.onAction?($0) }
         bottomRow.onAction = { [weak self] in _ = self?.onAction?($0) }
@@ -100,6 +117,16 @@ final class KeyboardRootView: UIView {
         handwriting.isHidden = !isChinese
         bottomRow.setClearVisible(isChinese)
         handwriting.setMessage(state.handwritingMessage)
+        #if DEBUG
+        // The panel covers the three English letter rows only in Remote mode; Local mode and the Chinese and symbols
+        // pages are left as they are, so the letter keys stay usable there.
+        if let lines = state.dictationProbeLines, state.page == .english, state.mode == .remote {
+            dictationPanel.setLines(lines)
+            dictationPanel.isHidden = false
+        } else {
+            dictationPanel.isHidden = true
+        }
+        #endif
         let rows = state.top.visibleRowCount
         if rows != topRows || isChinese != showsHandwriting {
             topRows = rows
@@ -167,6 +194,10 @@ final class KeyboardRootView: UIView {
         let pageFrame = CGRect(x: side, y: keysTop, width: width - 2 * side, height: letterHeight)
         english.frame = pageFrame
         symbols.frame = pageFrame
+        #if DEBUG
+        // A few points taller than the keys, so their shadows do not show under the panel.
+        dictationPanel.frame = pageFrame.insetBy(dx: 0, dy: -3).offsetBy(dx: 0, dy: 3)
+        #endif
         let extra = showsHandwriting ? KeyboardMetrics.handwritingExtraHeight : 0
         handwriting.frame = CGRect(
             x: side, y: keysTop, width: width - 2 * side, height: letterHeight + KeyboardMetrics.handwritingExtraHeight)
