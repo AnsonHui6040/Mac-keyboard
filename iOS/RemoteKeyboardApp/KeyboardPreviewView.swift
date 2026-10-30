@@ -5,6 +5,7 @@ import UIKit
 
 /// Debug only. Launch the app with `-rkPreview <state>` to see the keyboard views at their real height with fake
 /// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
+/// `symbolsEnglish2`, `symbolsChinese1`, `symbolsChinese2`, `symbolsChinese3` (symbols layers; `symbols` is English layer 1),
 /// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
 /// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
 /// yet), `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist panel over the English letter rows).
@@ -35,6 +36,11 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         let preview = Self.preview(named: stateName)
         root.apply(preview.state)
         root.setShift(preview.shift)
+        switch stateName {
+        case "symbolsEnglish2", "symbolsChinese2": root.showSymbolLayer(1)
+        case "symbolsChinese3": root.showSymbolLayer(2)
+        default: break
+        }
         if stateName == "handwriting" || stateName == "handwritingLocal" { root.showSampleInk() }
 
         for view in [backdrop, root] {
@@ -88,8 +94,10 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (make(transmit: .draft, draft: draft("香港你好", cursorBack: 2)), .off)
         case "notReady":
             return (make(ready: false, draft: draft("abc"), status: "Mac（無輸入欄位）"), .off)
-        case "symbols":
+        case "symbols", "symbolsEnglish2":
             return (make(page: .symbols(origin: .english)), .off)
+        case "symbolsChinese1", "symbolsChinese2", "symbolsChinese3":
+            return (make(page: .symbols(origin: .chinese)), .off)
         case "handwriting":
             return (make(page: .chinese, candidates: Self.sampleCandidates), .off)
         case "handwritingLocal":
