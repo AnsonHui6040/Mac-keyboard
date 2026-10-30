@@ -23,7 +23,7 @@ public enum EventKind: Codable, Equatable, Sendable {
 
 /// One semantic event sent from the keyboard to the Receiver over the `event` notification.
 public struct KeyboardEvent: Codable, Equatable, Sendable {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     public let protocolVersion: Int
     public let eventId: UUID
@@ -82,35 +82,77 @@ public enum EventCodec {
     }
 }
 
-/// Everything the keyboard sends to the Receiver over `event`. T09 adds cases.
+/// Everything the keyboard sends to the Receiver over `event`.
 ///
-/// On the wire the event's own fields sit at the top level next to a `type` key, so `protocolVersion` is readable
-/// before anything else is decoded.
+/// On the wire every message is one flat JSON object with a `type` key and a top-level `protocolVersion`, so the version
+/// is readable before anything else is decoded. A plaintext `.event` is what v2 sent; from v3 on, once a Mac is paired,
+/// it only travels inside `.sealed` and the Receiver treats a bare `.event` as a protocol violation.
 public enum PeripheralMessage: Codable, Equatable, Sendable {
     case event(KeyboardEvent)
+    /// Pairing step 1: `Pairing.commitment` of the iPhone's ephemeral public key (32 bytes); the key itself follows later.
+    case pairOffer(commitment: Data)
+    /// Pairing step 3, after the Mac's `pairAccept`: the iPhone's public key (x9.63, 65 bytes) the commitment covers.
+    case pairReveal(publicKey: Data)
+    /// Answer to the Mac's `hello`: the iPhone's nonce (16 bytes) and its proof (32 bytes).
+    case helloReply(phoneNonce: Data, proof: Data)
+    /// `SessionCrypto.seal` output over a `PeripheralCodec`-encoded `.event`.
+    case sealed(Data)
 
-    private enum CodingKeys: String, CodingKey { case type }
-    private static let eventType = "event"
+    private enum CodingKeys: String, CodingKey {
+        case type, protocolVersion, commitment, publicKey, phoneNonce, proof, payload
+    }
+    private enum WireType: String {
+        case event, pairOffer, pairReveal, helloReply, sealed
+    }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        guard try container.decode(String.self, forKey: .type) == Self.eventType else {
+        guard let type = WireType(rawValue: try container.decode(String.self, forKey: .type)) else {
             throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "unknown message type")
         }
-        self = .event(try KeyboardEvent(from: decoder))
+        switch type {
+        case .event:
+            self = .event(try KeyboardEvent(from: decoder))
+        case .pairOffer:
+            self = .pairOffer(commitment: try container.decode(Data.self, forKey: .commitment))
+        case .pairReveal:
+            self = .pairReveal(publicKey: try container.decode(Data.self, forKey: .publicKey))
+        case .helloReply:
+            self = .helloReply(
+                phoneNonce: try container.decode(Data.self, forKey: .phoneNonce), proof: try container.decode(Data.self, forKey: .proof))
+        case .sealed:
+            self = .sealed(try container.decode(Data.self, forKey: .payload))
+        }
     }
 
     public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .event(let event):
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(Self.eventType, forKey: .type)
+            try container.encode(WireType.event.rawValue, forKey: .type)
             try event.encode(to: encoder)
+        case .pairOffer(let commitment):
+            try container.encode(WireType.pairOffer.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
+            try container.encode(commitment, forKey: .commitment)
+        case .pairReveal(let publicKey):
+            try container.encode(WireType.pairReveal.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
+            try container.encode(publicKey, forKey: .publicKey)
+        case .helloReply(let phoneNonce, let proof):
+            try container.encode(WireType.helloReply.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
+            try container.encode(phoneNonce, forKey: .phoneNonce)
+            try container.encode(proof, forKey: .proof)
+        case .sealed(let payload):
+            try container.encode(WireType.sealed.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
+            try container.encode(payload, forKey: .payload)
         }
     }
 }
 
-/// Protocol v2 message codec. The size limit is `FrameCodec.maxMessageBytes`; the BLE payload size is not its concern.
+/// Protocol v3 message codec. The size limit is `FrameCodec.maxMessageBytes`; the BLE payload size is not its concern.
 public enum PeripheralCodec {
     private struct Header: Decodable { let protocolVersion: Int }
 

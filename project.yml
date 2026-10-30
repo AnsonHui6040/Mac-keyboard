@@ -19,7 +19,7 @@ targets:
   RemoteKeyboardApp:
     type: application
     platform: iOS
-    sources: [iOS/RemoteKeyboardApp]
+    sources: [iOS/RemoteKeyboardApp, iOS/Shared]
     dependencies:
       - target: RemoteKeyboardExtension
         embed: true
@@ -45,6 +45,7 @@ targets:
     platform: iOS
     sources:
       - iOS/RemoteKeyboardExtension
+      - iOS/Shared
     dependencies:
       - package: RemoteKeyboardCore
     entitlements:

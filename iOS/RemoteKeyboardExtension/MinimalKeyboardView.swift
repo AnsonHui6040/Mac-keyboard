@@ -10,6 +10,7 @@ final class MinimalKeyboardView: UIView {
     let globeButton = UIButton(type: .system)
     private let modeButton = UIButton(type: .system)
     private let statusLabel = UILabel()
+    private let probeLabel = UILabel()
 
     private var isShifted = false
     private var letterButtons: [UIButton] = []
@@ -34,6 +35,10 @@ final class MinimalKeyboardView: UIView {
         statusLabel.accessibilityValue = linkName
     }
 
+    func setProbeText(_ text: String) {
+        probeLabel.text = text
+    }
+
     func setMode(_ mode: KeyboardMode) {
         modeButton.setTitle(mode == .remote ? "遠端" : "本機", for: .normal)
         modeButton.accessibilityValue = mode.rawValue
@@ -43,7 +48,7 @@ final class MinimalKeyboardView: UIView {
     // MARK: - Layout
 
     private func build(probeText: String) {
-        let probe = UILabel()
+        let probe = probeLabel
         probe.text = probeText
         probe.font = .systemFont(ofSize: 10)
         probe.textColor = .secondaryLabel
