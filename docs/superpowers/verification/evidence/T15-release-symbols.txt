@@ -1,0 +1,12 @@
+T15 Release build symbol check (2026-10-31, branch t15-stability)
+Pattern: BurstGenerator|BurstVerifier|TextEditAXReader|驗證 burst|burst 開始 (strings -a over every executable and dylib in the .app; nm -a on the main binaries)
+
+Debug (positive control)
+  iOS extension RemoteKeyboardExtension.debug.dylib : BurstGenerator, _TtC23RemoteKeyboardExtension14BurstGenerator present
+  MacReceiver.debug.dylib                           : 3 matches
+
+Release
+  iOS Release-iphonesimulator RemoteKeyboardApp.app (app + appex)        : 0 matches
+  macOS Release MacReceiver.app                                          : 0 matches
+  nm -a on RemoteKeyboardExtension (Release) and MacReceiver (Release)   : 0 matches
+  Note: "BurstFormat" appears in Release because it is a public Core type, not part of the two DEBUG files.

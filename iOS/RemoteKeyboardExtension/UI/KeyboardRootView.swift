@@ -51,6 +51,10 @@ final class KeyboardRootView: UIView {
         get { bottomRow.onDebugLongReturn }
         set { bottomRow.onDebugLongReturn = newValue }
     }
+    var onDebugBurst: (() -> Void)? {
+        get { bottomRow.onDebugBurst }
+        set { bottomRow.onDebugBurst = newValue }
+    }
     var onDebugLongSpace: (() -> Void)? {
         get { bottomRow.onDebugLongSpace }
         set { bottomRow.onDebugLongSpace = newValue }

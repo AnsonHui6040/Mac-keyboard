@@ -201,6 +201,10 @@ final class KeyboardBLEPeripheral: NSObject {
 
     // MARK: Sending
 
+    /// Typed keys sent in this appearance and not yet answered by the Mac (probes excluded). The debug burst reads it
+    /// to keep a window of unanswered keys.
+    var pendingKeyCount: Int { sender.pendingCount }
+
     /// Encodes one semantic key and sends it, or queues it until the transmit queue has room.
     /// Only kind and length are logged.
     @discardableResult

@@ -10,6 +10,9 @@ struct MacReceiverApp: App {
     @StateObject private var testInsert: TestInsertController
     @StateObject private var coordinator: ReceiverCoordinator
     @StateObject private var notice: InputSourceNotice
+    #if DEBUG
+    @StateObject private var burstVerifier = BurstVerifier()
+    #endif
     private let pipeline: EventPipeline
 
     /// The unit tests are hosted by this app. They build the objects they need themselves, so the host must not run
@@ -69,7 +72,15 @@ struct MacReceiverApp: App {
 
     var body: some Scene {
         MenuBarExtra("Remote Keyboard", systemImage: "keyboard") {
-            ReceiverPanel(central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security, notice: notice)
+            #if DEBUG
+            ReceiverPanel(
+                central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,
+                notice: notice, burstVerifier: burstVerifier)
+            #else
+            ReceiverPanel(
+                central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,
+                notice: notice)
+            #endif
         }
         .menuBarExtraStyle(.window)
     }
