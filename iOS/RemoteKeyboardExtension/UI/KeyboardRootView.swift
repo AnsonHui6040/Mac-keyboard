@@ -73,8 +73,10 @@ final class KeyboardRootView: UIView {
         topArea.onSelectCandidate = { [weak self] in self?.onSelectCandidate?($0) }
         handwriting.onStrokeBegan = { [weak self] in self?.onStrokeBegan?() }
         handwriting.onStrokesEnded = { [weak self] strokes, size in self?.onStrokesEnded?(strokes, size) }
-        handwriting.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
-        handwriting.onClear = { [weak self] in self?.onClearInk?() }
+        topArea.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        // A press that clears ink or candidates must not turn into a held delete of the text behind them.
+        topArea.backspaceAllowsRepeat = { [weak self] in !(self?.handwriting.hasInk ?? false) }
+        bottomRow.onClear = { [weak self] in self?.onClearInk?() }
         handwriting.isHidden = true
     }
 
@@ -96,6 +98,7 @@ final class KeyboardRootView: UIView {
         english.isHidden = isSymbols || isChinese
         symbols.isHidden = !isSymbols
         handwriting.isHidden = !isChinese
+        bottomRow.setClearVisible(isChinese)
         handwriting.setMessage(state.handwritingMessage)
         let rows = state.top.visibleRowCount
         if rows != topRows || isChinese != showsHandwriting {
