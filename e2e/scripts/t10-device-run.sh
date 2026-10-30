@@ -6,13 +6,15 @@
 #
 # Environment:
 #   T10_UDID              device UDID (default 00008150-000C65DA26C0401C)
-#   T10_OUT               scratch directory for logs, histories and the summary (default /tmp/t10-device-run)
+#   T10_OUT               scratch directory (default /tmp/t10-device-run); each run writes into run.<time>.<pid> inside it
 #   T10_CASE_TIMEOUT_S    per-case limit for xcodebuild (default 480)
 #   T10_NOTREADY_HOLD_S   how long the Mac stays not ready in the not-ready case (default 15)
 #   T10_DISABLE_AUTOCORRECT=1  turn TextEdit's spelling autocorrect off for the run and restore it afterwards
 #
-# The script only creates new TextEdit documents. It never edits or closes any other document, and it closes its own
-# documents without saving. The expectations of every case live in ONE place: the CASES table inside T10PY below.
+# The script creates a new TextEdit document for each case and addresses that window by its window id only. It reads,
+# wipes and closes (without saving) only that window, and never falls back to a name. The expectations of every case
+# live in ONE place: the CASES table inside T10PY below.
+# testFieldKinds and testDraftCap are not in the default run (deferred to T16 manual testing); name them to run them.
 
 set -u -o pipefail
 
@@ -44,7 +46,7 @@ done
 # Expectations, poller and checker (python3 -I, standard library only).
 # ---------------------------------------------------------------------------------------------------------------
 read -r -d '' T10PY <<'PY'
-import csv, json, signal, string, subprocess, sys, time
+import csv, json, os, signal, string, subprocess, sys, time
 
 LETTERS30 = (string.ascii_lowercase * 2)[:30]   # the 30 letters typed by testRemoteLongPressDelete
 
@@ -57,7 +59,12 @@ LETTERS30 = (string.ascii_lowercase * 2)[:30]   # the 30 letters typed by testRe
 #             the key repeats, and at most 15 leaves letters behind.
 #   notready  the Mac loses focus after the pulse letter and gets it back later (see the driver in the script)
 # Every non-empty text seen on the way must be a prefix of the final text (nothing stray, no early leak).
-# min_quiet: seconds after the poller started before the first text may appear (the draft is only sent at the end).
+# min_quiet: seconds after the poller started before the first text may appear. It is only a sanity bound (a draft
+# sent at once would show up long before): the script has no timestamp of the real send, so "nothing on the Mac before
+# the send" is NOT proven by it, only that nothing stray was typed.
+# default False: not run unless named (deferred to T16 manual testing). skip_ok: a skip by the test is not a failure.
+# In the "empty" cases that run with needMac False (testAccessibilityLabels, testPersistence) the Mac is not
+# guaranteed ready, so an empty TextEdit only shows that nothing arrived, not that a leak would have been visible.
 CASES = [
     ("testShiftAndInstant",            "2-8",   "final",    {"final": "AABCde hello\n"}),
     ("testRemoteLongPressDelete",      "9",     "delete",   {"base": LETTERS30, "min_left": 15, "max_left": 27}),
@@ -69,9 +76,10 @@ CASES = [
     ("testSymbolsAndPages",            "34-35", "final",    {"final": "1@"}),
     ("testAccessibilityLabels",        "1,38",  "empty",    {}),
     ("testPersistence",                "28,37", "empty",    {}),
-    ("testFieldKinds",                 "32-33", "empty",    {}),
-    ("testDraftCap",                   "31",    "empty",    {}),
+    ("testFieldKinds",                 "32-33", "empty",    {"default": False, "skip_ok": True}),
+    ("testDraftCap",                   "31",    "empty",    {"default": False, "skip_ok": True}),
 ]
+MAX_GAP_S = 3.0   # two samples further apart than this mean the poller or osascript stalled
 
 # Fixed strings the keyboard sends or drafts. None of them may appear in the Receiver log (E2E step 40, Mac side).
 TYPED = ["hello", "AABCde", "abcd", "abXcd", "abXcYd", "abXcab", "cdd", "ABC", "abc", "xzq", "mpn", LETTERS30]
@@ -82,7 +90,8 @@ def log_strings():
 
 
 def load(path):
-    rows, ended = [], False
+    """Every sample as (time, text or None), plus whether the poller wrote its end marker."""
+    samples, ended = [], False
     for line in open(path, encoding="utf-8"):
         line = line.strip()
         if not line:
@@ -90,9 +99,9 @@ def load(path):
         rec = json.loads(line)
         if rec.get("end"):
             ended = True
-        elif rec.get("text") is not None:
-            rows.append((rec["t"], rec["text"]))
-    return rows, ended
+        else:
+            samples.append((rec["t"], rec.get("text")))
+    return samples, ended
 
 
 def value_at(rows, t):
@@ -103,15 +112,36 @@ def value_at(rows, t):
     return current
 
 
+def coverage(samples, ended, marks):
+    """Poll-quality problems that make any verdict meaningless; checked for every rule."""
+    if not samples:
+        return "no samples (TextEdit window not readable)"
+    if not ended:
+        return "poller did not end cleanly (end marker missing)"
+    first = next((i for i, (_, s) in enumerate(samples) if s is not None), None)
+    if first is None:
+        return "TextEdit window never readable"
+    lost = [t for t, s in samples[first:] if s is None]
+    if lost:
+        return "the test window became unreadable (None sample) %.1f s after the first read" % (lost[0] - samples[first][0])
+    for (t1, _), (t2, _) in zip(samples, samples[1:]):
+        if t2 - t1 > MAX_GAP_S:
+            return "samples %.1f s apart (limit %.0f s), poll stalled" % (t2 - t1, MAX_GAP_S)
+    if marks.get("t_end") is not None and samples[-1][0] < marks["t_end"]:
+        return "polling stopped before the test ended"
+    return None
+
+
 def check(case, hist_path, marks):
     spec = next((c for c in CASES if c[0] == case), None)
     if spec is None:
         return False, "unknown case"
     _, _, rule, p = spec
-    rows, ended = load(hist_path)
-    if not rows:
-        return False, "no text history (TextEdit not readable)"
-    notes = [] if ended else ["poller did not end cleanly"]
+    samples, ended = load(hist_path)
+    problem = coverage(samples, ended, marks)
+    if problem:
+        return False, problem
+    rows = [(t, s) for t, s in samples if s is not None]
     final = rows[-1][1]
     non_empty = [(t, s) for t, s in rows if s != ""]
     t0 = rows[0][0]
@@ -119,7 +149,7 @@ def check(case, hist_path, marks):
     if rule == "empty":
         if non_empty:
             return False, "text appeared: %r" % non_empty[0][1]
-        return True, "TextEdit stayed empty" + ("; " + "; ".join(notes) if notes else "")
+        return True, "TextEdit stayed empty"
 
     if rule == "delete":
         base = p["base"]
@@ -163,17 +193,15 @@ def check(case, hist_path, marks):
     return True, "final %r" % final
 
 
-def poller(out, name):
-    base = name.replace('"', "")
-    # TextEdit renames the document once it holds text (for example "Untitled 2" -> "Untitled 2.rtf"), so match the
-    # base name with or without an extension. "Untitled" does not match "Untitled 2" this way.
-    script = ('tell application "TextEdit" to get text of (first document whose (name is "%s") or '
-              '(name starts with ("%s" & ".")))' % (base, base))
-    last = object()
+def poller(out, window_id, limit_s):
+    """Samples the text of the test window (by window id, never by name) every 0.3 s. Every sample is written.
+    Stops on SIGTERM, when the parent is gone (ppid 1) or after limit_s seconds."""
+    script = 'tell application "TextEdit" to get text of document of (first window whose id is %d)' % int(window_id)
     stop = []
     signal.signal(signal.SIGTERM, lambda *a: stop.append(1))
+    deadline = time.time() + float(limit_s)
     with open(out, "w", buffering=1, encoding="utf-8") as f:
-        while not stop:
+        while not stop and os.getppid() != 1 and time.time() < deadline:
             try:
                 r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=5)
                 text = None
@@ -182,18 +210,19 @@ def poller(out, name):
                     text = text.replace("\r\n", "\n").replace("\r", "\n")
             except subprocess.TimeoutExpired:
                 text = None
-            if text != last:
-                f.write(json.dumps({"t": time.time(), "text": text}) + "\n")
-                last = text
+            f.write(json.dumps({"t": time.time(), "text": text}) + "\n")
             time.sleep(0.3)
         f.write(json.dumps({"t": time.time(), "end": True}) + "\n")
 
 
 def main(argv):
     cmd = argv[1]
-    if cmd == "list":
-        for name, steps, _, _ in CASES:
-            print("%s\t%s" % (name, steps))
+    if cmd in ("list", "listall"):
+        for name, steps, _, p in CASES:
+            if cmd == "listall" or p.get("default", True):
+                print("%s\t%s" % (name, steps))
+    elif cmd == "skipok":
+        print("\n".join(name for name, _, _, p in CASES if p.get("skip_ok")))
     elif cmd == "describe":
         for name, steps, rule, p in CASES:
             print("%-34s steps %-6s %-8s %s" % (name, steps, rule, json.dumps(p, ensure_ascii=False)))
@@ -202,7 +231,7 @@ def main(argv):
     elif cmd == "now":
         print("%.3f" % time.time())
     elif cmd == "poller":
-        poller(argv[2], argv[3])
+        poller(argv[2], argv[3], argv[4])
     elif cmd == "check":
         ok, detail = check(argv[2], argv[3], json.loads(argv[4]))
         print(("PASS" if ok else "FAIL") + "\t" + detail.replace("\n", "\\n").replace("\t", " "))
@@ -230,65 +259,89 @@ fi
 say() { printf '%s\n' "$*"; }
 now() { py now; }
 
-DOC_NAME=""
+WIN_ID=""
 POLLER_PID=""
 XCODE_PID=""
 STARTED_AT="$(date +%s)"
 AUTOCORRECT_RESTORE=""
+RUN_DIR="$OUT/run.$(date +%Y%m%d-%H%M%S).$$"
 
 # Runs AppleScript from stdin. Arguments are passed to `on run argv`.
 osa() { osascript - "$@" 2>/dev/null; }
 
-textedit_new_document() {
+# New document; prints the id of its window. The window id is the only handle used from here on.
+textedit_new_window() {
   osa <<'AS'
 tell application "TextEdit"
   activate
-  set d to make new document
-  return name of d
+  make new document
+  delay 0.5
+  return id of front window
 end tell
 AS
 }
 
-textedit_close_document() {
+# Closes the test window's document without saving. Does nothing when that window no longer exists.
+textedit_close_window() {
   [ -n "$1" ] || return 0
   osa "$1" <<'AS' >/dev/null
 on run argv
+  set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     try
-      close (first document whose (name is (item 1 of argv)) or (name starts with ((item 1 of argv) & "."))) saving no
+      close (document of (first window whose id is wid)) saving no
     end try
   end tell
 end run
 AS
 }
 
+# Empties the test window's document. Fails (non-zero) when that window no longer exists.
 textedit_wipe() {
   osa "$1" <<'AS' >/dev/null
 on run argv
-  tell application "TextEdit" to set text of (first document whose (name is (item 1 of argv)) or (name starts with ((item 1 of argv) & "."))) to ""
+  set wid to (item 1 of argv) as integer
+  tell application "TextEdit" to set text of (document of (first window whose id is wid)) to ""
 end run
 AS
 }
 
-# Brings the test document's window to the front and puts the cursor in its text, so the Receiver sees a focused field.
+# Brings the test window to the front and, only if it really is the front window, puts the cursor in its text.
 textedit_focus() {
   osa "$1" <<'AS' >/dev/null
 on run argv
+  set wid to (item 1 of argv) as integer
   tell application "TextEdit"
     activate
     try
-      set index of (first window whose (name is (item 1 of argv)) or (name starts with ((item 1 of argv) & "."))) to 1
+      set index of (first window whose id is wid) to 1
     end try
   end tell
   delay 0.5
-  tell application "System Events"
-    tell process "TextEdit"
-      set frontmost to true
-      try
-        set focused of text area 1 of scroll area 1 of window 1 to true
-      end try
+  tell application "TextEdit" to set fid to id of front window
+  if fid is wid then
+    tell application "System Events"
+      tell process "TextEdit"
+        set frontmost to true
+        try
+          set focused of text area 1 of scroll area 1 of window 1 to true
+        end try
+      end tell
     end tell
-  end tell
+  end if
+end run
+AS
+}
+
+# Prints ok only when TextEdit is the frontmost application and its front window is the test window.
+textedit_front_ok() {
+  osa "$1" <<'AS'
+on run argv
+  set wid to (item 1 of argv) as integer
+  tell application "System Events" to set fp to name of first process whose frontmost is true
+  tell application "TextEdit" to set fid to id of front window
+  if fp is "TextEdit" and fid is wid then return "ok"
+  return "no"
 end run
 AS
 }
@@ -299,33 +352,18 @@ tell application "Finder" to activate
 AS
 }
 
-# Best effort: Format > Make Plain Text is Shift-Command-T, sent only while TextEdit is the frontmost process.
-textedit_plain_text() {
-  local rich
-  rich="$(defaults read com.apple.TextEdit RichText 2>/dev/null || echo 1)"
-  [ "$rich" = "0" ] && return 0
-  osa <<'AS' >/dev/null
-tell application "System Events"
-  if name of first process whose frontmost is true is "TextEdit" then
-    keystroke "t" using {command down, shift down}
-  end if
-end tell
-AS
-}
-
 cleanup() {
   [ -n "$POLLER_PID" ] && kill "$POLLER_PID" 2>/dev/null
-  # Any poller of this run that is still alive (matched by its history path under $OUT).
-  pkill -f "poller $OUT/" 2>/dev/null
+  # Any poller of this run that is still alive (matched by its history path under this run's directory).
+  pkill -f "poller $RUN_DIR/" 2>/dev/null
   [ -n "$XCODE_PID" ] && kill "$XCODE_PID" 2>/dev/null
-  textedit_close_document "$DOC_NAME"
-  if [ -n "$AUTOCORRECT_RESTORE" ]; then
-    if [ "$AUTOCORRECT_RESTORE" = "__absent__" ]; then
-      defaults delete com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null
-    else
-      defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool "$AUTOCORRECT_RESTORE"
-    fi
-  fi
+  textedit_close_window "$WIN_ID"
+  case "$AUTOCORRECT_RESTORE" in
+    "") ;;
+    absent) defaults delete com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled 2>/dev/null ;;
+    true) defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool true ;;
+    false) defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false ;;
+  esac
 }
 trap cleanup EXIT
 
@@ -366,7 +404,11 @@ CORRECT="$(defaults read com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled
 if [ "$CORRECT" = "0" ]; then
   say "  autocorrect      off in TextEdit"
 elif [ "${T10_DISABLE_AUTOCORRECT:-0}" = "1" ]; then
-  AUTOCORRECT_RESTORE="${CORRECT/unset/__absent__}"
+  case "$CORRECT" in
+    unset) AUTOCORRECT_RESTORE=absent ;;
+    0|false|NO|no) AUTOCORRECT_RESTORE=false ;;
+    *) AUTOCORRECT_RESTORE=true ;;
+  esac
   defaults write com.apple.TextEdit NSAutomaticSpellingCorrectionEnabled -bool false
   say "  autocorrect      switched off for this run (was: $CORRECT), restored on exit"
 else
@@ -385,7 +427,8 @@ fi
 # ---------------------------------------------------------------------------------------------------------------
 # Build once
 # ---------------------------------------------------------------------------------------------------------------
-mkdir -p "$OUT"
+mkdir -p "$OUT" "$RUN_DIR"
+say "  run directory: $RUN_DIR"
 if [ "$SKIP_BUILD" -eq 1 ]; then
   say "== Build skipped (--skip-build), using $DERIVED"
 else
@@ -404,7 +447,7 @@ fi
 # ---------------------------------------------------------------------------------------------------------------
 # Cases
 # ---------------------------------------------------------------------------------------------------------------
-RESULTS="$OUT/results.tsv"
+RESULTS="$RUN_DIR/results.tsv"
 : >"$RESULTS"
 OVERALL=0
 
@@ -414,7 +457,7 @@ case_list() {
   else
     local wanted
     for wanted in "${SELECTED[@]}"; do
-      py list | awk -F'\t' -v w="$wanted" '$1 == w'
+      py listall | awk -F'\t' -v w="$wanted" '$1 == w'
     done
   fi
 }
@@ -445,53 +488,79 @@ driver_notready() {
     sleep 0.3
   done
   T_WIPE="$(now)"
-  textedit_wipe "$DOC_NAME"
+  textedit_wipe "$WIN_ID" || FRONT_FAIL="the test window could not be wiped (it no longer exists)"
   finder_front
   say "  pulse seen: text wiped, Finder in front; Mac not ready for ${NOTREADY_HOLD_S}s"
   sleep "$NOTREADY_HOLD_S"
-  textedit_focus "$DOC_NAME"
+  textedit_focus "$WIN_ID"
   T_REFOCUS="$(now)"
+  if [ "$(textedit_front_ok "$WIN_ID")" != "ok" ]; then
+    FRONT_FAIL="test window not frontmost after the refocus"
+  fi
   say "  TextEdit focused again"
 }
 
+# PASS needs an explicit "passed" line for this case and "Executed 1 test" in the log; zero tests run is a failure.
 xcuitest_result() {
   local logfile="$1" case_name="$2" line
   line="$(grep -E "Test [Cc]ase .*${case_name}.* (passed|failed|skipped)" "$logfile" | tail -1)"
   case "$line" in
     *skipped*) echo SKIP ;;
-    *passed*) echo PASS ;;
     *failed*) echo FAIL ;;
-    *) if [ "${XCODE_RC:-1}" -eq 0 ] && grep -q "TEST EXECUTE SUCCEEDED" "$logfile"; then echo PASS; else echo FAIL; fi ;;
+    *passed*)
+      if grep -qE "Executed 1 test,? " "$logfile"; then echo PASS; else echo FAIL; fi ;;
+    *) echo FAIL ;;
   esac
+}
+
+SKIP_OK="$(py skipok)"
+BAD_SKIPS=0
+DESIGN_SKIPS=0
+
+record() { # case steps xcuitest mac details
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$5" >>"$RESULTS"
 }
 
 run_case() {
   local case_name="$1" steps="$2"
-  local hist="$OUT/$case_name.history" xlog="$OUT/$case_name.xcodebuild.log"
+  local hist="$RUN_DIR/$case_name.history" xlog="$RUN_DIR/$case_name.xcodebuild.log"
   T_WIPE=""
   T_REFOCUS=""
+  FRONT_FAIL=""
   say "== $case_name (steps $steps)"
 
-  DOC_NAME="$(textedit_new_document)"
-  if [ -z "$DOC_NAME" ]; then
-    say "  could not create a TextEdit document"
-    printf '%s\t%s\t%s\t%s\t%s\n' "$case_name" "$steps" "NOT RUN" "FAIL" "no TextEdit document" >>"$RESULTS"
+  WIN_ID="$(textedit_new_window)"
+  if ! [[ "$WIN_ID" =~ ^[0-9]+$ ]]; then
+    say "  could not create a TextEdit document (got '$WIN_ID')"
+    record "$case_name" "$steps" "NOT RUN" "FAIL" "no TextEdit document"
     OVERALL=1
+    WIN_ID=""
     return
   fi
-  textedit_focus "$DOC_NAME"
-  textedit_plain_text
-  textedit_focus "$DOC_NAME"
+  local tries=0
+  textedit_focus "$WIN_ID"
+  until [ "$(textedit_front_ok "$WIN_ID")" = "ok" ]; do
+    tries=$((tries + 1))
+    if [ "$tries" -ge 3 ]; then
+      say "  test window not frontmost"
+      record "$case_name" "$steps" "NOT RUN" "FAIL" "test window not frontmost"
+      OVERALL=1
+      textedit_close_window "$WIN_ID"
+      WIN_ID=""
+      return
+    fi
+    textedit_focus "$WIN_ID"
+  done
 
-  python3 -I -c "$T10PY" poller "$hist" "$DOC_NAME" </dev/null >/dev/null 2>&1 &
+  python3 -I -c "$T10PY" poller "$hist" "$WIN_ID" "$((CASE_TIMEOUT_S + 60))" </dev/null >/dev/null 2>&1 &
   POLLER_PID=$!
   local t_start
   t_start="$(now)"
   sleep 1
 
-  rm -rf "$OUT/$case_name.xcresult"
+  rm -rf "$RUN_DIR/$case_name.xcresult"
   xcodebuild test-without-building -project "$REPO_ROOT/RemoteKeyboard.xcodeproj" -scheme "$SCHEME" \
-    -destination "id=$UDID" -derivedDataPath "$DERIVED" -resultBundlePath "$OUT/$case_name.xcresult" \
+    -destination "id=$UDID" -derivedDataPath "$DERIVED" -resultBundlePath "$RUN_DIR/$case_name.xcresult" \
     -only-testing:"$TEST_CLASS/$case_name" >"$xlog" 2>&1 </dev/null &
   XCODE_PID=$!
 
@@ -527,15 +596,28 @@ run_case() {
     mac="${verdict%%$'\t'*}"
     detail="${verdict#*$'\t'}"
   fi
+  if [ -n "$FRONT_FAIL" ]; then
+    mac="FAIL"
+    detail="$FRONT_FAIL; $detail"
+  fi
   if [ "$xr" = "FAIL" ] && [ -z "$launch_err" ]; then
     detail="$detail; $(grep -E "error:|XCTAssert|failed" "$xlog" | grep -v "Test [Cc]ase" | head -2 | cut -c1-240 | tr '\n' ' ')"
   fi
+  if [ "$xr" = "SKIP" ]; then
+    if printf '%s\n' "$SKIP_OK" | grep -qx "$case_name"; then
+      DESIGN_SKIPS=$((DESIGN_SKIPS + 1))
+    else
+      xr="SKIP (counts as failure)"
+      BAD_SKIPS=$((BAD_SKIPS + 1))
+      OVERALL=1
+    fi
+  fi
   say "  xcuitest $xr, mac $mac: $detail"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$case_name" "$steps" "$xr" "$mac" "$detail" >>"$RESULTS"
+  record "$case_name" "$steps" "$xr" "$mac" "$detail"
   if [ "$xr" = "FAIL" ] || [ "$mac" = "FAIL" ]; then OVERALL=1; fi
 
-  textedit_close_document "$DOC_NAME"
-  DOC_NAME=""
+  textedit_close_window "$WIN_ID"
+  WIN_ID=""
 }
 
 while IFS=$'\t' read -r case_name steps <&3; do
@@ -548,35 +630,45 @@ done 3< <(case_list)
 # ---------------------------------------------------------------------------------------------------------------
 say "== Receiver log (E2E step 40, Mac side)"
 MINUTES=$(( ( $(date +%s) - STARTED_AT ) / 60 + 2 ))
-LOGFILE="$OUT/receiver.log"
+LOGFILE="$RUN_DIR/receiver.log"
 if /usr/bin/log show --last "${MINUTES}m" --info --debug \
-  --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' >"$LOGFILE" 2>"$OUT/receiver.log.err"; then
+  --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' >"$LOGFILE" 2>"$RUN_DIR/receiver.log.err"; then
   LINES="$(wc -l <"$LOGFILE" | tr -d ' ')"
+  EVENTS="$(grep -c "event kind=" "$LOGFILE")"
   PATTERNS=()
-  while IFS= read -r s; do PATTERNS+=(-e "$s"); done < <(py strings)
+  while IFS= read -r str; do PATTERNS+=(-e "$str"); done < <(py strings)
   HITS="$(grep -w -F "${PATTERNS[@]}" "$LOGFILE" | wc -l | tr -d ' ')"
-  if [ "$HITS" -eq 0 ]; then
-    say "  PASS: $LINES log lines from the last ${MINUTES} min, no test string in them"
-    printf '%s\t%s\t%s\t%s\t%s\n' "Receiver log" "40 (Mac side)" "n/a" "PASS" "$LINES lines, no test string" >>"$RESULTS"
+  if [ "$LINES" -eq 0 ] || [ "$EVENTS" -eq 0 ]; then
+    say "  FAIL: the log window holds $LINES lines and $EVENTS 'event kind=' lines, so it proves nothing"
+    record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$LINES lines, $EVENTS event lines: nothing to check"
+    OVERALL=1
+  elif [ "$HITS" -eq 0 ]; then
+    say "  PASS: $LINES log lines ($EVENTS event lines) from the last ${MINUTES} min, no test string in them"
+    record "Receiver log" "40 (Mac side)" "n/a" "PASS" "$LINES lines, $EVENTS event lines, no test string"
   else
     say "  FAIL: $HITS log lines contain a test string (see $LOGFILE)"
-    printf '%s\t%s\t%s\t%s\t%s\n' "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$HITS lines contain a test string" >>"$RESULTS"
+    record "Receiver log" "40 (Mac side)" "n/a" "FAIL" "$HITS lines contain a test string"
     OVERALL=1
   fi
 else
-  say "  ERROR: could not read the log: $(head -1 "$OUT/receiver.log.err")"
-  printf '%s\t%s\t%s\t%s\t%s\n' "Receiver log" "40 (Mac side)" "n/a" "ERROR" "log show failed" >>"$RESULTS"
+  say "  ERROR: could not read the log: $(head -1 "$RUN_DIR/receiver.log.err")"
+  record "Receiver log" "40 (Mac side)" "n/a" "ERROR" "log show failed"
   OVERALL=1
 fi
 
 # ---------------------------------------------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------------------------------------------
-py csv "$RESULTS" "$OUT/summary.csv"
+py csv "$RESULTS" "$RUN_DIR/summary.csv"
+cp "$RUN_DIR/summary.csv" "$OUT/summary.csv"
 say ""
-say "== Summary ($OUT/summary.csv)"
+say "== Summary ($RUN_DIR/summary.csv, copy in $OUT/summary.csv)"
 awk -F'\t' '{ printf "  %-34s xcuitest %-8s mac %-6s %s\n", $1, $3, $4, substr($5, 1, 90) }' "$RESULTS"
 say ""
 say "iPhone-side E2E steps not covered here stay manual (see e2e/E2E-T10-KEYBOARD.md); every 結果 there stays TBD until the user confirms."
-if [ "$OVERALL" -eq 0 ]; then say "ALL AUTOMATED CASES PASSED"; else say "SOME CASES FAILED"; fi
+if [ "$OVERALL" -eq 0 ]; then
+  say "ALL AUTOMATED CASES PASSED ($DESIGN_SKIPS skipped by design)"
+else
+  say "SOME CASES FAILED/SKIPPED (bad skips: $BAD_SKIPS)"
+fi
 exit "$OVERALL"

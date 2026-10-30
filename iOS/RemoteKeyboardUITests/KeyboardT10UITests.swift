@@ -24,8 +24,10 @@ import XCTest
 /// - `testSymbolsAndPages` 34-35
 /// - `testAccessibilityLabels` 1 (AppGroup line), 38 (labels only; spoken VoiceOver stays manual)
 /// - `testPersistence` 28, 37 (without restarting the app)
-/// - `testFieldKinds` 32-33 (skips when Safari cannot be driven)
-/// - `testDraftCap` 31 (needs the DEBUG hook: hold 空白 for 2 s in Remote mode)
+/// - `testFieldKinds` 32-33 (deferred to T16 manual testing; not in the script's default run; opens a data: URL in
+///   Safari's current tab and skips whenever Safari cannot be driven)
+/// - `testDraftCap` 31 (deferred to T16 manual testing; not in the default run; skips at once because the DEBUG
+///   hook, a 2 s hold on 空白, does not fire under an XCUITest press. A person holding 空白 for 2 s fills the draft.)
 @MainActor
 final class KeyboardT10UITests: XCTestCase {
     private static let notesID = "com.apple.mobilenotes"
@@ -48,6 +50,8 @@ final class KeyboardT10UITests: XCTestCase {
     private static let thirtyLetters = "abcdefghijklmnopqrstuvwxyzabcd"
     /// Time for the last key to reach the Mac before the case ends.
     private static let drainSeconds = 2.5
+    /// Step 31 is deferred to T16 manual testing; set to false to try the hook under XCUITest again.
+    private static let draftCapDeferred = true
 
     private static let newNoteIdentifiers = ["New Note", "Compose", "newNoteButton"]
     private static let newNoteLabels = ["New Note", "Compose", "新增備忘錄", "新備忘錄", "撰寫"]
@@ -125,6 +129,8 @@ final class KeyboardT10UITests: XCTestCase {
         try prepare()
         type(Self.thirtyLetters)
         mark("THIRTY_TYPED")
+        // Let the last letter reach the Mac before the hold, so the deletes cannot overtake it.
+        Thread.sleep(forTimeInterval: 1.5)
         element("rk.backspace").press(forDuration: 1.0)
         mark("DELETE_HELD")
         XCTAssertEqual(bodyText(), "", "step 9: the note must stay empty in Remote mode")
@@ -270,7 +276,8 @@ final class KeyboardT10UITests: XCTestCase {
 
     /// The draft and its cursor survive a visit to Local mode. Nothing here may reach the Mac.
     func testModeSwitchKeepsDraft() throws {
-        try prepare(transmit: Self.draft, needMac: false)
+        // The Mac is ready on purpose: a key that leaked to it instead of the draft would show up in TextEdit.
+        try prepare(transmit: Self.draft)
         let withDraftY = element("rk.mode").frame.minY
         type("mn")
         tapID("rk.cursorLeft")
@@ -417,7 +424,10 @@ final class KeyboardT10UITests: XCTestCase {
 
     /// DEBUG hook: holding 空白 for 2 s fills the draft to 1,000 characters. One more letter must change nothing.
     /// The draft is never sent (1,000 characters must not reach the Mac); Notes is restarted to drop the controller.
+    /// Deferred to T16 manual testing: the hook does not fire under an XCUITest press, so the case skips at once.
+    /// Run it by name to try again; the body below is kept for that.
     func testDraftCap() throws {
+        if Self.draftCapDeferred { throw XCTSkip("hook does not fire under XCUITest press; manual at T16") }
         try prepare(transmit: Self.draft, needMac: false)
         terminateNotesAfter = true
         expectDraft("", "step 31 start")

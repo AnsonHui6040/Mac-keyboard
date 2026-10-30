@@ -128,18 +128,14 @@ final class KeyboardViewController: UIInputViewController {
         peripheral.send(.text(String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)))
     }
 
-    /// T10 device test (step 31): fills the draft with `a` through the router until it holds the cap, so the test
-    /// does not have to tap 1,000 keys. Remote mode only, and only while keys would go to the draft anyway, so
-    /// nothing is ever sent to the Mac.
+    /// T10 step 31 hook: fills the draft with `a` until it holds the cap, so nobody has to tap 1,000 keys. Remote mode
+    /// only. The router is told the Mac is not ready, so every key lands in the draft and the enqueue branch is
+    /// unreachable by construction: nothing here can reach the Mac.
     private func fillDraftToCap() {
         reclaimPeripheralIfVacant()
         guard mode == .remote else { return }
-        guard transmit == .draft || !draft.isEmpty || !isReady else {
-            showNote("請先切到草稿")
-            return
-        }
         while draft.text.count < DraftBuffer.maxCharacters {
-            let outcome = router.route(.character("a"), mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+            let outcome = router.route(.character("a"), mode: mode, transmit: transmit, ready: false, draft: &draft)
             guard outcome == .draftEdited else { break }
         }
         refreshStatus()

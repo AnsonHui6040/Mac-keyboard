@@ -30,7 +30,8 @@
 4. 一次性設定：若 UI 測試的簽名需要，先在 Xcode 選擇 iPhone 為目的地，執行 Product > Build For Testing 一次。
 5. 執行腳本的 App（例如 Terminal）要允許控制 TextEdit 與 System Events（系統設定 > 隱私權與安全性 > 自動操作、輔助使用）。
 6. TextEdit 的「自動修正拼字」要關閉，否則輸入的字可能被改寫；也可以加上 `T10_DISABLE_AUTOCORRECT=1`，腳本會在執行期間關閉並於結束時還原。
-7. 步驟 31 需要 Debug 建置（長按空白 2 秒填滿草稿的測試掛鉤只存在於 Debug）。
+7. 步驟 31 與步驟 32、33 已由使用者延後到 T16 手動測試，預設不執行（`testDraftCap`、`testFieldKinds` 仍可指定名稱執行）。
+8. 若某個本機模式案例失敗，備忘錄裡可能留下一則測試用的備忘錄，請手動刪除。`testFieldKinds` 會在 Safari 目前的分頁開啟一個 `data:` 網址。
 
 指令：
 
@@ -41,7 +42,9 @@ e2e/scripts/t10-device-run.sh --skip-build         # 沿用上次建置
 e2e/scripts/t10-device-run.sh --list               # 列出案例與 Mac 端預期，不執行
 ```
 
-腳本每個案例都新建一份 TextEdit 文件並讓它取得焦點，同時每 0.3 秒記錄文件內容，案例結束後比對預期，最後把結果寫入 `$T10_OUT/summary.csv`（預設 `/tmp/t10-device-run`）。腳本只新增自己的 TextEdit 文件，結束時不儲存直接關閉，不會動到其他文件。
+腳本每個案例都新建一份 TextEdit 文件並讓它取得焦點，同時每 0.3 秒記錄文件內容，案例結束後比對預期。每次執行的紀錄放在 `$T10_OUT/run.<時間>.<行程編號>/`（預設 `/tmp/t10-device-run`），摘要寫入該資料夾的 `summary.csv`，並複製一份到 `$T10_OUT/summary.csv`。腳本以視窗編號鎖定自己新建的 TextEdit 視窗，只對該視窗讀取、清空與關閉（不儲存）；該視窗不存在時什麼都不做，不會改用名稱去找其他文件。每個案例開始前會確認 TextEdit 在最前面且最前面的視窗就是它自己的，否則該案例判為失敗。
+
+判定規則：略過（skip）除了 `testFieldKinds` 與 `testDraftCap` 以外一律算失敗；XCUITest 必須出現該案例的 passed 行且實際執行 1 個測試才算通過；Mac 端讀取 TextEdit 時只要出現讀不到、取樣間隔超過 3 秒或紀錄沒有正常結束，就判失敗；Receiver 紀錄為空或沒有任何 `event kind=` 行也判失敗，因為這樣的紀錄什麼都證明不了。
 
 | 步驟 | 方式 | 說明 | 結果 |
 |---|---|---|---|
@@ -59,30 +62,30 @@ e2e/scripts/t10-device-run.sh --list               # 列出案例與 Mac 端預�
 | 12 | 自動（testLocalModeAndLongPressDelete） | 回到遠端後狀態文字與 `即時｜草稿` 出現 | TBD |
 | 13 | 自動（testLocalModeAndLongPressDelete） | | TBD |
 | 14 | 自動（testDraftEditing） | 含鍵盤高度增加約 36 pt | TBD |
-| 15 | 自動（testDraftEditing） | Mac 端確認草稿送出前沒有任何字 | TBD |
+| 15 | 自動（testDraftEditing） | iPhone 備忘錄保持空白；Mac 端只確認途中沒有不屬於最終草稿的字，並要求第一個字在開始記錄 12 秒後才出現，無法證明送出前完全沒有字 | TBD |
 | 16 | 自動（testDraftEditing） | | TBD |
 | 17 | 自動（testDraftEditing） | | TBD |
-| 18 | 自動（testDraftEditing） | Mac 端確認游標移動期間 TextEdit 沒有變化 | TBD |
+| 18 | 自動（testDraftEditing） | iPhone 端確認草稿文字沒有變；Mac 端只確認最終文字正確，沒有逐一比對游標移動期間的內容 | TBD |
 | 19 | 自動（testDraftEditing） | | TBD |
-| 20 | 自動（testDraftEditing） | 草稿放 4 秒後才傳送；Mac 端確認一次出現完整草稿 | TBD |
+| 20 | 自動（testDraftEditing） | 草稿放 4 秒後才傳送；Mac 端確認最終文字完整且途中沒有多餘的字，沒有送出時間點可以對照 | TBD |
 | 21 | 自動（testDraftEditing） | 草稿內含換行，Mac 端比對 `abXcab`、換行、`cdd` | TBD |
 | 22 | 自動（testInstantWithDraftEditsDraft） | | TBD |
 | 23 | 自動（testInstantWithDraftEditsDraft） | | TBD |
 | 24 | 自動（testInstantWithDraftEditsDraft） | | TBD |
-| 25 | 自動（testInstantWithDraftEditsDraft） | Mac 端比對 `xzq` | TBD |
+| 25 | 自動（testInstantWithDraftEditsDraft） | Mac 端比對最終文字 `xzq` 且途中沒有多餘的字 | TBD |
 | 26 | 自動（testNotReadyGoesToDraft） | 腳本讓 TextEdit 失去焦點；Mac 端確認沒有任何字 | TBD |
 | 27 | 自動（testNotReadyGoesToDraft） | 約 15 秒後焦點恢復，測試等待 `傳送` 變藍並確認不會自動送出，再按下傳送 | TBD |
-| 28 | 自動（testPersistence） | 含收起鍵盤與切到 Safari 再回來 | TBD |
-| 29 | 自動（testModeSwitchKeepsDraft） | 含鍵盤高度減少約 36 pt | TBD |
+| 28 | 自動（testPersistence） | 含收起鍵盤與切到 Safari 再回來；此案例不要求 Mac 就緒，TextEdit 為空只代表沒有字送達 | TBD |
+| 29 | 自動（testModeSwitchKeepsDraft） | 含鍵盤高度減少約 36 pt；此案例保持 Mac 就緒，漏到 Mac 的字會被看到，TextEdit 必須全程為空 | TBD |
 | 30 | 自動（testModeSwitchKeepsDraft） | 以再打一個字確認游標位置還在 | TBD |
-| 31 | 自動（testDraftCap） | 只驗證上限與提示；草稿不會傳到 Mac，「傳送後再次可打」仍需手動 | TBD |
-| 32 | 自動（testFieldKinds） | 需要 Safari 能被操作，否則案例略過，改為手動 | TBD |
-| 33 | 自動（testFieldKinds） | 同上 | TBD |
+| 31 | 延後至 T16 手動 | 填滿草稿的測試掛鉤只存在於 Debug 建置，且不會在 XCUITest 的長按下觸發，所以 `testDraftCap` 會直接略過。手動做法：用 Debug 建置，在遠端模式長按空白 2 秒即可把草稿填到 1,000 字，再打一個字確認出現上限提示，傳送後再次可打 | TBD |
+| 32 | 延後至 T16 手動 | `testFieldKinds` 預設不執行，指定名稱才會跑 | TBD |
+| 33 | 延後至 T16 手動 | 同上 | TBD |
 | 34 | 自動（testSymbolsAndPages） | 遠端與本機各打一次 `1` 與 `@` | TBD |
 | 35 | 自動（testSymbolsAndPages） | | TBD |
 | 36 | 手動 | 地球鍵與長按選鍵盤需要人工操作 | TBD |
 | 37 | 自動（testPersistence）加手動 | 自動部分不含重新啟動 App，該部分手動 | TBD |
-| 38 | 自動（testAccessibilityLabels）加手動 | 自動檢查每顆鍵的標籤文字；VoiceOver 實際朗讀仍需手動 | TBD |
+| 38 | 自動（testAccessibilityLabels）加手動 | 自動檢查每顆鍵的標籤文字（此案例不要求 Mac 就緒，TextEdit 為空只代表沒有字送達）；VoiceOver 實際朗讀仍需手動 | TBD |
 | 39 | 手動 | 需要 iPhone SE 3 或 mini | TBD |
 | 40 | 自動（腳本）加手動 | 腳本檢查 Mac 端 Receiver 紀錄沒有任何輸入字串；iPhone 端診斷紀錄仍需手動 | TBD |
 
