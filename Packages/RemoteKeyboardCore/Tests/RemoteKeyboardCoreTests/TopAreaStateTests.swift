@@ -90,4 +90,14 @@ final class TopAreaStateTests: XCTestCase {
         XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3), 3 * 36 + 212)
         XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3) - KeyboardMetrics.height(visibleTopRows: 2), 36)
     }
+
+    func testHandwritingPageIsSixtyPointsTaller() {
+        XCTAssertEqual(KeyboardMetrics.handwritingExtraHeight, 60)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 2, handwriting: true), 344)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3, handwriting: true), 380)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 2, handwriting: false), 284)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 3, handwriting: false), 320)
+        XCTAssertEqual(KeyboardMetrics.height(visibleTopRows: 2), 284)
+        XCTAssertEqual(3 * KeyboardMetrics.keyRowHeight + 2 * KeyboardMetrics.rowGap + KeyboardMetrics.handwritingExtraHeight, 210)
+    }
 }

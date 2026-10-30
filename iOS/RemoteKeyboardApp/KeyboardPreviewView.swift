@@ -5,8 +5,9 @@ import UIKit
 
 /// Debug only. Launch the app with `-rkPreview <state>` to see the keyboard views at their real height with fake
 /// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
-/// `handwriting` (Chinese page with sample ink and the candidates 香 秤 港), `handwritingEmpty` (nothing written yet),
-/// `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist in the candidate row).
+/// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
+/// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
+/// yet), `handwritingNoModel` (the model is missing), `dictationProbe` (T13 checklist in the candidate row).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -34,7 +35,7 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         let preview = Self.preview(named: stateName)
         root.apply(preview.state)
         root.setShift(preview.shift)
-        if stateName == "handwriting" { root.showSampleInk() }
+        if stateName == "handwriting" || stateName == "handwritingLocal" { root.showSampleInk() }
 
         for view in [backdrop, root] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -58,6 +59,8 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
+
+    private static let sampleCandidates = ["禾", "乐", "木", "夭", "米", "未", "朱", "末", "林"]
 
     private static func preview(named name: String) -> (state: KeyboardViewState, shift: ShiftState.Mode) {
         func make(
@@ -88,7 +91,11 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         case "symbols":
             return (make(page: .symbols(origin: .english)), .off)
         case "handwriting":
-            return (make(page: .chinese, candidates: ["香", "秤", "港"]), .off)
+            return (make(page: .chinese, candidates: Self.sampleCandidates), .off)
+        case "handwritingLocal":
+            return (
+                make(mode: .local, page: .chinese, status: "BLE: idle", link: "idle", candidates: Self.sampleCandidates),
+                .off)
         case "handwritingEmpty":
             return (make(page: .chinese), .off)
         case "handwritingNoModel":

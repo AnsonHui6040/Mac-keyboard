@@ -1,9 +1,11 @@
 import RemoteKeyboardCore
 import UIKit
 
-/// The bottom row, left to right: globe (only when iOS asks for it), 中英, 符號, space, return.
+/// The bottom row, left to right: globe (only when iOS asks for it), 中英, 符號, space, 重寫 (Chinese page only), return.
 final class BottomRowView: UIView {
     var onAction: ((KeyAction) -> Void)?
+    /// 重寫 was tapped (Chinese page only).
+    var onClear: (() -> Void)?
     #if DEBUG
     /// Long-pressing return for two seconds; the debug build uses it to send one 3,000-character text (T07 check).
     var onDebugLongReturn: (() -> Void)?
@@ -17,17 +19,21 @@ final class BottomRowView: UIView {
         style: .function, title: "中英", label: "中英切換", identifier: "rk.zhEn")
     private let symbolsKey = KeyButton(style: .function, title: "符號", label: "符號", identifier: "rk.symbols")
     private let spaceKey = KeyButton(style: .letter, title: "空白", label: "空白鍵", identifier: "rk.space")
+    private let clearKey = KeyButton(style: .function, title: "重寫", label: "重寫", identifier: "rk.hwClear")
     private let returnKey = KeyButton(style: .function, title: "換行", label: "換行", identifier: "rk.return")
 
     private var showsGlobe = false
+    private var showsClear = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         globeKey.titleLabel?.font = .systemFont(ofSize: 20)
         globeKey.isHidden = true
+        clearKey.isHidden = true
         chineseEnglishKey.onTap = { [weak self] in self?.onAction?(.switchChineseEnglish) }
         symbolsKey.onTap = { [weak self] in self?.onAction?(.switchSymbols) }
         spaceKey.onTap = { [weak self] in self?.onAction?(.space) }
+        clearKey.onTap = { [weak self] in self?.onClear?() }
         returnKey.onTap = { [weak self] in self?.onAction?(.returnKey) }
         #if DEBUG
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(debugLongReturn(_:)))
@@ -37,7 +43,7 @@ final class BottomRowView: UIView {
         spacePress.minimumPressDuration = 2
         spaceKey.addGestureRecognizer(spacePress)
         #endif
-        for key in [globeKey, chineseEnglishKey, symbolsKey, spaceKey, returnKey] { addSubview(key) }
+        for key in [globeKey, chineseEnglishKey, symbolsKey, spaceKey, clearKey, returnKey] { addSubview(key) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -56,6 +62,14 @@ final class BottomRowView: UIView {
         guard showsGlobe != visible else { return }
         showsGlobe = visible
         globeKey.isHidden = !visible
+        setNeedsLayout()
+    }
+
+    /// 重寫 is shown on the Chinese (handwriting) page only.
+    func setClearVisible(_ visible: Bool) {
+        guard showsClear != visible else { return }
+        showsClear = visible
+        clearKey.isHidden = !visible
         setNeedsLayout()
     }
 
@@ -78,19 +92,14 @@ final class BottomRowView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let gap = KeyboardMetrics.keyGap
         let height = KeyboardMetrics.keyRowHeight
-        let wide = 56.0
-        var x = 0.0
-        func place(_ key: KeyButton, width: Double) {
-            key.frame = CGRect(x: x, y: 0, width: width, height: height)
-            x += width + gap
+        let keys: [BottomRowKey: KeyButton] = [
+            .globe: globeKey, .chineseEnglish: chineseEnglishKey, .symbols: symbolsKey,
+            .space: spaceKey, .clear: clearKey, .returnKey: returnKey
+        ]
+        for placement in BottomRowLayout.placements(
+            totalWidth: bounds.width, showsGlobe: showsGlobe, showsClear: showsClear) {
+            keys[placement.key]?.frame = CGRect(x: placement.x, y: 0, width: placement.width, height: height)
         }
-        if showsGlobe { place(globeKey, width: 44) }
-        place(chineseEnglishKey, width: wide)
-        place(symbolsKey, width: wide)
-        let returnWidth = 72.0
-        place(spaceKey, width: max(0, bounds.width - x - returnWidth - gap))
-        returnKey.frame = CGRect(x: bounds.width - returnWidth, y: 0, width: returnWidth, height: height)
     }
 }
