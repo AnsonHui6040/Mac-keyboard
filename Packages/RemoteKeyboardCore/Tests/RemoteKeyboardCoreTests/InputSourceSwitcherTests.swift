@@ -11,6 +11,8 @@ private final class FakeController: InputSourceControlling {
     var selectSucceeds = true
     /// When true, `select` reports success but leaves `current` unchanged.
     var selectIgnored = false
+    /// When set, selecting exactly this id fails (used to fail only the restore).
+    var failSelectOf: String?
     var log: [String] = []
 
     init(current: String) { self.current = current }
@@ -19,7 +21,7 @@ private final class FakeController: InputSourceControlling {
     func select(_ id: String) -> Bool {
         selected.append(id)
         log.append("select:\(id == InputSourceSwitcher.asciiID ? "ABC" : "Zhuyin")")
-        guard selectSucceeds else { return false }
+        guard selectSucceeds, id != failSelectOf else { return false }
         if !selectIgnored { current = id }
         return true
     }
@@ -48,6 +50,26 @@ private final class FakeComposition: CompositionControlling {
 
 @MainActor
 final class InputSourceSwitcherTests: XCTestCase {
+    func testRestoreFailureIsReportedNotSilent() async {
+        let fake = FakeController(current: zhuyin)
+        fake.failSelectOf = zhuyin
+        var injected = 0
+        let switcher = InputSourceSwitcher(controller: fake, settle: { _ in })
+        let result = await switcher.withASCII(settleSeconds: 0.05) { injected += 1 }
+        XCTAssertEqual(result, .injectedRestoreFailed)
+        XCTAssertEqual(injected, 1, "the text was still typed")
+        XCTAssertEqual(fake.current, InputSourceSwitcher.asciiID)
+    }
+
+    func testFailedSwitchWithFailedRestoreStaysSwitchFailed() async {
+        let fake = FakeController(current: zhuyin)
+        fake.selectIgnored = true
+        fake.failSelectOf = zhuyin
+        let switcher = InputSourceSwitcher(controller: fake, settle: { _ in })
+        let result = await switcher.withASCII(settleSeconds: 0.05) {}
+        XCTAssertEqual(result, .switchFailed)
+    }
+
     func testAlreadyABCDoesNotSwitch() async {
         let fake = FakeController(current: InputSourceSwitcher.asciiID)
         var injected = 0
@@ -201,7 +223,7 @@ final class InputSourceSwitcherTests: XCTestCase {
         XCTAssertEqual(results, [.compositionActive, .compositionActive])
     }
 
-    func testRestoreFailureStillReturnsInjected() async {
+    func testRestoreFailureStillCountsTheInjection() async {
         let fake = FakeController(current: zhuyin)
         let switcher = InputSourceSwitcher(controller: fake, settle: { _ in })
         var injected = 0
@@ -209,7 +231,7 @@ final class InputSourceSwitcherTests: XCTestCase {
             injected += 1
             fake.selectSucceeds = false
         }
-        XCTAssertEqual(result, .injected)
+        XCTAssertEqual(result, .injectedRestoreFailed)
         XCTAssertEqual(injected, 1)
     }
 

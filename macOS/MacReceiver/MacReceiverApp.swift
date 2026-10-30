@@ -9,6 +9,7 @@ struct MacReceiverApp: App {
     @StateObject private var focus: FocusMonitor
     @StateObject private var testInsert: TestInsertController
     @StateObject private var coordinator: ReceiverCoordinator
+    @StateObject private var notice: InputSourceNotice
     private let pipeline: EventPipeline
 
     /// The unit tests are hosted by this app. They build the objects they need themselves, so the host must not run
@@ -26,24 +27,27 @@ struct MacReceiverApp: App {
             composition: AXCompositionAdapter(element: { [weak focus] in focus?.focusedElement }),
             settle: { try? await Task.sleep(for: .seconds($0)) }
         )
+        let notice = InputSourceNotice()
         let central = ReceiverBLECentral()
         // Reads the Keychain only when a keyboard connects, or from `refreshPairedState()` below.
         let security = ReceiverSecurity(central: central, store: MacPairingStore())
         // No file is touched until the first ping arrives; the unit-test host never receives one.
         let reconnectLog = ReconnectLog(fileURL: ReconnectLog.defaultFileURL)
         let pipeline = EventPipeline(
-            snapshot: { [weak focus] in focus?.refreshNow() },
+            snapshot: { [weak focus] in await focus?.refreshNow() },
             switcher: switcher,
             injector: TextInjector(),
             sendAck: { [weak security] ack in security?.send(.ack(ack)) },
             noteValidEvent: { [weak central] in central?.noteEvent() },
-            onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) }
+            onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) },
+            onInputSourceRestore: { [weak notice] in notice?.report(restoredOK: $0) }
         )
         let coordinator = ReceiverCoordinator(focus: focus, central: central, security: security, pipeline: pipeline)
         if !Self.isRunningUnitTests {
             loginItem.applyDefaultIfNeeded()
             security.refreshPairedState()
             coordinator.start()
+            notice.startObserving()
             focus.start()
             // Quitting from the menu: an authenticated keyboard hears a goodbye before the connection goes away with the
             // process. Best effort; it holds the run loop for at most about half a second.
@@ -58,13 +62,14 @@ struct MacReceiverApp: App {
         _security = StateObject(wrappedValue: security)
         _loginItem = StateObject(wrappedValue: loginItem)
         _focus = StateObject(wrappedValue: focus)
-        _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus, switcher: switcher))
+        _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus, switcher: switcher, notice: notice))
+        _notice = StateObject(wrappedValue: notice)
         _coordinator = StateObject(wrappedValue: coordinator)
     }
 
     var body: some Scene {
         MenuBarExtra("Remote Keyboard", systemImage: "keyboard") {
-            ReceiverPanel(central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security)
+            ReceiverPanel(central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security, notice: notice)
         }
         .menuBarExtraStyle(.window)
     }

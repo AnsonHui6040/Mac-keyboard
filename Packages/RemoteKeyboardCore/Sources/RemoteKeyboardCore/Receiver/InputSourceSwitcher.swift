@@ -22,6 +22,9 @@ public protocol CompositionControlling {
 
 public enum SwitchResult: Equatable, Sendable {
     case injected, switchFailed
+    /// The inject step ran, but the original input source could not be selected again; the Mac stays on ABC. The caller
+    /// still has to check its own late authorization: the step may have declined to type.
+    case injectedRestoreFailed
     /// A composition stayed open after cancelling it; nothing was switched or injected.
     case compositionActive
     /// The caller's authorization check failed after the gate was acquired; nothing was cancelled, switched or injected.
@@ -87,19 +90,19 @@ public struct InputSourceSwitcher {
 
     public func withASCII(
         settleSeconds: Double = InputSourceSwitcher.defaultSettleSeconds,
-        isAuthorized: @MainActor () -> Bool = { true },
-        _ inject: () -> Void
+        isAuthorized: @MainActor () async -> Bool = { true },
+        _ inject: @MainActor () async -> Void
     ) async -> SwitchResult {
         await gate.acquire()
         defer { gate.release() }
         let original = controller.currentID()
         if original == Self.asciiID {
-            inject()
+            await inject()
             return .injected
         }
         if let composition, composition.state() == .composing {
             // Escape goes to whatever is focused now, so it needs a fresh authorization of its own.
-            guard isAuthorized() else { return .refused }
+            guard await isAuthorized() else { return .refused }
             composition.cancel()
             await settle(settleSeconds)
             if composition.state() == .composing { return .compositionActive }
@@ -110,16 +113,19 @@ public struct InputSourceSwitcher {
             restore(original)
             return .switchFailed
         }
-        inject()
+        await inject()
         await settle(settleSeconds)
-        restore(original)
-        return .injected
+        return restore(original) ? .injected : .injectedRestoreFailed
     }
 
-    /// A failed restore leaves the user on ABC, so it is logged. Only input source IDs are logged, never text.
-    private func restore(_ original: String) {
-        if !controller.select(original) {
+    /// A failed restore leaves the user on ABC, so it is logged and reported to the caller. Only input source IDs are
+    /// logged, never text.
+    @discardableResult
+    private func restore(_ original: String) -> Bool {
+        guard controller.select(original) else {
             Self.log.error("restore failed to \(original, privacy: .public)")
+            return false
         }
+        return true
     }
 }

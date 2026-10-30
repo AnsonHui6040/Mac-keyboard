@@ -18,9 +18,15 @@ final class EventPipelineTests: XCTestCase {
     @MainActor private final class FakeController: InputSourceControlling {
         var current: String
         var selected: [String] = []
+        var failSelectOf: String?
         init(current: String) { self.current = current }
         func currentID() -> String { current }
-        func select(_ id: String) -> Bool { selected.append(id); current = id; return true }
+        func select(_ id: String) -> Bool {
+            selected.append(id)
+            guard id != failSelectOf else { return false }
+            current = id
+            return true
+        }
     }
 
     @MainActor private final class FakeComposition: CompositionControlling {
@@ -36,6 +42,7 @@ final class EventPipelineTests: XCTestCase {
         let poster: RecordingPoster
         let controller: FakeController
         let state: State
+        let notice: InputSourceNotice
     }
 
     private final class State {
@@ -44,6 +51,7 @@ final class EventPipelineTests: XCTestCase {
         var acks: [Ack] = []
         var noted = 0
         var pings: [[Int64]] = []
+        var restores: [Bool] = []
         init(_ snapshots: [FocusSnapshot?]) { self.snapshots = snapshots }
         func next() -> FocusSnapshot? {
             reads += 1
@@ -63,15 +71,17 @@ final class EventPipelineTests: XCTestCase {
         let poster = RecordingPoster()
         let controller = FakeController(current: current)
         let state = State(snapshots)
+        let notice = InputSourceNotice(currentID: { controller.current })
         let pipeline = EventPipeline(
             snapshot: { state.next() },
             switcher: InputSourceSwitcher(controller: controller, composition: composition, settle: settle),
             injector: TextInjector(poster: poster, buildTextEvents: buildTextEvents),
             sendAck: { state.acks.append($0) },
             noteValidEvent: { state.noted += 1 },
-            onPing: { state.pings.append([$0, $1]) }
+            onPing: { state.pings.append([$0, $1]) },
+            onInputSourceRestore: { state.restores.append($0); notice.report(restoredOK: $0) }
         )
-        return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state)
+        return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state, notice: notice)
     }
 
     /// Events reach the pipeline already verified and decrypted (`ReceiverSecurity`), so the tests hand it events.
@@ -97,6 +107,9 @@ final class EventPipelineTests: XCTestCase {
             EventPipeline.ackCode(result: r, lateDecision: late, injected: injected)
         }
         XCTAssertEqual(code(.injected), .posted)
+        XCTAssertEqual(code(.injectedRestoreFailed), .posted)
+        XCTAssertEqual(code(.injectedRestoreFailed, late: .staleFocus, injected: false), .staleFocus)
+        XCTAssertEqual(code(.injectedRestoreFailed, injected: false), .injectFailed)
         XCTAssertEqual(code(.switchFailed), .switchFailed)
         XCTAssertEqual(code(.compositionActive), .compositionActive)
         XCTAssertEqual(code(.injected, late: .staleFocus, injected: false), .staleFocus)
@@ -108,6 +121,38 @@ final class EventPipelineTests: XCTestCase {
     }
 
     // MARK: Per-event behaviour
+
+    func testRestoreFailureAcksPostedAndRaisesTheNotice() async throws {
+        let h = harness(snapshots: [snapshot()], current: zhuyin)
+        h.controller.failSelectOf = zhuyin
+        let (data, id) = try frame(.text("A"))
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.poster.batches.count, 1)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted)])
+        XCTAssertEqual(h.state.restores, [false])
+    }
+
+    func testSuccessfulRestoreClearsTheNotice() async throws {
+        let h = harness(snapshots: [snapshot()], current: zhuyin)
+        h.notice.report(restoredOK: false)
+        await h.pipeline.process(try frame(.text("A")).0)
+        XCTAssertEqual(h.state.restores, [true])
+        XCTAssertNil(h.notice.message, "back on Zhuyin, so the warning goes")
+    }
+
+    func testNoticeSurvivesLaterEventsWhileStillOnABC() async throws {
+        let h = harness(snapshots: [snapshot()], current: zhuyin)
+        h.controller.failSelectOf = zhuyin
+        await h.pipeline.process(try frame(.text("A"), seq: 1).0)
+        XCTAssertNotNil(h.notice.message)
+        // The next event finds ABC already active and switches nothing; the user has not switched back yet.
+        await h.pipeline.process(try frame(.text("B"), seq: 2).0)
+        XCTAssertEqual(h.poster.batches.count, 2)
+        XCTAssertNotNil(h.notice.message, "typing again must not clear the warning")
+        h.controller.current = zhuyin
+        h.notice.sourceChanged()
+        XCTAssertNil(h.notice.message)
+    }
 
     func testAllowedTextPostsOnceAndAcksPosted() async throws {
         let h = harness(snapshots: [snapshot()])

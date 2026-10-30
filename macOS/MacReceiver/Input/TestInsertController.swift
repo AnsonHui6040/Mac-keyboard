@@ -36,6 +36,7 @@ final class TestInsertController: ObservableObject {
     private let injector: TextInjector
     private let switcher: InputSourceSwitcher
     private let defaults: UserDefaults
+    private let notice: InputSourceNotice?
     private var timer: Timer?
     private var pending: TestInsertItem?
 
@@ -46,12 +47,14 @@ final class TestInsertController: ObservableObject {
             controller: TISInputSourceController(),
             settle: { try? await Task.sleep(for: .seconds($0)) }
         ),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        notice: InputSourceNotice? = nil
     ) {
         self.focus = focus
         self.injector = injector
         self.switcher = switcher
         self.defaults = defaults
+        self.notice = notice
     }
 
     var isCounting: Bool { remaining != nil }
@@ -63,7 +66,7 @@ final class TestInsertController: ObservableObject {
     }
 
     func start(_ item: TestInsertItem) {
-        if !focus.refreshNow().axTrusted {
+        if !focus.isTrusted {
             focus.requestTrustPrompt()
             status = "輔助使用未授權"
             return
@@ -97,19 +100,31 @@ final class TestInsertController: ObservableObject {
         Task { await run(item) }
     }
 
-    private func run(_ item: TestInsertItem) async {
-        // Fresh AX read, not the 250 ms cached snapshot: the user may have switched windows a moment ago.
-        let snapshot = focus.refreshNow()
+    /// Internal so tests can drive it without the countdown.
+    func run(_ item: TestInsertItem) async {
+        // Fresh AX read, not the 250 ms polled snapshot: the user may have switched windows a moment ago.
+        let snapshot = await focus.refreshNow()
         let decision = FocusGuard.authorize(eventEpoch: nil, current: snapshot)
         guard decision == .allow else {
             status = "未插入：\(FocusMenuText.reason(decision))"
             Self.log.info("test insert refused \(String(describing: decision), privacy: .public)")
             return
         }
+        // Waiting for the switcher's gate, cancelling a composition and switching all take time, so the focus is read
+        // again after the gate and once more right before posting, against the epoch seen above.
+        let epoch = snapshot.epoch
+        var lateDecision = InjectionDecision.allow
         var posted = false
         var chunks = 0
         let started = ContinuousClock.now
-        let result = await switcher.withASCII(settleSeconds: settleSeconds) {
+        let focus = focus
+        let injector = injector
+        let result = await switcher.withASCII(settleSeconds: settleSeconds, isAuthorized: {
+            lateDecision = FocusGuard.authorize(eventEpoch: epoch, current: await focus.refreshNow())
+            return lateDecision == .allow
+        }) {
+            lateDecision = FocusGuard.authorize(eventEpoch: epoch, current: await focus.refreshNow())
+            guard lateDecision == .allow else { return }
             if item.chunked {
                 let outcome = injector.insert(item.text)
                 chunks = outcome.posted
@@ -127,10 +142,15 @@ final class TestInsertController: ObservableObject {
         case .compositionActive:
             status = "未插入：輸入法正在組字"
         case .refused:
-            status = "未插入：焦點已改變"
-        case .injected:
+            status = "未插入：\(FocusMenuText.reason(lateDecision == .allow ? .staleFocus : lateDecision))"
+        case .injected, .injectedRestoreFailed:
             let length = item.text.utf16.count
-            status = posted ? "已插入（長度 \(length)，\(chunks) 段，\(ms) ms）" : "插入失敗：事件建立失敗"
+            if lateDecision != .allow {
+                status = "未插入：\(FocusMenuText.reason(lateDecision))"
+            } else {
+                status = posted ? "已插入（長度 \(length)，\(chunks) 段，\(ms) ms）" : "插入失敗：事件建立失敗"
+            }
+            if result == .injectedRestoreFailed { notice?.report(restoredOK: false) } else { notice?.report(restoredOK: true) }
         }
         Self.log.info("test insert \(item.id, privacy: .public) result \(String(describing: result), privacy: .public) ms \(ms, privacy: .public)")
     }

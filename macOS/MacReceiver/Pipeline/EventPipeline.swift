@@ -18,12 +18,13 @@ import RemoteKeyboardCore
 final class EventPipeline {
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "pipeline")
 
-    private let snapshot: @MainActor () -> FocusSnapshot?
+    private let snapshot: @MainActor () async -> FocusSnapshot?
     private let switcher: InputSourceSwitcher
     private let injector: TextInjector
     private let sendAck: @MainActor (Ack) -> Void
     private let noteValidEvent: @MainActor () -> Void
     private let onPing: @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void
+    private let onInputSourceRestore: @MainActor (_ restoredOK: Bool) -> Void
 
     private enum Item: Sendable {
         case event(KeyboardEvent)
@@ -48,13 +49,16 @@ final class EventPipeline {
     ///   - snapshot: a forced, fresh focus read (not a cached value).
     ///   - noteValidEvent: called for every validly decoded event, whether or not it is injected.
     ///   - onPing: receives a reconnect probe's timestamps. A ping never reaches the focus read or the injector.
+    ///   - onInputSourceRestore: called after every injection that switched input source; `false` means the original
+    ///     source could not be selected again (the text was still typed and acked `posted`).
     init(
-        snapshot: @escaping @MainActor () -> FocusSnapshot?,
+        snapshot: @escaping @MainActor () async -> FocusSnapshot?,
         switcher: InputSourceSwitcher,
         injector: TextInjector,
         sendAck: @escaping @MainActor (Ack) -> Void,
         noteValidEvent: @escaping @MainActor () -> Void,
-        onPing: @escaping @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void = { _, _ in }
+        onPing: @escaping @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void = { _, _ in },
+        onInputSourceRestore: @escaping @MainActor (_ restoredOK: Bool) -> Void = { _ in }
     ) {
         self.snapshot = snapshot
         self.switcher = switcher
@@ -62,6 +66,7 @@ final class EventPipeline {
         self.sendAck = sendAck
         self.noteValidEvent = noteValidEvent
         self.onPing = onPing
+        self.onInputSourceRestore = onInputSourceRestore
         let (stream, continuation) = AsyncStream<Queued>.makeStream()
         self.continuation = continuation
         consumer = Task { @MainActor [weak self] in
@@ -114,7 +119,7 @@ final class EventPipeline {
         case .switchFailed: return .switchFailed
         case .compositionActive: return .compositionActive
         case .refused: return ackCode(for: lateDecision) ?? .staleFocus
-        case .injected:
+        case .injected, .injectedRestoreFailed:
             if let refusal = ackCode(for: lateDecision) { return refusal }
             return injected ? .posted : .injectFailed
         }
@@ -170,20 +175,25 @@ final class EventPipeline {
         // An event typed before any status arrived has no epoch to compare, so it cannot be tied to a field.
         guard event.focusEpoch != nil else { return .staleFocus }
         // Fresh read immediately before the guard.
-        let decision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+        let decision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: await snapshot())
         if let refusal = Self.ackCode(for: decision) { return refusal }
 
         var lateDecision = InjectionDecision.allow
         var injected = false
         let result = await switcher.withASCII(isAuthorized: {
             // Re-run after the gate wait and before Escape: the focus may have moved while this call queued.
-            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: await snapshot())
             return lateDecision == .allow
         }) {
             // The switch and composition cancel take real time; confirm the focus once more before posting.
-            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: snapshot())
+            lateDecision = FocusGuard.authorize(eventEpoch: event.focusEpoch, current: await snapshot())
             guard lateDecision == .allow else { return }
             injected = inject(event.kind)
+        }
+        switch result {
+        case .injected: onInputSourceRestore(true)
+        case .injectedRestoreFailed: onInputSourceRestore(false)
+        default: break
         }
         return Self.ackCode(result: result, lateDecision: lateDecision, injected: injected)
     }
