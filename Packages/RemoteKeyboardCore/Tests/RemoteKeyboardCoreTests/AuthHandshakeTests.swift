@@ -213,6 +213,60 @@ final class AuthHandshakeTests: XCTestCase {
         }
     }
 
+    func testByeIsAllowedInsideSealedControlAndDelivered() throws {
+        var (mac, phone, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+        let sealed = try mac.sealControl(.bye)
+        guard case .sealed = sealed else { return XCTFail("bye must leave the Mac sealed") }
+        XCTAssertEqual(phone.receive(sealed), .deliver(.bye))
+        XCTAssertTrue(phone.canSendEvents, "a goodbye is delivered, not a violation; the adapter does the reset")
+        // Nothing readable on the wire.
+        let wire = try ControlCodec.encode(sealed)
+        XCTAssertNil(String(decoding: wire, as: UTF8.self).range(of: "bye"))
+        XCTAssertLessThan(wire.count, 512)
+    }
+
+    func testPlainByeIsNeverAccepted() throws {
+        // Before auth it is dropped like any other post-auth message; after auth a plain one is a violation.
+        var early = PhoneHandshake(pairKey: pairKey, phoneNonce: phoneNonce)
+        XCTAssertEqual(early.receive(.bye), .none)
+        _ = early.receive(.hello(macNonce: macNonce))
+        XCTAssertEqual(early.receive(.bye), .none)
+        var (_, phone, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+        XCTAssertEqual(phone.receive(.bye), .failed)
+        XCTAssertFalse(phone.canSendEvents)
+    }
+
+    func testSealedByeBeforeAuthFailsThePhone() throws {
+        var early = PhoneHandshake(pairKey: pairKey, phoneNonce: phoneNonce)
+        _ = early.receive(.hello(macNonce: macNonce))
+        let macToPhone = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .macToPhone)
+        XCTAssertEqual(early.receive(.sealed(try macToPhone.seal(ControlCodec.encode(.bye)))), .failed)
+    }
+
+    func testMacCannotSealByeBeforeAuth() {
+        var early = MacHandshake(pairKey: pairKey, macNonce: macNonce)
+        _ = early.begin()
+        XCTAssertThrowsError(try early.sealControl(.bye)) { XCTAssertEqual($0 as? HandshakeError, .notAuthenticated) }
+    }
+
+    func testSealControlRejectsOtherInnerMessagesStill() throws {
+        let (mac, _, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+        for bad in [ControlMessage.authFailed, .hello(macNonce: macNonce), .auth(proof: Data(repeating: 0, count: 32)),
+                    .pairAccept(publicKey: Data()), .sealed(Data())] {
+            XCTAssertThrowsError(try mac.sealControl(bad)) { XCTAssertEqual($0 as? HandshakeError, .invalidControlMessage) }
+        }
+        for good in [ControlMessage.ack(Ack(eventId: UUID(), result: .pong)),
+                     .status(ReceiverStatus(ready: true, appName: nil, focusEpoch: 1)), .bye] {
+            XCTAssertNoThrow(try mac.sealControl(good))
+        }
+        // The phone still fails on a sealed inner message that is not ack, status or bye.
+        let macToPhone = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .macToPhone)
+        for inner in [ControlMessage.authFailed, .hello(macNonce: macNonce), .sealed(Data([1, 2, 3]))] {
+            var (_, phone, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+            XCTAssertEqual(phone.receive(.sealed(try macToPhone.seal(ControlCodec.encode(inner)))), .failed)
+        }
+    }
+
     func testSealedStatusWithLongAppNameStaysUnderOneControlWrite() throws {
         let (mac, _, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
         let status = ControlMessage.status(ReceiverStatus(ready: true, appName: String(repeating: "香", count: 60), focusEpoch: UInt64.max))

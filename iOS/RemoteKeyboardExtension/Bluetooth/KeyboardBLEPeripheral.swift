@@ -52,6 +52,11 @@ final class KeyboardBLEPeripheral: NSObject {
     private var tracker = ReconnectTracker()
     private var pingEventId: UUID?
 
+    /// The liveness probe of the current appearance: sent when a keyboard appears on a link that looks connected. A `pong`
+    /// for it cancels the 2 second deadline; none means the link is dead and the service is published again.
+    private var probe = LinkProbe()
+    private var probeTimer: Timer?
+
     private static let serviceID = CBUUID(string: GATTServiceSpec.Link.serviceUUID)
     private static let eventID = CBUUID(string: GATTServiceSpec.Link.eventUUID)
     private static let controlID = CBUUID(string: GATTServiceSpec.Link.controlUUID)
@@ -90,10 +95,11 @@ final class KeyboardBLEPeripheral: NSObject {
         let hadOwner = ownership.owner != nil
         // The clock starts when the owning controller's appearance starts. A replacement controller or a repeated
         // appear inside a running appearance keeps the original start.
-        tracker.beginIfIdle(atMs: MonotonicClock.nowMs())
+        var appearanceStarts = tracker.beginIfIdle(atMs: MonotonicClock.nowMs())
         if ownership.claim(owner) {
             KeyboardLifecycleLog.note(.ownerChanged(owner: owner, hadPrevious: hadOwner))
             if hadOwner { startSession() }
+            appearanceStarts = true
         }
         self.onStateChange = onStateChange
         self.onControl = onControl
@@ -109,6 +115,18 @@ final class KeyboardBLEPeripheral: NSObject {
         feed(.appeared(hasFullAccess: hasFullAccess))
         // The link machine has torn the service down by now; a manager an earlier controller created must not outlive it.
         if !hasFullAccess { releaseManager() }
+        // A replacement controller can appear on a link the Mac already left without iOS saying so (the system keeps its
+        // own link up after the Mac cancels). Ask the Mac; no answer in 2 seconds publishes the service again.
+        if appearanceStarts {
+            // A connected link whose handshake already failed can never recover by itself; a live one is probed instead.
+            if LinkRecovery.shouldResetOnAppear(
+                linkConnected: machine.state == .connected, handshake: handshake?.progress, hasPairKey: pairKey != nil
+            ) {
+                resetLink()
+            } else {
+                probeLinkIfConnected()
+            }
+        }
     }
 
     /// Honored only for the current owner; a stale controller's late disappear must not tear down the new owner's link.
@@ -145,6 +163,7 @@ final class KeyboardBLEPeripheral: NSObject {
         manager.delegate = nil
         self.manager = nil
         eventCharacteristic = nil
+        cancelProbe()
         subscribedCentral = nil
         binding.clear()
         handshake = nil
@@ -171,6 +190,7 @@ final class KeyboardBLEPeripheral: NSObject {
         latestStatus = nil
         tracker.reset()
         pingEventId = nil
+        cancelProbe()
         clearPendingService()
     }
 
@@ -238,6 +258,52 @@ final class KeyboardBLEPeripheral: NSObject {
         pingEventId = send(.ping(shownAtMs: ping.shownAtMs, connectedAtMs: ping.connectedAtMs))
     }
 
+    // MARK: Liveness probe and link reset
+
+    /// Sends one probe when this is a new appearance on a connected, authenticated link. A probe still pending keeps its own
+    /// deadline. The probe is not a typed key and not a reconnect sample.
+    private func probeLinkIfConnected() {
+        guard machine.state == .connected, subscribedCentral != nil, handshake?.canSendEvents == true, !probe.isPending,
+              let eventId = send(.probe) else { return }
+        probe.start(eventId: eventId, nowMs: MonotonicClock.nowMs())
+        KeyboardLifecycleLog.note(.probeSent)
+        scheduleProbeTimer(after: Double(LinkProbe.timeoutMs) / 1000)
+    }
+
+    private func scheduleProbeTimer(after seconds: TimeInterval) {
+        probeTimer?.invalidate()
+        let timer = Timer(timeInterval: seconds, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.probeTimerFired() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        probeTimer = timer
+    }
+
+    private func probeTimerFired() {
+        probeTimer = nil
+        guard probe.isPending else { return }
+        // The timer cannot fire early, but the deadline is the probe's, not the timer's.
+        guard probe.isExpired(nowMs: MonotonicClock.nowMs()) else { return scheduleProbeTimer(after: 0.05) }
+        KeyboardLifecycleLog.note(.probeExpired)
+        resetLink()
+    }
+
+    private func cancelProbe() {
+        probe.cancel()
+        probeTimer?.invalidate()
+        probeTimer = nil
+    }
+
+    /// The connection is over although iOS has not said so (the Mac said goodbye, or a probe went unanswered). Publishes
+    /// the service again from scratch: advertising alone would leave the old central subscribed as far as iOS knows. The
+    /// reset drops the connection state (binding, handshake, status) with the service; `messageId` is never reset.
+    private func resetLink() {
+        cancelProbe()
+        pingEventId = nil
+        KeyboardLifecycleLog.note(.linkReset)
+        feed(.linkReset)
+    }
+
     /// Hands queued frames to CoreBluetooth in order. A `false` from `updateValue` means the transmit queue is full;
     /// the rest waits for `peripheralManagerIsReady(toUpdateSubscribers:)`.
     private func drain() {
@@ -252,7 +318,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .text(let text): (.text, text.utf8.count)
         case .backspace: (.backspace, 0)
         case .returnKey: (.return, 0)
-        case .ping: nil
+        case .ping, .probe: nil
         }
     }
 
@@ -314,6 +380,7 @@ final class KeyboardBLEPeripheral: NSObject {
     /// reliably report an unsubscribe when the radio goes away or the service is removed, so this must not wait for one;
     /// a stale authenticated handshake would otherwise lock out the Mac's next connection.
     private func dropConnectionState() {
+        cancelProbe()
         binding.clear()
         subscribedCentral = nil
         handshake = nil
@@ -364,6 +431,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         let outcome = binding.subscribe(central.identifier, locked: handshake?.canSendEvents == true)
         guard outcome == .bound else { return }
         // A subscription, even a repeat one from the same Mac, is a new connection: nothing of the old one carries over.
+        cancelProbe()
         latestStatus = nil
         queue.removeAll()
         subscribedCentral = central
@@ -385,6 +453,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         guard binding.unsubscribe(central.identifier) else { return }
         KeyboardLifecycleLog.note(.unsubscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
         // Keys typed for the old connection are not replayed into a later one.
+        cancelProbe()
         subscribedCentral = nil
         handshake = nil
         latestStatus = nil
@@ -428,17 +497,32 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             // An unpaired keyboard already says so in the status line; only a failed proof needs a note.
             if pairKey != nil { onNote?("配對驗證失敗") }
             onStateChange?(machine.state)
+            // The Mac drops the connection, but iOS may keep the link and never report it. Publish the service again so
+            // the keyboard does not sit "connected" forever. The Mac's skip list stops it from reconnecting meanwhile.
+            if LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: pairKey != nil) { resetLink() }
         }
     }
 
-    /// An `ack` or `status` the Mac sent after it was authenticated (opened from `sealed`).
+    /// An `ack`, `status` or `bye` the Mac sent after it was authenticated (opened from `sealed`).
     private func deliver(_ message: ControlMessage) {
         switch message {
+        case .bye:
+            // The Mac is leaving on purpose. iOS may never report the unsubscribe, so do not wait for it.
+            KeyboardLifecycleLog.note(.byeReceived)
+            resetLink()
+            return
         case .status(let status):
             latestStatus = status
         case .ack(let ack):
             DiagnosticEvent.ackReceived(ack.result).log()
             sender.acknowledged(ack)
+            // The pong for the liveness probe: the link is alive. Like the reconnect probe it is not a typed key.
+            if ack.result == .pong, probe.pongReceived(eventId: ack.eventId) {
+                probeTimer?.invalidate()
+                probeTimer = nil
+                KeyboardLifecycleLog.note(.probeAnswered)
+                return
+            }
             // The probe's own ack is not a typed key, so it never reaches the status line as "Mac 已輸入".
             if ack.eventId == pingEventId {
                 pingEventId = nil

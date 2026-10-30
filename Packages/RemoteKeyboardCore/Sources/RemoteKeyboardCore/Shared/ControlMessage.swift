@@ -39,8 +39,11 @@ public enum ControlMessage: Codable, Equatable, Sendable {
     case auth(proof: Data)
     /// The Mac rejected the iPhone and is about to disconnect.
     case authFailed
-    /// After authentication every `ack` and `status` travels here: `SessionCrypto` (`.macToPhone`) over the encoded inner
-    /// message. Only `ack` and `status` are allowed inside.
+    /// The Mac is about to end this connection on purpose (stop receiving, idle timeout, unpair, quit). Only ever sent
+    /// inside `sealed`, so a bystander cannot make a keyboard drop its link. The keyboard answers with a full link reset.
+    case bye
+    /// After authentication every `ack`, `status` and `bye` travels here: `SessionCrypto` (`.macToPhone`) over the encoded
+    /// inner message. Only those three are allowed inside.
     case sealed(Data)
 }
 

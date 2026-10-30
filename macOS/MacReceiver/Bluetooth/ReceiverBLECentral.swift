@@ -13,14 +13,18 @@ protocol CentralDriving: AnyObject {
     func cancel(_ id: UUID)
     /// Drops everything held for `id` without touching the radio (used when Bluetooth is not powered on).
     func forget(_ id: UUID)
-    /// Write with response to the keyboard's `control` characteristic of the connected peripheral.
-    func writeControl(_ data: Data)
+    /// Write with response to the keyboard's `control` characteristic of the connected peripheral. Returns whether a write
+    /// was issued; each issued write is answered by exactly one `ReceiverBLECentral.controlWriteCompleted()`.
+    @discardableResult
+    func writeControl(_ data: Data) -> Bool
 }
 
 /// Resident BLE central. Idle until a receive session is armed, then looks for the keyboard peripheral.
 @MainActor
 final class ReceiverBLECentral: ObservableObject {
     static let idleTimeoutKey = "rk.idleTimeoutSeconds"
+    /// How long a deliberate disconnect waits for the goodbye's write response before it cancels anyway.
+    static let goodbyeTimeout: TimeInterval = 0.5
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "link")
 
     @Published private(set) var linkState: ReceiverLinkState = .idle
@@ -54,12 +58,23 @@ final class ReceiverBLECentral: ObservableObject {
     /// central holds a single connection, and the reassembler is reset whenever that connection stops being ready.
     private var reassembler = FrameReassembler()
 
+    /// Control writes issued and not yet answered. The goodbye is the last of them, so the cancel waits until all are answered.
+    private var controlWritesInFlight = 0
+    /// The peripheral whose goodbye was written and whose cancel is waiting for the write response or `goodbyeTimeout`.
+    private var pendingGoodbye: UUID?
+    private var goodbyeTimer: Timer?
+    /// A peripheral was reported while the old connection was still closing; the scan is repeated once it is closed.
+    private var discoveryDeferred = false
+
     /// Receives the bytes of every complete message (all of its frames), in arrival order.
     var eventHandler: (@MainActor (Data) -> Void)?
     /// Fires each time the link newly reaches ready (control characteristic is known by then).
     var onLinkReady: (@MainActor () -> Void)?
     /// Fires each time the link leaves ready (disconnect, invalidation, stop, idle timeout or radio off).
     var onLinkLost: (@MainActor () -> Void)?
+    /// The sealed `bye` for the current connection, or `nil` when it is not authenticated. Asked once before every
+    /// deliberate disconnect of a ready link.
+    var goodbye: (@MainActor () -> ControlMessage?)?
 
     init(
         defaults: UserDefaults = .standard,
@@ -90,6 +105,16 @@ final class ReceiverBLECentral: ObservableObject {
 
     func startReceiving() { handleSession(.manualStart) }
     func stopReceiving() { handleSession(.manualStop) }
+
+    /// The app is quitting: stop receiving (which says goodbye) and keep the run loop turning until the connection is
+    /// cancelled, for at most about `goodbyeTimeout`. Best effort; returns at once when nothing is connected.
+    func prepareForTermination() {
+        stopReceiving()
+        let end = Date().addingTimeInterval(Self.goodbyeTimeout + 0.2)
+        while pendingGoodbye != nil, Date() < end {
+            RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+    }
     /// Extends the idle deadline for one validly decoded event.
     func noteEvent() { handleSession(.eventReceived) }
     /// The focused Mac field became editable (D13): arms receiving, or extends it when already armed.
@@ -119,7 +144,14 @@ final class ReceiverBLECentral: ObservableObject {
     /// Writes a control message with response. Dropped unless the link is ready.
     func send(_ message: ControlMessage) {
         guard case .ready = link.state, let data = try? ControlCodec.encode(message) else { return }
-        driver?.writeControl(data)
+        if driver?.writeControl(data) == true { controlWritesInFlight += 1 }
+    }
+
+    /// The driver reports every answered control write (success or failure). Releases a waiting goodbye once the last
+    /// write in flight is answered; CoreBluetooth answers writes in the order they were issued.
+    func controlWriteCompleted() {
+        controlWritesInFlight = max(0, controlWritesInFlight - 1)
+        if pendingGoodbye != nil, goodbyeTimer != nil, controlWritesInFlight == 0 { finishGoodbye() }
     }
 
     /// Drops the connection in progress (or ready), if any, and goes back to scanning. With `skipForSession` the
@@ -135,7 +167,7 @@ final class ReceiverBLECentral: ObservableObject {
             Self.log.info("peripheral skipped for this receiving session")
         }
         // A service that went away is how the link machine already expresses "drop this peripheral and look again".
-        handleLink(.serviceInvalidated(id))
+        endLinkDeliberately(.serviceInvalidated(id))
     }
 
     /// Forgets every skipped peripheral and starts a fresh scan (the driver reports a peripheral once per scan), so a
@@ -143,7 +175,7 @@ final class ReceiverBLECentral: ObservableObject {
     func restartScanning() {
         skippedPeripherals.removeAll()
         guard isArmed else { return }
-        handleLink(.stop)
+        endLinkDeliberately(.stop)
         handleLink(.start)
     }
 
@@ -164,10 +196,50 @@ final class ReceiverBLECentral: ObservableObject {
                 stopTicking()
                 idleTimer?.invalidate()
                 idleTimer = nil
-                handleLink(.stop)
+                endLinkDeliberately(.stop)
             case .scheduleTimeout(let at):
                 scheduleIdleTimeout(at: at)
             }
+        }
+    }
+
+    // MARK: Goodbye
+
+    /// Ends a connection on this side's initiative. An authenticated keyboard is told first (a sealed `bye`) and the
+    /// cancel waits for the write response: the phone and this Mac share an iCloud account, so the system may keep its own
+    /// link up after a cancel and the keyboard would never learn that this Receiver left.
+    private func endLinkDeliberately(_ input: ReceiverLinkInput) {
+        beginGoodbye()
+        handleLink(input)
+        // A goodbye whose cancel never came (nothing to cancel after all) must not wait for a timer nobody started.
+        if pendingGoodbye != nil, goodbyeTimer == nil { finishGoodbye() }
+    }
+
+    private func beginGoodbye() {
+        guard case .ready(let id) = link.state, power == .poweredOn, pendingGoodbye == nil, let driver,
+              let message = goodbye?(), let data = try? ControlCodec.encode(message), driver.writeControl(data)
+        else { return }
+        controlWritesInFlight += 1
+        pendingGoodbye = id
+    }
+
+    /// The cancel effect of a link that has a goodbye on the wire: wait for the write response, or the fallback timer.
+    private func awaitGoodbyeResponse() {
+        goodbyeTimer?.invalidate()
+        goodbyeTimer = Self.makeTimer(Self.goodbyeTimeout, repeats: false) { [weak self] in self?.finishGoodbye() }
+    }
+
+    private func finishGoodbye() {
+        guard let id = pendingGoodbye else { return }
+        pendingGoodbye = nil
+        goodbyeTimer?.invalidate()
+        goodbyeTimer = nil
+        controlWritesInFlight = 0
+        if power == .poweredOn { driver?.cancel(id) } else { driver?.forget(id) }
+        // A phone reported inside the window was ignored; the scan is repeated so the driver reports it again.
+        if discoveryDeferred {
+            discoveryDeferred = false
+            if case .scanning = link.state { driver?.startScan() }
         }
     }
 
@@ -198,6 +270,11 @@ final class ReceiverBLECentral: ObservableObject {
 
     func handleLink(_ input: ReceiverLinkInput) {
         if case .discovered(let id) = input, skippedPeripherals.contains(id) { return }
+        // The connection that said goodbye is still closing; connecting now could be undone by its pending cancel.
+        if case .discovered = input, pendingGoodbye != nil {
+            discoveryDeferred = true
+            return
+        }
         if case .power(let new) = input { power = new }
         let before = link.state
         let effects = link.handle(input)
@@ -214,6 +291,7 @@ final class ReceiverBLECentral: ObservableObject {
         for effect in effects { apply(effect) }
         if after != before, case .ready = after {
             reassembler.reset()
+            controlWritesInFlight = 0
             handleSession(.linkReady)
             onLinkReady?()
         }
@@ -248,7 +326,13 @@ final class ReceiverBLECentral: ObservableObject {
         case .connect(let id): driver?.connect(id)
         case .discover(let id): driver?.discover(id)
         case .cancel(let id):
-            if power == .poweredOn { driver?.cancel(id) } else { driver?.forget(id) }
+            if power != .poweredOn {
+                driver?.forget(id)
+            } else if pendingGoodbye == id {
+                awaitGoodbyeResponse()
+            } else {
+                driver?.cancel(id)
+            }
         case .startScanAfter(let seconds):
             rescanTimer?.invalidate()
             rescanTimer = Self.makeTimer(seconds, repeats: false) { [weak self] in self?.handleLink(.rescanTimer) }
@@ -325,13 +409,14 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
         manager.cancelPeripheralConnection(peripheral)
     }
 
-    func writeControl(_ data: Data) {
-        guard let id = active, let peripheral = peripherals[id], let control else { return }
+    func writeControl(_ data: Data) -> Bool {
+        guard let id = active, let peripheral = peripherals[id], let control else { return false }
         guard data.count <= peripheral.maximumWriteValueLength(for: .withResponse) else {
             Self.log.error("control write dropped, length \(data.count, privacy: .public)")
-            return
+            return false
         }
         peripheral.writeValue(data, for: control, type: .withResponse)
+        return true
     }
 
     private static func power(_ state: CBManagerState) -> CentralPower {
@@ -432,7 +517,11 @@ extension CoreBluetoothDriver: @preconcurrency CBPeripheralDelegate {
     func peripheral(
         _ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?
     ) {
-        guard characteristic.uuid == Self.control, let error else { return }
+        // Only the active peripheral's answers count; a stale one must not release a goodbye early.
+        guard characteristic.uuid == Self.control, active == peripheral.identifier else { return }
+        // Success or failure, the write is answered; a waiting goodbye may now close the connection.
+        owner?.controlWriteCompleted()
+        guard let error else { return }
         Self.log.error("control write failed code \((error as NSError).code, privacy: .public)")
     }
 

@@ -6,7 +6,7 @@ import RemoteKeyboardCore
 /// Everything about who may type on this Mac: the per-connection handshake, the pairing window and the pair key.
 ///
 /// - Every keyboard connection starts with a fresh `MacHandshake` and a fresh nonce. Until the phone proved the pair key,
-///   nothing but `hello` is written; afterwards every `ack` and `status` goes out sealed (`sealControl`), and events are
+///   nothing but `hello` is written; afterwards every `ack`, `status` and `bye` goes out sealed (`sealControl`), and events are
 ///   accepted only as sealed payloads that open under this connection's session key.
 /// - A plaintext event, a failed proof, a failed open, bytes that are not a message, or a second keyboard session on the
 ///   same connection ends in `authFailed`, a disconnect, and no reconnection to that peripheral in this receiving session.
@@ -54,6 +54,8 @@ final class ReceiverSecurity: ObservableObject {
     private let handshakeTimeout: TimeInterval
 
     private var handshake: MacHandshake?
+    /// The goodbye `unpair()` sealed before it dropped the handshake, for whichever disconnect happens first.
+    private var farewell: ControlMessage?
     private var pin = SessionPin()
     private var handshakeTimer: Timer?
 
@@ -77,6 +79,7 @@ final class ReceiverSecurity: ObservableObject {
         central.eventHandler = { [weak self] data in self?.receive(data) }
         central.onLinkReady = { [weak self] in self?.linkReady() }
         central.onLinkLost = { [weak self] in self?.linkLost() }
+        central.goodbye = { [weak self] in self?.goodbyeMessage() }
     }
 
     func refreshPairedState() { isPaired = store.load() != nil }
@@ -93,6 +96,13 @@ final class ReceiverSecurity: ObservableObject {
     func send(_ message: ControlMessage) {
         guard let handshake, let sealed = try? handshake.sealControl(message) else { return }
         central.send(sealed)
+    }
+
+    /// The sealed `bye` to write before a deliberate disconnect; `nil` unless this connection is authenticated.
+    private func goodbyeMessage() -> ControlMessage? {
+        if let farewell { return farewell }
+        guard let handshake, handshake.isAuthenticated else { return nil }
+        return try? handshake.sealControl(.bye)
     }
 
     // MARK: Connection
@@ -235,6 +245,9 @@ final class ReceiverSecurity: ObservableObject {
     func unpair() {
         store.delete()
         isPaired = false
+        // The goodbye is sealed while the handshake still exists; whichever disconnect comes first writes it.
+        farewell = goodbyeMessage()
+        defer { farewell = nil }
         handshake = nil
         handshakeTimer?.invalidate()
         handshakeTimer = nil

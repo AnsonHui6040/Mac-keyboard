@@ -15,6 +15,15 @@ final class EventSenderTests: XCTestCase {
         XCTAssertEqual(ping.seq, 3)
     }
 
+    func testProbeIsNumberedButNeverCountedAsPending() {
+        var s = EventSender(sessionId: UUID())
+        let probe = s.make(.probe, focusEpoch: 7)
+        XCTAssertNil(probe.focusEpoch)
+        XCTAssertEqual(probe.seq, 1)
+        XCTAssertEqual(s.pendingCount, 0, "a probe never shows up as an unconfirmed key")
+        XCTAssertEqual(s.linkLost(), 0)
+    }
+
     func testMissingEpochStaysMissing() {
         var s = EventSender(sessionId: UUID())
         XCTAssertNil(s.make(.returnKey, focusEpoch: nil).focusEpoch)

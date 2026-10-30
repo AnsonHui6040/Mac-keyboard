@@ -147,7 +147,7 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 | 項目 | 預期 | 結果 |
 |---|---|---|
-| 只有固定事件 | 子系統內只有 `owner changed`、`manager created`、`subscribed`、`handshake started`、`handshake authenticated`、`no pair key` 這類固定句子與數字 | TBD |
+| 只有固定事件 | 子系統內只有 `owner changed`、`manager created`、`subscribed`、`handshake started`、`handshake authenticated`、`no pair key`、`goodbye received`、`link reset`、`liveness probe sent`、`liveness probe answered`、`liveness probe unanswered` 這類固定句子與數字 | TBD |
 | 沒有輸入內容、配對碼、金鑰 | 上面每個搜尋都是 0 筆 | TBD |
 
 結果：TBD
@@ -180,6 +180,31 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 結果：TBD
 
+### 10. Mac 停止接收再開始接收之後，鍵盤自動重連（不必切換輸入法）
+背景：Mac 結束連線時，iPhone 的系統可能仍保留自己的藍牙連線，鍵盤收不到中斷通知，會一直顯示已連線。現在 Mac 在每次主動中斷之前（停止接收、閒置逾時、解除配對、結束 App）會先送出加密的「再見」訊息，鍵盤收到後重新發佈服務並開始廣播；鍵盤出現在畫面上時也會先送一個探測訊息，2 秒內沒有回應就重新發佈服務。
+
+前置：已配對，Mac 在接收中，TextEdit 有游標，鍵盤切到遠端模式。每一個子項目開始前，先確認狀態列為 `Mac → TextEdit (N ms)`。
+
+- 10a 收起鍵盤再叫出：鍵盤在畫面上且已連線；在 Mac 面板按「停止接收」，等 5 秒，再按「開始接收」。接著收起鍵盤，再在 iPhone 備忘錄點一下輸入欄位叫出鍵盤。全程不使用地球鍵。
+- 10b 鍵盤一直在畫面上：鍵盤在畫面上且已連線；在 Mac 按「停止接收」。鍵盤狀態列應離開 `Mac → ...`（變成 `BLE: publishing` 或 `BLE: advertising`），不是一直停在已連線。等 5 秒後按「開始接收」，鍵盤不收起、不切換輸入法。
+- 10c 結束 Mac App：鍵盤在畫面上且已連線；在 Mac 選單列面板按「結束」。確認鍵盤狀態列離開 `Mac → ...`。等 5 秒後重新開啟 MacReceiver，按「開始接收」，鍵盤不收起。
+- 10d 閒置逾時與解除配對：在 Mac 終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 MacReceiver，按「開始接收」。鍵盤保持連線但不打字，等約 60 秒閒置逾時；鍵盤狀態列應離開 `Mac → ...`。再按「開始接收」，確認鍵盤自動回到 `Mac → ...`。接著在 Mac 的配對視窗（pairing sheet）按「解除配對」。這時 iPhone 仍保有金鑰，所以鍵盤不會顯示「尚未配對」：狀態列先離開 `Mac → ...`，短暫顯示「配對驗證失敗」，之後鍵盤重新廣播；Mac 已沒有配對，會拒絕這支 iPhone 並在這一次接收時段內略過它，因此在重新配對之前不會再連上。測完執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds`，重開 MacReceiver，並重新配對（步驟 1）。
+- 10e 強制結束 Mac App（沒有再見訊息，只測鍵盤端探測）：鍵盤在畫面上且已連線；在 Mac 終端機執行 `killall -KILL MacReceiver`。從 `/private/tmp/claude-501/receiver-run/MacReceiver.app` 重新開啟 Receiver，按「開始接收」。收起鍵盤，再在 iPhone 備忘錄點一下輸入欄位叫出鍵盤，不使用地球鍵。
+
+| 項目 | 預期 | 結果 |
+|---|---|---|
+| 10a 收起再叫出 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc` | TBD |
+| 10b 鍵盤沒有收起 | Mac 停止接收後，狀態列離開已連線；Mac 開始接收後數秒內自動回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | TBD |
+| 10c 結束再重開 Mac App | 結束 Mac App 後，狀態列離開已連線；重新開啟並開始接收後數秒內回到 `Mac → ...`，打 `abc`，Mac 收到 `abc` | TBD |
+| 10d 閒置逾時 | Mac 閒置逾時中斷的同時，狀態列離開已連線；再按「開始接收」後數秒內自動回到 `Mac → ...` | TBD |
+| 10d 解除配對 | Mac 按「解除配對」後，狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」，不是「尚未配對」；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對 | TBD |
+| 10e 強制結束後叫出鍵盤 | 叫出鍵盤後數秒內，狀態列回到 `Mac → ...`，不必按地球鍵；打 `abc`，Mac 收到 `abc`。iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷而正常重新發佈，則沒有這三行） | TBD |
+| 探測不影響重連紀錄與輸入 | 10a 到 10c 期間 TextEdit 與備忘錄沒有多出任何字元；Mac 的 `~/Library/Logs/RemoteKeyboard/reconnect.csv` 沒有因探測訊息多出行（每次叫出鍵盤最多一行，是原本的重連探測） | TBD |
+| 沒有在連線時誤重置 | 鍵盤在畫面上且 Mac 一直在接收時，收起再叫出鍵盤 10 次，每次都回到 `Mac → ...`，沒有出現長時間停在 `BLE: publishing` 或 `BLE: advertising` | TBD |
+| iPhone 端 log | Console 子系統 `com.ansonhui.remotekeyboard` 內，10a 到 10d 出現 `goodbye received`、`link reset`，或 `liveness probe sent` 之後的 `liveness probe answered`／`liveness probe unanswered`、`link reset`；不含輸入文字、金鑰、nonce | TBD |
+
+結果：TBD
+
 ## 總結
 
 | 步驟 | 結果 |
@@ -194,6 +219,7 @@ log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 | 7 iPhone 端 log 無敏感內容 | TBD |
 | 8 鍵盤開著時配對只發佈一份服務 | TBD |
 | 9 藍牙關閉再開啟後自動重連 | TBD |
+| 10 Mac 停止接收再開始接收後自動重連 | TBD |
 
 ### 備註
 - 同一台手機被判定驗證失敗之後，Mac 在這一次接收時段內不會再連它；按「停止接收」再「開始接收」，或按「配對新 iPhone」會重新開始。

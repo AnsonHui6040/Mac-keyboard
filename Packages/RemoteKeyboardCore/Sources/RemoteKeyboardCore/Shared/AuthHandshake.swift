@@ -10,7 +10,7 @@ import Foundation
 //   iPhone → sealed(...)                          only after the Mac proof verified
 //
 // After `auth` verified, both directions are sealed with their own session key (see `SessionCrypto.Direction`): events
-// as `PeripheralMessage.sealed`, `ack` and `status` as `ControlMessage.sealed`. Before that only `hello`, `auth`,
+// as `PeripheralMessage.sealed`, `ack`, `status` and `bye` as `ControlMessage.sealed`. Before that only `hello`, `auth`,
 // `authFailed` and `pairAccept` travel in the clear on `control`, and the app name never does.
 //
 // Both reducers are single-use: one instance per connection, constructed with a fresh `Pairing.randomNonce()`. Reusing a
@@ -21,7 +21,7 @@ import Foundation
 public enum HandshakeError: Error, Equatable, Sendable {
     /// `sealEvent` / `sealControl` was called before authentication, or after the handshake failed.
     case notAuthenticated
-    /// `sealControl` was given something other than `ack` or `status`.
+    /// `sealControl` was given something other than `ack`, `status` or `bye`.
     case invalidControlMessage
 }
 
@@ -34,7 +34,7 @@ public enum PhoneHandshakeOutput: Equatable, Sendable {
     case send(PeripheralMessage)
     /// The Mac proved itself; `canSendEvents` is now true.
     case authenticated
-    /// A post-authentication Mac message (`ack` or `status`) the app may now act on.
+    /// A post-authentication Mac message (`ack`, `status` or `bye`) the app may now act on.
     case deliver(ControlMessage)
     /// The handshake failed. The adapter stops sending events and drops the link.
     case failed
@@ -61,6 +61,23 @@ public struct PhoneHandshake: Sendable {
     /// True only after the Mac's `auth` proof verified. Until then the iPhone sends no `KeyboardEvent`.
     public var canSendEvents: Bool { state == .authenticated }
 
+    /// Where the handshake stands, for deciding whether a connected link is worth keeping.
+    public enum Progress: Equatable, Sendable {
+        /// Waiting for `hello` or for the Mac's proof.
+        case inProgress
+        case authenticated
+        /// Sticky: this connection will never carry an event.
+        case failed
+    }
+
+    public var progress: Progress {
+        switch state {
+        case .awaitingHello, .awaitingAuth: .inProgress
+        case .authenticated: .authenticated
+        case .failed: .failed
+        }
+    }
+
     public mutating func receive(_ message: ControlMessage) -> PhoneHandshakeOutput {
         if state == .failed { return .none }
         switch message {
@@ -81,14 +98,14 @@ public struct PhoneHandshake: Sendable {
             return .authenticated
         case .authFailed:
             return fail()
-        case .ack, .status:
+        case .ack, .status, .bye:
             // After auth the Mac only sends these sealed, so a plain one is a violation. Before auth they are dropped.
             return state == .authenticated ? fail() : .none
         case .sealed(let payload):
             guard state == .authenticated, let controlCrypto, let plain = try? controlCrypto.open(payload),
                   let inner = try? ControlCodec.decode(plain) else { return fail() }
             switch inner {
-            case .ack, .status: return .deliver(inner)
+            case .ack, .status, .bye: return .deliver(inner)
             default: return fail()
             }
         case .pairAccept:
@@ -200,12 +217,12 @@ public struct MacHandshake: Sendable {
         }
     }
 
-    /// Wraps an `ack` or `status` for the wire. After authentication the Mac sends nothing else on `control` except
-    /// `authFailed`; anything but `ack` and `status` is refused.
+    /// Wraps an `ack`, `status` or `bye` for the wire. After authentication the Mac sends nothing else on `control` except
+    /// `authFailed`; anything but those three is refused.
     public func sealControl(_ message: ControlMessage) throws -> ControlMessage {
         guard state == .authenticated, let controlCrypto else { throw HandshakeError.notAuthenticated }
         switch message {
-        case .ack, .status: return .sealed(try controlCrypto.seal(ControlCodec.encode(message)))
+        case .ack, .status, .bye: return .sealed(try controlCrypto.seal(ControlCodec.encode(message)))
         default: throw HandshakeError.invalidControlMessage
         }
     }

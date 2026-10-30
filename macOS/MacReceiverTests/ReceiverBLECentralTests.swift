@@ -7,7 +7,7 @@ private final class FakeDriver: CentralDriving {
     enum Call: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID), forget(UUID) }
     var calls: [Call] = []
     var controlWrites: [Data] = []
-    func writeControl(_ data: Data) { controlWrites.append(data) }
+    func writeControl(_ data: Data) -> Bool { controlWrites.append(data); return true }
     func startScan() { calls.append(.startScan) }
     func stopScan() { calls.append(.stopScan) }
     func connect(_ id: UUID) { calls.append(.connect(id)) }

@@ -127,4 +127,58 @@ final class KeyboardLinkStateMachineTests: XCTestCase {
         // Filtering a stale didAdd is PendingServiceTracker's job; the machine advances on the one it is given.
         XCTAssertEqual(m.handle(.serviceAdded(ok: true)), [.startAdvertising])
     }
+
+    // MARK: Link reset (goodbye or failed liveness probe)
+
+    func testLinkResetFromConnectedRepublishes() {
+        var m = connectedMachine()
+        let effects = m.handle(.linkReset)
+        XCTAssertEqual(effects, [.stopAdvertising, .removeServices, .addService])
+        XCTAssertEqual(m.state, .publishing)
+        // Then the normal flow: the new service is added, advertising starts, the Mac subscribes again.
+        XCTAssertEqual(m.handle(.serviceAdded(ok: true)), [.startAdvertising])
+        _ = m.handle(.advertisingStarted(ok: true))
+        XCTAssertEqual(m.state, .advertising)
+        XCTAssertEqual(m.handle(.subscribed), [.stopAdvertising])
+        XCTAssertEqual(m.state, .connected)
+    }
+
+    func testLinkResetFromAdvertisingAndPublishingRepublishes() {
+        var advertising = advertisingMachine()
+        XCTAssertEqual(advertising.handle(.linkReset), [.stopAdvertising, .removeServices, .addService])
+        XCTAssertEqual(advertising.state, .publishing)
+        var publishing = publishingMachine()
+        XCTAssertEqual(publishing.handle(.linkReset), [.stopAdvertising, .removeServices, .addService])
+        XCTAssertEqual(publishing.state, .publishing)
+    }
+
+    func testLinkResetRepublishesAFailedLinkToo() {
+        var m = publishingMachine()
+        _ = m.handle(.serviceAdded(ok: true))
+        _ = m.handle(.advertisingStarted(ok: false))
+        XCTAssertEqual(m.state, .failed(.advertise))
+        XCTAssertEqual(m.handle(.linkReset), [.removeServices, .addService])
+        XCTAssertEqual(m.state, .publishing)
+    }
+
+    func testLinkResetIsIgnoredWhenNothingIsPublished() {
+        var idle = KeyboardLinkStateMachine()
+        XCTAssertEqual(idle.handle(.linkReset), [])
+        XCTAssertEqual(idle.state, .idle)
+        var noAccess = KeyboardLinkStateMachine(); _ = noAccess.handle(.power(.poweredOn))
+        _ = noAccess.handle(.appeared(hasFullAccess: false))
+        XCTAssertEqual(noAccess.handle(.linkReset), [])
+        XCTAssertEqual(noAccess.state, .noFullAccess)
+        var off = KeyboardLinkStateMachine(); _ = off.handle(.power(.poweredOff))
+        _ = off.handle(.appeared(hasFullAccess: true))
+        XCTAssertEqual(off.handle(.linkReset), [])
+        XCTAssertEqual(off.state, .unavailable(.poweredOff))
+    }
+
+    func testLinkResetAfterDisappearDoesNotPublish() {
+        var m = connectedMachine()
+        _ = m.handle(.disappeared)
+        XCTAssertEqual(m.handle(.linkReset), [])
+        XCTAssertEqual(m.state, .idle)
+    }
 }

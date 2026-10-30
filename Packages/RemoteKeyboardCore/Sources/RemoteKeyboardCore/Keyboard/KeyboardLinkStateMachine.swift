@@ -30,6 +30,9 @@ public enum KeyboardLinkState: Equatable, Sendable {
 public enum KeyboardLinkInput: Equatable {
     case appeared(hasFullAccess: Bool), disappeared, power(PeripheralPower)
     case serviceAdded(ok: Bool), advertisingStarted(ok: Bool), subscribed, unsubscribed
+    /// The connection is dead or was ended on purpose (the Mac said goodbye, or a liveness probe went unanswered), and
+    /// iOS may not report an unsubscribe. Publish the service again from scratch so every old subscription is dropped.
+    case linkReset
 }
 
 public enum KeyboardLinkEffect: Equatable {
@@ -95,6 +98,16 @@ public struct KeyboardLinkStateMachine {
             guard state == .connected else { return [] }
             state = .advertising
             return [.startAdvertising]
+        case .linkReset:
+            guard visible, hasFullAccess else { return [] }
+            switch state {
+            case .publishing, .advertising, .connected, .failed:
+                // Advertising again is not enough: iOS may still count the old central as subscribed. Removing the
+                // service and adding it anew is what drops every subscription, as a controller change does.
+                return teardownEffects() + evaluate()
+            case .idle, .noFullAccess, .unavailable:
+                return []
+            }
         }
     }
 
