@@ -56,6 +56,7 @@ final class KeyboardRootView: UIView {
     private let bottomRow = BottomRowView()
     private var shift = ShiftState()
     private var topRows = 2
+    private var showsHandwriting = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -97,9 +98,10 @@ final class KeyboardRootView: UIView {
         handwriting.isHidden = !isChinese
         handwriting.setMessage(state.handwritingMessage)
         let rows = state.top.visibleRowCount
-        if rows != topRows {
+        if rows != topRows || isChinese != showsHandwriting {
             topRows = rows
-            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: rows))
+            showsHandwriting = isChinese
+            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: rows, handwriting: isChinese))
             invalidateIntrinsicContentSize()
             setNeedsLayout()
         }
@@ -162,9 +164,11 @@ final class KeyboardRootView: UIView {
         let pageFrame = CGRect(x: side, y: keysTop, width: width - 2 * side, height: letterHeight)
         english.frame = pageFrame
         symbols.frame = pageFrame
-        handwriting.frame = pageFrame
+        let extra = showsHandwriting ? KeyboardMetrics.handwritingExtraHeight : 0
+        handwriting.frame = CGRect(
+            x: side, y: keysTop, width: width - 2 * side, height: letterHeight + KeyboardMetrics.handwritingExtraHeight)
         bottomRow.frame = CGRect(
-            x: side, y: keysTop + letterHeight + KeyboardMetrics.rowGap,
+            x: side, y: keysTop + letterHeight + extra + KeyboardMetrics.rowGap,
             width: width - 2 * side, height: KeyboardMetrics.keyRowHeight)
     }
 }
