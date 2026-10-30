@@ -11,8 +11,12 @@ import os
 ///
 /// ML Kit names its file-group metadata `<bundle id>.<group name>.<stamp>`. The host app's id is
 /// `com.ansonhui.remotekeyboard` and the extension's `com.ansonhui.remotekeyboard.keyboard`, so the import renames
-/// those files to the extension's id; without that ML Kit does not find the model. Logs carry sizes, counts and
-/// durations only.
+/// those files to the extension's id (`ModelFileNaming.rekey`); without that ML Kit does not find the model.
+///
+/// Stamps: the host app writes a fresh stamp into the group's `.complete` marker as the very last step of an export
+/// (the marker is removed first). The import copies into a staging directory beside ML Kit's, records the group stamp
+/// in its own `.imported` marker inside it, and swaps the staging directory in with one `replaceItemAt`, so ML Kit
+/// never sees a half-copied directory. Logs carry sizes, counts and durations only.
 enum HandwritingModelStore {
     /// The language of the model (ML Kit has no separate Hant model; `zh-Hani` covers Traditional and Simplified).
     static let languageTag = "zh-Hani-TW"
@@ -20,8 +24,11 @@ enum HandwritingModelStore {
     static let mlKitDirectoryName = "com.google.mlkit.vision.digitalinkrecognition"
 
     private static let groupFolderName = "HandwritingModels"
-    /// Written after the copy into the group finished, so a half-finished copy is never imported.
+    /// Written last by the export and holding the copy's stamp, so a half-finished copy is never imported.
     private static let completeMarkerName = ".complete"
+    /// Written into the keyboard's ML Kit directory by the import; holds the stamp of the group copy it came from.
+    private static let importedMarkerName = ".imported"
+    private static let stagingPrefix = ".handwriting-import-"
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "handwriting")
 
     struct Summary: Equatable, Sendable {
@@ -34,12 +41,15 @@ enum HandwritingModelStore {
     enum StoreError: Error, Equatable, CustomStringConvertible {
         case noGroup
         case nothingToCopy
+        /// The task was cancelled; nothing was changed.
+        case cancelled
         case failed(String)
 
         var description: String {
             switch self {
             case .noGroup: "App Group 無法使用"
             case .nothingToCopy: "找不到已下載的手寫模型"
+            case .cancelled: "已取消"
             case .failed(let reason): reason
             }
         }
@@ -65,9 +75,24 @@ enum HandwritingModelStore {
     // MARK: Queries
 
     /// True when the App Group holds a finished copy of the model.
-    static func groupCopyIsComplete() -> Bool {
-        guard let root = groupRoot else { return false }
-        return FileManager.default.fileExists(atPath: root.appendingPathComponent(completeMarkerName).path)
+    static func groupCopyIsComplete() -> Bool { groupStamp() != nil }
+
+    /// Stamp of the finished App Group copy, nil when there is none.
+    static func groupStamp() -> String? {
+        guard let root = groupRoot else { return nil }
+        return readStamp(at: root.appendingPathComponent(completeMarkerName))
+    }
+
+    /// Stamp of the group copy this process's ML Kit directory was imported from, nil when it was not imported.
+    static func localStamp() -> String? {
+        readStamp(at: localDirectory.appendingPathComponent(importedMarkerName))
+    }
+
+    private static func readStamp(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else { return nil }
+        return text
     }
 
     /// Size of the finished copy in the App Group, nil when there is none.
@@ -101,7 +126,8 @@ enum HandwritingModelStore {
         try? FileManager.default.removeItem(at: root)
         var summary = try copyTree(from: source, to: destination, rename: nil)
         guard FileManager.default.createFile(
-            atPath: root.appendingPathComponent(completeMarkerName).path, contents: Data()) else {
+            atPath: root.appendingPathComponent(completeMarkerName).path,
+            contents: Data(UUID().uuidString.utf8)) else {
             throw StoreError.failed("無法完成複製")
         }
         summary.seconds = Date().timeIntervalSince(start)
@@ -117,31 +143,60 @@ enum HandwritingModelStore {
 
     // MARK: Keyboard extension
 
-    /// Copies the App Group copy over this process's ML Kit directory. Top-level items are replaced, so a half-finished
-    /// earlier copy is overwritten. Metadata file names are re-keyed from the host app's bundle id to this process's.
+    /// Copies the App Group copy into a staging directory beside this process's ML Kit directory, then swaps it in
+    /// with one step. Honours task cancellation (the staging directory is removed) and refuses the copy when the
+    /// group copy changed while it was being read.
     static func importFromGroup() throws -> Summary {
-        guard let source = groupDirectory else { throw StoreError.noGroup }
-        guard groupCopyIsComplete() else { throw StoreError.nothingToCopy }
+        guard let source = groupDirectory, let stamp = groupStamp() else { throw StoreError.noGroup }
+        let manager = FileManager.default
         let start = Date()
         let own = Bundle.main.bundleIdentifier ?? ""
         let host = own.hasSuffix(".keyboard") ? String(own.dropLast(".keyboard".count)) : own
         let destination = localDirectory
-        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
-        for item in try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
-            try? FileManager.default.removeItem(at: destination.appendingPathComponent(item.lastPathComponent))
-        }
-        var summary = try copyTree(from: source, to: destination, rename: { name in
-            rekey(name, from: host, to: own)
+        let parent = destination.deletingLastPathComponent()
+        try manager.createDirectory(at: parent, withIntermediateDirectories: true)
+        removeStaleStagingDirectories(in: parent)
+        let staging = parent.appendingPathComponent(stagingPrefix + UUID().uuidString, isDirectory: true)
+        defer { try? manager.removeItem(at: staging) }
+
+        var summary = try copyTree(from: source, to: staging, rename: { name in
+            ModelFileNaming.rekey(name, from: host, to: own)
         })
+        guard manager.createFile(
+            atPath: staging.appendingPathComponent(importedMarkerName).path, contents: Data(stamp.utf8)) else {
+            throw StoreError.failed("無法寫入匯入記號")
+        }
+        guard groupStamp() == stamp else { throw StoreError.failed("模型在複製時被更新，請稍後再試") }
+        try checkNotCancelled()
+        do {
+            if manager.fileExists(atPath: destination.path) {
+                _ = try manager.replaceItemAt(destination, withItemAt: staging)
+            } else {
+                try manager.moveItem(at: staging, to: destination)
+            }
+        } catch {
+            let code = error as NSError
+            throw StoreError.failed("無法換入模型（\(code.domain) \(code.code)）")
+        }
         summary.seconds = Date().timeIntervalSince(start)
         logger.info("model import bytes=\(summary.bytes, privacy: .public) files=\(summary.files, privacy: .public) renamed=\(summary.renamed, privacy: .public) seconds=\(summary.seconds, privacy: .public)")
         return summary
     }
 
-    /// `host.rest` becomes `own.rest`. Names already carrying `own.` and unrelated names stay as they are.
-    static func rekey(_ name: String, from host: String, to own: String) -> String {
-        guard host != own, name.hasPrefix(host + "."), !name.hasPrefix(own + ".") else { return name }
-        return own + String(name.dropFirst(host.count))
+    /// Removes this process's ML Kit directory (the model was dropped by the host app, or turned out to be unusable).
+    static func removeLocalCopy() {
+        try? FileManager.default.removeItem(at: localDirectory)
+    }
+
+    private static func removeStaleStagingDirectories(in parent: URL) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
+        for name in names where name.hasPrefix(stagingPrefix) {
+            try? FileManager.default.removeItem(at: parent.appendingPathComponent(name))
+        }
+    }
+
+    private static func checkNotCancelled() throws {
+        if Task.isCancelled { throw StoreError.cancelled }
     }
 
     // MARK: Copy
@@ -155,6 +210,7 @@ enum HandwritingModelStore {
             throw StoreError.failed("無法讀取模型資料夾")
         }
         for case let url as URL in walker {
+            try checkNotCancelled()
             var relative = String(url.standardizedFileURL.path.dropFirst(basePath.count))
             if relative.hasPrefix("/") { relative.removeFirst() }
             var parts = relative.split(separator: "/").map(String.init)

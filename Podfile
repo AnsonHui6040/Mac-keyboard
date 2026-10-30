@@ -28,6 +28,7 @@ post_install do |installer|
     end
   end
 
+  conditioned = Hash.new(0)
   Dir.glob("#{installer.sandbox.root}/Target Support Files/**/*.xcconfig").each do |path|
     original = File.read(path)
     lines = original.lines
@@ -37,9 +38,16 @@ post_install do |installer|
     if File.basename(path).start_with?('Pods-')
       lines = lines.map do |line|
         key = line[/\A([A-Z_]+) =/, 1]
-        DEVICE_ONLY_SETTINGS.include?(key) ? line.sub(/\A#{key}/, "#{key}[sdk=iphoneos*]") : line
+        next line unless DEVICE_ONLY_SETTINGS.include?(key)
+        conditioned[key] += 1
+        line.sub(/\A#{key}/, "#{key}[sdk=iphoneos*]")
       end
     end
     File.write(path, lines.join) if lines.join != original
+  end
+
+  # A CocoaPods format change must fail loudly: an unconditioned link line would break every Simulator build.
+  %w[OTHER_LDFLAGS FRAMEWORK_SEARCH_PATHS].each do |key|
+    raise "Podfile post_install: no #{key} line was made device-only; the CocoaPods xcconfig format changed" if conditioned[key].zero?
   end
 end

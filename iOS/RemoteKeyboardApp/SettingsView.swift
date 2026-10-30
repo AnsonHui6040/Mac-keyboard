@@ -43,7 +43,7 @@ struct SettingsView: View {
             } header: {
                 Text("手寫模型")
             } footer: {
-                Text("手寫辨識使用 Google ML Kit。模型約 20 MB，下載一次後，鍵盤會自動匯入，之後不需要網路。")
+                Text("手寫辨識使用 Google ML Kit。模型約 30 MB，下載一次後，鍵盤會自動匯入，之後不需要網路。")
             }
         }
         .navigationTitle("中文輸入設定")
@@ -52,7 +52,7 @@ struct SettingsView: View {
             Button("刪除", role: .destructive) { downloader.delete() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("刪除後，鍵盤的手寫頁需要重新下載模型才能使用。")
+            Text("刪除後，鍵盤會在下次顯示時移除它的副本，手寫頁需要重新下載模型才能使用。")
         }
     }
 

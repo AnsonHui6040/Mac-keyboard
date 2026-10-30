@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// The Chinese input methods the keyboard knows. The host App saves the user's choice under `AppGroup.Key.chineseMethod`.
 public enum ChineseInputMethodID: String, Codable, CaseIterable, Sendable {
@@ -51,10 +52,30 @@ public protocol ChineseInputMethod: Sendable {
     mutating func reset()
 }
 
+/// One sampled touch point: position in the writing area's own coordinates and the touch time in seconds
+/// (`UITouch.timestamp`, so only differences matter).
+public struct InkPoint: Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var t: TimeInterval
+
+    public init(x: Double, y: Double, t: TimeInterval) {
+        self.x = x
+        self.y = y
+        self.t = t
+    }
+}
+
 /// Turns ink into candidate text. The keyboard's engine (Google ML Kit Digital Ink) implements it; tests use a fake.
-/// `strokes` are in the writing area's own coordinates, `size` is that area.
+/// `size` is the writing area; `preContext` is the text committed just before (at most 20 characters, memory only,
+/// never logged), which helps the engine tell similar shapes apart.
 public protocol HandwritingRecognizing: Sendable {
-    func recognize(strokes: [[CGPoint]], in size: CGSize) async throws -> [String]
+    func recognize(strokes: [[InkPoint]], in size: CGSize, preContext: String) async throws -> [String]
+}
+
+public enum HandwritingRecognitionError: Error, Equatable, Sendable {
+    /// The engine could not run because its model is not loaded or is damaged.
+    case modelUnavailable
 }
 
 /// Which strings count as Chinese characters. The general ML Kit model also returns symbols and digits (it answered

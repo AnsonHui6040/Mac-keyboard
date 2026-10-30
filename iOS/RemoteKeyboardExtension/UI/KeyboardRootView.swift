@@ -30,7 +30,7 @@ final class KeyboardRootView: UIView {
     /// Handwriting: a stroke started, a stroke ended (all strokes and the canvas size), a candidate was tapped,
     /// 重寫 was tapped.
     var onStrokeBegan: (() -> Void)?
-    var onStrokesEnded: (([[CGPoint]], CGSize) -> Void)?
+    var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
     var onSelectCandidate: ((Int) -> Void)?
     var onClearInk: (() -> Void)?
     #if DEBUG

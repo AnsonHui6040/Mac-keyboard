@@ -36,10 +36,6 @@ enum MLKitHandwriting {
 #if canImport(MLKitDigitalInkRecognition)
 
 actor MLKitRecognizer: HandwritingRecognizing {
-    /// Milliseconds between two sampled points and between two strokes. The writing view does not keep touch times, so
-    /// the ink gets an even pace; ML Kit only needs the order and a plausible rhythm.
-    private static let pointStepMs = 12
-    private static let strokeGapMs = 250
     /// More than the 9 candidates the input method keeps, because non-Han results are dropped afterwards.
     private static let maxResults = 12
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "handwriting")
@@ -56,21 +52,18 @@ actor MLKitRecognizer: HandwritingRecognizing {
         recognizer = DigitalInkRecognizer.digitalInkRecognizer(options: options)
     }
 
-    func recognize(strokes: [[CGPoint]], in size: CGSize) async throws -> [String] {
-        guard !strokes.isEmpty else { return [] }
-        var clock = 0
-        var inkStrokes: [Stroke] = []
-        for stroke in strokes where !stroke.isEmpty {
-            let points = stroke.map { point -> StrokePoint in
-                defer { clock += Self.pointStepMs }
-                return StrokePoint(x: Float(point.x), y: Float(point.y), t: clock)
-            }
-            clock += Self.strokeGapMs
-            inkStrokes.append(Stroke(points: points))
+    func recognize(strokes: [[InkPoint]], in size: CGSize, preContext: String) async throws -> [String] {
+        guard let origin = strokes.first(where: { !$0.isEmpty })?.first?.t else { return [] }
+        // ML Kit wants milliseconds; only the differences matter, so they are taken from the first point.
+        let inkStrokes = strokes.filter { !$0.isEmpty }.map { stroke in
+            Stroke(points: stroke.map { point in
+                StrokePoint(x: Float(point.x), y: Float(point.y), t: Int(max(0, (point.t - origin) * 1000).rounded()))
+            })
         }
         let ink = Ink(strokes: inkStrokes)
         let context = DigitalInkRecognitionContext(
-            preContext: "", writingArea: WritingArea(width: Float(size.width), height: Float(size.height)))
+            preContext: String(preContext.suffix(20)),
+            writingArea: WritingArea(width: Float(size.width), height: Float(size.height)))
         let started = ContinuousClock.now
         let outcome: Result<[String], NSError> = await withCheckedContinuation { continuation in
             recognizer.recognize(ink: ink, context: context) { @Sendable result, error in
@@ -89,6 +82,8 @@ actor MLKitRecognizer: HandwritingRecognizing {
             return texts
         case .failure(let error):
             Self.logger.error("recognize failed domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
+            // No model in this process any more (not loaded, or damaged): the keyboard re-imports it.
+            if !MLKitHandwriting.isModelDownloaded() { throw HandwritingRecognitionError.modelUnavailable }
             throw error
         }
     }
@@ -100,7 +95,7 @@ actor MLKitRecognizer: HandwritingRecognizing {
 actor MLKitRecognizer: HandwritingRecognizing {
     init?() {}
 
-    func recognize(strokes: [[CGPoint]], in size: CGSize) async throws -> [String] { [] }
+    func recognize(strokes: [[InkPoint]], in size: CGSize, preContext: String) async throws -> [String] { [] }
 }
 
 #endif

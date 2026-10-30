@@ -24,7 +24,7 @@ xcodebuild test -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -desti
 swift test --package-path Packages/RemoteKeyboardCore
 ```
 
-手寫使用 Google ML Kit（CocoaPods）。ML Kit 沒有 arm64 模擬器版本，`Podfile` 讓 App 與 Extension 只在真機連結它；模擬器 build 使用替身辨識器，手寫在模擬器不會產生候選字。
+`pod install` 必須帶 `LANG=en_US.UTF-8`（終端機不是 UTF-8 時 CocoaPods 會當掉）。手寫使用 Google ML Kit（CocoaPods）。ML Kit 沒有 arm64 模擬器版本，`Podfile` 讓 App 與 Extension 只在真機連結它；模擬器 build 使用替身辨識器，手寫在模擬器不會產生候選字。
 
 ## 文件
 

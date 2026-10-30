@@ -29,6 +29,7 @@ final class KeyboardViewController: UIInputViewController {
     private var transmit: TransmitMode = .instant
     private var navigator = PageNavigator(lastPage: nil, field: .text, chineseAvailable: false)
     private let chinese = ChineseInputCoordinator()
+    private var imeChain: Task<Void, Never>?
     /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
     private var draft = DraftBuffer()
     /// A short-lived line shown after the status, such as the last ack. Cleared by `noteTask`.
@@ -50,10 +51,10 @@ final class KeyboardViewController: UIInputViewController {
 
         let root = KeyboardRootView()
         root.onAction = { [weak self] action in self?.perform(action) ?? false }
-        root.onStrokeBegan = { [weak self] in self?.chinese.strokeBegan() }
-        root.onStrokesEnded = { [weak self] strokes, size in self?.chinese.strokesEnded(strokes, size: size) }
-        root.onSelectCandidate = { [weak self] index in _ = self?.performIME(.selectCandidate(index)) }
-        root.onClearInk = { [weak self] in _ = self?.performIME(.clear) }
+        root.onStrokeBegan = { [weak self] in self?.chinese.session.strokeBegan() }
+        root.onStrokesEnded = { [weak self] strokes, size in self?.chinese.session.strokesEnded(strokes, size: size) }
+        root.onSelectCandidate = { [weak self] index in self?.enqueueIME(.selectCandidate(index)) }
+        root.onClearInk = { [weak self] in self?.enqueueIME(.clear) }
         chinese.onChange = { [weak self] in self?.refreshStatus() }
         chinese.onClearInk = { [weak self] in self?.rootView?.clearInk() }
         #if DEBUG
@@ -193,7 +194,10 @@ final class KeyboardViewController: UIInputViewController {
     @discardableResult
     private func perform(_ action: KeyAction) -> Bool {
         reclaimPeripheralIfVacant()
-        if navigator.page == .chinese, let input = Self.imeInput(for: action) { return performIME(input) }
+        if navigator.page == .chinese, let input = Self.imeInput(for: action) {
+            enqueueIME(input)
+            return true
+        }
         return route(action)
     }
 
@@ -207,15 +211,22 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    /// Runs the input keys one after another: a space that waits for a pending recognition must finish before the
+    /// next key is handled.
+    private func enqueueIME(_ input: IMEInput) {
+        let previous = imeChain
+        imeChain = Task { @MainActor [weak self] in
+            await previous?.value
+            await self?.performIME(input)
+        }
+    }
+
     /// Feeds the input method, then routes what it commits or passes through like typed keys.
-    @discardableResult
-    private func performIME(_ input: IMEInput) -> Bool {
+    private func performIME(_ input: IMEInput) async {
         reclaimPeripheralIfVacant()
-        let output = chinese.handle(input)
-        var taken = true
-        if let text = output.commit { taken = route(.character(text)) }
-        if let key = output.passThrough { taken = route(key) }
-        return taken
+        let output = await chinese.session.handle(input)
+        if let text = output.commit { route(.character(text)) }
+        if let key = output.passThrough { route(key) }
     }
 
     @discardableResult
@@ -231,6 +242,7 @@ final class KeyboardViewController: UIInputViewController {
             // Persist what actually took effect, so a refused Remote (no Full Access) is not remembered as Remote.
             let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
             savedMode = applied
+            chinese.resetHistory()
             UserDefaults.standard.set(applied.rawValue, forKey: Self.modeDefaultsKey)
             showNote(requested == .remote && applied == .local ? "遠端需要開啟「允許完整取用」" : nil)
         case .transmitToggled(let requested):

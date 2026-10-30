@@ -5,14 +5,14 @@ import UIKit
 /// so the ink follows dark mode. It reports when a stroke begins and when it ends.
 final class InkCanvasView: UIView {
     var onStrokeBegan: (() -> Void)?
-    /// A stroke ended; the arguments are all strokes and the canvas size.
-    var onStrokesEnded: (([[CGPoint]], CGSize) -> Void)?
+    /// A stroke ended; the arguments are all strokes (with touch times) and the canvas size.
+    var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
 
     private static let maxStrokes = 60
     private static let minPointDistance: CGFloat = 1
     private static let lineWidth: CGFloat = 5
 
-    private(set) var strokes: [[CGPoint]] = []
+    private(set) var strokes: [[InkPoint]] = []
     private var drawing = false
 
     var hasInk: Bool { !strokes.isEmpty }
@@ -45,7 +45,7 @@ final class InkCanvasView: UIView {
     #if DEBUG
     /// Debug preview only: shows ink without any touch.
     func showSample(_ sample: [[CGPoint]]) {
-        strokes = sample
+        strokes = sample.map { stroke in stroke.enumerated().map { InkPoint(x: $1.x, y: $1.y, t: Double($0) * 0.01) } }
         setNeedsDisplay()
     }
     #endif
@@ -55,7 +55,7 @@ final class InkCanvasView: UIView {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard !drawing, strokes.count < Self.maxStrokes, let touch = touches.first else { return }
         drawing = true
-        strokes.append([touch.location(in: self)])
+        strokes.append([Self.point(for: touch, in: self)])
         onStrokeBegan?()
         setNeedsDisplay()
     }
@@ -64,7 +64,7 @@ final class InkCanvasView: UIView {
         guard drawing, let touch = touches.first, !strokes.isEmpty else { return }
         let samples = event?.coalescedTouches(for: touch) ?? [touch]
         for sample in samples {
-            let point = sample.location(in: self)
+            let point = Self.point(for: sample, in: self)
             if let last = strokes[strokes.count - 1].last, hypot(point.x - last.x, point.y - last.y) < Self.minPointDistance {
                 continue
             }
@@ -82,6 +82,12 @@ final class InkCanvasView: UIView {
         finishStroke()
     }
 
+    /// The point and the touch's own timestamp (seconds since boot), which ML Kit uses as stroke timing.
+    private static func point(for touch: UITouch, in view: UIView) -> InkPoint {
+        let location = touch.location(in: view)
+        return InkPoint(x: location.x, y: location.y, t: touch.timestamp)
+    }
+
     private func finishStroke() {
         guard drawing else { return }
         drawing = false
@@ -93,7 +99,8 @@ final class InkCanvasView: UIView {
     override func draw(_ rect: CGRect) {
         UIColor.label.setStroke()
         for stroke in strokes {
-            guard let first = stroke.first else { continue }
+            guard let firstPoint = stroke.first else { continue }
+            let first = CGPoint(x: firstPoint.x, y: firstPoint.y)
             let path = UIBezierPath()
             path.lineWidth = Self.lineWidth
             path.lineCapStyle = .round
@@ -104,7 +111,8 @@ final class InkCanvasView: UIView {
             } else {
                 // Quadratic curves through the midpoints keep the line smooth between sampled points.
                 var previous = first
-                for point in stroke.dropFirst() {
+                for inkPoint in stroke.dropFirst() {
+                    let point = CGPoint(x: inkPoint.x, y: inkPoint.y)
                     let mid = CGPoint(x: (previous.x + point.x) / 2, y: (previous.y + point.y) / 2)
                     path.addQuadCurve(to: mid, controlPoint: previous)
                     previous = point
@@ -125,7 +133,7 @@ final class InkCanvasView: UIView {
 final class HandwritingPageView: UIView {
     /// A stroke started or ended; see `InkCanvasView`.
     var onStrokeBegan: (() -> Void)?
-    var onStrokesEnded: (([[CGPoint]], CGSize) -> Void)?
+    var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
     var onBackspace: (() -> Void)?
     var onClear: (() -> Void)?
 
@@ -145,6 +153,8 @@ final class HandwritingPageView: UIView {
         messageLabel.numberOfLines = 0
         messageLabel.accessibilityIdentifier = "rk.hwMessage"
         deleteKey.onRepeat = { [weak self] in self?.onBackspace?() }
+        // A press that clears ink or candidates must not turn into a held delete of the text behind them.
+        deleteKey.allowsRepeat = { [weak self] in !(self?.canvas.hasInk ?? false) }
         clearKey.onTap = { [weak self] in self?.onClear?() }
         for view in [canvas, messageLabel, deleteKey, clearKey] { addSubview(view) }
         canvas.onStrokeBegan = { [weak self] in

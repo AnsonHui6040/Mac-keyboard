@@ -24,7 +24,7 @@
 
 ## 建置
 
-- Xcode project 由 XcodeGen 產生：改 `project.yml`，再執行 `xcodegen generate`，接著 `pod install`（手寫用 Google ML Kit，CocoaPods）；build 一律用 `-workspace RemoteKeyboard.xcworkspace`。不要提交 `*.xcodeproj`、`*.xcworkspace`、`Pods/`；`Podfile` 與 `Podfile.lock` 要提交。
+- Xcode project 由 XcodeGen 產生：改 `project.yml`，再執行 `xcodegen generate`，接著 `LANG=en_US.UTF-8 pod install`（手寫用 Google ML Kit，CocoaPods；沒有 `LANG` 時 `pod install` 會當掉）；build 一律用 `-workspace RemoteKeyboard.xcworkspace`。不要提交 `*.xcodeproj`、`*.xcworkspace`、`Pods/`；`Podfile` 與 `Podfile.lock` 要提交。
 - 純邏輯：`swift test --package-path Packages/RemoteKeyboardCore`
 - 模擬器沒有 CoreBluetooth：BLE 相關驗收（T03、T05、T06）只能在實體 iPhone 完成。
 - 簽名使用免費 Personal Team，build 7 天到期。
