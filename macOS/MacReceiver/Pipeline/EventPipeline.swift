@@ -4,6 +4,10 @@ import RemoteKeyboardCore
 
 /// Turns each `event` notification into at most one injection and exactly one ack.
 ///
+/// A repeated event (same `eventId`) is acked with its original code and never typed again; an event whose `seq`
+/// is not above the highest one processed in its session is acked `outOfOrder` and not typed. What was processed is
+/// remembered across link losses.
+///
 /// Strictly one event at a time, in arrival order: events are queued into a stream and a single consumer finishes
 /// one (including its ASCII switch, settle and restore) before it reads the next. Fails closed: the focus is read
 /// fresh before the guard and once more right before posting. Logs carry kind, length, result and timing only.
@@ -28,6 +32,8 @@ final class EventPipeline {
     private var consumer: Task<Void, Never>?
     /// Bumped whenever the link goes away; anything queued under an older generation is dropped unprocessed.
     private var generation: UInt64 = 0
+    /// Deliberately not reset by `discardQueued()`: a resend after a reconnect must still be recognised.
+    private var deduplicator = EventDeduplicator()
 
     /// - Parameters:
     ///   - snapshot: a forced, fresh focus read (not a cached value).
@@ -95,7 +101,7 @@ final class EventPipeline {
         case .refused: return ackCode(for: lateDecision) ?? .staleFocus
         case .injected:
             if let refusal = ackCode(for: lateDecision) { return refusal }
-            return injected ? .posted : .malformed
+            return injected ? .posted : .injectFailed
         }
     }
 
@@ -126,15 +132,26 @@ final class EventPipeline {
     private func handle(_ event: KeyboardEvent) async -> AckCode {
         switch event.kind {
         case .ping(let shownAtMs, let connectedAtMs):
-            // A probe: recorded and acknowledged as processed, never injected. It is handled before the epoch rule
-            // below, so a ping without a focus epoch is not refused.
+            // A probe: recorded and answered, never injected. It skips the deduplicator (no check, nothing
+            // recorded) and the epoch rule below, so a ping without a focus epoch is not refused.
             onPing(shownAtMs, connectedAtMs)
-            return .posted
-        case .text(let text) where text.isEmpty:
-            return .malformed
+            return .pong
         default:
             break
         }
+        switch deduplicator.check(event) {
+        case .duplicate(let original): return original
+        case .outOfOrder: return .outOfOrder
+        case .fresh: break
+        }
+        let code = await decide(event)
+        deduplicator.record(event, result: code)
+        return code
+    }
+
+    /// The result for an event that is new and in order.
+    private func decide(_ event: KeyboardEvent) async -> AckCode {
+        if case .text(let text) = event.kind, text.isEmpty { return .malformed }
         // An event typed before any status arrived has no epoch to compare, so it cannot be tied to a field.
         guard event.focusEpoch != nil else { return .staleFocus }
         // Fresh read immediately before the guard.

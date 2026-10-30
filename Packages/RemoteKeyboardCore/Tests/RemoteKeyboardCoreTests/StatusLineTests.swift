@@ -30,10 +30,24 @@ final class StatusLineTests: XCTestCase {
     }
 
     func testAckTextCoversEveryCodeDistinctly() {
-        let codes: [AckCode] = [.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .compositionActive]
-        XCTAssertEqual(Set(codes.map(StatusLine.ackText)).count, codes.count)
+        let codes: [AckCode] = [.posted, .notAuthorized, .noFocus, .staleFocus, .switchFailed, .malformed, .compositionActive,
+                                .injectFailed, .outOfOrder]
+        let texts = codes.map(StatusLine.ackText)
+        XCTAssertFalse(texts.contains { $0 == nil })
+        XCTAssertEqual(Set(texts.compactMap { $0 }).count, codes.count)
         XCTAssertEqual(StatusLine.ackText(.posted), "Mac 已輸入")
     }
+
+    func testNewAckCodesHaveTheirOwnWording() {
+        XCTAssertEqual(StatusLine.ackText(.injectFailed), "Mac 輸入失敗")
+        XCTAssertEqual(StatusLine.ackText(.outOfOrder), "順序錯誤，未輸入")
+    }
+
+    func testPongShowsNoNote() {
+        XCTAssertNil(StatusLine.ackText(.pong))
+    }
+
+    func testUnconfirmedText() { XCTAssertEqual(StatusLine.unconfirmedText(2), "2 個按鍵未確認是否送達") }
 
     func testSuffixAddsFlashInParentheses() {
         XCTAssertEqual(StatusLine.appendingNote("Mac → TextEdit", note: "Mac 已輸入"), "Mac → TextEdit（Mac 已輸入）")

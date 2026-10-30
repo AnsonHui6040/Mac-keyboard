@@ -13,7 +13,8 @@ public enum StatusLine {
         return (receiver.ready ? base : base + "（無輸入欄位）") + latency
     }
 
-    public static func ackText(_ code: AckCode) -> String {
+    /// The note for an ack, or `nil` when the ack is not about a typed key (a probe's answer).
+    public static func ackText(_ code: AckCode) -> String? {
         switch code {
         case .posted: "Mac 已輸入"
         case .notAuthorized: "Mac 未授權輔助使用"
@@ -22,7 +23,15 @@ public enum StatusLine {
         case .switchFailed: "輸入法切換失敗"
         case .malformed: "Mac 無法處理"
         case .compositionActive: "Mac 正在組字，未輸入"
+        case .injectFailed: "Mac 輸入失敗"
+        case .outOfOrder: "順序錯誤，未輸入"
+        case .pong: nil
         }
+    }
+
+    /// Shown after the link dropped with keys that never got an ack.
+    public static func unconfirmedText(_ count: Int) -> String {
+        "\(count) 個按鍵未確認是否送達"
     }
 
     public static func appendingNote(_ line: String, note: String?) -> String {

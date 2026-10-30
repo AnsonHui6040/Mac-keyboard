@@ -8,6 +8,12 @@ public enum AckCode: String, Codable, Sendable {
     case posted, notAuthorized, noFocus, staleFocus, switchFailed, malformed
     /// An IME composition was still open after Escape; nothing was switched or injected.
     case compositionActive
+    /// The Receiver tried to type the event and a posting step failed.
+    case injectFailed
+    /// The answer to a latency probe, which is never typed.
+    case pong
+    /// The event's `seq` was not above the highest one already processed in its session; nothing was typed.
+    case outOfOrder
 }
 
 /// Why a key was not sent. Fixed names only.
@@ -27,6 +33,8 @@ public enum DiagnosticEvent: Equatable, Sendable {
     /// The subscribed central's `maximumUpdateValueLength`, logged once per subscription.
     case centralSubscribed(maxUpdateLength: Int)
     case reconnectSample(shownAtMs: Int64, connectedAtMs: Int64?)
+    /// The link dropped with this many keys never acknowledged. A count only.
+    case keysUnconfirmed(count: Int)
 
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "diagnostic")
 
@@ -47,6 +55,8 @@ public enum DiagnosticEvent: Equatable, Sendable {
             logger.info("centralSubscribed maxUpdateLength=\(maxUpdateLength, privacy: .public)")
         case .reconnectSample(let shownAtMs, let connectedAtMs):
             logger.info("reconnect shownAtMs=\(shownAtMs, privacy: .public) connectedAtMs=\(connectedAtMs ?? -1, privacy: .public)")
+        case .keysUnconfirmed(let count):
+            logger.info("keysUnconfirmed count=\(count, privacy: .public)")
         }
     }
 

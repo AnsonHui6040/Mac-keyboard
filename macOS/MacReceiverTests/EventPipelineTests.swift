@@ -57,7 +57,8 @@ final class EventPipelineTests: XCTestCase {
 
     private func harness(
         snapshots: [FocusSnapshot?], current: String = InputSourceSwitcher.asciiID,
-        composition: CompositionControlling? = nil, settle: @escaping (Double) async -> Void = { _ in }
+        composition: CompositionControlling? = nil, settle: @escaping (Double) async -> Void = { _ in },
+        buildTextEvents: @escaping (String) -> [CGEvent] = TextInjector.makeTextEvents
     ) -> Harness {
         let poster = RecordingPoster()
         let controller = FakeController(current: current)
@@ -65,7 +66,7 @@ final class EventPipelineTests: XCTestCase {
         let pipeline = EventPipeline(
             snapshot: { state.next() },
             switcher: InputSourceSwitcher(controller: controller, composition: composition, settle: settle),
-            injector: TextInjector(poster: poster),
+            injector: TextInjector(poster: poster, buildTextEvents: buildTextEvents),
             sendAck: { state.acks.append($0) },
             noteValidEvent: { state.noted += 1 },
             onPing: { state.pings.append([$0, $1]) }
@@ -73,8 +74,11 @@ final class EventPipelineTests: XCTestCase {
         return Harness(pipeline: pipeline, poster: poster, controller: controller, state: state)
     }
 
-    private func frame(_ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), version: Int = KeyboardEvent.currentVersion) throws -> (Data, UUID) {
-        let event = KeyboardEvent(protocolVersion: version, eventId: id, sessionId: UUID(), seq: 1, focusEpoch: epoch, kind: kind)
+    private func frame(
+        _ kind: EventKind, epoch: UInt64? = 5, id: UUID = UUID(), version: Int = KeyboardEvent.currentVersion,
+        seq: UInt64 = 1, session: UUID = UUID()
+    ) throws -> (Data, UUID) {
+        let event = KeyboardEvent(protocolVersion: version, eventId: id, sessionId: session, seq: seq, focusEpoch: epoch, kind: kind)
         return (try PeripheralCodec.encode(.event(event)), id)
     }
 
@@ -96,7 +100,7 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(code(.compositionActive), .compositionActive)
         XCTAssertEqual(code(.injected, late: .staleFocus, injected: false), .staleFocus)
         XCTAssertEqual(code(.injected, late: .noFocus, injected: false), .noFocus)
-        XCTAssertEqual(code(.injected, injected: false), .malformed)
+        XCTAssertEqual(code(.injected, injected: false), .injectFailed)
         XCTAssertEqual(code(.refused, late: .staleFocus, injected: false), .staleFocus)
         XCTAssertEqual(code(.refused, late: .noFocus, injected: false), .noFocus)
         XCTAssertEqual(code(.refused, injected: false), .staleFocus)
@@ -199,7 +203,7 @@ final class EventPipelineTests: XCTestCase {
         let h = harness(snapshots: [snapshot()])
         let (data, id) = try frame(.ping(shownAtMs: 1, connectedAtMs: 2))
         await h.pipeline.process(data)
-        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted)])
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .pong)])
         XCTAssertEqual(h.state.reads, 0)
         XCTAssertEqual(h.poster.batches.count, 0)
     }
@@ -247,13 +251,108 @@ final class EventPipelineTests: XCTestCase {
                                                InputSourceSwitcher.asciiID, zhuyin])
     }
 
+    // MARK: T08 dedup, order and failure semantics
+
+    func testDuplicateEventIsAckedWithOriginalCodeAndInjectedOnce() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, id) = try frame(.text("A"))
+        for _ in 0..<100 { await h.pipeline.process(data) }
+        XCTAssertEqual(h.poster.batches.count, 1, "the injector runs once")
+        XCTAssertEqual(h.state.acks.count, 100)
+        XCTAssertTrue(h.state.acks.allSatisfy { $0 == Ack(eventId: id, result: .posted) })
+    }
+
+    func testDuplicateOfARefusedEventRepeatsTheRefusal() async throws {
+        let h = harness(snapshots: [snapshot(epoch: 6)])
+        let (data, id) = try frame(.text("A"), epoch: 5)
+        await h.pipeline.process(data)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .staleFocus), Ack(eventId: id, result: .staleFocus)])
+        XCTAssertEqual(h.state.reads, 1, "the first delivery read the focus once and was refused at the guard; the repeat reads nothing")
+    }
+
+    func testDuplicateStillCountsAsReceiveActivity() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, _) = try frame(.text("A"))
+        await h.pipeline.process(data)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.noted, 2)
+    }
+
+    func testOutOfOrderEventIsNotInjected() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let session = UUID()
+        await h.pipeline.process(try frame(.text("B"), seq: 2, session: session).0)
+        let (late, lateId) = try frame(.text("A"), seq: 1, session: session)
+        await h.pipeline.process(late)
+        XCTAssertEqual(h.poster.batches.count, 1, "only the seq 2 event was typed")
+        XCTAssertEqual(h.state.acks.last, Ack(eventId: lateId, result: .outOfOrder))
+        XCTAssertEqual(h.state.reads, 2, "the refused event does not read the focus")
+    }
+
+    func testNewSessionRestartsTheOrderCheck() async throws {
+        let h = harness(snapshots: [snapshot()])
+        await h.pipeline.process(try frame(.text("B"), seq: 9).0)
+        await h.pipeline.process(try frame(.text("A"), seq: 1).0)
+        XCTAssertEqual(h.state.acks.map(\.result), [.posted, .posted])
+        XCTAssertEqual(h.poster.batches.count, 2)
+    }
+
+    func testInjectionFailureAcksInjectFailed() async throws {
+        let h = harness(snapshots: [snapshot()], buildTextEvents: { _ in [] })
+        let (data, id) = try frame(.text("A"))
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .injectFailed)])
+        XCTAssertEqual(h.poster.batches.count, 0)
+    }
+
+    func testDuplicateOfAFailedInjectionIsNotRetried() async throws {
+        let h = harness(snapshots: [snapshot()], buildTextEvents: { _ in [] })
+        let (data, id) = try frame(.text("A"))
+        await h.pipeline.process(data)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .injectFailed), Ack(eventId: id, result: .injectFailed)])
+        XCTAssertEqual(h.state.reads, 2)
+    }
+
+    func testPingAcksPong() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, id) = try frame(.ping(shownAtMs: 1, connectedAtMs: 2), epoch: nil)
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .pong)])
+    }
+
+    func testPingBypassesTheDeduplicatorEntirely() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let session = UUID()
+        let (ping, pingId) = try frame(.ping(shownAtMs: 1, connectedAtMs: 2), epoch: nil, seq: 7, session: session)
+        await h.pipeline.process(ping)
+        await h.pipeline.process(ping)
+        XCTAssertEqual(h.state.pings.count, 2, "a repeated probe is recorded again, not suppressed as a duplicate")
+        XCTAssertEqual(h.state.acks, [Ack(eventId: pingId, result: .pong), Ack(eventId: pingId, result: .pong)])
+        // The probe's seq 7 must not make a later typed key of the same session look out of order.
+        let (key, keyId) = try frame(.text("A"), seq: 1, session: session)
+        await h.pipeline.process(key)
+        XCTAssertEqual(h.state.acks.last, Ack(eventId: keyId, result: .posted))
+    }
+
+    func testDiscardQueuedDoesNotForgetProcessedEvents() async throws {
+        let h = harness(snapshots: [snapshot()])
+        let (data, id) = try frame(.text("A"))
+        await h.pipeline.process(data)
+        h.pipeline.discardQueued()
+        await h.pipeline.process(data)
+        XCTAssertEqual(h.poster.batches.count, 1, "a resend after a reconnect is still recognised")
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted), Ack(eventId: id, result: .posted)])
+    }
+
     // MARK: T06 ping and link loss
 
     func testPingWithoutAFocusEpochIsAckedAndRecordedNotRefused() async throws {
         let h = harness(snapshots: [snapshot()])
         let (data, id) = try frame(.ping(shownAtMs: 1_000, connectedAtMs: 1_480), epoch: nil)
         await h.pipeline.process(data)
-        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted)])
+        XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .pong)])
         XCTAssertEqual(h.state.pings, [[1_000, 1_480]])
         XCTAssertEqual(h.state.reads, 0, "no focus read for a probe")
         XCTAssertEqual(h.poster.batches.count, 0)
