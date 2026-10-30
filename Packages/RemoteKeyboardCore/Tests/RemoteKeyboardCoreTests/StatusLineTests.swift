@@ -25,6 +25,19 @@ final class StatusLineTests: XCTestCase {
         XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: nil), "Mac（等待狀態）")
     }
 
+    func testReceiverNotAuthorizedShowsAuthorizationText() {
+        let untrusted = ReceiverStatus(ready: false, appName: "Finder", focusEpoch: 2, trusted: false)
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: untrusted), "Mac 未授權輔助使用")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: untrusted, connectedMs: 90),
+                       "Mac 未授權輔助使用 (90 ms)")
+        XCTAssertEqual(StatusLine.text(mode: .local, link: .connected, receiver: untrusted), "BLE: connected")
+    }
+
+    func testTrustedButNoFieldStillSaysNoInputField() {
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: status(ready: false, app: "Finder")),
+                       "Mac → Finder（無輸入欄位）")
+    }
+
     func testRemoteNotConnectedShowsLinkLine() {
         XCTAssertEqual(StatusLine.text(mode: .remote, link: .advertising, receiver: status()), "BLE: advertising")
     }
@@ -52,6 +65,10 @@ final class StatusLineTests: XCTestCase {
     func testSuffixAddsFlashInParentheses() {
         XCTAssertEqual(StatusLine.appendingNote("Mac → TextEdit", note: "Mac 已輸入"), "Mac → TextEdit（Mac 已輸入）")
         XCTAssertEqual(StatusLine.appendingNote("Mac", note: nil), "Mac")
+    }
+
+    func testNoteAlreadyInTheLineIsNotRepeated() {
+        XCTAssertEqual(StatusLine.appendingNote("Mac 未授權輔助使用", note: "Mac 未授權輔助使用"), "Mac 未授權輔助使用")
     }
 
     func testRemoteWithoutAPairKeyAsksForPairingWhateverTheLink() {

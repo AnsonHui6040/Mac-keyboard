@@ -5,11 +5,33 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
     public let ready: Bool
     public let appName: String?
     public let focusEpoch: UInt64
+    /// Whether the Mac has granted Accessibility. Left out of the wire when true, so an unchanged Receiver sends the same
+    /// bytes as before and a status without the key reads as trusted.
+    public let trusted: Bool
 
-    public init(ready: Bool, appName: String?, focusEpoch: UInt64) {
+    public init(ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true) {
         self.ready = ready
         self.appName = appName
         self.focusEpoch = focusEpoch
+        self.trusted = trusted
+    }
+
+    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        ready = try c.decode(Bool.self, forKey: .ready)
+        appName = try c.decodeIfPresent(String.self, forKey: .appName)
+        focusEpoch = try c.decode(UInt64.self, forKey: .focusEpoch)
+        trusted = try c.decodeIfPresent(Bool.self, forKey: .trusted) ?? true
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(ready, forKey: .ready)
+        try c.encodeIfPresent(appName, forKey: .appName)
+        try c.encode(focusEpoch, forKey: .focusEpoch)
+        if !trusted { try c.encode(false, forKey: .trusted) }
     }
 }
 

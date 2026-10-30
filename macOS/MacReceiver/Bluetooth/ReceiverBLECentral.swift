@@ -96,6 +96,9 @@ final class ReceiverBLECentral: ObservableObject {
         return "Link: \(linkState.name)"
     }
 
+    /// Why the radio cannot be used right now; `nil` when it can.
+    var linkReason: String? { linkState.reasonText }
+
     var remainingSeconds: TimeInterval? {
         guard isArmed, let deadline else { return nil }
         return max(0, deadline.timeIntervalSince(clock()))
@@ -364,10 +367,14 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
     private var active: UUID?
     private var control: CBCharacteristic?
 
-    init(owner: ReceiverBLECentral) {
+    /// - Parameter makeManager: builds the CoreBluetooth manager for this delegate. Tests pass a fake.
+    init(
+        owner: ReceiverBLECentral,
+        makeManager: (CBCentralManagerDelegate) -> CBCentralManager = { CBCentralManager(delegate: $0, queue: nil) }
+    ) {
         self.owner = owner
         super.init()
-        manager = CBCentralManager(delegate: self, queue: nil)
+        manager = makeManager(self)
     }
 
     func startScan() {

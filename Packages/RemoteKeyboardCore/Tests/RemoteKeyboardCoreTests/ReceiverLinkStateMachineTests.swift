@@ -178,3 +178,19 @@ final class ReceiverLinkStateMachineTests: XCTestCase {
         XCTAssertEqual(off.handle(.power(.poweredOn)), [.startScan], "back on, the search resumes at once")
     }
 }
+
+final class ReceiverLinkReasonTests: XCTestCase {
+    func testUnavailableStatesExplainWhy() {
+        XCTAssertEqual(ReceiverLinkState.unavailable(.poweredOff).reasonText, "藍牙已關閉，請在 Mac 開啟藍牙")
+        XCTAssertEqual(ReceiverLinkState.unavailable(.unauthorized).reasonText, "未授權藍牙，請到系統設定 › 隱私權與安全性 允許")
+        XCTAssertEqual(ReceiverLinkState.unavailable(.unsupported).reasonText, "這台 Mac 不支援藍牙")
+        XCTAssertNil(ReceiverLinkState.unavailable(.unknown).reasonText, "no reason before CoreBluetooth has reported")
+    }
+
+    func testOtherStatesHaveNoReason() {
+        let id = UUID()
+        for state in [ReceiverLinkState.idle, .scanning, .connecting(id), .discovering(id), .ready(id)] {
+            XCTAssertNil(state.reasonText)
+        }
+    }
+}

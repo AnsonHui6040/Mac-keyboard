@@ -16,7 +16,7 @@
 | iPhone 提示 | 「Mac 已輸入」「焦點已改變，未輸入」「Mac 沒有輸入欄位」「Mac 正在組字，未輸入」 | 最近一次 Mac 回覆 |
 | Mac 選單 | `Link: ready (N ms)`、「剩餘接收時間 mm:ss」 | 已連線並在接收時段內 |
 
-若 iPhone 一直顯示「（無輸入欄位）」而 Mac 焦點明明在 TextEdit，先確認 Mac 選單沒有「輔助使用未授權」；未授權時目前也顯示同一句（T16 再分開）。若 iPhone 顯示「事件過大，未送出」，記下 Console 中 `maximumUpdateValueLength` 的數值。
+若 iPhone 一直顯示「（無輸入欄位）」而 Mac 焦點明明在 TextEdit，先確認 Mac 選單沒有「輔助使用未授權」；Mac 未授權輔助使用時，iPhone 狀態列會顯示「Mac 未授權輔助使用」，不是「（無輸入欄位）」。若 iPhone 顯示「事件過大，未送出」，記下 Console 中 `maximumUpdateValueLength` 的數值。
 
 ## 步驟
 

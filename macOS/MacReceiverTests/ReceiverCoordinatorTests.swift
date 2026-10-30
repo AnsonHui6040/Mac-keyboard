@@ -30,6 +30,15 @@ final class FocusTransitionTests: XCTestCase {
         XCTAssertFalse(FocusTransition.gainedEditable(previous: snap(true, epoch: 3), next: snap(false, epoch: 4)))
     }
 
+    func testStatusCarriesAccessibilityTrustAndIsNeverReadyWithout() {
+        let untrusted = FocusTransition.status(for: snap(true, epoch: 3, trusted: false))
+        XCTAssertFalse(untrusted.trusted)
+        XCTAssertFalse(untrusted.ready)
+        let trusted = FocusTransition.status(for: snap(true, epoch: 3))
+        XCTAssertTrue(trusted.trusted)
+        XCTAssertTrue(trusted.ready)
+    }
+
     func testStatusChangesOnEpochEditableAppOrTrust() {
         let base = snap(true, epoch: 3)
         XCTAssertTrue(FocusTransition.statusChanged(previous: nil, next: base))

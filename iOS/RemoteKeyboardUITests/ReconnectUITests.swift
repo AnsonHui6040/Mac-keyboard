@@ -114,6 +114,12 @@ final class ReconnectUITests: XCTestCase {
             lines.append("RKPROBE " + line)
             print("RKPROBE " + line)
         }
+        // Folder names, note titles, page titles and addresses show up as labels. Only the system strings this test
+        // looks up are printed; anything else is reduced to its length.
+        let knownLabels = Set(Self.newNoteLabels + Self.addressLabels + Self.dismissNames)
+        func safe(_ label: String) -> String {
+            knownLabels.contains(label) ? label : "<\(label.count) chars>"
+        }
         func dump(_ title: String, _ query: XCUIElementQuery, skip: Set<String> = [], onlyWithIdentifier: Bool = false,
                   identifierContains: [String] = []) {
             for element in query.allElementsBoundByIndex.prefix(60) {
@@ -122,7 +128,7 @@ final class ReconnectUITests: XCTestCase {
                 if onlyWithIdentifier, id.isEmpty { continue }
                 if !identifierContains.isEmpty, !identifierContains.contains(where: { id.contains($0) }) { continue }
                 if skip.contains(id + "\u{1}" + label) { continue }
-                record("\(title) id=[\(id)] label=[\(label)]")
+                record("\(title) id=[\(id)] label=[\(safe(label))]")
             }
         }
 
@@ -160,8 +166,7 @@ final class ReconnectUITests: XCTestCase {
     private func warmUp() throws {
         let notes = XCUIApplication(bundleIdentifier: Self.notesID)
         notes.activate()
-        let newNote = Self.firstMatch(
-            in: notes, queries: [notes.buttons], identifiers: Self.newNoteIdentifiers, labels: Self.newNoteLabels, timeout: 5)
+        let newNote = newNoteButton(in: notes)
         guard let newNote else {
             throw XCTSkip("Notes: new-note button not found; start with Notes closed or on the notes list")
         }
@@ -209,14 +214,38 @@ final class ReconnectUITests: XCTestCase {
 
     // MARK: Steps
 
+    /// The new-note button, found on the notes list. When Notes was left inside a note, the list is reached first by
+    /// tapping the navigation bar's back button (at most three taps: note, folder, folder list; the fourth pass only looks).
+    private func newNoteButton(in notes: XCUIApplication) -> XCUIElement? {
+        for attempt in 0..<4 {
+            if let found = Self.firstMatch(
+                identifierQueries: [notes.buttons, notes.toolbars.buttons], labelQueries: [notes.toolbars.buttons],
+                identifiers: Self.newNoteIdentifiers, labels: Self.newNoteLabels, timeout: 1.5) {
+                return found
+            }
+            // Back button by identifier only: its label is the folder name, which is user data and never matched.
+            let back = notes.navigationBars.buttons.matching(identifier: Self.backIdentifier).firstMatch
+            guard attempt < 3, back.exists, back.isHittable else { return nil }
+            back.tap()
+        }
+        return nil
+    }
+
     private func statusElement(in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: Self.statusIdentifier).firstMatch
     }
 
     /// What may be tapped to raise the keyboard: the warm-up's note body in Notes, the address bar in Safari.
     private func tapTarget(in app: XCUIApplication, bundleID: String) -> XCUIElement? {
-        let element = bundleID == Self.notesID ? app.textViews.firstMatch : addressBar(in: app)
-        guard let element, element.waitForExistence(timeout: 5) else { return nil }
+        // The address bar lookup already polls, so only the Notes body needs its own wait.
+        let element: XCUIElement?
+        if bundleID == Self.notesID {
+            let body = app.textViews.firstMatch
+            element = body.waitForExistence(timeout: 5) ? body : nil
+        } else {
+            element = addressBar(in: app)
+        }
+        guard let element else { return nil }
         // The note body is tapped only while it is empty (it is the test's own, never typed into).
         if bundleID == Self.notesID, !Self.isEmpty(element) { return nil }
         return element
@@ -227,10 +256,12 @@ final class ReconnectUITests: XCTestCase {
     }
 
     /// Safari's address bar is a field when editing and a button otherwise. Matched by identifier first, then by
-    /// English and Traditional Chinese labels. Only text fields and buttons are searched, never page content.
+    /// English and Traditional Chinese labels, and labels only inside the toolbars, so a page's own button or field
+    /// with the same name is never picked.
     private func addressBar(in app: XCUIApplication) -> XCUIElement? {
         Self.firstMatch(
-            in: app, queries: [app.textFields, app.buttons],
+            identifierQueries: [app.textFields, app.buttons],
+            labelQueries: [app.toolbars.buttons, app.toolbars.textFields, app.navigationBars.buttons],
             identifiers: Self.addressIdentifiers, labels: Self.addressLabels, timeout: 5)
     }
 
@@ -241,26 +272,29 @@ final class ReconnectUITests: XCTestCase {
     private static let addressIdentifiers = ["URL", "Address", "TabBarItemTitle"]
     private static let addressLabels = ["Address", "URL", "地址", "網址", "搜尋或輸入網址", "搜尋或輸入網站名稱"]
     private static let dismissNames = ["Done", "Cancel", "Hide keyboard", "完成", "取消", "隱藏鍵盤"]
+    private static let dismissIdentifiers = ["Done", "Cancel", "CancelButton", "DoneButton"]
+    private static let backIdentifier = "BackButton"
 
-    /// Polls until an element matches: every identifier first (in order), then every exact label, across `queries`.
+    /// Polls until an element matches. Identifiers are tried first, in `identifierQueries`, then exact labels, in
+    /// `labelQueries` (which callers keep to browser chrome). One predicate per query, so a pass costs a few lookups
+    /// and the only wait is the 0.25 s between passes.
     private static func firstMatch(
-        in app: XCUIApplication, queries: [XCUIElementQuery], identifiers: [String], labels: [String], timeout: TimeInterval
+        identifierQueries: [XCUIElementQuery], labelQueries: [XCUIElementQuery], identifiers: [String], labels: [String],
+        timeout: TimeInterval
     ) -> XCUIElement? {
+        let byIdentifier = NSPredicate(format: "identifier IN %@", identifiers)
+        let byLabel = NSPredicate(format: "label IN %@", labels)
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            for id in identifiers {
-                for query in queries {
-                    let element = query.matching(identifier: id).firstMatch
-                    if element.exists { return element }
-                }
+            for query in identifierQueries {
+                let element = query.matching(byIdentifier).firstMatch
+                if element.exists { return element }
             }
-            for label in labels {
-                for query in queries {
-                    let element = query.matching(NSPredicate(format: "label == %@", label)).firstMatch
-                    if element.exists { return element }
-                }
+            for query in labelQueries {
+                let element = query.matching(byLabel).firstMatch
+                if element.exists { return element }
             }
-            Thread.sleep(forTimeInterval: 0.25)
+            if Date() < deadline { Thread.sleep(forTimeInterval: 0.25) }
         } while Date() < deadline
         return nil
     }
@@ -290,13 +324,12 @@ final class ReconnectUITests: XCTestCase {
     }
 
     private func hideKeyboard(in app: XCUIApplication) {
-        for name in Self.dismissNames {
-            let button = app.buttons[name].firstMatch
-            if button.exists, button.isHittable {
-                button.tap()
-                break
-            }
-        }
+        // Identifier first; names only inside the keyboard, toolbars and navigation bars, never page content.
+        let button = Self.firstMatch(
+            identifierQueries: [app.keyboards.buttons, app.toolbars.buttons, app.navigationBars.buttons, app.buttons],
+            labelQueries: [app.keyboards.buttons, app.toolbars.buttons, app.navigationBars.buttons],
+            identifiers: Self.dismissIdentifiers, labels: Self.dismissNames, timeout: 0.5)
+        if let button, button.isHittable { button.tap() }
         // Switching to the other app on the next reopen also dismisses this keyboard, so a missing button is fine.
         let gone = app.descendants(matching: .any).matching(identifier: Self.statusIdentifier).firstMatch
         _ = gone.waitForNonExistence(timeout: 2)

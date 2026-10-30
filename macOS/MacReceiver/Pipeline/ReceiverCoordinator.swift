@@ -24,7 +24,8 @@ enum FocusTransition {
         ReceiverStatus(
             ready: snapshot.axTrusted && snapshot.editable,
             appName: snapshot.appName.map { String($0.prefix(maxAppNameLength)) },
-            focusEpoch: snapshot.epoch
+            focusEpoch: snapshot.epoch,
+            trusted: snapshot.axTrusted
         )
     }
 }

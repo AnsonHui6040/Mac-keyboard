@@ -1,3 +1,5 @@
+import CoreBluetooth
+import ObjectiveC
 import RemoteKeyboardCore
 import XCTest
 @testable import MacReceiver
@@ -437,6 +439,18 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(central.linkState, .idle)
     }
 
+    func testLinkReasonExplainsAnUnavailableRadio() {
+        let central = make()
+        XCTAssertNil(central.linkReason)
+        central.startReceiving()
+        central.handleLink(.power(.poweredOff))
+        XCTAssertEqual(central.linkReason, "藍牙已關閉，請在 Mac 開啟藍牙")
+        central.handleLink(.power(.unauthorized))
+        XCTAssertEqual(central.linkReason, "未授權藍牙，請到系統設定 › 隱私權與安全性 允許")
+        central.handleLink(.power(.poweredOn))
+        XCTAssertNil(central.linkReason)
+    }
+
     func testOnLinkLostFiresWhenLeavingReadyOnly() {
         let central = make()
         var lost = 0
@@ -457,5 +471,149 @@ final class ReceiverBLECentralTests: XCTestCase {
         central.handleLink(.discovered(p)); central.handleLink(.connected(p)); central.handleLink(.linkReady(p))
         central.handleLink(.power(.poweredOff))
         XCTAssertEqual(lost, 3)
+    }
+}
+
+// MARK: CoreBluetooth wiring
+
+/// CoreBluetooth objects cannot be built with `init`, so the fakes are allocated without one and override the few
+/// properties and calls the driver touches. Nothing here reaches a radio.
+private final class FakeCBManager: CBCentralManager {
+    var fakeState: CBManagerState = .poweredOn
+    var scans = 0, stops = 0
+    var connected: [UUID] = []
+    var cancelled: [UUID] = []
+    override var state: CBManagerState { fakeState }
+    override func scanForPeripherals(withServices serviceUUIDs: [CBUUID]?, options: [String: Any]? = nil) { scans += 1 }
+    override func stopScan() { stops += 1 }
+    override func connect(_ peripheral: CBPeripheral, options: [String: Any]? = nil) { connected.append(peripheral.identifier) }
+    override func cancelPeripheralConnection(_ peripheral: CBPeripheral) { cancelled.append(peripheral.identifier) }
+    /// Kept for the whole run: deallocating an object that was never initialised by CoreBluetooth raises a KVO error.
+    nonisolated(unsafe) private static var keep: [AnyObject] = []
+    static func make() -> FakeCBManager {
+        let fake = unsafeDowncast(class_createInstance(FakeCBManager.self, 0)! as AnyObject, to: FakeCBManager.self)
+        // No Swift initialiser ran, so every stored property is initialised by hand.
+        withUnsafeMutablePointer(to: &fake.fakeState) { $0.initialize(to: .poweredOn) }
+        withUnsafeMutablePointer(to: &fake.scans) { $0.initialize(to: 0) }
+        withUnsafeMutablePointer(to: &fake.stops) { $0.initialize(to: 0) }
+        withUnsafeMutablePointer(to: &fake.connected) { $0.initialize(to: []) }
+        withUnsafeMutablePointer(to: &fake.cancelled) { $0.initialize(to: []) }
+        keep.append(fake)
+        return fake
+    }
+}
+
+private final class FakeCBPeripheral: CBPeripheral {
+    var fakeID = UUID()
+    var fakeState: CBPeripheralState = .connected
+    var fakeDelegate: CBPeripheralDelegate?
+    override var identifier: UUID { fakeID }
+    override var state: CBPeripheralState { fakeState }
+    override var delegate: CBPeripheralDelegate? {
+        get { fakeDelegate }
+        set { fakeDelegate = newValue }
+    }
+    nonisolated(unsafe) private static var keep: [AnyObject] = []
+    static func make() -> FakeCBPeripheral {
+        let fake = unsafeDowncast(class_createInstance(FakeCBPeripheral.self, 0)! as AnyObject, to: FakeCBPeripheral.self)
+        withUnsafeMutablePointer(to: &fake.fakeID) { $0.initialize(to: UUID()) }
+        withUnsafeMutablePointer(to: &fake.fakeState) { $0.initialize(to: .connected) }
+        withUnsafeMutablePointer(to: &fake.fakeDelegate) { $0.initialize(to: nil) }
+        keep.append(fake)
+        return fake
+    }
+}
+
+@MainActor
+final class CoreBluetoothDriverWiringTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var driver: FakeDriver!
+
+    override func setUp() async throws {
+        let name = "rk.tests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: name)
+        defaults.removePersistentDomain(forName: name)
+        driver = FakeDriver()
+    }
+
+    private struct Rig {
+        let central: ReceiverBLECentral
+        let cb: CoreBluetoothDriver
+        let manager: FakeCBManager
+    }
+
+    private func rig() -> Rig {
+        let central = ReceiverBLECentral(defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let manager = FakeCBManager.make()
+        let cb = CoreBluetoothDriver(owner: central) { _ in manager }
+        central.startReceiving()
+        cb.centralManagerDidUpdateState(manager)
+        return Rig(central: central, cb: cb, manager: manager)
+    }
+
+    func testCentralAdapterForwardsDidConnectAndDisconnect() {
+        let r = rig()
+        let peripheral = FakeCBPeripheral.make()
+        XCTAssertEqual(r.central.linkState, .scanning, "the power callback reached the owner")
+
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        XCTAssertEqual(r.central.linkState, .connecting(peripheral.identifier), "didDiscover is forwarded as discovered")
+
+        r.cb.connect(peripheral.identifier)
+        XCTAssertEqual(r.manager.connected, [peripheral.identifier], "connect goes to the CoreBluetooth manager")
+        XCTAssertTrue(peripheral.fakeDelegate === r.cb, "the driver takes the peripheral delegate")
+
+        r.cb.centralManager(r.manager, didConnect: peripheral)
+        XCTAssertEqual(r.central.linkState, .discovering(peripheral.identifier), "didConnect is forwarded as connected")
+
+        peripheral.fakeState = .disconnected
+        r.cb.centralManager(r.manager, didDisconnectPeripheral: peripheral, error: nil)
+        XCTAssertEqual(r.central.linkState, .scanning, "didDisconnect is forwarded and the search resumes")
+    }
+
+    func testDidFailToConnectIsForwardedAsDisconnect() {
+        let r = rig()
+        let peripheral = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.connect(peripheral.identifier)
+        peripheral.fakeState = .disconnected
+        r.cb.centralManager(r.manager, didFailToConnect: peripheral, error: nil)
+        XCTAssertEqual(r.central.linkState, .scanning)
+    }
+
+    func testStaleDisconnectOfAnotherPeripheralIsIgnored() {
+        let r = rig()
+        let current = FakeCBPeripheral.make()
+        let stale = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: current, advertisementData: [:], rssi: -50)
+        r.cb.connect(current.identifier)
+        stale.fakeState = .disconnected
+        r.cb.centralManager(r.manager, didDisconnectPeripheral: stale, error: nil)
+        XCTAssertEqual(r.central.linkState, .connecting(current.identifier))
+    }
+
+    func testScanStopAndCancelReachTheManagerOnlyWhilePoweredOn() {
+        let r = rig()
+        r.cb.startScan()
+        r.cb.stopScan()
+        XCTAssertEqual(r.manager.scans, 1)
+        XCTAssertEqual(r.manager.stops, 1)
+        let peripheral = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.manager.fakeState = .poweredOff
+        r.cb.startScan()
+        r.cb.stopScan()
+        r.cb.cancel(peripheral.identifier)
+        XCTAssertEqual(r.manager.scans, 1, "no scan with the radio off")
+        XCTAssertEqual(r.manager.stops, 1, "no stopScan with the radio off")
+        XCTAssertEqual(r.manager.cancelled, [], "no cancel with the radio off")
+    }
+
+    func testCancelOfAKnownPeripheralReachesTheManager() {
+        let r = rig()
+        let peripheral = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.cancel(peripheral.identifier)
+        XCTAssertEqual(r.manager.cancelled, [peripheral.identifier])
     }
 }

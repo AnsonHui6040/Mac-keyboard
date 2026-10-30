@@ -20,6 +20,20 @@ public enum ReceiverLinkState: Equatable, Sendable {
     }
 }
 
+extension ReceiverLinkState {
+    /// Why the Mac cannot receive, for the menu bar panel. `nil` while the radio is usable.
+    public var reasonText: String? {
+        guard case .unavailable(let power) = self else { return nil }
+        switch power {
+        case .poweredOff: return "藍牙已關閉，請在 Mac 開啟藍牙"
+        case .unauthorized: return "未授權藍牙，請到系統設定 › 隱私權與安全性 允許"
+        case .unsupported: return "這台 Mac 不支援藍牙"
+        // Unknown is the moment before CoreBluetooth reports; showing a reason then would only flash.
+        case .unknown, .poweredOn: return nil
+        }
+    }
+}
+
 public enum ReceiverLinkInput: Equatable {
     case start, stop, power(CentralPower)
     case discovered(UUID), connected(UUID), linkReady(UUID), disconnected(UUID), serviceInvalidated(UUID)
