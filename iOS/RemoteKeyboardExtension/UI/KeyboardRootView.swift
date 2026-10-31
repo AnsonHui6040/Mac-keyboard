@@ -219,6 +219,65 @@ final class KeyboardRootView: UIView {
         english.setShift(shift.mode)
     }
 
+    // MARK: Hit area
+
+    /// A touch in the empty space between keys, between rows or beside the key area goes to the nearest key, like the
+    /// system keyboard. Only a touch that lands on the root or on a page container is redirected; a control that
+    /// already took the touch (a key, the candidate row, the writing canvas, the debug panel) is left alone. Reach is
+    /// one key row height (42 pt), so the edges beside the half-key-inset second row still hit its end keys.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        guard let hit, isRedirectable(hit), point.y >= keysTop else { return hit }
+        let keys = visibleKeys()
+        let rects = keys.map { key -> HitRect in
+            let frame = convert(key.bounds, from: key)
+            return HitRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height)
+        }
+        guard let index = KeyHitResolver.nearest(
+            to: HitPoint(x: point.x, y: point.y), in: rects, maxDistance: KeyHitResolver.defaultMaxDistance)
+        else { return hit }
+        return keys[index]
+    }
+
+    private var keysTop: CGFloat {
+        CGFloat(Double(topRows) * KeyboardMetrics.topRowHeight + KeyboardMetrics.keyAreaVerticalInset)
+    }
+
+    private func isRedirectable(_ view: UIView) -> Bool {
+        view === self || view === english || view === symbols || view === quick || view === handwriting
+            || view === bottomRow
+    }
+
+    /// The keys a touch may be redirected to: those of the shown page and the bottom row that are visible, enabled
+    /// and accept touches.
+    private func visibleKeys() -> [KeyButton] {
+        var result: [KeyButton] = []
+        func collect(_ view: UIView) {
+            for sub in view.subviews {
+                if let key = sub as? KeyButton {
+                    if isTouchable(key) { result.append(key) }
+                } else {
+                    collect(sub)
+                }
+            }
+        }
+        for page in [english, symbols, quick, handwriting, bottomRow] where isShown(page) { collect(page) }
+        return result
+    }
+
+    private func isShown(_ view: UIView) -> Bool {
+        var current: UIView? = view
+        while let v = current {
+            if v.isHidden || v.alpha <= 0 { return false }
+            current = v.superview
+        }
+        return true
+    }
+
+    private func isTouchable(_ key: KeyButton) -> Bool {
+        isShown(key) && key.isEnabled && key.isUserInteractionEnabled
+    }
+
     // MARK: Layout
 
     override func layoutSubviews() {
