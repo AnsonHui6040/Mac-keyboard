@@ -244,8 +244,10 @@ final class KeyboardRootView: UIView {
     }
 
     private func isRedirectable(_ view: UIView) -> Bool {
-        view === self || view === english || view === symbols || view === quick || view === handwriting
-            || view === bottomRow
+        view === self || view === english || view === symbols || view === quick || view === bottomRow
+            // Writable: any gap on the container outside the canvas may be redirected. With a message over the area,
+            // the whole area is not redirected, so tapping the message sends nothing.
+            || (view === handwriting && handwriting.acceptsInk)
     }
 
     /// The keys a touch may be redirected to: those of the shown page and the bottom row that are visible, enabled
@@ -274,8 +276,9 @@ final class KeyboardRootView: UIView {
         return true
     }
 
+    /// Only the key itself is checked; `visibleKeys` has already checked that its page is shown.
     private func isTouchable(_ key: KeyButton) -> Bool {
-        isShown(key) && key.isEnabled && key.isUserInteractionEnabled
+        !key.isHidden && key.alpha > 0 && key.isEnabled && key.isUserInteractionEnabled
     }
 
     // MARK: Layout

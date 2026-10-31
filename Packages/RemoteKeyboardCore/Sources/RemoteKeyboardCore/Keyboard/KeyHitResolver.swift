@@ -38,7 +38,8 @@ public enum KeyHitResolver {
             let dy = max(key.y - point.y, 0, point.y - (key.y + key.height))
             let distance = (dx * dx + dy * dy).squareRoot()
             if distance == 0 { return index }
-            if best == nil || distance < best!.distance { best = (index, distance) }
+            if let current = best, distance >= current.distance { continue }
+            best = (index, distance)
         }
         guard let best, best.distance <= maxDistance else { return nil }
         return best.index

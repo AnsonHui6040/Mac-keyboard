@@ -169,6 +169,9 @@ final class HandwritingPageView: UIView {
         updateMessage()
     }
 
+    /// True while the writing area takes strokes (visible, touchable, no message over it).
+    var acceptsInk: Bool { !canvas.isHidden && canvas.isUserInteractionEnabled }
+
     func clearInk() {
         canvas.clear()
         updateMessage()
