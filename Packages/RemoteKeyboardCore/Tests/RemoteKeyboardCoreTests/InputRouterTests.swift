@@ -206,6 +206,18 @@ final class InputRouterTests: XCTestCase {
         XCTAssertEqual(remote.events, [])
     }
 
+    func testDismissKeyboardOnlyReportsDismissAndKeepsTheDraft() {
+        var draft = DraftBuffer()
+        _ = draft.insert("keep")
+        let (router, local, remote) = makeRouter()
+        for mode in [KeyboardMode.local, .remote] {
+            for transmit in [TransmitMode.instant, .draft] {
+                XCTAssertEqual(router.route(.dismissKeyboard, mode: mode, transmit: transmit, ready: true, draft: &draft), .dismissKeyboard)
+            }
+        }
+        XCTAssertEqual(draft.text, "keep"); XCTAssertEqual(local.inserted, []); XCTAssertEqual(remote.events, [])
+    }
+
     func testReadinessIsDecidedPerKey() {
         var draft = DraftBuffer()
         let (router, _, remote) = makeRouter()

@@ -37,10 +37,7 @@ struct KeyboardViewState: Equatable {
 }
 
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
-final class KeyboardRootView: UIView, UIInputViewAudioFeedback {
-    /// Lets `UIDevice.playInputClick()` play the system key click while this keyboard is visible.
-    var enableInputClicksWhenVisible: Bool { true }
-
+final class KeyboardRootView: UIView {
     /// Returns whether the key was taken; a refused key (full draft) does not use up a one-shot Shift.
     var onAction: ((KeyAction) -> Bool)?
     /// Handwriting: a stroke started, a stroke ended (all strokes and the canvas size), a candidate was tapped,

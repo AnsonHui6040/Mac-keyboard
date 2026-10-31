@@ -96,6 +96,14 @@ final class KeyboardViewController: UIInputViewController {
     /// The sync runs in Remote mode with 「聽寫同步到 Mac」 on (the same in Debug and Release).
     private var dictationActive: Bool { DictationSync.isActive(mode: mode, storedSetting: dictationStoredSetting) }
 
+    /// The system plays the input click only when the input view itself adopts `UIInputViewAudioFeedback`; a subview
+    /// that adopts it is ignored.
+    override func loadView() {
+        let input = ClickableInputView(frame: .zero, inputViewStyle: .keyboard)
+        inputView = input
+        view = input
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         let defaults = UserDefaults.standard
@@ -744,6 +752,8 @@ final class KeyboardViewController: UIInputViewController {
             if mode == .remote, !isReady { showNote("Mac 尚未就緒，未輸入") }
         case .draftEdited, .draftSent:
             refreshStatus()
+        case .dismissKeyboard:
+            dismissKeyboard()
         case .insertedLocally, .enqueuedRemote, .advanceInputMode:
             break
         }

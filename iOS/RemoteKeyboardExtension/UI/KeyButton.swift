@@ -2,7 +2,8 @@ import UIKit
 
 /// A light tap and the system key click on every key at touch down. The controller sets both flags through
 /// `KeyboardViewState` (`KeyFeedbackSettings`), so no view needs to know about the switches or Full Access. The click
-/// goes through `UIDevice.playInputClick()`, so the iPhone silent switch and the system keyboard feedback setting
+/// goes through `UIDevice.playInputClick()`, which plays only while the controller's input view
+/// (`ClickableInputView`) adopts `UIInputViewAudioFeedback`, so the iPhone silent switch and the system keyboard feedback setting
 /// still decide whether it is heard.
 @MainActor
 enum KeyFeedback {

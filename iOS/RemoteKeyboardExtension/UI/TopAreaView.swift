@@ -93,6 +93,8 @@ final class TopAreaView: UIView {
 
     private let modeToggle = SegmentToggle(
         titles: ["本機", "遠端"], identifier: "rk.mode", accessibilityName: "輸入位置")
+    private let dismissKey = KeyButton(
+        style: .function, symbol: "keyboard.chevron.compact.down", label: "收起鍵盤", identifier: "rk.dismiss")
     private let transmitToggle = SegmentToggle(
         titles: ["即時", "草稿"], identifier: "rk.transmit", accessibilityName: "傳送方式")
     private let statusLabel = UILabel()
@@ -194,6 +196,15 @@ final class TopAreaView: UIView {
         spacer.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
         spacer.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
         statusRow.addArrangedSubview(spacer)
+        dismissKey.onTap = { [weak self] in self?.onAction?(.dismissKeyboard) }
+        dismissKey.layer.shadowOpacity = 0
+        dismissKey.setContentHuggingPriority(.required, for: .horizontal)
+        dismissKey.setContentCompressionResistancePriority(.required, for: .horizontal)
+        NSLayoutConstraint.activate([
+            dismissKey.widthAnchor.constraint(equalToConstant: 38),
+            dismissKey.heightAnchor.constraint(equalToConstant: 28)
+        ])
+        statusRow.addArrangedSubview(dismissKey)
         statusRow.addArrangedSubview(transmitToggle)
     }
 

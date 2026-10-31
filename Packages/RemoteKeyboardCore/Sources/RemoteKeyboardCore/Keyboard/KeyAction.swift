@@ -25,6 +25,8 @@ public enum KeyAction: Equatable, Sendable {
     case nextKeyboard
     case switchChineseEnglish
     case switchSymbols
+    /// Hides the keyboard. Touches neither the text nor the draft.
+    case dismissKeyboard
 }
 
 /// The keys that put text into something (the host field, the draft or the Mac). Everything else in `KeyAction` only
@@ -56,6 +58,8 @@ public enum RouteOutcome: Equatable {
     case insertedLocally
     case enqueuedRemote
     case advanceInputMode
+    /// The dismiss key was pressed; the controller hides the keyboard.
+    case dismissKeyboard
     case modeToggled(KeyboardMode)
     case transmitToggled(TransmitMode)
     /// A page key was pressed; the controller applies it to its `PageNavigator`.
