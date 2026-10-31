@@ -146,6 +146,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        refreshKeyFeedback()
         refreshDictationSetting()
         #if DEBUG
         dictationAppeared()
@@ -303,6 +304,20 @@ final class KeyboardViewController: UIInputViewController {
         let proxy = textDocumentProxy as AnyObject
         guard proxy.responds(to: NSSelectorFromString("documentIdentifier")) else { return nil }
         return proxy.value(forKey: "documentIdentifier") as? UUID
+    }
+
+    /// The raw App Group values of 「按鍵聲音」 and 「按鍵震動」, read on each `viewWillAppear`. Full Access is applied when
+    /// the state is built, so a change of Full Access shows at the next refresh.
+    private var storedKeySound: Any?
+    private var storedKeyHaptics: Any?
+    private var keyFeedback: KeyFeedbackSettings {
+        KeyFeedbackSettings(storedSound: storedKeySound, storedHaptics: storedKeyHaptics, hasFullAccess: hasFullAccess)
+    }
+
+    private func refreshKeyFeedback() {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier)
+        storedKeySound = defaults?.object(forKey: AppGroup.Key.keySound)
+        storedKeyHaptics = defaults?.object(forKey: AppGroup.Key.keyHaptics)
     }
 
     private static func storedDictationSetting() -> Any? {
@@ -768,7 +783,7 @@ final class KeyboardViewController: UIInputViewController {
             composing: navigator.page == .chinese && isQuick ? quickOutput.composing : "",
             quickShift: navigator.page == .chinese && isQuick && quickOutput.shift,
             handwritingMessage: navigator.page == .chinese && !isQuick ? Self.message(for: chinese.modelStatus) : nil,
-            hapticsEnabled: hasFullAccess)
+            hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound)
         #if DEBUG
         var state = built
         state.dictationProbeLines = dictationProbeLines()

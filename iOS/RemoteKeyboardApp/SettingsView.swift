@@ -10,6 +10,9 @@ struct SettingsView: View {
     @State private var syncsDictation = DictationSync.isEnabled(
         stored: UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.dictationSync))
 
+    @State private var keySound = Self.storedFlag(AppGroup.Key.keySound)
+    @State private var keyHaptics = Self.storedFlag(AppGroup.Key.keyHaptics)
+
     var body: some View {
         Form {
             Section {
@@ -19,6 +22,16 @@ struct SettingsView: View {
                 Text("聽寫")
             } footer: {
                 Text("遠端模式下，用 iPhone 聽寫寫進欄位的文字（包括修改與刪除）會同步到 Mac。關閉後，聽寫只會寫進 iPhone 的欄位。本機模式不會同步。")
+            }
+            Section {
+                Toggle("按鍵聲音", isOn: $keySound)
+                    .accessibilityIdentifier("rk.settings.keySound")
+                Toggle("按鍵震動", isOn: $keyHaptics)
+                    .accessibilityIdentifier("rk.settings.keyHaptics")
+            } header: {
+                Text("按鍵回饋")
+            } footer: {
+                Text("聲音跟隨 iPhone 靜音與系統「鍵盤回饋」設定。震動需要在設定中允許完整取用。")
             }
             Section {
                 methodRow("手寫", id: .handwriting)
@@ -59,6 +72,12 @@ struct SettingsView: View {
         .onChange(of: syncsDictation) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.dictationSync)
         }
+        .onChange(of: keySound) { _, enabled in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.keySound)
+        }
+        .onChange(of: keyHaptics) { _, enabled in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.keyHaptics)
+        }
         .confirmationDialog("刪除手寫模型？", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("刪除", role: .destructive) { downloader.delete() }
             Button("取消", role: .cancel) {}
@@ -83,6 +102,11 @@ struct SettingsView: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("rk.settings.\(id.rawValue)")
         .accessibilityAddTraits(method == id ? .isSelected : [])
+    }
+
+    /// A `Bool` switch from the App Group; not set means on, the same as the keyboard reads it.
+    private static func storedFlag(_ key: String) -> Bool {
+        (UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: key) as? Bool) ?? true
     }
 
     /// The choice the keyboard reads; handwriting until the user picks another.
