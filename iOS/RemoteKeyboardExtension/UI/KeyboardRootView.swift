@@ -41,6 +41,14 @@ struct KeyboardViewState: Equatable {
     #endif
 }
 
+extension UIColor {
+    /// The fill of the root view, the pages and the bottom row, which is not drawn. A keyboard extension is shown in a
+    /// remote view, and a pixel that is fully transparent may not receive a touch at all: the touch passes through and
+    /// `hitTest` never runs, so the gaps between keys stayed dead although `KeyboardRootView.hitTest` redirects them
+    /// (D20 on device, 2026-10-31). A fill of almost no opacity (about 2.5/255) counts as a surface and is not visible.
+    static let keyboardTouchSurface = UIColor(white: 0, alpha: 0.01)
+}
+
 /// The whole keyboard: top area, key rows and bottom row. It reports every key as a `KeyAction`.
 final class KeyboardRootView: UIView {
     /// Returns whether the key was taken; a refused key (full draft) does not use up a one-shot Shift.
@@ -96,7 +104,7 @@ final class KeyboardRootView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .clear
+        backgroundColor = .keyboardTouchSurface
         for view in [topArea, english, symbols, handwriting, quick, bottomRow] { addSubview(view) }
         #if DEBUG
         dictationPanel.isHidden = true
@@ -232,13 +240,15 @@ final class KeyboardRootView: UIView {
 
     // MARK: Hit area
 
-    /// A touch in the empty space between keys, between rows or beside the key area goes to the nearest key, like the
-    /// system keyboard. Only a touch that lands on the root or on a page container is redirected; a control that
-    /// already took the touch (a key, the candidate row, the writing canvas, the debug panel) is left alone. Reach is
-    /// one key row height (42 pt), so the edges beside the half-key-inset second row still hit its end keys.
+    /// A touch in the empty space goes to the nearest key, like the system keyboard: the whole block under the top area
+    /// is split between the keys, from the bottom of the top area (so the 4 pt above row 1 belongs to row 1) to the
+    /// bottom of the keyboard, and across the full width including the side inset. Only a touch that lands on the root
+    /// or on a page container is redirected; a control that already took the touch (a key, the candidate row, the
+    /// writing canvas, the debug panel) is left alone. Reach is one key row height (42 pt), so the edges beside the
+    /// half-key-inset second row still hit its end keys. A touch in a gap is read 3 pt higher (`KeyHitResolver`).
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
-        guard let hit, isRedirectable(hit), point.y >= keysTop else { return hit }
+        guard let hit, isRedirectable(hit), point.y >= topAreaHeight else { return hit }
         let keys = visibleKeys()
         let rects = keys.map { key -> HitRect in
             let frame = convert(key.bounds, from: key)
@@ -250,8 +260,8 @@ final class KeyboardRootView: UIView {
         return keys[index]
     }
 
-    private var keysTop: CGFloat {
-        CGFloat(Double(topRows) * KeyboardMetrics.topRowHeight + KeyboardMetrics.keyAreaVerticalInset)
+    private var topAreaHeight: CGFloat {
+        CGFloat(Double(topRows) * KeyboardMetrics.topRowHeight)
     }
 
     private func isRedirectable(_ view: UIView) -> Bool {

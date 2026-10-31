@@ -32,6 +32,8 @@ final class BottomRowView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Not drawn, but a surface for touches; see `UIColor.keyboardTouchSurface`.
+        backgroundColor = .keyboardTouchSurface
         globeKey.titleLabel?.font = .systemFont(ofSize: 20)
         globeKey.isHidden = true
         clearKey.isHidden = true

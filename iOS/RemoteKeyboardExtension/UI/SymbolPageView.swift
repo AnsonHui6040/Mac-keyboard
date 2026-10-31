@@ -19,6 +19,8 @@ final class SymbolPageView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Not drawn, but a surface for touches; see `UIColor.keyboardTouchSurface`.
+        backgroundColor = .keyboardTouchSurface
         for count in [10, 10, 5] {
             var keys: [KeyButton] = []
             for _ in 0..<count {
@@ -27,6 +29,7 @@ final class SymbolPageView: UIView {
                     guard let self, let text = key?.title(for: .normal), !text.isEmpty else { return }
                     self.onSymbol?(text)
                 }
+                key.participatesInRollover = true
                 addSubview(key)
                 keys.append(key)
             }

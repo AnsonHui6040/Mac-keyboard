@@ -83,6 +83,7 @@ private struct ContentView: View {
                 }
                 Section("測試輸入") {
                     TextField("在這裡輸入", text: $draft)
+                        .accessibilityIdentifier("rk.home.testInput")
                 }
                 Section("App Group") {
                     Button("寫入 probe") {

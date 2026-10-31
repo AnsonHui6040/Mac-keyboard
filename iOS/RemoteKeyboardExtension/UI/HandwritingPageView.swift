@@ -145,6 +145,8 @@ final class HandwritingPageView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Not drawn, but a surface for touches; see `UIColor.keyboardTouchSurface`.
+        backgroundColor = .keyboardTouchSurface
         messageLabel.font = .systemFont(ofSize: 17)
         messageLabel.textColor = .secondaryLabel
         messageLabel.textAlignment = .center
