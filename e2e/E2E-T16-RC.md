@@ -264,7 +264,7 @@
 | H14 | 必要 | 鍵盤保持連線，Mac 面板按「解除配對」 | 鍵盤狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」（不是「尚未配對」）；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對。再完成一次配對 | TBD | E2E-T09-PAIRING 步驟 10d |
 | H15 | 可選 | 鍵盤在畫面上且已連線；Mac 終端機執行 `killall -KILL MacReceiver`，重新開啟 Receiver 並按「開始接收」，收起鍵盤，再點輸入欄位叫出鍵盤，不使用地球鍵 | 數秒內回到 `Mac → ...`；打 `abc`，Mac 收到 `abc`；iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷，則沒有這三行） | TBD | E2E-T09-PAIRING 步驟 10e（主體已 PASS，這裡重測；延後的只有 iPhone 端 log） |
 | H16 | 必要 | 做完 H12 到 H15 後，終端機執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 並重啟 Receiver | 倒數回到 30 分鐘 | TBD | E2E-T03B-LINK 步驟 7 |
-| H17 | 必要 | 執行 `scripts/install-mac-receiver.sh`（或請主代理執行），確認「應用程式」資料夾有 Remote Keyboard Receiver（檔名 MacReceiver.app）並已開啟。面板確認「登入時啟動」已打勾；若顯示「需在系統設定 › 登入項目 允許」，到系統設定 › 一般 › 登入項目 允許。然後登出再登入，或重新開機 | 重新登入後選單列自動出現 Receiver，面板顯示 `Link: idle` 與「待命」 | TBD | E2E-T03B-LINK 步驟 1；交接文件「延至 T16」表（T03b 登入項目） |
+| H17 | 必要 | 執行 `scripts/install-mac-receiver.sh`（或請主代理執行），確認「應用程式」資料夾有 `/Applications/Remote Keyboard Receiver.app` 並已開啟。面板確認「登入時啟動」已打勾；若顯示「需在系統設定 › 登入項目 允許」，到系統設定 › 一般 › 登入項目 允許。然後登出再登入，或重新開機 | 重新登入後選單列自動出現 Receiver，面板顯示 `Link: idle` 與「待命」 | TBD | E2E-T03B-LINK 步驟 1；交接文件「延至 T16」表（T03b 登入項目） |
 | H18 | 可選 | 面板按「停止接收」，在 iPhone 叫出鍵盤 | Mac 顯示 `Link: idle` 與「待命」；鍵盤狀態列維持 `BLE: advertising`，沒有進入 `BLE: connected` | TBD | E2E-T03B-LINK 步驟 6 |
 | H19 | 必要 | 完成最後一次配對後，確認狀態與 A4 一致 | 兩邊都是已配對，鍵盤遠端打字正常 | TBD | 收尾檢查 |
 
