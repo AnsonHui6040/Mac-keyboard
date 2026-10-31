@@ -20,21 +20,23 @@ enum FocusTransition {
     }
 
     /// `ready` only when the focused field can take text. The name is cut so the write stays far below one ATT payload.
-    static func status(for snapshot: FocusSnapshot) -> ReceiverStatus {
+    static func status(for snapshot: FocusSnapshot, pointerGrant: UInt32? = nil) -> ReceiverStatus {
         ReceiverStatus(
             ready: snapshot.axTrusted && snapshot.editable,
             appName: snapshot.appName.map { String($0.prefix(maxAppNameLength)) },
             focusEpoch: snapshot.epoch,
-            trusted: snapshot.axTrusted
+            trusted: snapshot.axTrusted,
+            pointerGrant: pointerGrant
         )
     }
 
     #if DEBUG
     /// The same status with the Receiver's measurement mode. A Release build has no such overload, so its status never says `measure`.
-    static func status(for snapshot: FocusSnapshot, measure: Bool) -> ReceiverStatus {
-        let base = status(for: snapshot)
+    static func status(for snapshot: FocusSnapshot, measure: Bool, pointerGrant: UInt32? = nil) -> ReceiverStatus {
+        let base = status(for: snapshot, pointerGrant: pointerGrant)
         return ReceiverStatus(
-            ready: base.ready, appName: base.appName, focusEpoch: base.focusEpoch, trusted: base.trusted, measure: measure)
+            ready: base.ready, appName: base.appName, focusEpoch: base.focusEpoch, trusted: base.trusted, measure: measure,
+            pointerGrant: pointerGrant)
     }
     #endif
 }
@@ -49,6 +51,7 @@ final class ReceiverCoordinator: ObservableObject {
 
     private let focus: FocusMonitor
     private let pipeline: EventPipeline?
+    private let pointer: PointerReceiver?
 
     #if DEBUG
     /// Whether the Receiver's measurement mode is on, for the status the keyboard reads. Debug builds only.
@@ -59,22 +62,35 @@ final class ReceiverCoordinator: ObservableObject {
 
     /// Does not hook anything up; call `start()` for the live wiring.
     /// - Parameter pipeline: receives every verified event from `security`. Nil leaves the security callbacks alone.
-    init(focus: FocusMonitor, central: ReceiverBLECentral, security: ReceiverSecurity, pipeline: EventPipeline? = nil) {
+    /// - Parameter pointer: the touchpad. Its `pointerOpen` and `pointerClose` events are answered here at once, not queued
+    ///   behind text; its grant goes into every status. Nil leaves the touchpad out (no grant, every open refused).
+    init(
+        focus: FocusMonitor, central: ReceiverBLECentral, security: ReceiverSecurity, pipeline: EventPipeline? = nil,
+        pointer: PointerReceiver? = nil
+    ) {
         self.focus = focus
         self.central = central
         self.security = security
         self.pipeline = pipeline
+        self.pointer = pointer
     }
 
     func start() {
         focus.onChange = { [weak self] snapshot in self?.focusChanged(snapshot) }
         // The first status goes out only after the phone proved the pair key, and then sealed.
         security.onAuthenticated = { [weak self] in self?.sendStatus() }
+        if let pointer {
+            security.observeChannelSet { [weak pointer] channels in
+                if let channels { pointer?.attach(channels) } else { pointer?.detach() }
+            }
+            pointer.onGrantChange = { [weak self] in self?.sendStatus() }
+        }
         if let pipeline {
             security.onEvent = { [pipeline, weak self] event in
                 #if DEBUG
                 if case .text(let text) = event.kind { self?.measureTextArrived?(text) }
                 #endif
+                if self?.answerPointerSwitch(event) == true { return }
                 pipeline.submit(event)
             }
             security.onMalformed = { [pipeline] in pipeline.submitMalformed() }
@@ -82,6 +98,23 @@ final class ReceiverCoordinator: ObservableObject {
             security.onLinkLost = { [pipeline] in pipeline.discardQueued() }
         }
     }
+
+    /// A `pointerOpen` or `pointerClose` is handled and acknowledged here, in the moment it arrives, so a text that is still
+    /// being typed (an input source switch can take hundreds of milliseconds) never delays it. Returns whether it was one.
+    private func answerPointerSwitch(_ event: KeyboardEvent) -> Bool {
+        let code: AckCode
+        switch event.kind {
+        case .pointerOpen(let grant): code = pointer?.handleOpen(grant: grant) ?? .notAuthorized
+        case .pointerClose: code = pointer?.handleClose() ?? .posted
+        default: return false
+        }
+        central.noteEvent()
+        security.send(.ack(Ack(eventId: event.eventId, result: code)))
+        return true
+    }
+
+    /// Stands in for the focus until the first read: nothing is editable, so the status is never `ready`.
+    private static let placeholderSnapshot = FocusSnapshot(axTrusted: true, frontmostPID: 0, appName: nil, editable: false, epoch: 0)
 
     func focusChanged(_ next: FocusSnapshot) {
         let previous = last
@@ -91,11 +124,14 @@ final class ReceiverCoordinator: ObservableObject {
     }
 
     func sendStatus() {
-        guard let last else { return }
+        let grant = pointer?.grant
+        // No focus snapshot yet: with the touchpad wired, a not-ready status still goes out, so the phone gets the grant (or
+        // learns that it is gone) without waiting for a focus change. Without the touchpad nothing is said yet, as before.
+        guard let last = last ?? (pointer == nil ? nil : Self.placeholderSnapshot) else { return }
         #if DEBUG
-        security.send(.status(FocusTransition.status(for: last, measure: measureMode())))
+        security.send(.status(FocusTransition.status(for: last, measure: measureMode(), pointerGrant: grant)))
         #else
-        security.send(.status(FocusTransition.status(for: last)))
+        security.send(.status(FocusTransition.status(for: last, pointerGrant: grant)))
         #endif
     }
 }

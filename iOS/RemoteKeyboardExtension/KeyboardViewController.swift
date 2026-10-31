@@ -39,6 +39,8 @@ final class KeyboardViewController: UIInputViewController {
     private var rootView: KeyboardRootView?
     private var heightConstraint: NSLayoutConstraint?
     private let peripheral = KeyboardBLEPeripheral.shared
+    /// The touchpad page: its gestures, its channel to the Mac and its state. Inactive until 觸控板 is tapped.
+    private lazy var trackpad = TrackpadCoordinator(peripheral: peripheral)
     /// Counts this controller and releases peripheral ownership when it is deallocated.
     private let lifecycle = ControllerLifecycle()
     #if DEBUG
@@ -123,6 +125,13 @@ final class KeyboardViewController: UIInputViewController {
         root.onIMEInput = { [weak self] input in self?.enqueueIME(input) }
         chinese.onChange = { [weak self] in self?.refreshStatus() }
         chinese.onClearInk = { [weak self] in self?.rootView?.clearInk() }
+        root.onTrackpadToggle = { [weak self] in self?.toggleTrackpad() }
+        root.trackpadPage.onTouchesBegan = { [weak self] in self?.trackpad.touchesBegan($0) }
+        root.trackpadPage.onTouchesMoved = { [weak self] in self?.trackpad.touchesMoved($0) }
+        root.trackpadPage.onTouchesEnded = { [weak self] in self?.trackpad.touchesEnded($0) }
+        root.trackpadPage.onTouchesCancelled = { [weak self] in self?.trackpad.touchesCancelled(atMicros: $0) }
+        root.trackpadPage.onTick = { [weak self] in self?.trackpad.tick(nowMicros: $0) }
+        trackpad.onChange = { [weak self] in self?.refreshStatus() }
         #if DEBUG
         root.onDebugLongReturn = { [weak self] in self?.sendDebugLongText() }
         root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
@@ -180,6 +189,8 @@ final class KeyboardViewController: UIInputViewController {
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         isOnScreen = false
+        // Before the peripheral is let go: a held button is released and the Mac is told while the link is still there.
+        trackpad.leave()
         KeyFeedback.deactivate()
         #if DEBUG
         dictationDisappeared()
@@ -728,6 +739,17 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    // MARK: Touchpad
+
+    private func toggleTrackpad() {
+        reclaimPeripheralIfVacant()
+        if trackpad.isActive {
+            trackpad.leave()
+        } else if mode == .remote {
+            trackpad.enter()
+        }
+    }
+
     // MARK: Keys
 
     /// Returns whether the key was taken: `false` when the draft was full or the key was refused.
@@ -847,6 +869,9 @@ final class KeyboardViewController: UIInputViewController {
 
     private func refreshStatus() {
         guard let rootView else { return }
+        // The page only exists in Remote mode; and after a reconnect it asks the Mac to open the channel again.
+        if trackpad.isActive, mode != .remote { trackpad.leave() }
+        trackpad.refresh()
         let link = peripheral.linkState
         let isQuick = activeChineseMethod == .quick
         let line = StatusLine.text(
@@ -871,7 +896,9 @@ final class KeyboardViewController: UIInputViewController {
             handwritingMessage: navigator.page == .chinese && !isQuick ? Self.message(for: chinese.modelStatus) : nil,
             hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound,
             soundVolume: keyFeedback.soundVolume, customSound: keyFeedback.customSound,
-            hapticIntensity: keyFeedback.hapticIntensity)
+            hapticIntensity: keyFeedback.hapticIntensity,
+            showsTrackpadKey: mode == .remote && link == .connected,
+            trackpad: trackpad.isActive ? TrackpadPageState(message: trackpad.message) : nil)
         #if DEBUG
         var state = built
         state.dictationProbeLines = dictationProbeLines()

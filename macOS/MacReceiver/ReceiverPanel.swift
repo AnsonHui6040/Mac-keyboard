@@ -13,6 +13,7 @@ struct ReceiverPanel: View {
     @ObservedObject var loginItem: LoginItem
     @ObservedObject var security: ReceiverSecurity
     @ObservedObject var notice: InputSourceNotice
+    @ObservedObject var pointer: PointerReceiver
     #if DEBUG
     @ObservedObject var burstVerifier: BurstVerifier
     @ObservedObject var measurement: MeasurementEcho
@@ -97,6 +98,14 @@ struct ReceiverPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             #endif
             Divider()
+            Toggle("允許觸控板控制", isOn: Binding(
+                get: { pointer.isEnabled },
+                set: { pointer.setEnabled($0) }
+            ))
+            if pointer.isOpen {
+                Text("觸控板使用中")
+                    .foregroundStyle(.secondary)
+            }
             Toggle("登入時啟動", isOn: Binding(
                 get: { loginItem.isOn },
                 set: { loginItem.setOn($0) }

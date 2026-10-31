@@ -48,11 +48,37 @@ final class KeyboardBLEPeripheral: NSObject {
     /// One per Mac connection, with its own nonce. Events leave only once it `canSendEvents`, and only sealed.
     private var handshake: PhoneHandshake? {
         didSet {
-            #if DEBUG
-            if handshake == nil { measureConnectionEnded() }
-            #endif
+            if handshake == nil { connectionEnded() }
         }
     }
+
+    /// The counter channels of the authenticated connection, kept until it ends. One set per connection: the touchpad and
+    /// (Debug builds) the measurement both use its sealers, so no key ever sees a counter that starts at 1 twice.
+    private var channels: ChannelSet?
+
+    /// Which of a long text's frames and a touchpad packet (or, in Debug builds, a measurement probe) goes next
+    /// (spec §8.2 rule 4).
+    private var interleave = TransmitInterleave()
+    /// The radio refused a notification and has not said it is ready again. Only the touchpad drain looks at it.
+    private var radioBlocked = false
+
+    // Touchpad (pointer) channel. Memory only, and all of it belongs to one connection.
+    private(set) var pointerState = PointerChannelPhase.closed {
+        didSet { if pointerState != oldValue { onPointerChange?() } }
+    }
+    /// The touchpad page is waiting to hear about the channel (set while the page is shown).
+    var onPointerChange: (() -> Void)?
+    /// The packets of the open channel; nil while it is not open.
+    private(set) var pointerSender: PointerSender?
+    private var pointerOpenEventId: UUID?
+    /// Ids of `pointerOpen` and `pointerClose` events: their acks are not typed keys and say nothing in the status line.
+    private var pointerEventIds: Set<UUID> = []
+    /// The grant the open (or refused) attempt used.
+    private var pointerGrant: UInt32?
+    /// How many `pointerOpen` were sent for the current page visit; the second one is the last.
+    private var pointerAttempts = 0
+    private var pointerOpenTimer: Timer?
+    private static let pointerOpenTimeout: TimeInterval = 1.5
 
     // Reconnect timing of the current appearance, and the one probe sent for it.
     private var tracker = ReconnectTracker()
@@ -85,11 +111,9 @@ final class KeyboardBLEPeripheral: NSObject {
         }
     }
 
-    private(set) var measureChannels: ChannelSet?
+    var measureChannels: ChannelSet? { channels }
     private(set) lazy var measurement = MeasurementRunner(peripheral: self)
     private(set) var latencySetting = LatencySetting.unset
-    /// Which of a long text's frames and a measurement probe goes next, in keyboard or touchpad mode (spec §8.2 rule 4).
-    private var interleave = TransmitInterleave()
     /// How long an `updateValue` refusal lasted, in microseconds, reported when the radio is ready again.
     private var blockedSince: UInt64?
 
@@ -162,7 +186,6 @@ final class KeyboardBLEPeripheral: NSObject {
     }
 
     private func measureConnectionEnded() {
-        measureChannels = nil
         blockedSince = nil
         // A latency request belongs to the connection it was made on.
         latencySetting = .unset
@@ -170,8 +193,138 @@ final class KeyboardBLEPeripheral: NSObject {
     }
     #endif
 
+    /// Everything that belongs to one Mac connection goes with it.
+    private func connectionEnded() {
+        channels = nil
+        pointerConnectionEnded()
+        #if DEBUG
+        measureConnectionEnded()
+        #endif
+    }
+
     /// Shown-to-connected time of this appearance, once the link has connected.
     var reconnectLatencyMs: Int64? { tracker.latencyMs }
+
+    // MARK: Touchpad channel
+
+    /// Connected, authenticated, and the Mac has announced a grant: the touchpad page can ask to open.
+    var canOpenPointer: Bool {
+        machine.state == .connected && subscribedCentral != nil && handshake?.canSendEvents == true && channels != nil
+            && latestStatus?.pointerGrant != nil
+    }
+
+    /// What the page shows for the channel right now.
+    var pointerAvailability: TrackpadAvailability {
+        TrackpadPage.availability(linkConnected: machine.state == .connected, status: latestStatus, channel: pointerState)
+    }
+
+    /// Asks the Mac to accept pointer packets, with the grant its last status carried. A refused attempt is repeated only
+    /// when the Mac announces another grant. `0x03` packets are sent only after the Mac answers `posted`.
+    func openPointer() {
+        guard canOpenPointer, let grant = latestStatus?.pointerGrant else { return }
+        switch pointerState {
+        case .closed: break
+        case .denied: guard grant != pointerGrant else { return }
+        case .opening, .open, .timedOut: return
+        }
+        guard let id = send(.pointerOpen(grant: grant)) else { return }
+        pointerAttempts += 1
+        schedulePointerOpenTimeout()
+        pointerOpenEventId = id
+        pointerEventIds.insert(id)
+        pointerGrant = grant
+        pointerState = .opening
+        setPointerLatency(low: true)
+    }
+
+    /// The page was left: whatever is held is released, the Mac is told, and the latency goes back to medium.
+    func closePointer() {
+        let wasActive = pointerState == .opening || pointerState == .open
+        if let sender = pointerSender {
+            sender.releaseAll(atMicros: PointerClock.nowMicros())
+            drain()
+        }
+        pointerSender = nil
+        pointerOpenEventId = nil
+        if wasActive, let id = send(.pointerClose) { pointerEventIds.insert(id) }
+        pointerGrant = nil
+        pointerAttempts = 0
+        cancelPointerOpenTimeout()
+        interleave.mode = .keyboard
+        pointerState = .closed
+        setPointerLatency(low: false)
+    }
+
+    private func schedulePointerOpenTimeout() {
+        pointerOpenTimer?.invalidate()
+        let timer = Timer(timeInterval: Self.pointerOpenTimeout, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pointerOpenTimedOut() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        pointerOpenTimer = timer
+    }
+
+    private func cancelPointerOpenTimeout() {
+        pointerOpenTimer?.invalidate()
+        pointerOpenTimer = nil
+    }
+
+    /// No answer to `pointerOpen`: a fresh one is sent once (a new event); after the second silence the page says so.
+    private func pointerOpenTimedOut() {
+        pointerOpenTimer = nil
+        guard pointerState == .opening else { return }
+        pointerOpenEventId = nil
+        if pointerAttempts < 2 {
+            pointerState = .closed
+            openPointer()
+        } else {
+            pointerState = .timedOut
+        }
+    }
+
+    /// Hands what the sender has to the radio.
+    func pumpPointer() { drain() }
+
+    private func setPointerLatency(low: Bool) {
+        guard let manager, let central = subscribedCentral else { return }
+        manager.setDesiredConnectionLatency(low ? .low : .medium, for: central)
+        #if DEBUG
+        latencySetting = low ? .low : .medium
+        #endif
+    }
+
+    private func pointerConnectionEnded() {
+        pointerSender = nil
+        pointerOpenEventId = nil
+        pointerEventIds.removeAll()
+        pointerGrant = nil
+        pointerAttempts = 0
+        cancelPointerOpenTimeout()
+        interleave.mode = .keyboard
+        radioBlocked = false
+        pointerState = .closed
+    }
+
+    /// The Mac's answer to the latest `pointerOpen`.
+    private func pointerOpenAnswered(_ result: AckCode) {
+        guard pointerState == .opening else { return }
+        cancelPointerOpenTimeout()
+        if result == .posted {
+            pointerSender = PointerSender()
+            pointerState = .open
+        } else {
+            pointerState = .denied
+        }
+    }
+
+    /// A status that no longer carries the grant the channel was opened with means the Mac closed it (the switch went
+    /// off) or invalidated it: the sender stops and the page asks again with the new grant, if there is one.
+    private func reconcilePointer(with status: ReceiverStatus) {
+        guard pointerState == .opening || pointerState == .open, status.pointerGrant != pointerGrant else { return }
+        pointerSender = nil
+        pointerOpenEventId = nil
+        pointerState = status.pointerGrant == nil ? .denied : .closed
+    }
 
     /// Nobody owns the peripheral; a controller that is still on screen may reclaim it.
     var isVacant: Bool { ownership.isVacant }
@@ -419,6 +572,10 @@ final class KeyboardBLEPeripheral: NSObject {
     /// the rest waits for `peripheralManagerIsReady(toUpdateSubscribers:)`.
     private func drain() {
         guard let manager, let eventCharacteristic, let central = subscribedCentral else { return }
+        if pointerState == .open, pointerSender != nil {
+            drainWithPointer(manager: manager, characteristic: eventCharacteristic, central: central)
+            return
+        }
         #if DEBUG
         drainTracked(manager: manager, characteristic: eventCharacteristic, central: central)
         #else
@@ -426,6 +583,59 @@ final class KeyboardBLEPeripheral: NSObject {
             manager.updateValue(frame, for: eventCharacteristic, onSubscribedCentrals: [central])
         }
         #endif
+    }
+
+    /// The drain while the touchpad is open: one ordered exit for the frames of the typing queue and the sender's packets, with
+    /// the packets first (four packets, then one frame, when both wait). A refusal by the radio stops everything until it is
+    /// ready again; the refused packet stays in the sender and is sealed again, with a new counter, when its turn comes.
+    private func drainWithPointer(manager: CBPeripheralManager, characteristic: CBMutableCharacteristic, central: CBCentral) {
+        guard !radioBlocked, let sender = pointerSender, let sealer = channels?.sealer(.pointer) else { return }
+        interleave.mode = .trackpad
+        while true {
+            let now = PointerClock.nowMicros()
+            let payload = sender.peek(nowMicros: now)
+            let hasFrame = queue.pendingCount > 0
+            guard let source = interleave.choose(hasFrame: hasFrame, hasPacket: payload != nil) else { return }
+            switch source {
+            case .frame:
+                var handedOne = false
+                var refused = false
+                queue.drain { frame in
+                    if handedOne { return false }
+                    guard manager.updateValue(frame, for: characteristic, onSubscribedCentrals: [central]) else {
+                        refused = true
+                        return false
+                    }
+                    handedOne = true
+                    return true
+                }
+                if refused {
+                    radioBlocked = true
+                    #if DEBUG
+                    noteBlocked()
+                    #endif
+                    return
+                }
+                interleave.handed(.frame, otherWaiting: payload != nil)
+            case .packet:
+                guard let payload, let packet = try? sealer.seal(payload.encode()) else {
+                    // The counter is used up: nothing more can be sealed on this connection.
+                    pointerSender = nil
+                    pointerState = .closed
+                    return
+                }
+                guard manager.updateValue(packet, for: characteristic, onSubscribedCentrals: [central]) else {
+                    sender.refused()
+                    radioBlocked = true
+                    #if DEBUG
+                    noteBlocked()
+                    #endif
+                    return
+                }
+                sender.handedOff(nowMicros: now)
+                interleave.handed(.packet, otherWaiting: hasFrame)
+            }
+        }
     }
 
     #if DEBUG
@@ -477,7 +687,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .text(let text): (.text, text.utf8.count)
         case .backspace: (.backspace, 0)
         case .returnKey: (.return, 0)
-        case .ping, .probe: nil
+        case .ping, .probe, .pointerOpen, .pointerClose: nil
         }
     }
 
@@ -598,6 +808,9 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
         // Every Mac connection runs its own handshake with its own nonce; a recorded reply is useless on the next one.
         loadPairKey()
+        // A repeat subscription replaces the handshake without it ever being nil, so the old connection's channels go here.
+        channels = nil
+        pointerConnectionEnded()
         #if DEBUG
         measureConnectionEnded()
         applyLatency()
@@ -625,6 +838,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        radioBlocked = false
+        pointerSender?.radioReady()
         #if DEBUG
         if let since = blockedSince {
             blockedSince = nil
@@ -669,10 +884,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             transmit(reply)
         case .authenticated:
             KeyboardLifecycleLog.note(.handshakeAuthenticated)
-            #if DEBUG
-            measureChannels = current.takeChannelSet()
+            channels = current.takeChannelSet()
             handshake = current
-            #endif
             onStateChange?(machine.state)
         case .deliver(let inner):
             deliver(inner)
@@ -697,8 +910,17 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             return
         case .status(let status):
             latestStatus = status
+            reconcilePointer(with: status)
         case .ack(let ack):
             DiagnosticEvent.ackReceived(ack.result).log()
+            // The answer to a touchpad switch is not a typed key: it opens or refuses the channel and says nothing else.
+            if pointerEventIds.remove(ack.eventId) != nil {
+                if ack.eventId == pointerOpenEventId {
+                    pointerOpenEventId = nil
+                    pointerOpenAnswered(ack.result)
+                }
+                return
+            }
             sender.acknowledged(ack)
             // The pong for the liveness probe: the link is alive. Like the reconnect probe it is not a typed key.
             if ack.result == .pong, probe.pongReceived(eventId: ack.eventId) {
