@@ -11,6 +11,8 @@ final class TrackpadCoordinator {
     private let peripheral: KeyboardBLEPeripheral
     private var gesture = TrackpadGesture()
     private(set) var isActive = false
+    /// Multiplier on one-finger cursor motion (`TrackpadSensitivity`); scroll and the gesture thresholds are not scaled.
+    var sensitivity = TrackpadSensitivity.defaultValue
     /// The page's state may have changed (the channel opened, was refused, or the link dropped).
     var onChange: (() -> Void)?
 
@@ -79,7 +81,9 @@ final class TrackpadCoordinator {
         for output in outputs {
             switch output {
             case .strokeBegan(let t): sender.strokeBegan(atMicros: t)
-            case .move(let dx, let dy, let t): sender.addMove(dx: dx, dy: dy, atMicros: t)
+            case .move(let dx, let dy, let t):
+                let scaled = TrackpadSensitivity.scaled(dx: dx, dy: dy, by: sensitivity)
+                sender.addMove(dx: scaled.dx, dy: scaled.dy, atMicros: t)
             case .click(let t): sender.click(atMicros: t)
             case .buttonDown(let t): sender.setLeftButton(true, atMicros: t)
             case .buttonUp(let t): sender.setLeftButton(false, atMicros: t)

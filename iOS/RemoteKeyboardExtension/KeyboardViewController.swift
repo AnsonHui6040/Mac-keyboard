@@ -130,6 +130,8 @@ final class KeyboardViewController: UIInputViewController {
         root.trackpadPage.onTouchesMoved = { [weak self] in self?.trackpad.touchesMoved($0) }
         root.trackpadPage.onTouchesEnded = { [weak self] in self?.trackpad.touchesEnded($0) }
         root.trackpadPage.onTouchesCancelled = { [weak self] in self?.trackpad.touchesCancelled(atMicros: $0) }
+        trackpad.sensitivity = root.trackpadPage.sensitivity
+        root.trackpadPage.onSensitivityChange = { [weak self] in self?.trackpad.sensitivity = $0 }
         root.trackpadPage.onTick = { [weak self] in self?.trackpad.tick(nowMicros: $0) }
         trackpad.onChange = { [weak self] in self?.refreshStatus() }
         #if DEBUG
