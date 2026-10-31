@@ -134,14 +134,16 @@ func testCsvHasNoCoordinates() // CSV 標頭只含 seq、kind、bytes、counterG
   - M2、M3、M5、M6：面板操作與輸出位置。
   - M4：依 spec §13.3（時間點 T0–T6 表、器材設定、游標放大、高對比背景、確認影片實際幀率與兩端螢幕更新率、每筆從靜止開始、≥ 100 筆、邊界時 ≥ 200 筆）；逐筆記錄 T0、T2、T5′、T6 的幀號到 `docs/superpowers/verification/evidence/TP1-m4-frames.csv`，以 `swift scripts/tp1-m4-stats.swift <csv> <fps>` 算出 E2E、T6 − T2、T6 − T5′ 的 P50／P95／P99 與量化誤差，並標示是否落在邊界。
 - [ ] **Step 10: 主代理在實機跑 M2、M3、M5、M6，使用者跑 M1、M4**；結果填入驗收報告（實機項 TBD 直到使用者確認）。
-- [ ] **Step 10b: 依使用者 2026-11-01 修訂補強量測工具並重量**（spec §13.2、§13.4）：
-  - 回覆加 `macTimeMicros`（回覆明文 24 bytes、封包 49 bytes）；Core `ClockOffsetEstimator`（以最小 RTT 樣本估計時鐘差，TDD：已知偏移與對稱延遲還原誤差 < 1 ms、非對稱延遲時誤差 ≤ 最小 RTT／2）；M3 輸出 M3a（RTT）、M3b（覆蓋率）、M3c（單程 P50／P95／P99 與估計誤差）。
-  - 量測前可指定連線延遲偏好（UI 測試環境變數 `RKMEAS_LATENCY=low|medium|none`），每行結果帶 `latency=`。
-  - Mac CSV 每列加 `macTimeMicros`，供心跳間隔異常分析（不含內容）。
-  - M5 恢復段改為固定 10 秒，必須有樣本。
-  - 新增 M7（模式切換，20 次）與 M8（觸控板工作負載，10 分鐘），兩者的出口規則採 spec §8.2 規則 4 的觸控板模式優先。
-  - M6 主要量測改為 `.low`、30 分鐘；分析心跳間隔 > 200 ms 的時間分佈，對照 M1 的 connection interval 與 Mac 端紀錄，判斷異常來自 iPhone 交出之後的系統佇列、空中傳輸還是 Mac 端處理。
-  - 先寫測試再實作；全套 regression 重跑。之後在實機依序跑：M2、M3、M6（30 分鐘）、M7、M8（`.low`），再跑健壯性 M5、M6-L。
+- [ ] **Step 10b: 依使用者 2026-11-01 修訂補強量測工具並重量**（spec §13.2、§13.4；先寫測試再實作）：
+  - **M3c**：回覆加 `macTimeMicros`（回覆明文 24 bytes、封包 49 bytes）；Core `ClockOffsetEstimator`：輸出分開的「時鐘差估計值」「假設（對稱延遲、漂移量）」「誤差範圍（± 最小 RTT／2＋漂移）」；TDD：已知偏移與對稱延遲還原誤差 < 1 ms、非對稱延遲時誤差落在報告範圍內、漂移被量出。所有單程輸出標 `est_`。M3 輸出分 M3a（RTT）、M3b（覆蓋率）、M3c（估計單程）。
+  - **`.low`**：UI 測試環境變數 `RKMEAS_LATENCY=low|medium|none`，量測開始前呼叫 `setDesiredConnectionLatency`；每行結果帶 `latency_requested=` 與 `latency_confirmed=unconfirmed`（只有 PacketLogger 可確認）；另記錄要求前後 Mac 到達間隔的變化作旁證。
+  - **Mac CSV**：每列加 `macTimeMicros`（不含內容）。
+  - **M5**：固定三段 baseline 20 秒、load 60 秒、recovery 30 秒；三段都必須有樣本（不足則該次無效並回報）；記錄停止送文字後 0x02 佇列排空時間與回到 baseline 水準所需時間。
+  - **M7**：每次先量 10 秒同條件 cursor baseline，再送 3,000 字長文字並立即切到觸控板量測；觸控板模式出口依 spec §8.2 規則 4（0x03 優先、每 4 個 0x03 交出 1 個 0x02）；記錄 baseline 與切換後第一個封包、前 1 秒的估計單程延遲；Mac 端驗證長文字長度與雜湊；記錄觸控板持續送時每秒交出的 0x02 frame 數（> 0）。TDD：出口排程在 0x03 持續有待送時 0x02 仍每 4 個前進 1 個。
+  - **M8**：10 分鐘工作負載（60 Hz cursor、每 2 秒點擊代理 rtt、每 5 秒 1 秒 cursor 連送、全程 100 ms 心跳）；輸出 cursor 估計單程、點擊代理 RTT、模擬誤釋放次數。
+  - **用語**：看門狗結果一律寫「模擬誤釋放」；點擊 RTT 一律寫「點擊代理 RTT」。
+  - AEAD、計數器 nonce、防重播、log 無內容、Release 不含量測功能維持不變；完成後重跑全部 regression 與 Release 符號檢查。
+  - 實機依序（`.low`）：M2、M3、M6（30 分鐘）、M7（20 次）、M8（10 分鐘），再跑健壯性 M5、M6-L。
 - [ ] **Step 11: 第一階段驗收對照（使用者 2026-11-01 指定；同日修訂為主要／健壯性兩類）**
 
 | 指標 | 目標 | 在哪裡驗證 |
