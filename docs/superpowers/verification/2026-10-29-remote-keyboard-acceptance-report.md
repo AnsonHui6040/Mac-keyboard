@@ -54,6 +54,7 @@
 | T15 | 穩定性、權限、Wi-Fi 降級驗證 | 自動通過，實機延至 T16 | 無授權/無焦點永遠 fail closed，任一失敗可提示及恢復；Wi-Fi 測試有權限和身份驗證 | 自動（2026-10-31）：Core 588/0、Mac 168/0、iOS 模擬器、真機與 Release build 成功。`BurstFormat`（每行 `#n`）與驗證（遺漏、重複、亂序）；DEBUG 壓力測試：遠端模式長按「換行」超過 4 秒，經正常路徑送 10,000 行（每行文字加換行鍵，未確認最多 16 個），Mac 面板 DEBUG「驗證 burst」以 AX 讀 TextEdit 並只顯示數字；Release 不含兩個 DEBUG 檔的符號。Wi-Fi 項目 N/A（D8，見 T06）。獨立審查通過。實機（10,000 行、權限撤銷各 3 次）：延至 T16（`e2e/E2E-T15-STABILITY.md`） | `e2e/E2E-T15-STABILITY.md` |
 | T16 | Release Candidate QA、文件與分發審核 | 自動通過，實機總清單 TBD | 全部必需 Gate 通過且帶 log/截圖/測試版本，無 blocker | 自動（2026-10-31）：Core 597/0、Mac 187/0、iOS 真機 build 與 UI 測試 build-for-testing 成功。Mac 未授權輔助使用時鍵盤顯示「Mac 未授權輔助使用」（ReceiverStatus 新增 `trusted`，只在未授權時寫入，已授權時位元組與舊版相同）；Receiver 面板顯示不可用原因；central 接線測試；UI 測試清理。實機總清單 `e2e/E2E-T16-RC.md`：145 項（必要 129、可選 16），約 5 小時 20 分鐘，結果 TBD。獨立審查一輪修正後接受 | `e2e/E2E-T16-RC.md` |
 | D20 | 按鍵觸及範圍外擴（使用者 2026-10-31 回報空隙按不到） | 自動通過，實機 TBD | 鍵、行之間與鍵區邊緣的空白送出最近的鍵；不搶候選字列、頂部區與手寫書寫區；手寫提示訊息時點擊不送字 | 自動（2026-10-31）：Core 606/0（`KeyHitResolverTests` 9 項）、iOS 真機 build 與 UI 測試 build-for-testing 成功；獨立審查 1 項 Important（手寫提示區）已修。實機見 `E2E-T16-RC.md` B23–B28 |
+| D21 | 按鍵聲音與震動開關 | 自動通過，實機 TBD | 兩開關各自生效；預設開；靜音時無聲；無完整取用時無震動 | 自動（2026-10-31）：Core 611/0（`KeyFeedbackSettingsTests` 5 項）、iOS 模擬器／真機 build 與 UI 測試 build-for-testing 成功；設定頁截圖確認預設開。實機見 `E2E-T16-RC.md` B29–B34 |
 
 ## 每項驗收記錄格式（複製一份填 T01–T16、T12b）
 

@@ -28,7 +28,7 @@ struct KeyboardViewState: Equatable {
     /// Light haptic on every key at touch down. True only when the keyboard has Full Access; the preview passes false.
     var hapticsEnabled: Bool
     /// System key click on every key at touch down. Follows the user's switch only; Full Access is not needed.
-    var soundEnabled: Bool = false
+    var soundEnabled: Bool
     #if DEBUG
     /// T13 dictation probe checklist (five lines, one item each), drawn over the English page's letter rows; nil when
     /// the probe is off.
@@ -40,7 +40,6 @@ struct KeyboardViewState: Equatable {
 final class KeyboardRootView: UIView, UIInputViewAudioFeedback {
     /// Lets `UIDevice.playInputClick()` play the system key click while this keyboard is visible.
     var enableInputClicksWhenVisible: Bool { true }
-
 
     /// Returns whether the key was taken; a refused key (full draft) does not use up a one-shot Shift.
     var onAction: ((KeyAction) -> Bool)?

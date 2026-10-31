@@ -140,6 +140,7 @@ final class KeyboardViewController: UIInputViewController {
         ])
         rootView = root
         heightConstraint = height
+        refreshKeyFeedback()
         refreshStatus()
     }
 
