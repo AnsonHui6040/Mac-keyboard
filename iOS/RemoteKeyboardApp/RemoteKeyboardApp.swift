@@ -24,7 +24,19 @@ struct RemoteKeyboardApp: App {
 @MainActor
 private final class BluetoothPermission: NSObject, ObservableObject {
     @Published private(set) var statusText = BluetoothPermission.describe(CBManager.authorization)
+    /// `true` when the user has turned Bluetooth off for this app, or it is restricted.
+    @Published private(set) var isDenied = BluetoothPermission.isDenied(CBManager.authorization)
     private var manager: CBCentralManager?
+
+    /// Re-reads the authorization, for example after the user comes back from Settings.
+    func refresh() {
+        statusText = Self.describe(CBManager.authorization)
+        isDenied = Self.isDenied(CBManager.authorization)
+    }
+
+    private static func isDenied(_ authorization: CBManagerAuthorization) -> Bool {
+        authorization == .denied || authorization == .restricted
+    }
 
     func request() {
         guard manager == nil else { return }
@@ -44,7 +56,7 @@ private final class BluetoothPermission: NSObject, ObservableObject {
 
 extension BluetoothPermission: @preconcurrency CBCentralManagerDelegate {
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        statusText = Self.describe(CBManager.authorization)
+        refresh()
     }
 }
 
@@ -52,6 +64,7 @@ private struct ContentView: View {
     @State private var probeStatus = "未寫入"
     @State private var isPaired = PairingStore.loadPairKey() != nil
     @StateObject private var bluetooth = BluetoothPermission()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var draft = ""
 
     var body: some View {
@@ -59,6 +72,14 @@ private struct ContentView: View {
             Form {
                 Section {
                     Text("版本：\(BuildStamp.current())")
+                }
+                Section {
+                    Button("打開 iPhone 設定") { OpenSettings.open() }
+                        .accessibilityIdentifier("rk.home.openSettings")
+                } header: {
+                    Text("設定")
+                } footer: {
+                    Text("在「鍵盤」加入 Remote Keyboard 並開啟「允許完整取用」；藍牙也在同一頁。")
                 }
                 Section("測試輸入") {
                     TextField("在這裡輸入", text: $draft)
@@ -87,9 +108,16 @@ private struct ContentView: View {
                 Section("藍牙") {
                     Button("允許藍牙") { bluetooth.request() }
                     Text(bluetooth.statusText)
+                    if bluetooth.isDenied {
+                        Button("到設定開啟藍牙") { OpenSettings.open() }
+                            .accessibilityIdentifier("rk.home.openBluetoothSettings")
+                    }
                 }
             }
             .navigationTitle("Remote Keyboard")
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { bluetooth.refresh() }
+            }
         }
     }
 }

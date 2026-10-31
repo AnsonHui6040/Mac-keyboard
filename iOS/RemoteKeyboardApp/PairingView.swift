@@ -52,6 +52,10 @@ struct PairingView: View {
             case .failed(let failure):
                 Section {
                     Text(Self.text(for: failure))
+                    if failure == .bluetoothDenied {
+                        Button("到設定開啟藍牙") { OpenSettings.open() }
+                            .accessibilityIdentifier("rk.pairing.openSettings")
+                    }
                     Button("重試") {
                         peripheral.stop()
                         peripheral.start()
