@@ -55,7 +55,7 @@ final class KeyboardT10UITests: XCTestCase {
 
     private static let newNoteIdentifiers = ["New Note", "Compose", "newNoteButton"]
     private static let newNoteLabels = ["New Note", "Compose", "新增備忘錄", "新備忘錄", "撰寫"]
-    private static let addressIdentifiers = ["URL", "Address", "TabBarItemTitle"]
+    private static let addressIdentifiers = ["URL", "Address", "TabBarItemTitle", "TabBarItemTitleContainer"]
     private static let addressLabels = ["Address", "URL", "地址", "網址", "搜尋或輸入網址", "搜尋或輸入網站名稱"]
     private static let dismissNames = ["Done", "Cancel", "Hide keyboard", "完成", "取消", "隱藏鍵盤"]
     private static let nextKeyboardNames = ["Next keyboard", "下一個鍵盤"]
