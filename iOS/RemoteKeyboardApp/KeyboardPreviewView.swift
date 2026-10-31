@@ -9,7 +9,9 @@ import UIKit
 /// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
 /// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
 /// yet), `handwritingNoModel` (the model is missing), `quick` (T12b: Chinese page with the Quick radical keys, nothing typed),
-/// `quickComposing` (the code 日月 and its candidates), `dictationProbe` (T13 checklist panel over the English letter rows).
+/// `quickComposing` (the code 日月 and its candidates), `dictationProbe` (T13 checklist panel over the English letter rows),
+/// `trackpad` (the touchpad page, ready), `trackpadDenied` (the same with the Mac not allowing it), `remoteTrackpadKey`
+/// (the English page with the 觸控板 key in the status row).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -128,6 +130,20 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
                 "④ 差分  退 2 字 13  過大 1  截斷 1  換檔 1  略過 1",
                 "⑤ Mac  送 12 回 12 稿 3"
             ]
+            return (state, .off)
+        case "trackpad":
+            var state = make()
+            state.showsTrackpadKey = true
+            state.trackpad = TrackpadPageState(message: nil)
+            return (state, .off)
+        case "trackpadDenied":
+            var state = make()
+            state.showsTrackpadKey = true
+            state.trackpad = TrackpadPageState(message: StatusLine.pointerDeniedText)
+            return (state, .off)
+        case "remoteTrackpadKey":
+            var state = make()
+            state.showsTrackpadKey = true
             return (state, .off)
         case "caps":
             return (make(), .capsLock)

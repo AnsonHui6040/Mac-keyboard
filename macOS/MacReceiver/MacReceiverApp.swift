@@ -10,6 +10,7 @@ struct MacReceiverApp: App {
     @StateObject private var testInsert: TestInsertController
     @StateObject private var coordinator: ReceiverCoordinator
     @StateObject private var notice: InputSourceNotice
+    @StateObject private var pointer: PointerReceiver
     #if DEBUG
     @StateObject private var burstVerifier = BurstVerifier()
     @StateObject private var measurement: MeasurementEcho
@@ -46,7 +47,12 @@ struct MacReceiverApp: App {
             onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) },
             onInputSourceRestore: { [weak notice] in notice?.report(restoredOK: $0) }
         )
-        let coordinator = ReceiverCoordinator(focus: focus, central: central, security: security, pipeline: pipeline)
+        // The touchpad: packets of the `0x03` route go to it, its grant goes into the status, and every valid packet keeps the
+        // receiving session going. Nothing is posted before the keyboard opens the channel with the current grant.
+        let pointer = PointerReceiver(output: PointerInjector(), noteActivity: { [weak central] in central?.noteEvent() })
+        central.pointerHandler = { [weak pointer] in pointer?.handle($0) }
+        let coordinator = ReceiverCoordinator(
+            focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
         if !Self.isRunningUnitTests {
             loginItem.applyDefaultIfNeeded()
             security.refreshPairedState()
@@ -57,8 +63,11 @@ struct MacReceiverApp: App {
             // process. Best effort; it holds the run loop for at most about half a second.
             NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil, queue: .main
-            ) { [weak central] _ in
-                MainActor.assumeIsolated { central?.prepareForTermination() }
+            ) { [weak central, weak pointer] _ in
+                MainActor.assumeIsolated {
+                    pointer?.shutdown()
+                    central?.prepareForTermination()
+                }
             }
         }
         #if DEBUG
@@ -85,6 +94,7 @@ struct MacReceiverApp: App {
         _focus = StateObject(wrappedValue: focus)
         _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus, switcher: switcher, notice: notice))
         _notice = StateObject(wrappedValue: notice)
+        _pointer = StateObject(wrappedValue: pointer)
         _coordinator = StateObject(wrappedValue: coordinator)
     }
 
@@ -93,11 +103,11 @@ struct MacReceiverApp: App {
             #if DEBUG
             ReceiverPanel(
                 central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,
-                notice: notice, burstVerifier: burstVerifier, measurement: measurement)
+                notice: notice, pointer: pointer, burstVerifier: burstVerifier, measurement: measurement)
             #else
             ReceiverPanel(
                 central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,
-                notice: notice)
+                notice: notice, pointer: pointer)
             #endif
         }
         .menuBarExtraStyle(.window)

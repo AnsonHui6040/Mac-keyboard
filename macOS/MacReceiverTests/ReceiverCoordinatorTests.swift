@@ -103,7 +103,10 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         private(set) var delivered: [ControlMessage] = []
         private var messageSeq: UInt64 = 0
 
-        init(pairKey: SymmetricKey) {
+        let pointer: PointerReceiver?
+        let pointerOutput = PointerOutputSpy()
+
+        init(pairKey: SymmetricKey, withPointer: Bool = false) {
             self.pairKey = pairKey
             let name = "rk.tests.\(UUID().uuidString)"
             let defaults = UserDefaults(suiteName: name)!
@@ -122,7 +125,12 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
                 sendAck: { [weak security] ack in security?.send(.ack(ack)) },
                 noteValidEvent: { [weak central] in central?.noteEvent() }
             )
-            coordinator = ReceiverCoordinator(focus: focus, central: central, security: security, pipeline: pipeline)
+            let suite = "rk.tests.\(UUID().uuidString)"
+            let pointerDefaults = UserDefaults(suiteName: suite)!
+            pointerDefaults.removePersistentDomain(forName: suite)
+            pointer = withPointer ? PointerReceiver(defaults: pointerDefaults, output: pointerOutput, log: { _ in }) : nil
+            coordinator = ReceiverCoordinator(
+                focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
             phone = TestPhone(pairKey: pairKey)
             coordinator.start()
         }
@@ -156,6 +164,8 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
     }
 
     private func rig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32))) }
+
+    private func pointerRig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32)), withPointer: true) }
 
     private static func editable(epoch: UInt64) -> FocusSnapshot {
         FocusSnapshot(axTrusted: true, frontmostPID: 42, appName: "TextEdit", editable: true, epoch: epoch)
@@ -270,6 +280,99 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         await waitUntil { try? r.pump(); return r.acks.count == 2 }
         XCTAssertEqual(r.acks.last, Ack(eventId: id, result: .posted))
         XCTAssertEqual(r.poster.batches, 1)
+    }
+
+    // MARK: Touchpad (pointer) wiring
+
+    func testStatusCarriesThePointerGrantOnlyWhenThePointerIsWiredAndOn() throws {
+        let plain = rig()
+        plain.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(plain)
+        XCTAssertNil(plain.statuses.last?.pointerGrant)
+
+        let r = pointerRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        let grant = try XCTUnwrap(r.statuses.last?.pointerGrant, "the first sealed status already carries the grant")
+        XCTAssertEqual(r.pointer?.grant, grant)
+
+        r.pointer?.setEnabled(false)
+        try r.pump()
+        XCTAssertNil(r.statuses.last?.pointerGrant, "turning the switch off tells the keyboard at once")
+        r.pointer?.setEnabled(true)
+        try r.pump()
+        let again = try XCTUnwrap(r.statuses.last?.pointerGrant)
+        XCTAssertNotEqual(again, grant)
+    }
+
+    func testThePointerGrantReachesThePhoneEvenBeforeAnyFocusSnapshot() throws {
+        let r = pointerRig()
+        r.central.startReceiving()
+        try bringLinkUp(r)
+        let grant = try XCTUnwrap(r.statuses.last?.pointerGrant, "a not-ready status carries the grant right after authentication")
+        XCTAssertEqual(r.statuses.last?.ready, false)
+        XCTAssertEqual(r.pointer?.grant, grant)
+        let count = r.statuses.count
+        r.pointer?.setEnabled(false)
+        try r.pump()
+        XCTAssertEqual(r.statuses.count, count + 1)
+        XCTAssertNil(r.statuses.last?.pointerGrant)
+        r.pointer?.setEnabled(true)
+        try r.pump()
+        XCTAssertNotNil(r.statuses.last?.pointerGrant)
+        XCTAssertNotEqual(r.statuses.last?.pointerGrant, grant)
+
+        let plain = rig()
+        plain.central.startReceiving()
+        try bringLinkUp(plain)
+        XCTAssertTrue(plain.statuses.isEmpty, "without the touchpad and without focus nothing is sent, as before")
+    }
+
+    func testPointerOpenIsAnsweredAtOnceWithoutTheTypingPipeline() throws {
+        let r = pointerRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        let grant = try XCTUnwrap(r.pointer?.grant)
+        let id = try r.deliver(.pointerOpen(grant: grant))
+        try r.pump()
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .posted)], "answered synchronously, no waiting for the consumer task")
+        XCTAssertEqual(r.pointer?.isOpen, true)
+        XCTAssertEqual(r.poster.batches, 0)
+
+        let closeId = try r.deliver(.pointerClose)
+        try r.pump()
+        XCTAssertEqual(r.acks.last, Ack(eventId: closeId, result: .posted))
+        XCTAssertEqual(r.pointer?.isOpen, false)
+    }
+
+    func testPointerOpenWithAWrongGrantIsRefused() throws {
+        let r = pointerRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        let id = try r.deliver(.pointerOpen(grant: (r.pointer?.grant ?? 0) &+ 1))
+        try r.pump()
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .notAuthorized)])
+        XCTAssertEqual(r.pointer?.isOpen, false)
+    }
+
+    func testPointerOpenWithoutAPointerReceiverIsRefused() throws {
+        let r = rig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        let id = try r.deliver(.pointerOpen(grant: 5))
+        try r.pump()
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .notAuthorized)])
+    }
+
+    func testALostLinkClosesThePointerChannel() throws {
+        let r = pointerRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        _ = try r.deliver(.pointerOpen(grant: try XCTUnwrap(r.pointer?.grant)))
+        XCTAssertEqual(r.pointer?.isOpen, true)
+        r.central.handleLink(.disconnected(r.peripheral))
+        XCTAssertEqual(r.pointer?.isOpen, false)
+        XCTAssertNil(r.pointer?.grant)
     }
 
     /// After a link loss the same phone comes back: a new connection, so a new handshake and a new session key.

@@ -10,6 +10,11 @@ public enum EventKind: Codable, Equatable, Sendable {
     /// Liveness probe sent when a keyboard appears on a link that may be dead. The Receiver answers `pong` and does
     /// nothing else: no reconnect sample, no deduplication record, no injection.
     case probe
+    /// The keyboard shows the touchpad page and asks the Receiver to accept `0x03` pointer packets. `grant` is the
+    /// `ReceiverStatus.pointerGrant` the keyboard last read. Answered at once with `posted` or `notAuthorized`.
+    case pointerOpen(grant: UInt32)
+    /// The touchpad page is left. The Receiver stops accepting pointer packets and lets go of anything held.
+    case pointerClose
 
     /// Short wire keys: with the two UUIDs a probe is otherwise over the smallest notify payload (182 bytes).
     enum PingCodingKeys: String, CodingKey {
@@ -20,7 +25,7 @@ public enum EventKind: Codable, Equatable, Sendable {
     /// A probe is not typed text, so it is sent without a focus epoch and the Receiver never ties it to a field.
     public var carriesFocusEpoch: Bool {
         switch self {
-        case .ping, .probe: return false
+        case .ping, .probe, .pointerOpen, .pointerClose: return false
         case .text, .backspace, .returnKey: return true
         }
     }

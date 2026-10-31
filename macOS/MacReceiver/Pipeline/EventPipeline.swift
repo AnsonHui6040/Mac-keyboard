@@ -156,6 +156,10 @@ final class EventPipeline {
             // The keyboard's liveness probe: answered and nothing else. Not a reconnect sample (no `onPing`, so nothing
             // reaches reconnect.csv), not recorded for deduplication and never injected.
             return .pong
+        case .pointerOpen, .pointerClose:
+            // The touchpad switch is answered by the coordinator before an event gets here. One that does arrive was not
+            // routed there, and nothing may be switched on by the typing pipeline.
+            return .notAuthorized
         default:
             break
         }
@@ -203,7 +207,7 @@ final class EventPipeline {
         case .text(let text): injector.insert(text).complete
         case .backspace: injector.backspace()
         case .returnKey: injector.returnKeyPress()
-        case .ping, .probe: false
+        case .ping, .probe, .pointerOpen, .pointerClose: false
         }
     }
 
@@ -214,6 +218,8 @@ final class EventPipeline {
         case .returnKey: ("return", 0)
         case .ping: ("ping", 0)
         case .probe: ("probe", 0)
+        case .pointerOpen: ("pointerOpen", 0)
+        case .pointerClose: ("pointerClose", 0)
         }
     }
 }

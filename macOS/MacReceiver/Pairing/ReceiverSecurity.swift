@@ -49,6 +49,18 @@ final class ReceiverSecurity: ObservableObject {
     /// The counter channels of the connection, handed over once when the phone is authenticated (before `onAuthenticated`),
     /// and `nil` when that connection ends or is dropped. The receiver of the set keeps it until then.
     var onChannelSet: (@MainActor (ChannelSet?) -> Void)?
+    private var channelSetObservers: [@MainActor (ChannelSet?) -> Void] = []
+
+    /// Another receiver of the channel set besides `onChannelSet` (which the Debug measurement owns): told in the same
+    /// moments, after `onChannelSet`, in the order they were added.
+    func observeChannelSet(_ observer: @escaping @MainActor (ChannelSet?) -> Void) {
+        channelSetObservers.append(observer)
+    }
+
+    private func notifyChannelSet(_ channels: ChannelSet?) {
+        onChannelSet?(channels)
+        for observer in channelSetObservers { observer(channels) }
+    }
 
     private let central: ReceiverBLECentral
     private let store: PairKeyStoring
@@ -131,7 +143,7 @@ final class ReceiverSecurity: ObservableObject {
         handshakeTimer = nil
         handshake = nil
         pin = SessionPin()
-        onChannelSet?(nil)
+        notifyChannelSet(nil)
         // An attempt belongs to the connection it started on. A window that only waits survives a lost link. After this
         // side confirmed, the iPhone leaving is how the pairing ends.
         if phase == .confirmed {
@@ -147,7 +159,7 @@ final class ReceiverSecurity: ObservableObject {
         handshakeTimer?.invalidate()
         handshakeTimer = nil
         handshake = nil
-        onChannelSet?(nil)
+        notifyChannelSet(nil)
         central.send(.authFailed)
         Self.log.info("authentication failed, peripheral dropped")
         // A pairing attempt dies with its connection, and the window with it. A failure on any other connection leaves
@@ -184,7 +196,7 @@ final class ReceiverSecurity: ObservableObject {
             central.send(reply)
             if let channels = current.takeChannelSet() {
                 handshake = current
-                onChannelSet?(channels)
+                notifyChannelSet(channels)
             }
             onAuthenticated?()
         case .pairOffer, .pairReveal:
@@ -258,7 +270,7 @@ final class ReceiverSecurity: ObservableObject {
         farewell = goodbyeMessage()
         defer { farewell = nil }
         handshake = nil
-        onChannelSet?(nil)
+        notifyChannelSet(nil)
         handshakeTimer?.invalidate()
         handshakeTimer = nil
         if phase != .idle { endPairing(.cancelled) }

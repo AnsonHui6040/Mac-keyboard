@@ -80,6 +80,9 @@ final class TopAreaView: UIView {
         set { candidateBar.onSelect = newValue }
     }
 
+    /// The key beside the dismiss key was tapped: open the touchpad page, or go back to the keyboard.
+    var onTrackpadToggle: (() -> Void)?
+
     /// The delete key at the right end of the candidate row (Chinese page only).
     var onBackspace: (() -> Void)? {
         get { candidateBar.onBackspace }
@@ -97,6 +100,9 @@ final class TopAreaView: UIView {
         style: .function, symbol: "keyboard.chevron.compact.down", label: "收起鍵盤", identifier: "rk.dismiss")
     private let transmitToggle = SegmentToggle(
         titles: ["即時", "草稿"], identifier: "rk.transmit", accessibilityName: "傳送方式")
+    /// 觸控板 on the keyboard, 鍵盤 on the touchpad page.
+    private let trackpadKey = KeyButton(
+        style: .function, title: "觸控板", label: "觸控板", identifier: "rk.trackpad.toggle")
     private let statusLabel = UILabel()
     private let statusRow = UIStackView()
 
@@ -139,15 +145,21 @@ final class TopAreaView: UIView {
 
     func apply(_ state: KeyboardViewState) {
         let top = state.top
+        let onPad = state.trackpad != nil
         modeToggle.setSelected(state.mode == .remote ? 1 : 0)
         transmitToggle.setSelected(state.transmit == .draft ? 1 : 0)
-        transmitToggle.isHidden = !top.showsTransmitToggle
+        // On the touchpad page only the status row is left: the mode and transmit switches have nothing to do there.
+        modeToggle.isHidden = onPad
+        transmitToggle.isHidden = !top.showsTransmitToggle || onPad
+        trackpadKey.isHidden = !(state.showsTrackpadKey || onPad)
+        trackpadKey.setTitle(onPad ? "鍵盤" : "觸控板", for: .normal)
+        trackpadKey.accessibilityLabel = onPad ? "回到鍵盤" : "觸控板"
         statusLabel.isHidden = !top.showsStatus
         statusLabel.text = state.statusText
         // `rk.status` keeps the BLE link state name as its value, which the UI tests read.
         statusLabel.accessibilityValue = state.linkName
-        draftRow.isHidden = !top.showsDraftRow
-        candidateRow.isHidden = !top.showsCandidateRow
+        draftRow.isHidden = !top.showsDraftRow || onPad
+        candidateRow.isHidden = !top.showsCandidateRow || onPad
         draftView.set(draft: state.draft)
         setSendEnabled(top.sendEnabled)
         probeLabel.text = state.probeText
@@ -196,6 +208,7 @@ final class TopAreaView: UIView {
         spacer.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
         spacer.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
         statusRow.addArrangedSubview(spacer)
+        trackpadKey.titleLabel?.font = .systemFont(ofSize: 14)
         dismissKey.onTap = { [weak self] in self?.onAction?(.dismissKeyboard) }
         dismissKey.layer.shadowOpacity = 0
         dismissKey.setContentHuggingPriority(.required, for: .horizontal)
@@ -204,6 +217,16 @@ final class TopAreaView: UIView {
             dismissKey.widthAnchor.constraint(equalToConstant: 38),
             dismissKey.heightAnchor.constraint(equalToConstant: 28)
         ])
+        trackpadKey.onTap = { [weak self] in self?.onTrackpadToggle?() }
+        trackpadKey.layer.shadowOpacity = 0
+        trackpadKey.setContentHuggingPriority(.required, for: .horizontal)
+        trackpadKey.setContentCompressionResistancePriority(.required, for: .horizontal)
+        trackpadKey.isHidden = true
+        NSLayoutConstraint.activate([
+            trackpadKey.widthAnchor.constraint(equalToConstant: 52),
+            trackpadKey.heightAnchor.constraint(equalToConstant: 28)
+        ])
+        statusRow.addArrangedSubview(trackpadKey)
         statusRow.addArrangedSubview(dismissKey)
         statusRow.addArrangedSubview(transmitToggle)
     }

@@ -21,6 +21,12 @@ public enum StatusLine {
         return (receiver.ready ? base : base + "（無輸入欄位）") + latency
     }
 
+    /// Shown on the touchpad page while the Mac does not accept pointer control.
+    public static let pointerDeniedText = "Mac 未允許觸控板控制"
+    public static let pointerTimeoutText = "無法連接觸控板，請按鍵盤再按觸控板重試"
+    public static let pointerConnectingText = "正在連接觸控板…"
+    public static let pointerOfflineText = "尚未連線 Mac"
+
     /// The note for an ack, or `nil` when the ack is not about a typed key (a probe's answer).
     public static func ackText(_ code: AckCode) -> String? {
         switch code {

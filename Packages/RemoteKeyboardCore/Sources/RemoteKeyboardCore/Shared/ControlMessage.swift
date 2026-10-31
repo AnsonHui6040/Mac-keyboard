@@ -11,16 +11,22 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
     /// Whether the Mac's measurement mode is on (Debug builds of the Receiver only; a Release Receiver never sets it). Left
     /// out of the wire when false, so a status without the key reads as off.
     public let measure: Bool
+    /// The Mac accepts touchpad control from this connection; the value is the grant the keyboard must repeat in its
+    /// `pointerOpen`. Absent while the Mac's switch is off, so a status of a Receiver without the touchpad is unchanged.
+    public let pointerGrant: UInt32?
 
-    public init(ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true, measure: Bool = false) {
+    public init(
+        ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true, measure: Bool = false, pointerGrant: UInt32? = nil
+    ) {
         self.ready = ready
         self.appName = appName
         self.focusEpoch = focusEpoch
         self.trusted = trusted
         self.measure = measure
+        self.pointerGrant = pointerGrant
     }
 
-    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted, measure }
+    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted, measure, pointerGrant }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -29,6 +35,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         focusEpoch = try c.decode(UInt64.self, forKey: .focusEpoch)
         trusted = try c.decodeIfPresent(Bool.self, forKey: .trusted) ?? true
         measure = try c.decodeIfPresent(Bool.self, forKey: .measure) ?? false
+        pointerGrant = try c.decodeIfPresent(UInt32.self, forKey: .pointerGrant)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -38,6 +45,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         try c.encode(focusEpoch, forKey: .focusEpoch)
         if !trusted { try c.encode(false, forKey: .trusted) }
         if measure { try c.encode(true, forKey: .measure) }
+        try c.encodeIfPresent(pointerGrant, forKey: .pointerGrant)
     }
 }
 

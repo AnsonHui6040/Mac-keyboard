@@ -34,6 +34,10 @@ struct KeyboardViewState: Equatable {
     var customSound = false
     /// Tap strength 0…1.
     var hapticIntensity: Double = KeyFeedbackSettings.defaultHapticIntensity
+    /// Remote mode with a connected link: the status row offers the 觸控板 key.
+    var showsTrackpadKey = false
+    /// The touchpad page; nil shows the keyboard.
+    var trackpad: TrackpadPageState?
     #if DEBUG
     /// T13 dictation probe checklist (five lines, one item each), drawn over the English page's letter rows; nil when
     /// the probe is off.
@@ -63,6 +67,13 @@ final class KeyboardRootView: UIView {
     var onClearInk: (() -> Void)?
     /// Quick: a radical key or Shift was pressed.
     var onIMEInput: ((IMEInput) -> Void)?
+    /// The 觸控板 or 鍵盤 key of the status row was tapped.
+    var onTrackpadToggle: (() -> Void)? {
+        get { topArea.onTrackpadToggle }
+        set { topArea.onTrackpadToggle = newValue }
+    }
+    /// The touchpad page; the controller connects its touches and tick.
+    let trackpadPage = TrackpadPageView()
     #if DEBUG
     var onDebugLongReturn: (() -> Void)? {
         get { bottomRow.onDebugLongReturn }
@@ -108,11 +119,13 @@ final class KeyboardRootView: UIView {
     private var shift = ShiftState()
     private var topRows = 2
     private var showsHandwriting = false
+    private var showsTrackpad = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .keyboardTouchSurface
-        for view in [topArea, english, symbols, handwriting, quick, bottomRow] { addSubview(view) }
+        for view in [topArea, english, symbols, handwriting, quick, bottomRow, trackpadPage] { addSubview(view) }
+        trackpadPage.isHidden = true
         #if DEBUG
         dictationPanel.isHidden = true
         addSubview(dictationPanel)
@@ -166,12 +179,17 @@ final class KeyboardRootView: UIView {
         } else {
             symbolsOrigin = nil
         }
-        let isHandwriting = isChinese && state.chineseMethod == .handwriting
+        // The touchpad page takes the whole key area; the pages and the bottom row are hidden under it.
+        let onPad = state.trackpad != nil
+        let isHandwriting = isChinese && state.chineseMethod == .handwriting && !onPad
         let isQuick = isChinese && state.chineseMethod == .quick
-        english.isHidden = isSymbols || isChinese
-        symbols.isHidden = !isSymbols
+        english.isHidden = isSymbols || isChinese || onPad
+        symbols.isHidden = !isSymbols || onPad
         handwriting.isHidden = !isHandwriting
-        quick.isHidden = !isQuick
+        quick.isHidden = !isQuick || onPad
+        bottomRow.isHidden = onPad
+        trackpadPage.isHidden = !onPad
+        if let pad = state.trackpad { trackpadPage.apply(pad) }
         quickComposing = state.composing
         quick.setShift(isQuick && state.quickShift)
         bottomRow.setClearVisible(isHandwriting)
@@ -179,7 +197,7 @@ final class KeyboardRootView: UIView {
         #if DEBUG
         // The panel covers the three English letter rows only in Remote mode; Local mode and the Chinese and symbols
         // pages are left as they are, so the letter keys stay usable there.
-        if let lines = state.dictationProbeLines, state.page == .english, state.mode == .remote {
+        if let lines = state.dictationProbeLines, state.page == .english, state.mode == .remote, !onPad {
             dictationPanel.setLines(lines)
             dictationPanel.setMeasure(state.measurePanel)
             dictationPanel.isHidden = false
@@ -187,11 +205,13 @@ final class KeyboardRootView: UIView {
             dictationPanel.isHidden = true
         }
         #endif
-        let rows = state.top.visibleRowCount
-        if rows != topRows || isHandwriting != showsHandwriting {
+        // On the touchpad page the top area is the status row alone, and the keyboard is as tall as with two top rows.
+        let rows = onPad ? 1 : state.top.visibleRowCount
+        if rows != topRows || isHandwriting != showsHandwriting || onPad != showsTrackpad {
             topRows = rows
             showsHandwriting = isHandwriting
-            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: rows, handwriting: isHandwriting))
+            showsTrackpad = onPad
+            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: onPad ? 2 : rows, handwriting: isHandwriting))
             invalidateIntrinsicContentSize()
             setNeedsLayout()
         }
@@ -328,6 +348,7 @@ final class KeyboardRootView: UIView {
         // A few points taller than the keys, so their shadows do not show under the panel.
         dictationPanel.frame = pageFrame.insetBy(dx: 0, dy: -3).offsetBy(dx: 0, dy: 3)
         #endif
+        trackpadPage.frame = CGRect(x: 0, y: topHeight, width: width, height: max(0, bounds.height - topHeight))
         let extra = showsHandwriting ? KeyboardMetrics.handwritingExtraHeight : 0
         handwriting.frame = CGRect(
             x: side, y: keysTop, width: width - 2 * side, height: letterHeight + KeyboardMetrics.handwritingExtraHeight)

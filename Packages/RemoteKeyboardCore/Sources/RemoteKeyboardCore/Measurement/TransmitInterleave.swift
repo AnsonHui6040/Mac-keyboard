@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Which of two waiting things the exit hands over next: a frame of a long `0x02` text, or a packet (a `0x03` pointer packet
@@ -47,4 +46,3 @@ public struct TransmitInterleave: Equatable, Sendable {
         }
     }
 }
-#endif
