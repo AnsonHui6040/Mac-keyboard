@@ -77,6 +77,35 @@ enum KeyFeedback {
     }
 }
 
+/// Rollover for fast typing (D24): when a second character key goes down while the first is still held, the first is
+/// sent at once, so characters leave in the order the keys went down. The bookkeeping is `KeyRolloverTracker`; this
+/// only finds the key behind an id and sends it.
+@MainActor
+enum KeyRollover {
+    private final class Weak {
+        weak var key: KeyButton?
+        init(_ key: KeyButton) { self.key = key }
+    }
+
+    private static var tracker = KeyRolloverTracker()
+    private static var keys: [Int: Weak] = [:]
+    private static var nextID = 0
+
+    static func register(_ key: KeyButton) -> Int {
+        nextID += 1
+        keys[nextID] = Weak(key)
+        return nextID
+    }
+
+    /// A rollover key went down: send the keys still waiting, in press order.
+    static func touchDown(_ id: Int) {
+        for waiting in tracker.touchDown(id) { keys[waiting]?.key?.send() }
+    }
+
+    static func touchUpInside(_ id: Int) -> Bool { tracker.touchUpInside(id) }
+    static func cancel(_ id: Int) { tracker.cancel(id) }
+}
+
 /// One key. Letter keys are light, function keys darker, an active function key (Shift on) turns light.
 /// Plain system colours and fonts only; nothing is copied from Apple's keyboard assets.
 final class KeyButton: UIButton {
@@ -91,6 +120,13 @@ final class KeyButton: UIButton {
     var onRepeat: (() -> Void)?
     /// Asked at touch down, before the first fire: false means this press fires once and does not repeat.
     var allowsRepeat: (() -> Bool)?
+
+    /// Letter and symbol keys set this: they take part in rollover (see `KeyRollover`). Keys that repeat (delete), and
+    /// Shift, space and the other function keys, leave it off.
+    var participatesInRollover = false {
+        didSet { if participatesInRollover, rolloverID == nil { rolloverID = KeyRollover.register(self) } }
+    }
+    private var rolloverID: Int?
 
     private let style: Style
     private var repeatTask: Task<Void, Never>?
@@ -120,6 +156,8 @@ final class KeyButton: UIButton {
         addAction(
             UIAction { [weak self] _ in self?.stopRepeating() },
             for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+        // A press that ends outside the key or is cancelled sends nothing, also when it was waiting for rollover.
+        addAction(UIAction { [weak self] _ in self?.cancelRollover() }, for: [.touchUpOutside, .touchCancel])
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -148,7 +186,10 @@ final class KeyButton: UIButton {
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         // The keyboard can go away mid-press (no touch-up arrives), so a held key must not keep repeating.
-        if newWindow == nil { stopRepeating() }
+        if newWindow == nil {
+            stopRepeating()
+            cancelRollover()
+        }
     }
 
     private func updateBackground() {
@@ -160,6 +201,7 @@ final class KeyButton: UIButton {
 
     private func touchDown() {
         KeyFeedback.touchDown()
+        if let rolloverID { KeyRollover.touchDown(rolloverID) }
         guard let onRepeat else { return }
         let repeats = allowsRepeat?() ?? true
         onRepeat()
@@ -175,8 +217,20 @@ final class KeyButton: UIButton {
     }
 
     private func touchUp() {
+        // A rollover key was already sent when the next key went down; then there is nothing left to send.
+        if let rolloverID {
+            if KeyRollover.touchUpInside(rolloverID) { onTap?() }
+            return
+        }
         // A repeating key already fired at touch down.
         if onRepeat == nil { onTap?() }
+    }
+
+    /// Sends the key as a release inside would (called by `KeyRollover` for a key that is still held).
+    fileprivate func send() { onTap?() }
+
+    private func cancelRollover() {
+        if let rolloverID { KeyRollover.cancel(rolloverID) }
     }
 
     private func stopRepeating() {

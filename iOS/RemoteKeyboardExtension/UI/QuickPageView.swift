@@ -23,6 +23,8 @@ final class QuickPageView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Not drawn, but a surface for touches; see `UIColor.keyboardTouchSurface`.
+        backgroundColor = .keyboardTouchSurface
         for row in Self.rows {
             var keys: [KeyButton] = []
             var corners: [UILabel] = []
@@ -31,6 +33,7 @@ final class QuickPageView: UIView {
                 let key = KeyButton(
                     style: .letter, title: radical, label: "\(radical) \(letter)", identifier: "rk.quick.\(letter)")
                 key.onTap = { [weak self] in self?.letterTapped(String(letter)) }
+                key.participatesInRollover = true
                 let corner = UILabel()
                 corner.text = String(letter).uppercased()
                 corner.font = .systemFont(ofSize: 10, weight: .medium)

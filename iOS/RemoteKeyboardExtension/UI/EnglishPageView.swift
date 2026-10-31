@@ -18,6 +18,8 @@ final class EnglishPageView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Not drawn, but a surface for touches; see `UIColor.keyboardTouchSurface`.
+        backgroundColor = .keyboardTouchSurface
         for row in Self.rows {
             var keys: [KeyButton] = []
             for letter in row {
@@ -26,6 +28,7 @@ final class EnglishPageView: UIView {
                     guard let self, let text = key?.title(for: .normal) else { return }
                     self.onLetter?(text)
                 }
+                key.participatesInRollover = true
                 addSubview(key)
                 keys.append(key)
                 letterKeys.append(key)
