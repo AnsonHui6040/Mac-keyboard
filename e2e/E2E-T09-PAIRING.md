@@ -109,7 +109,7 @@
 3. 另外在 Mac 終端機取得 Mac 端的 ready 時間：
 
 ```bash
-log show --last 20m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver" AND category == "link"' --info | grep -E "state ready"
+/usr/bin/log show --last 20m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver" AND category == "link"' --info | grep -E "state ready"
 ```
 
 | 項目 | 預期 | 結果 |
@@ -125,9 +125,9 @@ log show --last 20m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 在 Mac 終端機執行（時間範圍涵蓋步驟 1 到 5）。請把第二、三個指令裡的字串，換成自己實際輸入過的單字、步驟 1 的配對碼（只在終端機輸入），以及前景 App 名稱。
 
 ```bash
-log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "security|pairing|authentication" | sort | uniq -c
-log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "abc|ok|<實際輸入的單字>|<步驟 1 的配對碼>|TextEdit|Notes"
-log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "pairKey|nonce|proof|sealed|privateKey"
+/usr/bin/log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "security|pairing|authentication" | sort | uniq -c
+/usr/bin/log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "abc|ok|<實際輸入的單字>|<步驟 1 的配對碼>|TextEdit|Notes"
+/usr/bin/log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "pairKey|nonce|proof|sealed|privateKey"
 ```
 
 | 項目 | 預期 | 結果 |
@@ -158,7 +158,7 @@ log show --last 60m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 3. 在 Mac 執行：
 
 ```bash
-log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep "keyboard service"
+/usr/bin/log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep "keyboard service"
 ```
 
 | 項目 | 預期 | 結果 |

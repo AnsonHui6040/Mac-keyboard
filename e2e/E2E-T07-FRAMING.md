@@ -69,7 +69,7 @@ printf '一二三四五六七八九十ABCDEFGHIJ%.0s' {1..150} | shasum
 在 Mac 終端機執行：
 
 ```bash
-log show --last 5m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "frame rejected|partial message dropped|event kind"
+/usr/bin/log show --last 5m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "frame rejected|partial message dropped|event kind"
 ```
 
 | 項目 | 預期 | 結果 |

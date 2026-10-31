@@ -67,14 +67,14 @@
 在 Mac 終端機執行（時間範圍涵蓋步驟 1、2）：
 
 ```bash
-log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep "event kind" | grep -oE "ack=[A-Za-z]+" | sort | uniq -c
+/usr/bin/log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep "event kind" | grep -oE "ack=[A-Za-z]+" | sort | uniq -c
 ```
 
 再執行下面兩個指令，確認重新連線之後沒有事件被重送，以及 log 沒有輸入內容（第二個指令搜尋的字串請換成自己在步驟 1 實際輸入過的幾個英文單字）：
 
 ```bash
-log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "event kind|state ready" | tail -20
-log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -cE "before|abcdefgh|hello|world"
+/usr/bin/log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -E "event kind|state ready" | tail -20
+/usr/bin/log show --last 15m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -cE "before|abcdefgh|hello|world"
 ```
 
 | 項目 | 預期 | 結果 |
