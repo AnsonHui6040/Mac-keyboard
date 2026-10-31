@@ -36,6 +36,8 @@ struct SettingsView: View {
             Section {
                 methodRow("手寫", id: .handwriting)
                 methodRow("速成", id: .quick)
+                Button("開啟完整取用") { OpenSettings.open() }
+                    .accessibilityIdentifier("rk.settings.openFullAccess")
             } header: {
                 Text("中文輸入")
             } footer: {

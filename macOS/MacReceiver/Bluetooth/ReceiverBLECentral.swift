@@ -99,6 +99,9 @@ final class ReceiverBLECentral: ObservableObject {
     /// Why the radio cannot be used right now; `nil` when it can.
     var linkReason: String? { linkState.reasonText }
 
+    /// `true` while the radio is unusable because the user has not allowed Bluetooth for this app.
+    var needsBluetoothPermission: Bool { linkState == .unavailable(.unauthorized) }
+
     var remainingSeconds: TimeInterval? {
         guard isArmed, let deadline else { return nil }
         return max(0, deadline.timeIntervalSince(clock()))

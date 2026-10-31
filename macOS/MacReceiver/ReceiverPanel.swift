@@ -29,6 +29,9 @@ struct ReceiverPanel: View {
                     Text(reason)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
+                    if central.needsBluetoothPermission {
+                        Button("打開藍牙設定") { SystemSettings.open(.bluetoothPrivacy) }
+                    }
                 }
                 Text(ReceiverMenu.remainingText(central.remainingSeconds))
                     .foregroundStyle(.secondary)
@@ -44,7 +47,10 @@ struct ReceiverPanel: View {
             Text(FocusMenuText.line(focus.snapshot))
                 .fixedSize(horizontal: false, vertical: true)
             if let snapshot = focus.snapshot, !snapshot.axTrusted {
-                Button("授權輔助使用") { focus.requestTrustPrompt() }
+                HStack(spacing: 8) {
+                    Button("授權輔助使用") { focus.requestTrustPrompt() }
+                    Button("打開輔助使用設定") { SystemSettings.open(.accessibility) }
+                }
             }
             if let message = notice.message {
                 Text(message)
@@ -91,6 +97,14 @@ struct ReceiverPanel: View {
                 Text("需在系統設定 › 登入項目 允許")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Button("打開登入項目設定") { SystemSettings.open(.loginItems) }
+            }
+            Divider()
+            Text("系統設定").font(.headline)
+            HStack(spacing: 6) {
+                Button("輔助使用") { SystemSettings.open(.accessibility) }
+                Button("藍牙") { SystemSettings.open(.bluetoothPrivacy) }
+                Button("登入項目") { SystemSettings.open(.loginItems) }
             }
             Divider()
             Button("結束") { NSApplication.shared.terminate(nil) }
