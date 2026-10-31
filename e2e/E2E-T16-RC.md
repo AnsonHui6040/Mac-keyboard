@@ -221,13 +221,13 @@
 指令 G15（把 `<自己打過的單字>` 換成實際打過的單字）：
 
 ```bash
-log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "<自己打過的單字>|TextEdit|Notes"
+/usr/bin/log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "<自己打過的單字>|TextEdit|Notes"
 ```
 
 指令 G16：
 
 ```bash
-log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "pairKey|nonce|proof|sealed|privateKey"
+/usr/bin/log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info | grep -ciE "pairKey|nonce|proof|sealed|privateKey"
 ```
 
 ## H 重連、配對與登入項目（約 55 分鐘）
@@ -246,7 +246,7 @@ log show --last 120m --predicate 'subsystem == "com.ansonhui.remotekeyboard.rece
 | H8 | 必要 | 先開 Mac 的配對時段，再開 iPhone 的配對畫面；出現配對碼後兩邊都不按，等 2 分鐘 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對；TextEdit 0 字元 | TBD | E2E-T09-PAIRING 步驟 2c |
 | H9 | 可選 | 先在 Mac 按「停止接收」並讓 TextEdit 不聚焦；先開 iPhone「配對 Mac」，約 10 秒後才按 Mac「配對新 iPhone」；出現配對碼後兩邊都不按，等 2 分鐘 | iPhone 先逾時，顯示「配對逾時，未儲存。」；Mac 顯示「配對失敗，未儲存」；兩邊都是未配對 | TBD | E2E-T09-PAIRING 步驟 2e |
 | H10 | 可選 | 兩邊出現配對碼後，只有 iPhone 按「確認」，Mac 按「取消」 | iPhone 已儲存、Mac 未儲存（已知行為）；鍵盤打字 TextEdit 收到 0 個字元；之後在 iPhone 按「解除配對」 | TBD | E2E-T09-PAIRING 步驟 2d |
-| H11 | 必要 | 重新完整配對一次（兩邊確認並按完成），然後在 iPhone 主 App 首頁的「在這裡輸入」輸入框點一下叫出鍵盤；Mac 按「配對新 iPhone」，再點 iPhone「配對 Mac」，然後在 Mac 終端機執行 `log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info \| grep "keyboard service"` | 輸出 `discovered 1 keyboard service(s)`，不是 2；配對仍可完成 | TBD | E2E-T09-PAIRING 步驟 8 |
+| H11 | 必要 | 重新完整配對一次（兩邊確認並按完成），然後在 iPhone 主 App 首頁的「在這裡輸入」輸入框點一下叫出鍵盤；Mac 按「配對新 iPhone」，再點 iPhone「配對 Mac」，然後在 Mac 終端機執行 `/usr/bin/log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info \| grep "keyboard service"` | 輸出 `discovered 1 keyboard service(s)`，不是 2；配對仍可完成 | TBD | E2E-T09-PAIRING 步驟 8 |
 | H12 | 必要 | 終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 MacReceiver，按「開始接收」。連上後每 20 秒按一次 `A`，共 2 分鐘 | 持續打字期間不斷線，倒數被重置 | TBD | E2E-T05-A-KEY 步驟 8 |
 | H13 | 必要 | 接續 H12：停止打字 60 秒 | Mac 面板回到「待命」並斷線；鍵盤狀態列離開 `Mac → ...`（變成 `BLE: publishing` 或 `BLE: advertising`）；再按「開始接收」後數秒內鍵盤自動回到 `Mac → ...` | TBD | E2E-T05-A-KEY 步驟 8；E2E-T09-PAIRING 步驟 10d |
 | H14 | 必要 | 鍵盤保持連線，Mac 面板按「解除配對」 | 鍵盤狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」（不是「尚未配對」）；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對。再完成一次配對 | TBD | E2E-T09-PAIRING 步驟 10d |

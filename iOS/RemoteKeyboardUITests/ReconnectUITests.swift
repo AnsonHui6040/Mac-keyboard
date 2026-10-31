@@ -23,6 +23,7 @@ import XCTest
 /// Whatever was measured is attached to the result even when the test fails part way.
 @MainActor
 final class ReconnectUITests: XCTestCase {
+    private static let nextKeyboardNames = ["Next keyboard", "下一個鍵盤", "地球", "Globe", "下一個輸入法"]
     private static let notesID = "com.apple.mobilenotes"
     private static let safariID = "com.apple.mobilesafari"
     private static let apps = [notesID, safariID]
@@ -101,6 +102,58 @@ final class ReconnectUITests: XCTestCase {
         })
         XCTAssertLessThanOrEqual(
             fromKeyboard.p95Ms ?? .max, 2000, "keyboard-to-connected P95 \(fromKeyboard.p95Ms.map(String.init) ?? "n/a") ms")
+    }
+
+    /// Share of the screen height, from the top, below which a control counts as part of the system bar under the keyboard.
+    private static let systemBarTopFraction: CGFloat = 0.85
+    /// Share of the screen height, from the top, where the skip diagnostic starts listing buttons.
+    private static let probeTopFraction: CGFloat = 0.75
+    private static let keyboardScopedNames: Set<String> = ["Next keyboard", "下一個鍵盤"]
+
+    /// Looks in the keyboard first (the two standard names need no frame check), then app-wide, but only while a keyboard
+    /// is up and only for controls in the bottom system bar. Prints the matched name and scope; both are safe strings.
+    private static func nextKeyboardButton(in app: XCUIApplication) -> XCUIElement? {
+        guard app.keyboards.firstMatch.exists else { return nil }
+        for name in nextKeyboardNames where keyboardScopedNames.contains(name) {
+            let button = app.keyboards.buttons[name]
+            if button.exists {
+                print("RKPROBE next-keyboard hit name=[\(name)] scope=[keyboards]")
+                return button
+            }
+        }
+        let minY = app.frame.minY + app.frame.height * systemBarTopFraction
+        for name in nextKeyboardNames {
+            let query = app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", name, name))
+            for button in query.allElementsBoundByIndex.prefix(10) where button.frame.minY >= minY {
+                print("RKPROBE next-keyboard hit name=[\(name)] scope=[bottom]")
+                return button
+            }
+        }
+        return nil
+    }
+
+    /// Diagnostic before a skip: buttons in the bottom 25% of the screen as identifier, label length and rounded frame.
+    /// A label is printed only when it is one of the known next-keyboard names.
+    private func probeBottomButtons(in app: XCUIApplication) {
+        var lines: [String] = []
+        let screen = app.frame
+        let top = screen.minY + screen.height * Self.probeTopFraction
+        for button in app.buttons.allElementsBoundByIndex.prefix(80) {
+            let f = button.frame
+            guard f.minY >= top else { continue }
+            let label = button.label
+            let identifier = button.identifier
+            let shown = Self.nextKeyboardNames.contains(label) ? label : "<\(label.count) chars>"
+            let shownID = Self.nextKeyboardNames.contains(identifier) ? identifier : "<\(identifier.count) chars>"
+            let line = "RKPROBE bottom id=[\(shownID)] label=[\(shown)] frame=[\(Int(f.minX.rounded())),\(Int(f.minY.rounded())),\(Int(f.width.rounded())),\(Int(f.height.rounded()))]"
+            lines.append(line)
+            print(line)
+        }
+        if lines.isEmpty { print("RKPROBE bottom none"); lines.append("RKPROBE bottom none") }
+        let attachment = XCTAttachment(string: lines.joined(separator: "\n") + "\n")
+        attachment.name = "rkprobe-bottom.txt"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     // MARK: Label probe
@@ -186,12 +239,19 @@ final class ReconnectUITests: XCTestCase {
         var tries = 0
         while !found && tries < 6 {
             tries += 1
-            let next = notes.keyboards.buttons["Next keyboard"]
-            guard next.exists else { break }
+            var candidate = Self.nextKeyboardButton(in: notes)
+            if candidate == nil {
+                _ = notes.keyboards.firstMatch.waitForExistence(timeout: 1)
+                candidate = Self.nextKeyboardButton(in: notes)
+            }
+            guard let next = candidate else { break }
             next.tap()
             found = mode.waitForExistence(timeout: 2)
         }
-        guard found else { throw XCTSkip("O6: third-party keyboard not reachable") }
+        guard found else {
+            probeBottomButtons(in: notes)
+            throw XCTSkip("O6: third-party keyboard not reachable")
+        }
         // The saved mode persists across reopens, so one tap here puts every counted reopen in Remote mode.
         if (mode.value as? String) == Self.localModeValue { mode.tap() }
         let status = statusElement(in: notes)
