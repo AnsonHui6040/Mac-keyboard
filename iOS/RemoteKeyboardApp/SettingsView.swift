@@ -10,6 +10,11 @@ struct SettingsView: View {
     @State private var syncsDictation = DictationSync.isEnabled(
         stored: UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.dictationSync))
 
+    @State private var trackpadSensitivity = TrackpadSensitivity.resolved(
+        appGroup: UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.trackpadSensitivity),
+        legacy: nil
+    ).value
+
     @State private var keySound = Self.storedFlag(AppGroup.Key.keySound)
     @State private var keyHaptics = Self.storedFlag(AppGroup.Key.keyHaptics)
     @State private var soundVolume = Self.storedLevels().soundVolume
@@ -44,6 +49,26 @@ struct SettingsView: View {
                 Text("按鍵回饋")
             } footer: {
                 Text("音量 100% 約等於系統按鍵聲；聲音跟隨 iPhone 靜音鍵。自訂音量與震動需要在設定中允許完整取用，未允許時改用系統按鍵聲。")
+            }
+            Section {
+                Stepper(
+                    value: $trackpadSensitivity, in: TrackpadSensitivity.minimum...TrackpadSensitivity.maximum,
+                    step: TrackpadSensitivity.step
+                ) {
+                    HStack {
+                        Text("靈敏度")
+                        Spacer()
+                        Text(TrackpadSensitivity.displayText(trackpadSensitivity))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("rk.settings.trackpadSensitivityValue")
+                    }
+                }
+                .accessibilityIdentifier("rk.settings.trackpadSensitivity")
+            } header: {
+                Text("觸控板")
+            } footer: {
+                Text("調整單指移動與拖曳時游標移動的距離。")
             }
             Section {
                 methodRow("手寫", id: .handwriting)
@@ -89,6 +114,10 @@ struct SettingsView: View {
         .onDisappear { KeyClickPlayer.shared.stop() }
         .onChange(of: syncsDictation) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.dictationSync)
+        }
+        .onChange(of: trackpadSensitivity) { _, value in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(
+                TrackpadSensitivity.clamped(value), forKey: AppGroup.Key.trackpadSensitivity)
         }
         .onChange(of: keySound) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.keySound)

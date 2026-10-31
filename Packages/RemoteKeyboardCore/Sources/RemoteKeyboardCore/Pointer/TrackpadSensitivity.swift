@@ -7,7 +7,21 @@ public enum TrackpadSensitivity {
     public static let minimum = 0.2
     public static let maximum = 3.0
     public static let step = 0.1
-    public static let defaultsKey = "rk.trackpad.sensitivity"
+    /// Where the value used to live: the extension's own standard defaults. Read once for the move to the App Group.
+    public static let legacyDefaultsKey = "rk.trackpad.sensitivity"
+
+    /// The stored value from the App Group (`rk.trackpadSensitivity`, written by the host App) or, when that is not a number,
+    /// the old extension-only one; `migrated` says the old one was used, so the caller copies it over and drops it.
+    public static func resolved(appGroup: Any?, legacy: Any?) -> (value: Double, migrated: Bool) {
+        if let value = number(appGroup) { return (clamped(value), false) }
+        if let value = number(legacy) { return (clamped(value), true) }
+        return (defaultValue, false)
+    }
+
+    private static func number(_ stored: Any?) -> Double? {
+        guard let n = stored as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
+        return n.doubleValue
+    }
 
     /// Snaps to the 0.1 grid and clamps to the range; `nil` and NaN give the default.
     public static func clamped(_ value: Double?) -> Double {
