@@ -1,6 +1,6 @@
 import XCTest
 
-/// TP1 measurements M2, M3, M5 and M6, driven from outside the keyboard process. Physical iPhone only (the simulator has no
+/// TP1 measurements M2, M3, M5, M6, M7 and M8, driven from outside the keyboard process. Physical iPhone only (the simulator has no
 /// CoreBluetooth), and only against a Debug build of the Mac Receiver started with `-rkMeasureMode YES`, which turns the Mac's
 /// measurement mode on and starts receiving. The Mac must be paired with this iPhone.
 ///
@@ -13,14 +13,23 @@ import XCTest
 /// `measure-<name>.txt`. Nothing the test or the keyboard prints holds typed text, a cursor position or a `dx`.
 ///
 /// Settings travel as environment variables of the test run (`TEST_RUNNER_` prefix on the command line): RKMEAS_M3_SAMPLES
-/// (default 10000), RKMEAS_M5_SAMPLES (default 3000), RKMEAS_M6_SCENARIO (normal, longText, load, covered or interference;
-/// default normal) and RKMEAS_M6_SECONDS (default 600). Set the iPhone's auto-lock to Never first; M6 runs for minutes
-/// without a touch.
+/// (default 10000), RKMEAS_M6_SCENARIO (normal, longText, load, covered or interference; default normal), RKMEAS_M6_SECONDS
+/// (default 600), RKMEAS_M7_RUNS (default 20), RKMEAS_M8_SECONDS (default 600) and RKMEAS_LATENCY (low, medium or none;
+/// default low), the connection latency every run asks for before it starts. Set the iPhone's auto-lock to Never first; the
+/// long runs go on for minutes without a touch.
+///
+/// Every run starts with 12 seconds of traffic around the latency request (5 before, 2 to settle, 5 after), and M7 and M8
+/// with 5 seconds of clock calibration at the start and at the end; the timeouts include them.
 @MainActor
 final class MeasurementUITests: XCTestCase {
     private static let nextKeyboardNames = ["Next keyboard", "下一個鍵盤", "地球", "Globe", "下一個輸入法"]
     private static let remoteModeValue = "遠端"
-    private static let settingNames = ["RKMEAS_M3_SAMPLES", "RKMEAS_M5_SAMPLES", "RKMEAS_M6_SCENARIO", "RKMEAS_M6_SECONDS"]
+    private static let settingNames = [
+        "RKMEAS_M3_SAMPLES", "RKMEAS_M6_SCENARIO", "RKMEAS_M6_SECONDS", "RKMEAS_M7_RUNS", "RKMEAS_M8_SECONDS", "RKMEAS_LATENCY"
+    ]
+    /// Traffic around the latency request, and the calibration of M7 and M8, in seconds.
+    private static let preludeSeconds = 12.0
+    private static let calibrationSeconds = 10.0
     private static let environment = ProcessInfo.processInfo.environment
 
     private var app: XCUIApplication!
@@ -50,31 +59,49 @@ final class MeasurementUITests: XCTestCase {
 
     /// M2: `updateValue` back-pressure with 41-byte and 182-byte packets, 100 rounds each.
     func testM2BackPressure() throws {
-        try run(item: "M2", button: "rk.measure.m2", timeout: 300)
+        try run(item: "M2", button: "rk.measure.m2", timeout: 300 + Self.preludeSeconds)
     }
 
-    /// M3: application round trip at 60 Hz until RKMEAS_M3_SAMPLES replies (default 10,000) have arrived.
+    /// M3: application round trip at 60 Hz until RKMEAS_M3_SAMPLES replies (default 10,000) have arrived. Prints M3a (round trip),
+    /// M3b (reply coverage) and M3c (estimated one-way delay).
     func testM3RoundTrip() throws {
         let samples = Self.number("RKMEAS_M3_SAMPLES") ?? 10_000
-        try run(item: "M3", button: "rk.measure.m3", timeout: TimeInterval(samples) / 15 + 180)
+        try run(item: "M3", button: "rk.measure.m3", timeout: TimeInterval(samples) / 15 + 180 + Self.preludeSeconds)
     }
 
     /// A short M3 (200 replies) to check that the chain works before the long run.
     func testM3Smoke() throws {
-        try run(item: "M3smoke", button: "rk.measure.m3smoke", timeout: 120)
+        try run(item: "M3smoke", button: "rk.measure.m3smoke", timeout: 120 + Self.preludeSeconds)
     }
 
-    /// M5: M3 while a 3,000-character text goes out every second in the middle phase.
+    /// M5 (robustness): baseline 20 s, then 60 s with a 3,000-character text every second, then 30 s without. The run is invalid
+    /// (`valid=false` on its last line) when a stretch has fewer than 30 round trips, which fails this test.
     func testM5Backlog() throws {
-        let samples = Self.number("RKMEAS_M5_SAMPLES") ?? 3_000
-        try run(item: "M5", button: "rk.measure.m5", timeout: TimeInterval(samples) / 15 + 180)
+        try run(item: "M5", button: "rk.measure.m5", timeout: 110 + 180 + Self.preludeSeconds)
+        XCTAssertFalse(printed.contains { $0.contains("valid=false") }, "M5 is invalid: a stretch has fewer than 30 round trips")
     }
 
-    /// M6: a heartbeat every 100 ms for RKMEAS_M6_SECONDS (default 600) in the scenario RKMEAS_M6_SCENARIO. The Mac's side
-    /// (gaps over 350 ms) is read from the Receiver's measurement summary and `measure-<date>.csv`.
+    /// M6: a heartbeat every 100 ms for RKMEAS_M6_SECONDS (default 600; 1800 for the 30-minute gate) in the scenario
+    /// RKMEAS_M6_SCENARIO. The 模擬誤釋放 count (gaps over 350 ms) is read from the Mac's `measure-<date>.csv`.
     func testM6Heartbeat() throws {
         let seconds = Self.number("RKMEAS_M6_SECONDS") ?? 600
-        try run(item: "M6", button: "rk.measure.m6", timeout: TimeInterval(seconds) + 180)
+        try run(item: "M6", button: "rk.measure.m6", timeout: TimeInterval(seconds) + 180 + Self.preludeSeconds)
+    }
+
+    /// M7: RKMEAS_M7_RUNS rounds (default 20) of a 10 s cursor baseline, a 3,000-character text, and 10 s of touchpad-mode traffic
+    /// with the text still on its way. Whether the text arrived whole is read from the Mac's CSV.
+    func testM7ModeSwitch() throws {
+        let runs = Self.number("RKMEAS_M7_RUNS") ?? 20
+        let perRound = Double(10 + 10 + 3) + 10   // baseline, touchpad, pause, and room for a slow text
+        try run(item: "M7", button: "rk.measure.m7", timeout: Double(runs) * perRound + Self.calibrationSeconds + 180 + Self.preludeSeconds)
+    }
+
+    /// M8: RKMEAS_M8_SECONDS (default 600) of touchpad traffic: 60 Hz cursor, an rtt probe every 2 s (click stand-in), a one-second
+    /// double-rate burst every 5 s (scroll stand-in) and a heartbeat every 100 ms (drag stand-in). No mouse event is made on the
+    /// Mac. The 模擬誤釋放 count and the cursor's estimated one-way delay come from the Mac's CSV.
+    func testM8Workload() throws {
+        let seconds = Self.number("RKMEAS_M8_SECONDS") ?? 600
+        try run(item: "M8", button: "rk.measure.m8", timeout: TimeInterval(seconds) + Self.calibrationSeconds + 180 + Self.preludeSeconds)
     }
 
     // MARK: Steps

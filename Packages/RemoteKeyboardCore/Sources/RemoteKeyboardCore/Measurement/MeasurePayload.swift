@@ -48,24 +48,27 @@ public struct MeasurePayload: Equatable, Sendable {
     }
 }
 
-/// The Mac's reply to an `rtt` probe (16 bytes): the probe's seq and phone time echoed back, and how long the Mac held it.
+/// The Mac's reply to an `rtt` probe (24 bytes): the probe's seq and phone time echoed back, how long the Mac held it, and
+/// the Mac's own monotonic time when the probe arrived (M3c uses it to estimate the clock offset; it is never compared as is).
 ///
-///     [0-3] seq UInt32 BE  [4-11] phoneTimeMicros UInt64 BE  [12-15] macHoldMicros UInt32 BE
+///     [0-3] seq UInt32 BE  [4-11] phoneTimeMicros UInt64 BE  [12-15] macHoldMicros UInt32 BE  [16-23] macTimeMicros UInt64 BE
 public struct MeasureEchoPayload: Equatable, Sendable {
-    public static let length = 16
+    public static let length = 24
 
     public var seq: UInt32
     public var phoneTimeMicros: UInt64
     public var macHoldMicros: UInt32
+    public var macTimeMicros: UInt64
 
-    public init(seq: UInt32, phoneTimeMicros: UInt64, macHoldMicros: UInt32) {
+    public init(seq: UInt32, phoneTimeMicros: UInt64, macHoldMicros: UInt32, macTimeMicros: UInt64) {
         self.seq = seq
         self.phoneTimeMicros = phoneTimeMicros
         self.macHoldMicros = macHoldMicros
+        self.macTimeMicros = macTimeMicros
     }
 
     public func encode() -> Data {
-        Data(bigEndian(seq) + bigEndian(phoneTimeMicros) + bigEndian(macHoldMicros))
+        Data(bigEndian(seq) + bigEndian(phoneTimeMicros) + bigEndian(macHoldMicros) + bigEndian(macTimeMicros))
     }
 
     public static func decode(_ data: Data) -> MeasureEchoPayload? {
@@ -73,7 +76,7 @@ public struct MeasureEchoPayload: Equatable, Sendable {
         guard bytes.count == length else { return nil }
         return MeasureEchoPayload(
             seq: UInt32(truncatingIfNeeded: integer(bytes[0..<4])), phoneTimeMicros: integer(bytes[4..<12]),
-            macHoldMicros: UInt32(truncatingIfNeeded: integer(bytes[12..<16])))
+            macHoldMicros: UInt32(truncatingIfNeeded: integer(bytes[12..<16])), macTimeMicros: integer(bytes[16..<24]))
     }
 }
 

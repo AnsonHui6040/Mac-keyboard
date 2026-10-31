@@ -53,6 +53,8 @@ final class ReceiverCoordinator: ObservableObject {
     #if DEBUG
     /// Whether the Receiver's measurement mode is on, for the status the keyboard reads. Debug builds only.
     var measureMode: () -> Bool = { false }
+    /// Sees the text of every text event the moment it arrives, before it is queued (M7 checks the long text with it).
+    var measureTextArrived: (@MainActor (String) -> Void)?
     #endif
 
     /// Does not hook anything up; call `start()` for the live wiring.
@@ -69,7 +71,12 @@ final class ReceiverCoordinator: ObservableObject {
         // The first status goes out only after the phone proved the pair key, and then sealed.
         security.onAuthenticated = { [weak self] in self?.sendStatus() }
         if let pipeline {
-            security.onEvent = { [pipeline] event in pipeline.submit(event) }
+            security.onEvent = { [pipeline, weak self] event in
+                #if DEBUG
+                if case .text(let text) = event.kind { self?.measureTextArrived?(text) }
+                #endif
+                pipeline.submit(event)
+            }
             security.onMalformed = { [pipeline] in pipeline.submitMalformed() }
             // Queued keys of a lost link are dropped; what the pipeline has already processed stays remembered.
             security.onLinkLost = { [pipeline] in pipeline.discardQueued() }

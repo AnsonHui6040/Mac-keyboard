@@ -24,30 +24,38 @@ protocol MeasureCSVSink: AnyObject {
 }
 
 /// The measurement CSV: one row per accepted probe, integers and a kind name only. There is no text, no cursor position
-/// and no `dx` in it.
+/// and no `dx` in it. The row layout lives in `MeasureCSVRecord` (Core), which the after-the-run analysis reads back.
 ///
 /// `holdMicros` is how long the Mac held an `rtt` probe before it wrote the reply, -1 when the probe was not answered
 /// (a reply was still unanswered, or the write was refused) and 0 for the other kinds. `counterGap` is the number of
-/// packets between this one and the one before it that never arrived, 0 for the first packet of a run.
+/// packets between this one and the one before it that never arrived, 0 for the first packet of a run. `phoneTimeMicros`
+/// is the iPhone's clock as the probe carried it and `macTimeMicros` the Mac's clock when it arrived; the two clocks are
+/// never the same clock. A long text that arrived adds one row (`longTextMatch` or `longTextMismatch`) with its length in
+/// `bytes` and no seq.
 enum MeasureCSV {
-    static let header = "seq,kind,bytes,counterGap,interArrivalMicros,holdMicros"
+    static let header = MeasureCSVRecord.header
 
-    static func line(seq: UInt32, kind: MeasurePayload.Kind, bytes: Int, counterGap: Int, interArrivalMicros: Int, holdMicros: Int) -> String {
-        "\(seq),\(name(kind)),\(bytes),\(counterGap),\(interArrivalMicros),\(holdMicros)"
+    static func line(
+        seq: UInt32, kind: MeasurePayload.Kind, bytes: Int, counterGap: Int, interArrivalMicros: Int, holdMicros: Int,
+        phoneTimeMicros: UInt64, macTimeMicros: UInt64
+    ) -> String {
+        MeasureCSVRecord(
+            seq: seq, kind: MeasureCSVRecord.Kind(kind), bytes: bytes, counterGap: counterGap, interArrivalMicros: interArrivalMicros,
+            holdMicros: holdMicros, phoneTimeMicros: phoneTimeMicros, macTimeMicros: macTimeMicros
+        ).line
     }
 
-    private static func name(_ kind: MeasurePayload.Kind) -> String {
-        switch kind {
-        case .burst: "burst"
-        case .rtt: "rtt"
-        case .cursor: "cursor"
-        case .heartbeat: "heartbeat"
-        }
+    static func longTextLine(check: MeasureLongText.Check, utf8Length: Int, macTimeMicros: UInt64) -> String {
+        MeasureCSVRecord(
+            seq: 0, kind: check == .match ? .longTextMatch : .longTextMismatch, bytes: utf8Length, counterGap: 0,
+            interArrivalMicros: 0, holdMicros: 0, phoneTimeMicros: 0, macTimeMicros: macTimeMicros
+        ).line
     }
 }
 
 /// Appends the rows to `~/Library/Logs/RemoteKeyboard/measure-<date>.csv` (with the header when the file is new), in
-/// batches so a 60 Hz run does not write 60 times a second.
+/// batches so a 60 Hz run does not write 60 times a second. Rows that are waiting when the traffic stops are written after
+/// `idleFlushSeconds`, so the end of a run is in the file without waiting for the next batch.
 @MainActor
 final class MeasureCSVFile: MeasureCSVSink {
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "measure")
@@ -59,16 +67,32 @@ final class MeasureCSVFile: MeasureCSVSink {
     }
 
     let fileURL: URL
+    private let idleFlushSeconds: Double
     private var pending: [String] = []
+    private var idleFlush: Task<Void, Never>?
 
-    init(fileURL: URL) { self.fileURL = fileURL }
+    init(fileURL: URL, idleFlushSeconds: Double = 1) {
+        self.fileURL = fileURL
+        self.idleFlushSeconds = idleFlushSeconds
+    }
 
     func append(_ line: String) {
         pending.append(line)
-        if pending.count >= Self.batchSize { flush() }
+        if pending.count >= Self.batchSize {
+            flush()
+            return
+        }
+        idleFlush?.cancel()
+        idleFlush = Task { [weak self, idleFlushSeconds] in
+            try? await Task.sleep(for: .seconds(idleFlushSeconds))
+            guard !Task.isCancelled else { return }
+            self?.flush()
+        }
     }
 
     func flush() {
+        idleFlush?.cancel()
+        idleFlush = nil
         guard !pending.isEmpty else { return }
         let fm = FileManager.default
         do {
@@ -96,8 +120,9 @@ final class MeasureCSVFile: MeasureCSVSink {
 ///   Nothing is read from, or written to, the Mac unless measurement mode is on and the phone is authenticated.
 /// - `rtt` probes are answered with a sealed `measureM2P` reply, but only while no earlier reply is still unanswered,
 ///   so the Mac's own reply queue cannot inflate the round trip. A skipped probe is counted, not answered.
-/// - `cursor` probes move the test cursor by `dx × 4` and light the corner window; `heartbeat` probes only feed the
-///   watchdog recorder, which counts gaps that the real 350 ms watchdog would have released a button on and never injects;
+/// - `cursor` probes move the test cursor by `dx × 4` and light the corner window, unless `dx` is 0 (M7 and M8 send timing
+///   traffic only, which injects nothing); `heartbeat` probes only feed the
+///   watchdog recorder, which counts gaps that the real 350 ms watchdog would have released a button on (模擬誤釋放) and never injects;
 ///   `burst` probes are only counted.
 /// - The reply sealer belongs to the connection's `ChannelSet`, not to this object's mode: switching the mode off and on
 ///   goes on with the same counter.
@@ -114,7 +139,9 @@ final class MeasurementEcho: ObservableObject {
         var malformed = 0
         var ignoredModeOff = 0
         var ignoredUnauthenticated = 0
-        var wouldRelease = 0
+        var simulatedRelease = 0
+        var longTextMatched = 0
+        var longTextMismatched = 0
         var maxHeartbeatGapMicros: UInt64 = 0
     }
 
@@ -172,7 +199,7 @@ final class MeasurementEcho: ObservableObject {
     var summary: String {
         guard isMeasureMode else { return "量測模式關閉" }
         let c = counters
-        return "收 \(c.received)  回 \(c.echoed)  略過 \(c.skippedBusy)  拒收 \(c.rejected)  誤放開 \(c.wouldRelease)"
+        return "收 \(c.received)  回 \(c.echoed)  略過 \(c.skippedBusy)  拒收 \(c.rejected)  模擬誤釋放 \(c.simulatedRelease)"
     }
 
     // MARK: Mode and connection
@@ -214,7 +241,8 @@ final class MeasurementEcho: ObservableObject {
             measure run end received=\(c.received, privacy: .public) echoed=\(c.echoed, privacy: .public) \
             skippedBusy=\(c.skippedBusy, privacy: .public) writeRefused=\(c.writeRefused, privacy: .public) \
             rejected=\(c.rejected, privacy: .public) malformed=\(c.malformed, privacy: .public) \
-            wouldRelease=\(c.wouldRelease, privacy: .public) maxHeartbeatGapMicros=\(c.maxHeartbeatGapMicros, privacy: .public)
+            simulatedRelease=\(c.simulatedRelease, privacy: .public) maxHeartbeatGapMicros=\(c.maxHeartbeatGapMicros, privacy: .public) \
+            longTextMatched=\(c.longTextMatched, privacy: .public) longTextMismatched=\(c.longTextMismatched, privacy: .public)
             """)
     }
 
@@ -256,6 +284,11 @@ final class MeasurementEcho: ObservableObject {
         }
         noteActivity()
         counters.received += 1
+        // Every run starts with seq 1, whatever it sends first: the heartbeats of an earlier run are not part of this one.
+        if payload.seq == 1 {
+            lastHeartbeatArrival = nil
+            lastHeartbeatSeq = nil
+        }
 
         let counter = opener.lastOpenedCounter
         let gap = lastCounter.map { Int(truncatingIfNeeded: counter) - Int(truncatingIfNeeded: $0) - 1 } ?? 0
@@ -270,15 +303,28 @@ final class MeasurementEcho: ObservableObject {
         case .rtt:
             hold = reply(to: payload, arrival: arrival)
         case .cursor:
-            // T5: the mouse event and the corner window go out together.
-            cursor.move(byPoints: Double(payload.dxSixteenths) / 16 * Self.cursorGain)
-            flash.flash()
+            // T5: the mouse event and the corner window go out together. A packet without a distance is timing traffic
+            // (M7, M8): no mouse event and no flash.
+            if payload.dxSixteenths != 0 {
+                cursor.move(byPoints: Double(payload.dxSixteenths) / 16 * Self.cursorGain)
+                flash.flash()
+            }
         case .heartbeat:
             recordHeartbeat(payload, arrival: arrival)
         }
         csv.append(MeasureCSV.line(
             seq: payload.seq, kind: payload.kind, bytes: packet.count, counterGap: gap, interArrivalMicros: interArrival,
-            holdMicros: hold))
+            holdMicros: hold, phoneTimeMicros: payload.phoneTimeMicros, macTimeMicros: arrival))
+    }
+
+    /// A text event arrived from the keyboard (M7): if it is long enough to be the measurement's long text, its length and
+    /// SHA-256 are compared with it and only the verdict is kept. The text is read here and goes nowhere else.
+    func noteText(_ text: String) {
+        guard isMeasureMode, MeasureLongText.isCandidate(text) else { return }
+        let arrival = clock()
+        let check = MeasureLongText.check(text)
+        if check == .match { counters.longTextMatched += 1 } else { counters.longTextMismatched += 1 }
+        csv.append(MeasureCSV.longTextLine(check: check, utf8Length: text.utf8.count, macTimeMicros: arrival))
     }
 
     /// Returns the hold time in microseconds, or -1 when no reply was written.
@@ -289,7 +335,8 @@ final class MeasurementEcho: ObservableObject {
         }
         guard let channels else { return -1 }
         let held = UInt32(clamping: clock() &- arrival)
-        let echo = MeasureEchoPayload(seq: payload.seq, phoneTimeMicros: payload.phoneTimeMicros, macHoldMicros: held)
+        let echo = MeasureEchoPayload(
+            seq: payload.seq, phoneTimeMicros: payload.phoneTimeMicros, macHoldMicros: held, macTimeMicros: arrival)
         guard let sealed = try? channels.sealer(.measureM2P).seal(echo.encode()) else { return -1 }
         guard write(sealed) else {
             // The ciphertext is discarded; the next reply is sealed with the next counter.
@@ -302,14 +349,14 @@ final class MeasurementEcho: ObservableObject {
     }
 
     /// M6: a heartbeat series starts at seq 1, and a seq that does not go up also starts a new one (the run was restarted).
-    /// A gap above the watchdog's limit inside a series is a release the real watchdog would have made; nothing is
-    /// released here.
+    /// A gap above the watchdog's limit inside a series is a release the real watchdog would have made (a 模擬誤釋放);
+    /// nothing is released here.
     private func recordHeartbeat(_ payload: MeasurePayload, arrival: UInt64) {
         let continuesSeries = payload.seq != 1 && (lastHeartbeatSeq.map { payload.seq > $0 } ?? false)
         if continuesSeries, let last = lastHeartbeatArrival {
             let gap = arrival &- last
             counters.maxHeartbeatGapMicros = max(counters.maxHeartbeatGapMicros, gap)
-            if gap > Self.watchdogMicros { counters.wouldRelease += 1 }
+            if gap > Self.watchdogMicros { counters.simulatedRelease += 1 }
         }
         lastHeartbeatArrival = arrival
         lastHeartbeatSeq = payload.seq

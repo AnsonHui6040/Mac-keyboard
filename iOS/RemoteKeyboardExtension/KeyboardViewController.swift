@@ -246,12 +246,16 @@ final class KeyboardViewController: UIInputViewController {
         let runner = peripheral.measurement
         let config = MeasureLaunchConfig.read()
         switch command {
-        case .m2: runner.start(.m2)
-        case .m3: runner.start(.m3(samples: config.m3Samples))
-        case .m3Smoke: runner.start(.m3(samples: 200))
-        case .m5: runner.start(.m5(samples: config.m5Samples))
+        case .m2: runner.start(.m2, latency: config.latency)
+        case .m3: runner.start(.m3(samples: config.m3Samples), latency: config.latency)
+        case .m3Smoke: runner.start(.m3(samples: 200), latency: config.latency)
+        case .m5: runner.start(.m5, latency: config.latency)
         case .m6:
-            runner.start(.m6(MeasurementRunner.Scenario(rawValue: config.m6Scenario) ?? .normal, seconds: config.m6Seconds))
+            runner.start(
+                .m6(MeasurementRunner.Scenario(rawValue: config.m6Scenario) ?? .normal, seconds: config.m6Seconds),
+                latency: config.latency)
+        case .m7: runner.start(.m7(runs: config.m7Runs), latency: config.latency)
+        case .m8: runner.start(.m8(seconds: config.m8Seconds), latency: config.latency)
         case .m4: showMeasureTouchView()
         case .latency:
             peripheral.cycleLatency()
@@ -262,7 +266,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func showMeasureTouchView() {
         guard measureTouchView == nil, peripheral.isMeasureReady, !peripheral.measurement.isRunning else { return }
-        peripheral.measurement.start(.m4)
+        peripheral.measurement.start(.m4, latency: MeasureLaunchConfig.read().latency)
         let surface = MeasurementTouchView(runner: peripheral.measurement)
         surface.onClose = { [weak self] in self?.closeMeasureTouchView() }
         surface.translatesAutoresizingMaskIntoConstraints = false

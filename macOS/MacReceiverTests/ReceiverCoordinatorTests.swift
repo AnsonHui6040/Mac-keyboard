@@ -210,6 +210,19 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         try r.pump()
         XCTAssertEqual(r.statuses.last?.measure, false)
     }
+
+    func testMeasureTextObserverSeesATextWhenItArrivesAndOnlyTexts() async throws {
+        let r = rig()
+        var seen: [Int] = []
+        r.coordinator.measureTextArrived = { seen.append($0.utf8.count) }
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        _ = try r.deliver(.text(MeasureLongText.text))
+        _ = try r.deliver(.backspace)
+        await waitUntil { try? r.pump(); return r.acks.count >= 2 }
+        XCTAssertEqual(seen, [6_000])
+        XCTAssertEqual(r.acks.count, 2, "the pipeline still handles both events")
+    }
     #endif
 
     func testNoStatusIsWrittenBeforeThePhoneAuthenticates() throws {

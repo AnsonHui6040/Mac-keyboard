@@ -116,17 +116,18 @@ final class MeasurementEchoTests: XCTestCase {
         rig.attachAndStart()
         rig.echo.handle(try rig.probe(.rtt, seq: 5, phoneTime: 123_456))
         let reply = try XCTUnwrap(rig.writes.first)
-        XCTAssertEqual(reply.count, 41)
+        XCTAssertEqual(reply.count, 49, "1 magic + 8 counter + 24 plaintext + 16 tag")
         XCTAssertEqual(reply[0], 0x7E)
         let plain = try rig.phone.opener(.measureM2P).open(reply).get()
         let echo = try XCTUnwrap(MeasureEchoPayload.decode(plain))
         XCTAssertEqual(echo.seq, 5)
         XCTAssertEqual(echo.phoneTimeMicros, 123_456)
         XCTAssertGreaterThan(echo.macHoldMicros, 0)
+        XCTAssertEqual(echo.macTimeMicros, 1_000_000, "the Mac's clock when the probe arrived, not when the reply was written")
         XCTAssertLessThan(echo.macHoldMicros, 1000)
-        // Only the measureM2P key opens it.
-        XCTAssertEqual(rig.phone.opener(.measureP2M).open(reply), .failure(.authFailed))
-        XCTAssertEqual(rig.phone.opener(.pointer).open(reply), .failure(.badMagic))
+        // No other channel takes a 49-byte reply: the length check comes first (key separation is covered in CounterChannelTests).
+        XCTAssertEqual(rig.phone.opener(.measureP2M).open(reply), .failure(.badLength))
+        XCTAssertEqual(rig.phone.opener(.pointer).open(reply), .failure(.badLength))
         XCTAssertEqual(rig.echo.counters.echoed, 1)
     }
 
@@ -177,7 +178,7 @@ final class MeasurementEchoTests: XCTestCase {
         rig.echo.handle(try rig.probe(.rtt))
         XCTAssertEqual(rig.writes.count, 1)
         XCTAssertEqual(rig.echo.counters.skippedBusy, 1)
-        XCTAssertTrue(rig.csv.lines[1].hasSuffix(",-1"), "a skipped probe has no hold time")
+        XCTAssertEqual(rig.csv.lines[1].split(separator: ",")[5], "-1", "a skipped probe has no hold time")
         rig.echo.writeCompleted()
         rig.echo.handle(try rig.probe(.rtt))
         XCTAssertEqual(rig.writes.count, 2)
@@ -240,7 +241,7 @@ final class MeasurementEchoTests: XCTestCase {
             rig.time = 1_000_000 + at
             rig.echo.handle(try rig.probe(.heartbeat, seq: seq))
         }
-        XCTAssertEqual(rig.echo.counters.wouldRelease, 1, "one gap of 400 ms is over the 350 ms the watchdog allows")
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 1, "one gap of 400 ms is over the 350 ms the watchdog allows")
         XCTAssertEqual(rig.echo.counters.maxHeartbeatGapMicros, 400_000)
         XCTAssertTrue(rig.cursor.moves.isEmpty, "the recorder never injects a mouse event")
         XCTAssertEqual(rig.flash.flashes, 0)
@@ -254,7 +255,7 @@ final class MeasurementEchoTests: XCTestCase {
         rig.echo.handle(try rig.probe(.heartbeat, seq: 1))
         rig.time = 9_000_000
         rig.echo.handle(try rig.probe(.heartbeat, seq: 1))
-        XCTAssertEqual(rig.echo.counters.wouldRelease, 0)
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 0)
     }
 
     func testHeartbeatSeqGoingBackStartsANewSeries() throws {
@@ -265,14 +266,35 @@ final class MeasurementEchoTests: XCTestCase {
         // A run that restarts is not a gap, whatever its first seq is.
         rig.time = 3_000_000
         rig.echo.handle(try rig.probe(.heartbeat, seq: 3))
-        XCTAssertEqual(rig.echo.counters.wouldRelease, 0)
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 0)
         rig.time = 3_500_000
         rig.echo.handle(try rig.probe(.heartbeat, seq: 4))
-        XCTAssertEqual(rig.echo.counters.wouldRelease, 1, "inside the new series a 500 ms gap is still counted")
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 1, "inside the new series a 500 ms gap is still counted")
+    }
+
+    func testARunThatStartsWithAnotherKindStillEndsTheHeartbeatSeries() throws {
+        let rig = Rig()
+        rig.attachAndStart()
+        // An earlier run ended with heartbeat seq 600. The next run starts with seq 1 (the traffic before its latency request)
+        // and its first heartbeat has a higher seq than 600: that is not a gap of minutes.
+        rig.time = 1_000_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 599))
+        rig.time = 1_100_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 600))
+        rig.time = 120_000_000
+        rig.echo.handle(try rig.probe(.burst, seq: 1))
+        rig.time = 125_000_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 700))
+        rig.time = 125_100_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 701))
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 0)
+        rig.time = 125_600_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 702))
+        XCTAssertEqual(rig.echo.counters.simulatedRelease, 1, "inside the new series a 500 ms gap is still counted")
     }
 
     func testCsvHasNoCoordinates() throws {
-        XCTAssertEqual(MeasureCSV.header, "seq,kind,bytes,counterGap,interArrivalMicros,holdMicros")
+        XCTAssertEqual(MeasureCSV.header, "seq,kind,bytes,counterGap,interArrivalMicros,holdMicros,phoneTimeMicros,macTimeMicros")
         let rig = Rig()
         rig.step = 1_000
         rig.attachAndStart()
@@ -282,16 +304,78 @@ final class MeasurementEchoTests: XCTestCase {
         XCTAssertEqual(rig.csv.lines.count, 3)
         for line in rig.csv.lines {
             let fields = line.split(separator: ",", omittingEmptySubsequences: false)
-            XCTAssertEqual(fields.count, 6, line)
+            XCTAssertEqual(fields.count, 8, line)
             XCTAssertFalse(line.contains("4660"), line)
             XCTAssertNotNil(Int(fields[0]), line)
             XCTAssertEqual(fields[2], "41")
-            XCTAssertNotNil(Int(fields[3]), line)
-            XCTAssertNotNil(Int(fields[4]), line)
-            XCTAssertNotNil(Int(fields[5]), line)
+            for index in [3, 4, 5, 6, 7] { XCTAssertNotNil(Int(fields[index]), line) }
         }
         XCTAssertTrue(rig.csv.lines[0].hasPrefix("7,cursor,41,0,0,"))
         XCTAssertTrue(rig.csv.lines[1].hasPrefix("8,cursor,41,0,"))
+    }
+
+    func testEveryRowCarriesThePhoneAndMacTimes() throws {
+        let rig = Rig()
+        rig.attachAndStart()
+        rig.time = 9_000_000
+        rig.echo.handle(try rig.probe(.heartbeat, seq: 3, phoneTime: 4_321))
+        let row = try XCTUnwrap(MeasureCSVRecord(line: rig.csv.lines[0]))
+        XCTAssertEqual(row.kind, .heartbeat)
+        XCTAssertEqual(row.phoneTimeMicros, 4_321)
+        XCTAssertEqual(row.macTimeMicros, 9_000_000, "the Mac's arrival time of the heartbeat, for the 模擬誤釋放 count")
+    }
+
+    func testCursorProbeWithNoDistanceInjectsNothing() throws {
+        let rig = Rig()
+        rig.attachAndStart()
+        // M7 and M8 send cursor packets that carry no distance: they are timing traffic, not mouse events.
+        rig.echo.handle(try rig.probe(.cursor, dx: 0))
+        XCTAssertTrue(rig.cursor.moves.isEmpty, "no mouse event")
+        XCTAssertEqual(rig.flash.flashes, 0, "and no corner flash")
+        XCTAssertEqual(rig.echo.counters.received, 1)
+        XCTAssertEqual(rig.csv.lines.count, 1, "the packet still gets its row")
+        XCTAssertEqual(rig.activity, 1)
+    }
+
+    // MARK: Long text check (M7)
+
+    func testALongTextThatArrivedWholeIsRecordedAsAMatch() throws {
+        let rig = Rig()
+        rig.attachAndStart()
+        rig.time = 7_000_000
+        rig.echo.noteText(MeasureLongText.text)
+        XCTAssertEqual(rig.echo.counters.longTextMatched, 1)
+        XCTAssertEqual(rig.echo.counters.longTextMismatched, 0)
+        let row = try XCTUnwrap(MeasureCSVRecord(line: rig.csv.lines[0]))
+        XCTAssertEqual(row.kind, .longTextMatch)
+        XCTAssertEqual(row.bytes, 6_000)
+        XCTAssertEqual(row.macTimeMicros, 7_000_000)
+        XCTAssertFalse(rig.csv.lines[0].contains("一"), "only the length and the verdict are written, never the text")
+    }
+
+    func testADamagedLongTextIsAMismatchAndShortTextsAreIgnored() throws {
+        let rig = Rig()
+        rig.attachAndStart()
+        rig.echo.noteText(String(MeasureLongText.text.dropLast(2)))
+        rig.echo.noteText("hello")
+        XCTAssertEqual(rig.echo.counters.longTextMatched, 0)
+        XCTAssertEqual(rig.echo.counters.longTextMismatched, 1)
+        XCTAssertEqual(rig.csv.lines.count, 1)
+        XCTAssertEqual(MeasureCSVRecord(line: rig.csv.lines[0])?.kind, .longTextMismatch)
+    }
+
+    func testLongTextIsNotCheckedWhileMeasureModeIsOff() {
+        let rig = Rig()
+        rig.echo.noteText(MeasureLongText.text)
+        XCTAssertTrue(rig.csv.lines.isEmpty)
+        XCTAssertEqual(rig.echo.counters.longTextMatched, 0)
+    }
+
+    func testSummaryUsesTheSimulatedReleaseWording() {
+        let rig = Rig()
+        rig.attachAndStart()
+        XCTAssertTrue(rig.echo.summary.contains("模擬誤釋放"))
+        XCTAssertFalse(rig.echo.summary.contains("誤放開"))
     }
 
     func testCounterGapCountsMissingPackets() throws {
@@ -347,6 +431,26 @@ final class MeasurementEchoTests: XCTestCase {
         rig.central.handleLink(.disconnected(rig.peripheral))
         rig.central.receive(eventData: try probe(5))
         XCTAssertEqual(rig.driver.controlWrites.count, before + 2)
+    }
+}
+
+@MainActor
+final class MeasureCSVFileTests: XCTestCase {
+    private func temporaryFile() -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "rk-measure-\(UUID().uuidString)/measure.csv", directoryHint: .notDirectory)
+    }
+
+    func testRowsAreWrittenWhenTheRowsStopComing() async throws {
+        let url = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let file = MeasureCSVFile(fileURL: url, idleFlushSeconds: 0.05)
+        file.append("1,burst,41,0,0,0,10,20")
+        file.append("2,burst,41,0,16000,0,16010,16020")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "nothing is written for every row")
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: url.path) { try await Task.sleep(for: .milliseconds(20)) }
+        let text = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(text, MeasureCSV.header + "\n1,burst,41,0,0,0,10,20\n2,burst,41,0,16000,0,16010,16020\n",
+                       "a run's last rows reach the file without waiting for the next batch of 200")
     }
 }
 

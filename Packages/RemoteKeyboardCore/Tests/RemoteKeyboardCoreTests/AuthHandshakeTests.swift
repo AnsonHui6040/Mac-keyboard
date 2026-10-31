@@ -489,7 +489,8 @@ final class AuthHandshakeTests: XCTestCase {
         #if DEBUG
         XCTAssertEqual(try macSet.opener(.measureP2M).open(try phoneSet.sealer(.measureP2M).seal(plain)).get(), plain)
         // Mac to iPhone.
-        XCTAssertEqual(try phoneSet.opener(.measureM2P).open(try macSet.sealer(.measureM2P).seal(plain)).get(), plain)
+        let reply = Data(repeating: 0x42, count: 24)
+        XCTAssertEqual(try phoneSet.opener(.measureM2P).open(try macSet.sealer(.measureM2P).seal(reply)).get(), reply)
         #endif
     }
 

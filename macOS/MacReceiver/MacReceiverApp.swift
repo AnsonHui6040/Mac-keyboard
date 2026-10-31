@@ -71,6 +71,7 @@ struct MacReceiverApp: App {
         measurement.connect(central: central, security: security)
         coordinator.measureMode = { [weak measurement] in measurement?.isMeasureMode ?? false }
         measurement.onModeChange = { [weak coordinator] in coordinator?.sendStatus() }
+        coordinator.measureTextArrived = { [weak measurement] in measurement?.noteText($0) }
         if !Self.isRunningUnitTests, UserDefaults.standard.bool(forKey: "rkMeasureMode") {
             measurement.setMeasureMode(true)
             central.startReceiving()

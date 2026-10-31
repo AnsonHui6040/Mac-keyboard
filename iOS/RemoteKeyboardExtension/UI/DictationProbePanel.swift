@@ -4,7 +4,7 @@ import UIKit
 /// A button of the TP1 measurement page that the probe panel shows instead of its checklist while the Mac's measurement
 /// mode is on.
 enum MeasureCommand: Equatable {
-    case m2, m3, m3Smoke, m5, m6, m4, latency, stop
+    case m2, m3, m3Smoke, m5, m6, m7, m8, m4, latency, stop
 }
 
 /// What the measurement page shows. `enabled` is true only while the link is authenticated and the Mac says `measure`.
@@ -85,8 +85,9 @@ final class DictationProbePanel: UIView {
         let rows = [
             [(MeasureCommand.m2, "M2", "rk.measure.m2"), (.m3, "M3", "rk.measure.m3"), (.m3Smoke, "M3 小", "rk.measure.m3smoke"),
              (.m5, "M5", "rk.measure.m5")],
-            [(.m6, "M6", "rk.measure.m6"), (.m4, "M4 觸控", "rk.measure.m4"), (.latency, "延遲 預設", "rk.measure.latency"),
-             (.stop, "停止", "rk.measure.stop")]
+            [(.m6, "M6", "rk.measure.m6"), (.m7, "M7", "rk.measure.m7"), (.m8, "M8", "rk.measure.m8"),
+             (.m4, "M4 觸控", "rk.measure.m4")],
+            [(.latency, "延遲 預設", "rk.measure.latency"), (.stop, "停止", "rk.measure.stop")]
         ].map { row in
             let buttons = row.map { command, title, identifier -> UIButton in
                 let button = UIButton(type: .system)

@@ -28,6 +28,14 @@ final class CounterChannelTests: XCTestCase {
 
     private func plaintext(length: Int, fill: UInt8 = 0xA5) -> Data { Data(repeating: fill, count: length) }
 
+    /// The shortest plaintext a kind accepts: 16 bytes, except a measurement reply (24 bytes since it carries the Mac time).
+    private func standardLength(_ kind: CounterChannel.Kind) -> Int {
+        #if DEBUG
+        if kind == .measureM2P { return 24 }
+        #endif
+        return 16
+    }
+
     // MARK: Packet shape
 
     func testPacketSizes() throws {
@@ -36,7 +44,10 @@ final class CounterChannelTests: XCTestCase {
         #if DEBUG
         XCTAssertEqual(try set.sealer(.measureP2M).seal(plaintext(length: 16)).count, 41)
         XCTAssertEqual(try set.sealer(.measureP2M).seal(plaintext(length: 157)).count, 182)
-        XCTAssertEqual(try set.sealer(.measureM2P).seal(plaintext(length: 16)).count, 41)
+        XCTAssertEqual(try set.sealer(.measureM2P).seal(plaintext(length: 24)).count, 49)
+        XCTAssertThrowsError(try set.sealer(.measureM2P).seal(plaintext(length: 16))) {
+            XCTAssertEqual($0 as? ChannelError, .badLength, "the 16-byte reply of the earlier layout is refused")
+        }
         #endif
     }
 
@@ -57,7 +68,7 @@ final class CounterChannelTests: XCTestCase {
             let key = HKDF<SHA256>.deriveKey(
                 inputKeyMaterial: pairKey, salt: Data(), info: Data(expected.info.utf8) + macNonce + phoneNonce, outputByteCount: 32)
             let sealer = set.sealer(expected.kind)
-            let plain = plaintext(length: 16, fill: expected.magic)
+            let plain = plaintext(length: standardLength(expected.kind), fill: expected.magic)
             for counter in UInt64(1)...3 {
                 let packet = try sealer.seal(plain)
                 let header = Data([expected.magic]) + counterBytes(counter)
@@ -72,7 +83,7 @@ final class CounterChannelTests: XCTestCase {
     func testRoundTripBetweenTwoSetsOfOneHandshake() throws {
         let phone = makeSet(), mac = makeSet()
         for expected in expectedKinds {
-            let plain = plaintext(length: 16, fill: 7)
+            let plain = plaintext(length: standardLength(expected.kind), fill: 7)
             let packet = try phone.sealer(expected.kind).seal(plain)
             XCTAssertEqual(try mac.opener(expected.kind).open(packet).get(), plain)
         }

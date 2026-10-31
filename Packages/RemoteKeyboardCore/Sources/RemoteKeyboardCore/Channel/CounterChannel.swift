@@ -73,13 +73,13 @@ public enum CounterChannel {
             }
         }
 
-        /// Plaintext lengths of this kind: 16 for a pointer packet, 16 or 157 for a measurement packet.
+        /// Plaintext lengths of this kind: 16 for a pointer packet, 16 or 157 for a measurement probe, 24 for a measurement reply.
         var plaintextLengths: Set<Int> {
             switch self {
             case .pointer: [16]
             #if DEBUG
             case .measureP2M: [16, 157]
-            case .measureM2P: [16]
+            case .measureM2P: [24]
             #endif
             }
         }

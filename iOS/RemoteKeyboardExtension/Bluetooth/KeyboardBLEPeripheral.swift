@@ -71,10 +71,8 @@ final class KeyboardBLEPeripheral: NSObject {
 
     #if DEBUG
     // TP1 measurement (Debug builds only). The channel set of the authenticated connection is kept until it ends.
-    /// Frames of a queued message go out this many at a time before a measurement probe gets one slot (spec §8.2 rule 4).
-    static let interleaveRatio = 4
-    /// 3,000 characters in one `TEXT` (6,000 UTF-8 bytes): the T07 check and the load of M5 and M6.
-    static let debugLongText = String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)
+    /// 3,000 characters in one `TEXT` (6,000 UTF-8 bytes): the T07 check and the load of M5, M6-L and M7.
+    static let debugLongText = MeasureLongText.text
 
     enum LatencySetting: Equatable {
         case unset, low, medium
@@ -90,6 +88,8 @@ final class KeyboardBLEPeripheral: NSObject {
     private(set) var measureChannels: ChannelSet?
     private(set) lazy var measurement = MeasurementRunner(peripheral: self)
     private(set) var latencySetting = LatencySetting.unset
+    /// Which of a long text's frames and a measurement probe goes next, in keyboard or touchpad mode (spec §8.2 rule 4).
+    private var interleave = TransmitInterleave()
     /// How long an `updateValue` refusal lasted, in microseconds, reported when the radio is ready again.
     private var blockedSince: UInt64?
 
@@ -124,6 +124,30 @@ final class KeyboardBLEPeripheral: NSObject {
         applyLatency()
     }
 
+    /// Asks the subscribed central for the latency a measurement run wants; nothing for `.none`. Returns whether a request
+    /// was made. A request stays in force until the connection ends, so a later run that asks for nothing is told what is
+    /// still active (`latencyCarryover`).
+    @discardableResult
+    func requestMeasureLatency(_ preference: MeasureLatencyPreference) -> Bool {
+        switch preference {
+        case .none: return false
+        case .low: latencySetting = .low
+        case .medium: latencySetting = .medium
+        }
+        guard manager != nil, subscribedCentral != nil else { return false }
+        applyLatency()
+        return true
+    }
+
+    /// The name of a latency request that is still in force on this connection, if any.
+    var latencyCarryover: String? {
+        switch latencySetting {
+        case .unset: nil
+        case .low: "low"
+        case .medium: "medium"
+        }
+    }
+
     private func applyLatency() {
         guard let manager, let central = subscribedCentral else { return }
         switch latencySetting {
@@ -140,6 +164,8 @@ final class KeyboardBLEPeripheral: NSObject {
     private func measureConnectionEnded() {
         measureChannels = nil
         blockedSince = nil
+        // A latency request belongs to the connection it was made on.
+        latencySetting = .unset
         measurement.connectionEnded()
     }
     #endif
@@ -403,29 +429,44 @@ final class KeyboardBLEPeripheral: NSObject {
     }
 
     #if DEBUG
-    /// The same drain as above, plus two measurement duties: it notes how long the radio stays full, and while a round trip
-    /// or heartbeat run is going it stops after every `interleaveRatio` frames so the runner can hand over one probe.
+    /// The runner asks for the exit to be worked (a probe is waiting while frames are queued).
+    func drainQueuedFrames() { drain() }
+
+    /// The same drain as above, plus the measurement duties: it notes how long the radio stays full, and while a run that
+    /// interleaves is going it lets `TransmitInterleave` pick between the next frame and the waiting probe (keyboard mode:
+    /// four frames, then a probe; touchpad mode: four probes, then a frame). It also tells the runner when a frame left and
+    /// when the queue ran empty.
     private func drainTracked(manager: CBPeripheralManager, characteristic: CBMutableCharacteristic, central: CBCentral) {
-        let interleave = measurement.wantsInterleave
-        var sinceOffer = 0
-        while queue.pendingCount > 0 {
-            var refused = false
-            queue.drain { frame in
-                if interleave, sinceOffer >= Self.interleaveRatio { return false }
-                guard manager.updateValue(frame, for: characteristic, onSubscribedCentrals: [central]) else {
-                    refused = true
-                    return false
+        let interleaving = measurement.wantsInterleave
+        interleave.mode = measurement.transmitMode
+        while true {
+            let hasFrame = queue.pendingCount > 0
+            let hasPacket = interleaving && measurement.hasWaitingPacket
+            guard let source = interleave.choose(hasFrame: hasFrame, hasPacket: hasPacket) else { break }
+            switch source {
+            case .frame:
+                var handedOne = false
+                var refused = false
+                queue.drain { frame in
+                    if handedOne { return false }
+                    guard manager.updateValue(frame, for: characteristic, onSubscribedCentrals: [central]) else {
+                        refused = true
+                        return false
+                    }
+                    handedOne = true
+                    return true
                 }
-                sinceOffer += 1
-                return true
+                if refused {
+                    noteBlocked()
+                    return
+                }
+                interleave.handed(.frame, otherWaiting: hasPacket)
+                measurement.noteFrameHanded()
+                if queue.pendingCount == 0 { measurement.noteQueueEmpty() }
+            case .packet:
+                guard measurement.offerPacket() else { return }
+                interleave.handed(.packet, otherWaiting: hasFrame)
             }
-            if refused {
-                noteBlocked()
-                return
-            }
-            guard queue.pendingCount > 0 else { break }
-            sinceOffer = 0
-            guard measurement.offerPacket() else { return }
         }
         measurement.pump()
     }
