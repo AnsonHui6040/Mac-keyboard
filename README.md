@@ -32,7 +32,7 @@ swift test --package-path Packages/RemoteKeyboardCore
 scripts/install-mac-receiver.sh
 ```
 
-預設建置 Debug 版並安裝到 `/Applications/MacReceiver.app`（面板名稱為 Remote Keyboard Receiver），之後可從 Launchpad 或 Spotlight 開啟。`--configuration Release` 改建 Release，`--no-build` 只複製已建置的產物。
+預設建置 Debug 版並安裝到 `/Applications/Remote Keyboard Receiver.app`，之後可從 Launchpad 或 Spotlight 開啟。`--configuration Release` 改建 Release，`--no-build` 只複製已建置的產物。
 
 ## 文件
 

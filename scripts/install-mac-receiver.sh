@@ -6,7 +6,7 @@ CONFIG="Debug"
 BUILD=1
 APP_NAME="MacReceiver"
 DISPLAY_NAME="Remote Keyboard Receiver"
-OLD_TMP_APP="/private/tmp/claude-501/receiver-run/MacReceiver.app"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 CACHE_DIR="$HOME/Library/Caches/RemoteKeyboard"
 DERIVED="$CACHE_DIR/mac-dd"
 LOG="$CACHE_DIR/build.log"
@@ -19,7 +19,7 @@ usage() {
   --no-build       不建置，只複製已建置的產物
   -h, --help       顯示這段說明
 
-安裝位置：/Applications/${APP_NAME}.app；該資料夾不可寫時改用 \$HOME/Applications。
+安裝位置：/Applications/${DISPLAY_NAME}.app（執行檔仍為 ${APP_NAME}）；該資料夾不可寫時改用 \$HOME/Applications。
 面板顯示名稱：${DISPLAY_NAME}
 USAGE
 }
@@ -72,7 +72,8 @@ else
   mkdir -p "$DEST_DIR"
   echo "/Applications 不可寫，改裝到 $DEST_DIR"
 fi
-DEST="$DEST_DIR/${APP_NAME}.app"
+DEST="$DEST_DIR/${DISPLAY_NAME}.app"
+OLD_DEST="$DEST_DIR/${APP_NAME}.app"
 
 if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
   pkill -x "$APP_NAME" || true
@@ -86,9 +87,18 @@ if pgrep -x "$APP_NAME" >/dev/null 2>&1; then
   fi
 fi
 
+if [ -d "$OLD_DEST" ]; then
+  "$LSREGISTER" -u "$OLD_DEST" >/dev/null 2>&1 || true
+  rm -rf "$OLD_DEST"
+  echo "已移除舊名稱的版本：$OLD_DEST"
+fi
+
 rm -rf "$DEST"
 ditto "$SRC" "$DEST"
 echo "已安裝到：$DEST"
+
+# 取消登記 build 產物，避免 Launchpad / Spotlight 出現重複的 MacReceiver。
+"$LSREGISTER" -u "$SRC" >/dev/null 2>&1 || true
 
 open "$DEST"
 VERSION="$(stat -f '%Sm' -t '%m/%d %H:%M' "$DEST/Contents/MacOS/$APP_NAME")"
@@ -99,7 +109,3 @@ cat <<MSG
 第一次從這個位置開啟時，請到 系統設定 › 隱私權與安全性 › 輔助使用，重新允許「${DISPLAY_NAME}」（舊的項目可以移除）。
 藍牙同理：到 系統設定 › 隱私權與安全性 › 藍牙，重新允許「${DISPLAY_NAME}」。
 MSG
-
-if [ -d "$OLD_TMP_APP" ]; then
-  echo "舊的暫存版本已不需要：$OLD_TMP_APP（未刪除）"
-fi
