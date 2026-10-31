@@ -40,7 +40,7 @@ case "$CONFIG" in
   *) echo "--configuration 只接受 Debug 或 Release" >&2; exit 2 ;;
 esac
 
-cd "$(git rev-parse --show-toplevel)"
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$CACHE_DIR"
 
 if [ "$BUILD" -eq 1 ]; then
