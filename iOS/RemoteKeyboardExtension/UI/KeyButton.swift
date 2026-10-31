@@ -1,27 +1,79 @@
+import RemoteKeyboardCore
 import UIKit
+import os
 
-/// A light tap and the system key click on every key at touch down. The controller sets both flags through
-/// `KeyboardViewState` (`KeyFeedbackSettings`), so no view needs to know about the switches or Full Access. The click
-/// goes through `UIDevice.playInputClick()`, which plays only while the controller's input view
-/// (`ClickableInputView`) adopts `UIInputViewAudioFeedback`, so the iPhone silent switch and the system keyboard feedback setting
-/// still decide whether it is heard.
+/// A tap and a key click on every key at touch down, at the levels the user chose (D23). The controller sets the flags
+/// and levels through `KeyboardViewState` (`KeyFeedbackSettings`), so no view needs to know about the switches or Full
+/// Access. With Full Access the click is played by `KeyClickPlayer` at the chosen volume; without it, or when the player
+/// cannot start, it goes through `UIDevice.playInputClick()`, which plays only while the controller's input view
+/// (`ClickableInputView`) adopts `UIInputViewAudioFeedback`. Both follow the iPhone silent switch.
 @MainActor
 enum KeyFeedback {
     static var isEnabled = false
     static var soundEnabled = false
-    private static let generator = UIImpactFeedbackGenerator(style: .light)
+    /// Play the click through `KeyClickPlayer` (Full Access); false uses the system click.
+    static var customSound = false
+    static var soundVolume = KeyFeedbackSettings.defaultSoundVolume
+    static var hapticIntensity = KeyFeedbackSettings.defaultHapticIntensity
+    private static let generator = UIImpactFeedbackGenerator(style: .medium)
+    private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "feedback")
+    /// The keyboard is on screen; only then may the click engine run.
+    private static var isActive = false
+    private static var loggedFallback = false
 
-    /// Wakes the haptic engine so the first press after a pause is not late.
+    /// Wakes the haptic engine and the click engine so the first press after a pause is not late.
     static func prepare() {
-        guard isEnabled else { return }
-        generator.prepare()
+        if isEnabled, hapticIntensity > 0 { generator.prepare() }
+        if isActive, soundEnabled, customSound, soundVolume > 0 { KeyClickPlayer.shared.prepare() }
+    }
+
+    /// The keyboard appeared (`viewDidAppear`): the only place, besides the Settings page, that forgets an earlier click
+    /// engine failure.
+    static func activate() {
+        isActive = true
+        loggedFallback = false
+        if isEnabled, hapticIntensity > 0 { generator.prepare() }
+        if soundEnabled, customSound, soundVolume > 0 { KeyClickPlayer.shared.begin() }
+    }
+
+    /// The keyboard went away: stop the click engine so nothing runs in the background.
+    static func deactivate() {
+        isActive = false
+        KeyClickPlayer.shared.stop()
     }
 
     static func touchDown() {
-        if soundEnabled { UIDevice.current.playInputClick() }
-        guard isEnabled else { return }
-        generator.impactOccurred()
+        if soundEnabled { playClick() }
+        guard isEnabled, hapticIntensity > 0 else { return }
+        generator.impactOccurred(intensity: CGFloat(hapticIntensity))
         generator.prepare()
+    }
+
+    private static func playClick() {
+        // Only while the keyboard is on screen: a late touch after `deactivate()` must not restart the engine.
+        if customSound, isActive {
+            if KeyClickPlayer.shared.play(volume: soundVolume) { return }
+            if !loggedFallback {
+                loggedFallback = true
+                log.info("click fell back to the system click")
+            }
+        }
+        UIDevice.current.playInputClick()
+    }
+
+    /// Settings preview: one click at `volume` (0…2).
+    @discardableResult
+    static func previewSound(volume: Double) -> Bool {
+        let played = KeyClickPlayer.shared.play(volume: volume)
+        log.info("sound preview, played \(played, privacy: .public)")
+        return played
+    }
+
+    /// Settings preview: one tap at `intensity` (0…1).
+    static func previewHaptic(intensity: Double) {
+        guard intensity > 0 else { return }
+        generator.impactOccurred(intensity: CGFloat(min(max(intensity, 0), 1)))
+        log.info("haptic preview")
     }
 }
 

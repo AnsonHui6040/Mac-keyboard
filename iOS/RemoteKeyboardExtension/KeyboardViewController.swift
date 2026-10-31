@@ -170,11 +170,13 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidAppear(animated)
         reclaimPeripheralIfVacant()
         dictationDidAppear()
+        KeyFeedback.activate()
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         isOnScreen = false
+        KeyFeedback.deactivate()
         #if DEBUG
         dictationDisappeared()
         #endif
@@ -315,18 +317,24 @@ final class KeyboardViewController: UIInputViewController {
         return proxy.value(forKey: "documentIdentifier") as? UUID
     }
 
-    /// The raw App Group values of 「按鍵聲音」 and 「按鍵震動」, read on each `viewWillAppear`. Full Access is applied when
-    /// the state is built, so a change of Full Access shows at the next refresh.
+    /// The raw App Group values of 「按鍵聲音」, 「按鍵震動」, 「音量」 and 「震動強度」, read on each `viewWillAppear`. Full
+    /// Access is applied when the state is built, so a change of Full Access shows at the next refresh.
     private var storedKeySound: Any?
     private var storedKeyHaptics: Any?
+    private var storedKeyVolume: Any?
+    private var storedKeyIntensity: Any?
     private var keyFeedback: KeyFeedbackSettings {
-        KeyFeedbackSettings(storedSound: storedKeySound, storedHaptics: storedKeyHaptics, hasFullAccess: hasFullAccess)
+        KeyFeedbackSettings(
+            storedSound: storedKeySound, storedHaptics: storedKeyHaptics, storedVolume: storedKeyVolume,
+            storedIntensity: storedKeyIntensity, hasFullAccess: hasFullAccess)
     }
 
     private func refreshKeyFeedback() {
         let defaults = UserDefaults(suiteName: AppGroup.identifier)
         storedKeySound = defaults?.object(forKey: AppGroup.Key.keySound)
         storedKeyHaptics = defaults?.object(forKey: AppGroup.Key.keyHaptics)
+        storedKeyVolume = defaults?.object(forKey: AppGroup.Key.keySoundVolume)
+        storedKeyIntensity = defaults?.object(forKey: AppGroup.Key.keyHapticIntensity)
     }
 
     private static func storedDictationSetting() -> Any? {
@@ -794,7 +802,9 @@ final class KeyboardViewController: UIInputViewController {
             composing: navigator.page == .chinese && isQuick ? quickOutput.composing : "",
             quickShift: navigator.page == .chinese && isQuick && quickOutput.shift,
             handwritingMessage: navigator.page == .chinese && !isQuick ? Self.message(for: chinese.modelStatus) : nil,
-            hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound)
+            hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound,
+            soundVolume: keyFeedback.soundVolume, customSound: keyFeedback.customSound,
+            hapticIntensity: keyFeedback.hapticIntensity)
         #if DEBUG
         var state = built
         state.dictationProbeLines = dictationProbeLines()

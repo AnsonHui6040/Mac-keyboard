@@ -12,6 +12,10 @@ struct SettingsView: View {
 
     @State private var keySound = Self.storedFlag(AppGroup.Key.keySound)
     @State private var keyHaptics = Self.storedFlag(AppGroup.Key.keyHaptics)
+    @State private var soundVolume = Self.storedLevels().soundVolume
+    @State private var hapticIntensity = Self.storedLevels().hapticIntensity
+    /// When a level preview last played; a drag previews at most about eight times a second.
+    @State private var lastPreview = Date.distantPast
 
     var body: some View {
         Form {
@@ -26,12 +30,20 @@ struct SettingsView: View {
             Section {
                 Toggle("按鍵聲音", isOn: $keySound)
                     .accessibilityIdentifier("rk.settings.keySound")
+                levelRow("音量", value: $soundVolume, range: 0...2, id: "rk.settings.soundVolume") {
+                    KeyFeedback.previewSound(volume: soundVolume)
+                }
+                .disabled(!keySound)
                 Toggle("按鍵震動", isOn: $keyHaptics)
                     .accessibilityIdentifier("rk.settings.keyHaptics")
+                levelRow("震動強度", value: $hapticIntensity, range: 0...1, id: "rk.settings.hapticIntensity") {
+                    KeyFeedback.previewHaptic(intensity: hapticIntensity)
+                }
+                .disabled(!keyHaptics)
             } header: {
                 Text("按鍵回饋")
             } footer: {
-                Text("聲音跟隨 iPhone 靜音與系統「鍵盤回饋」設定。震動需要在設定中允許完整取用。")
+                Text("音量 100% 約等於系統按鍵聲；聲音跟隨 iPhone 靜音鍵。自訂音量與震動需要在設定中允許完整取用，未允許時改用系統按鍵聲。")
             }
             Section {
                 methodRow("手寫", id: .handwriting)
@@ -70,7 +82,11 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("中文輸入設定")
-        .onAppear { downloader.refresh() }
+        .onAppear {
+            downloader.refresh()
+            if keySound { KeyClickPlayer.shared.begin() }
+        }
+        .onDisappear { KeyClickPlayer.shared.stop() }
         .onChange(of: syncsDictation) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.dictationSync)
         }
@@ -80,12 +96,65 @@ struct SettingsView: View {
         .onChange(of: keyHaptics) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.keyHaptics)
         }
+        .onChange(of: soundVolume) { _, volume in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(volume, forKey: AppGroup.Key.keySoundVolume)
+            previewThrottled { KeyFeedback.previewSound(volume: volume) }
+        }
+        .onChange(of: hapticIntensity) { _, intensity in
+            UserDefaults(suiteName: AppGroup.identifier)?.set(intensity, forKey: AppGroup.Key.keyHapticIntensity)
+            previewThrottled { KeyFeedback.previewHaptic(intensity: intensity) }
+        }
         .confirmationDialog("刪除手寫模型？", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("刪除", role: .destructive) { downloader.delete() }
             Button("取消", role: .cancel) {}
         } message: {
             Text("刪除後，鍵盤會在下次顯示時移除它的副本，手寫頁需要重新下載模型才能使用。")
         }
+    }
+
+    // MARK: Key feedback
+
+    /// A title with the level as a percentage, and a slider in steps of 5%. Letting go previews the level once more
+    /// (through the same throttle as the drag, so the last step does not sound twice).
+    private func levelRow(
+        _ title: String, value: Binding<Double>, range: ClosedRange<Double>, id: String,
+        preview: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(Self.percent(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: 0.05) { editing in
+                if !editing { previewThrottled(preview) }
+            }
+            .accessibilityValue(Self.percent(value.wrappedValue))
+            .accessibilityIdentifier(id)
+        }
+    }
+
+    private func previewThrottled(_ preview: () -> Void) {
+        let now = Date()
+        guard now.timeIntervalSince(lastPreview) >= 0.12 else { return }
+        lastPreview = now
+        preview()
+    }
+
+    private static func percent(_ level: Double) -> String {
+        "\(Int((level * 100).rounded()))%"
+    }
+
+    /// The two levels from the App Group; the same rule as the keyboard (default, clamped).
+    private static func storedLevels() -> KeyFeedbackSettings {
+        let defaults = UserDefaults(suiteName: AppGroup.identifier)
+        return KeyFeedbackSettings(
+            storedSound: nil, storedHaptics: nil,
+            storedVolume: defaults?.object(forKey: AppGroup.Key.keySoundVolume),
+            storedIntensity: defaults?.object(forKey: AppGroup.Key.keyHapticIntensity),
+            hasFullAccess: true)
     }
 
     // MARK: Method

@@ -22,5 +22,11 @@ public enum AppGroup {
         /// 「按鍵震動」, a `Bool` written by the host App and read by the Extension. Not set means on
         /// (`KeyFeedbackSettings`).
         public static let keyHaptics = "rk.keyHaptics"
+        /// 「音量」, a `Double` 0…2 written by the host App and read by the Extension. Not set means 1.4
+        /// (`KeyFeedbackSettings`).
+        public static let keySoundVolume = "rk.keySoundVolume"
+        /// 「震動強度」, a `Double` 0…1 written by the host App and read by the Extension. Not set means 0.7
+        /// (`KeyFeedbackSettings`).
+        public static let keyHapticIntensity = "rk.keyHapticIntensity"
     }
 }
