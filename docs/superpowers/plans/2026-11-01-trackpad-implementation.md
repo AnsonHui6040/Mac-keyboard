@@ -134,16 +134,25 @@ func testCsvHasNoCoordinates() // CSV 標頭只含 seq、kind、bytes、counterG
   - M2、M3、M5、M6：面板操作與輸出位置。
   - M4：依 spec §13.3（時間點 T0–T6 表、器材設定、游標放大、高對比背景、確認影片實際幀率與兩端螢幕更新率、每筆從靜止開始、≥ 100 筆、邊界時 ≥ 200 筆）；逐筆記錄 T0、T2、T5′、T6 的幀號到 `docs/superpowers/verification/evidence/TP1-m4-frames.csv`，以 `swift scripts/tp1-m4-stats.swift <csv> <fps>` 算出 E2E、T6 − T2、T6 − T5′ 的 P50／P95／P99 與量化誤差，並標示是否落在邊界。
 - [ ] **Step 10: 主代理在實機跑 M2、M3、M5、M6，使用者跑 M1、M4**；結果填入驗收報告（實機項 TBD 直到使用者確認）。
-- [ ] **Step 11: 第一階段驗收對照（使用者 2026-11-01 指定）**
+- [ ] **Step 10b: 依使用者 2026-11-01 修訂補強量測工具並重量**（spec §13.2、§13.4）：
+  - 回覆加 `macTimeMicros`（回覆明文 24 bytes、封包 49 bytes）；Core `ClockOffsetEstimator`（以最小 RTT 樣本估計時鐘差，TDD：已知偏移與對稱延遲還原誤差 < 1 ms、非對稱延遲時誤差 ≤ 最小 RTT／2）；M3 輸出 M3a（RTT）、M3b（覆蓋率）、M3c（單程 P50／P95／P99 與估計誤差）。
+  - 量測前可指定連線延遲偏好（UI 測試環境變數 `RKMEAS_LATENCY=low|medium|none`），每行結果帶 `latency=`。
+  - Mac CSV 每列加 `macTimeMicros`，供心跳間隔異常分析（不含內容）。
+  - M5 恢復段改為固定 10 秒，必須有樣本。
+  - 新增 M7（模式切換，20 次）與 M8（觸控板工作負載，10 分鐘），兩者的出口規則採 spec §8.2 規則 4 的觸控板模式優先。
+  - M6 主要量測改為 `.low`、30 分鐘；分析心跳間隔 > 200 ms 的時間分佈，對照 M1 的 connection interval 與 Mac 端紀錄，判斷異常來自 iPhone 交出之後的系統佇列、空中傳輸還是 Mac 端處理。
+  - 先寫測試再實作；全套 regression 重跑。之後在實機依序跑：M2、M3、M6（30 分鐘）、M7、M8（`.low`），再跑健壯性 M5、M6-L。
+- [ ] **Step 11: 第一階段驗收對照（使用者 2026-11-01 指定；同日修訂為主要／健壯性兩類）**
 
 | 指標 | 目標 | 在哪裡驗證 |
 |---|---|---|
-| 觸控到游標可見 P95 | < 60 ms | TP1 M4（加密量測封包，與正式封包同大小）；TP5 以正式協定重測 |
+| 觸控到游標可見 P95 | < 60 ms（`.low`、無長文字） | TP1 M4（加密量測封包，與正式封包同大小）；TP5 以正式協定重測 |
 | P50／P99 | 完整記錄，不設門檻 | TP1 M3、M4 |
 | BLE connection interval | 實測分佈 | TP1 M1 |
-| 背壓 | 不累積過時 MOVE | TP1 M5（RTT 不隨時間上升）；TP2 出口與過時測試 |
+| 背壓 | 不累積過時 MOVE | 主要：TP1 M8、M7；健壯性：M5（長文字併發，不要求 P95 60 ms）；TP2 出口與過時測試 |
+| 模式切換 | 尚未送完的文字不影響觸控板即時操作 | TP1 M7 |
 | 重複點擊 | 0 次 | TP2、TP3 單元測試；TP5 實機 |
-| 斷線後卡住拖曳 | 0 次 | TP1 M6 量看門狗誤放開；TP3 單元測試；TP5 實機 100 次 |
+| 斷線後卡住拖曳 | 0 次 | TP1 M6（`.low`、30 分鐘）與 M8 的會誤放開次數必須為 0；TP3 單元測試；TP5 實機 100 次 |
 | 現有鍵盤回歸 | 全部通過 | 每個 Task 全套測試＋TP5 |
 
 - [ ] **Step 12: 決策關卡報告** `docs/superpowers/verification/2026-11-xx-tp1-decision.md`：各指標 P50／P95／P99／jitter、M4 分解（E2E、T6 − T2、T6 − T5′、iPhone 軟體、Mac 軟體、BLE 估計）與誤差、M5 積壓、M6 誤放開次數、建議；並把 spec §14 已量到的 Provisional 值改成實測值。停下等使用者決定。
