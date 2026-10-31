@@ -55,6 +55,7 @@
 | T16 | Release Candidate QA、文件與分發審核 | 自動通過，實機總清單 TBD | 全部必需 Gate 通過且帶 log/截圖/測試版本，無 blocker | 自動（2026-10-31）：Core 597/0、Mac 187/0、iOS 真機 build 與 UI 測試 build-for-testing 成功。Mac 未授權輔助使用時鍵盤顯示「Mac 未授權輔助使用」（ReceiverStatus 新增 `trusted`，只在未授權時寫入，已授權時位元組與舊版相同）；Receiver 面板顯示不可用原因；central 接線測試；UI 測試清理。實機總清單 `e2e/E2E-T16-RC.md`：145 項（必要 129、可選 16），約 5 小時 20 分鐘，結果 TBD。獨立審查一輪修正後接受 | `e2e/E2E-T16-RC.md` |
 | D20 | 按鍵觸及範圍外擴（使用者 2026-10-31 回報空隙按不到） | 自動通過，實機 TBD | 鍵、行之間與鍵區邊緣的空白送出最近的鍵；不搶候選字列、頂部區與手寫書寫區；手寫提示訊息時點擊不送字 | 自動（2026-10-31）：Core 606/0（`KeyHitResolverTests` 9 項）、iOS 真機 build 與 UI 測試 build-for-testing 成功；獨立審查 1 項 Important（手寫提示區）已修。實機見 `E2E-T16-RC.md` B23–B28 |
 | D21 | 按鍵聲音與震動開關 | 自動通過，實機 TBD | 兩開關各自生效；預設開；靜音時無聲；無完整取用時無震動 | 自動（2026-10-31）：Core 611/0（`KeyFeedbackSettingsTests` 5 項）、iOS 模擬器／真機 build 與 UI 測試 build-for-testing 成功；設定頁截圖確認預設開。實機見 `E2E-T16-RC.md` B29–B34 |
+| D22 | 收起鍵盤鍵與按鍵聲修正 | 自動通過，實機 TBD | 收起鍵在即時／草稿左邊，按下收起且草稿保留；按鍵有聲 | 自動（2026-10-31）：Core 617/0（新增 `testDismissKeyboardOnlyReportsDismissAndKeepsTheDraft`，先 RED 後 GREEN）、iOS 模擬器／真機 build 與 UI 測試 build-for-testing 成功；預覽截圖（402、375 pt，本機與遠端）確認收起鍵位置與鍵盤高度不變。實機 TBD（見 E2E-T16-RC B29、B35） |
 
 ## 每項驗收記錄格式（複製一份填 T01–T16、T12b）
 

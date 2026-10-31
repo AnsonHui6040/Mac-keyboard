@@ -21,6 +21,8 @@ public struct InputRouter {
             return .transmitToggled(transmit.toggled)
         case .nextKeyboard:
             return .advanceInputMode
+        case .dismissKeyboard:
+            return .dismissKeyboard
         case .switchChineseEnglish, .switchSymbols:
             return .pageChanged
         case .cursorLeft:
