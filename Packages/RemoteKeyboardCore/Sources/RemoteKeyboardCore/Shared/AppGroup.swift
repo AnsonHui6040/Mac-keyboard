@@ -16,5 +16,11 @@ public enum AppGroup {
         /// 「聽寫同步到 Mac」, a `Bool` written by the host App and read by the Extension. Not set means on
         /// (`DictationSync.isEnabled`).
         public static let dictationSync = "rk.dictationSync"
+        /// 「按鍵聲音」, a `Bool` written by the host App and read by the Extension. Not set means on
+        /// (`KeyFeedbackSettings`).
+        public static let keySound = "rk.keySound"
+        /// 「按鍵震動」, a `Bool` written by the host App and read by the Extension. Not set means on
+        /// (`KeyFeedbackSettings`).
+        public static let keyHaptics = "rk.keyHaptics"
     }
 }

@@ -1,10 +1,13 @@
 import UIKit
 
-/// A light tap on every key at touch down. Off unless the keyboard has Full Access: the controller sets the flag
-/// through `KeyboardViewState.hapticsEnabled`, so no view needs to know about Full Access.
+/// A light tap and the system key click on every key at touch down. The controller sets both flags through
+/// `KeyboardViewState` (`KeyFeedbackSettings`), so no view needs to know about the switches or Full Access. The click
+/// goes through `UIDevice.playInputClick()`, so the iPhone silent switch and the system keyboard feedback setting
+/// still decide whether it is heard.
 @MainActor
 enum KeyFeedback {
     static var isEnabled = false
+    static var soundEnabled = false
     private static let generator = UIImpactFeedbackGenerator(style: .light)
 
     /// Wakes the haptic engine so the first press after a pause is not late.
@@ -14,6 +17,7 @@ enum KeyFeedback {
     }
 
     static func touchDown() {
+        if soundEnabled { UIDevice.current.playInputClick() }
         guard isEnabled else { return }
         generator.impactOccurred()
         generator.prepare()
