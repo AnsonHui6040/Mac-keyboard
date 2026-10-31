@@ -179,6 +179,7 @@
 | D20 | 按鍵觸及範圍（2026-10-31） | 參考 Apple 原生鍵盤：鍵與鍵、行與行之間及鍵區邊緣的空白，歸距離最近的鍵（上限一行鍵高 42 pt）；已命中的控制項（按鍵、候選字列、手寫書寫區）不受影響。按鍵外觀、大小與鍵盤高度不變 | 使用者 2026-10-31 回報空隙按不到 |
 | D21 | 按鍵回饋開關（2026-10-31） | 主 App「按鍵回饋」有「按鍵聲音」「按鍵震動」兩個獨立開關，預設都開。聲音用 iOS 標準按鍵聲（跟隨靜音與系統「鍵盤回饋」設定，不需完整取用）；震動需要完整取用 | 使用者 2026-10-31 決定 |
 | D22 | 收起鍵盤鍵與按鍵聲修正（2026-10-31） | 頂部列加「收起鍵盤」鍵，在即時／草稿切換的左邊（本機模式沒有該切換，故在最右），永遠顯示；按下只收起鍵盤，不送出、不清除草稿。按鍵聲改由控制器的 inputView 本身採用 `UIInputViewAudioFeedback`（子 view 採用無效） | 使用者 2026-10-31 回報 |
+| D23 | 按鍵音量與震動強度（2026-10-31） | 主 App「按鍵回饋」在兩個開關下各加一條滑桿：「音量」0–200%（預設 140%，約比系統按鍵聲大 40%）與「震動強度」0–100%（預設 70%），拖動時即時試聽與試震，經 App Group（`rk.keySoundVolume`、`rk.keyHapticIntensity`）傳給 Extension；開關關閉時滑桿停用。`playInputClick()` 音量固定，故有完整取用時改由 `KeyClickPlayer`（`AVAudioEngine`＋`AVAudioPlayerNode`＋`AVAudioUnitEQ`）自行播放：執行期直接讀 iPhone 系統檔 `/System/Library/Audio/UISounds/key_press_click.caf`（不複製進 repo），讀不到才用自行合成的 `key-click.caf`（`scripts/make-key-click.swift`，約 30 ms）；音量 ≤100% 用 node volume，>100% 用 EQ `globalGain` = 20·log10(音量) dB（最大約 +6 dB）。Audio session 為 `.ambient`＋`.mixWithOthers`，跟隨靜音鍵、不打斷音樂；engine 只在鍵盤出現後（`viewDidAppear`）啟動、消失時停止；啟動失敗只記一次 log，在下次出現前不再重試；鍵盤不在畫面上時不使用自訂播放器。沒有完整取用或 engine 啟動失敗時退回 `playInputClick()`（系統音量）。震動改 `.medium` 並以強度 `impactOccurred(intensity:)`，仍需完整取用。log 只記事件種類與結果 | 使用者 2026-10-31 決定 |
 
 ## 13. 開發環境（2026-10-29 實測）
 

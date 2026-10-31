@@ -29,6 +29,11 @@ struct KeyboardViewState: Equatable {
     var hapticsEnabled: Bool
     /// System key click on every key at touch down. Follows the user's switch only; Full Access is not needed.
     var soundEnabled: Bool
+    /// Click level 0…2 (`KeyFeedbackSettings.soundVolume`) and whether the keyboard plays the click itself (Full Access).
+    var soundVolume: Double = KeyFeedbackSettings.defaultSoundVolume
+    var customSound = false
+    /// Tap strength 0…1.
+    var hapticIntensity: Double = KeyFeedbackSettings.defaultHapticIntensity
     #if DEBUG
     /// T13 dictation probe checklist (five lines, one item each), drawn over the English page's letter rows; nil when
     /// the probe is off.
@@ -125,6 +130,9 @@ final class KeyboardRootView: UIView {
     func apply(_ state: KeyboardViewState) {
         KeyFeedback.isEnabled = state.hapticsEnabled
         KeyFeedback.soundEnabled = state.soundEnabled
+        KeyFeedback.customSound = state.customSound
+        KeyFeedback.soundVolume = state.soundVolume
+        KeyFeedback.hapticIntensity = state.hapticIntensity
         KeyFeedback.prepare()
         topArea.apply(state)
         bottomRow.setGlobeVisible(state.showsGlobe)

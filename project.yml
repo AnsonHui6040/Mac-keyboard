@@ -24,9 +24,9 @@ targets:
       - iOS/RemoteKeyboardApp
       - iOS/Shared
       - iOS/RemoteKeyboardExtension/UI
-      # The Settings page shows the licence of the Quick table.
+      # The Settings page shows the licence of the Quick table and previews the bundled key click.
       - path: iOS/RemoteKeyboardExtension/Resources
-        includes: [quick-table-LICENSE.txt]
+        includes: [quick-table-LICENSE.txt, key-click.caf]
     dependencies:
       - target: RemoteKeyboardExtension
         embed: true

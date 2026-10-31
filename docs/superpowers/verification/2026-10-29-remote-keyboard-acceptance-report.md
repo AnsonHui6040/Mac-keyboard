@@ -56,6 +56,7 @@
 | D20 | 按鍵觸及範圍外擴（使用者 2026-10-31 回報空隙按不到） | 自動通過，實機 TBD | 鍵、行之間與鍵區邊緣的空白送出最近的鍵；不搶候選字列、頂部區與手寫書寫區；手寫提示訊息時點擊不送字 | 自動（2026-10-31）：Core 606/0（`KeyHitResolverTests` 9 項）、iOS 真機 build 與 UI 測試 build-for-testing 成功；獨立審查 1 項 Important（手寫提示區）已修。實機見 `E2E-T16-RC.md` B23–B28 |
 | D21 | 按鍵聲音與震動開關 | 自動通過，實機 TBD | 兩開關各自生效；預設開；靜音時無聲；無完整取用時無震動 | 自動（2026-10-31）：Core 611/0（`KeyFeedbackSettingsTests` 5 項）、iOS 模擬器／真機 build 與 UI 測試 build-for-testing 成功；設定頁截圖確認預設開。實機見 `E2E-T16-RC.md` B29–B34 |
 | D22 | 收起鍵盤鍵與按鍵聲修正 | 自動通過，實機 TBD | 收起鍵在即時／草稿左邊，按下收起且草稿保留；按鍵有聲 | 自動（2026-10-31）：Core 617/0（新增 `testDismissKeyboardOnlyReportsDismissAndKeepsTheDraft`，先 RED 後 GREEN）、iOS 模擬器／真機 build 與 UI 測試 build-for-testing 成功；預覽截圖（402、375 pt，本機與遠端）確認收起鍵位置與鍵盤高度不變。實機 TBD（見 E2E-T16-RC B29、B35） |
+| D23 | 按鍵音量與震動強度 | 自動通過，實機 TBD | 預設聲音比系統按鍵聲大約 40%；音量、震動強度滑桿拖動即時試聽試震；0% 無聲／不震；開關關閉時滑桿停用；無完整取用時退回系統按鍵聲；靜音鍵靜音時無聲；不打斷音樂 | 自動（2026-10-31）：Core 628/0（基線 617，新增 `KeyFeedbackLevelTests` 11 項：預設、夾範圍、非數字／NaN／Bool、0、1.0、1.4、2.0 換算；先 RED（編譯失敗）後 GREEN）；iOS 模擬器／真機 build、UI 測試 build-for-testing、Mac build 成功；模擬器：設定頁截圖確認兩條滑桿（預設 140%、70%，拖到 200%，關閉開關後滑桿變灰）、播放器啟動不崩潰（log：`click engine started, source bundled`，拖動 5 次試聽 `played true`）；模擬器 runtime 內 `key_press_click.caf` 存在（1 聲道、44.1 kHz、Int16、約 4.5 ms、峰值約 0.38），但模擬器 App 讀的是 Mac 的 `/System`，所以走合成檔；系統檔路徑能否在實機 Extension 讀到、100% 是否約等於系統聲、無完整取用時退回系統聲，皆實機 TBD（見 E2E-T16-RC B36–B42） |
 
 ## 每項驗收記錄格式（複製一份填 T01–T16、T12b）
 
