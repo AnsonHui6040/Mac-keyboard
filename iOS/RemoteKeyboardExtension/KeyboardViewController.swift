@@ -130,8 +130,10 @@ final class KeyboardViewController: UIInputViewController {
         root.trackpadPage.onTouchesMoved = { [weak self] in self?.trackpad.touchesMoved($0) }
         root.trackpadPage.onTouchesEnded = { [weak self] in self?.trackpad.touchesEnded($0) }
         root.trackpadPage.onTouchesCancelled = { [weak self] in self?.trackpad.touchesCancelled(atMicros: $0) }
-        trackpad.sensitivity = root.trackpadPage.sensitivity
-        root.trackpadPage.onSensitivityChange = { [weak self] in self?.trackpad.sensitivity = $0 }
+        root.trackpadPage.onSendRateChange = { [weak self] rate in
+            self?.trackpad.sendRate = rate
+            Self.storeTrackpadSendRate(rate)
+        }
         root.trackpadPage.onTick = { [weak self] in self?.trackpad.tick(nowMicros: $0) }
         trackpad.onChange = { [weak self] in self?.refreshStatus() }
         #if DEBUG
@@ -170,6 +172,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        refreshTrackpadSettings()
         refreshKeyFeedback()
         refreshDictationSetting()
         #if DEBUG
@@ -743,11 +746,37 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: Touchpad
 
+    /// Reads 「靈敏度」 (App Group, set in the host App) and 「傳輸次數」 whenever the keyboard appears or the pad is entered.
+    /// The sensitivity the page used to keep in the extension's own defaults is moved over once.
+    private func refreshTrackpadSettings() {
+        let group = UserDefaults(suiteName: AppGroup.identifier)
+        let standard = UserDefaults.standard
+        let sensitivity = TrackpadSensitivity.resolved(
+            appGroup: group?.object(forKey: AppGroup.Key.trackpadSensitivity),
+            legacy: standard.object(forKey: TrackpadSensitivity.legacyDefaultsKey))
+        if sensitivity.migrated, let group {
+            group.set(sensitivity.value, forKey: AppGroup.Key.trackpadSensitivity)
+            standard.removeObject(forKey: TrackpadSensitivity.legacyDefaultsKey)
+        }
+        trackpad.sensitivity = sensitivity.value
+        // Without Full Access the App Group may not be writable; the extension's own defaults then keep the rate.
+        let rate = TrackpadSendRate.clamped(
+            group?.object(forKey: AppGroup.Key.trackpadSendRate) ?? standard.object(forKey: AppGroup.Key.trackpadSendRate))
+        trackpad.sendRate = rate
+        rootView?.trackpadPage.setSendRate(rate)
+    }
+
+    private static func storeTrackpadSendRate(_ rate: Int) {
+        UserDefaults(suiteName: AppGroup.identifier)?.set(rate, forKey: AppGroup.Key.trackpadSendRate)
+        UserDefaults.standard.set(rate, forKey: AppGroup.Key.trackpadSendRate)
+    }
+
     private func toggleTrackpad() {
         reclaimPeripheralIfVacant()
         if trackpad.isActive {
             trackpad.leave()
         } else if mode == .remote {
+            refreshTrackpadSettings()
             trackpad.enter()
         }
     }

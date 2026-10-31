@@ -17,6 +17,7 @@ import Foundation
 /// Time is always passed in (`PointerClock.nowMicros()`, the same clock as the touches). Single serial context only; no lock.
 /// Nothing here is logged.
 public final class PointerSender {
+    /// The pacing at 60 packets per second (`TrackpadSendRate.pacingMicros(60)`); what a new sender starts with.
     public static let moveIntervalMicros: UInt64 = 15_000
     public static let heartbeatIntervalMicros: UInt64 = 100_000
     /// One displacement is split into at most this many packets; what does not fit is dropped and flagged as truncated.
@@ -71,6 +72,9 @@ public final class PointerSender {
         case openMove
         case openScroll
     }
+
+    /// The least time between two open MOVE or SCROLL packets; set from `TrackpadSendRate.pacingMicros`.
+    public var pacingMicros: UInt64 = PointerSender.moveIntervalMicros
 
     private var closed: [PointerPayload] = []
     private var move = Axis()
@@ -171,7 +175,7 @@ public final class PointerSender {
             offered = .heartbeat
             return payload(.heartbeat)
         }
-        guard lastOpenSentAt.map({ now &- $0 >= Self.moveIntervalMicros }) ?? true else { return nil }
+        guard lastOpenSentAt.map({ now &- $0 >= pacingMicros }) ?? true else { return nil }
         if isScrolling, scroll.hasPacket {
             offered = .openScroll
             var copy = scroll

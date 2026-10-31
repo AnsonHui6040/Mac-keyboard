@@ -28,13 +28,14 @@ final class TrackpadPageView: UIView {
     var onTouchesMoved: (([TrackpadTouch]) -> Void)?
     var onTouchesEnded: (([TrackpadTouch]) -> Void)?
     var onTouchesCancelled: ((UInt64) -> Void)?
-    /// Once per display refresh while the page is shown; drives the long press, the pacing and the heartbeat.
+    /// Once per display refresh while the page is shown (at least as fast as the send rate); drives the long press, the pacing
+    /// and the heartbeat.
     var onTick: ((UInt64) -> Void)?
-    /// The cursor-speed multiplier changed (also called once by the owner to read the stored value).
-    var onSensitivityChange: ((Double) -> Void)?
+    /// The user pressed − or ＋ on the 「傳輸次數」 bar; the value is already stored.
+    var onSendRateChange: ((Int) -> Void)?
 
-    private(set) var sensitivity: Double = TrackpadSensitivity.clamped(
-        UserDefaults.standard.object(forKey: TrackpadSensitivity.defaultsKey) as? Double)
+    /// Most cursor packets per second (`TrackpadSendRate`); also the frame rate the display link asks for.
+    private(set) var sendRate = TrackpadSendRate.defaultValue
 
     private let surface = UIView()
     private let label = UILabel()
@@ -79,23 +80,23 @@ final class TrackpadPageView: UIView {
 
     private func setUpBar() {
         bar.backgroundColor = .keyboardTouchSurface
-        bar.accessibilityIdentifier = "rk.trackpad.sensitivityBar"
+        bar.accessibilityIdentifier = "rk.trackpad.rateBar"
         addSubview(bar)
 
         let title = UILabel()
-        title.text = "靈敏度"
+        title.text = "傳輸次數"
         title.font = .systemFont(ofSize: 14)
         title.textColor = .secondaryLabel
 
         valueLabel.font = .monospacedDigitSystemFont(ofSize: 16, weight: .medium)
         valueLabel.textColor = .label
         valueLabel.textAlignment = .center
-        valueLabel.accessibilityIdentifier = "rk.trackpad.sensitivityValue"
-        valueLabel.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        valueLabel.accessibilityIdentifier = "rk.trackpad.rateValue"
+        valueLabel.widthAnchor.constraint(equalToConstant: 76).isActive = true
 
         let stack = UIStackView(arrangedSubviews: [
-            title, stepButton("−", steps: -1, id: "rk.trackpad.sensitivityDown"), valueLabel,
-            stepButton("＋", steps: 1, id: "rk.trackpad.sensitivityUp"),
+            title, stepButton("−", steps: -1, id: "rk.trackpad.rateDown"), valueLabel,
+            stepButton("＋", steps: 1, id: "rk.trackpad.rateUp"),
         ])
         stack.axis = .horizontal
         stack.alignment = .center
@@ -106,7 +107,7 @@ final class TrackpadPageView: UIView {
             stack.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
         ])
-        valueLabel.text = TrackpadSensitivity.displayText(sensitivity)
+        valueLabel.text = TrackpadSendRate.displayText(sendRate)
     }
 
     private func stepButton(_ title: String, steps: Int, id: String) -> UIButton {
@@ -118,7 +119,7 @@ final class TrackpadPageView: UIView {
         configuration.background.backgroundColor = .tertiarySystemFill
         let button = UIButton(configuration: configuration)
         button.accessibilityIdentifier = id
-        button.accessibilityLabel = steps < 0 ? "降低靈敏度" : "提高靈敏度"
+        button.accessibilityLabel = steps < 0 ? "降低傳輸次數" : "提高傳輸次數"
         button.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
         button.addAction(UIAction { [weak self] _ in self?.step(steps) }, for: .touchUpInside)
         button.widthAnchor.constraint(equalToConstant: 48).isActive = true
@@ -127,10 +128,23 @@ final class TrackpadPageView: UIView {
     }
 
     private func step(_ steps: Int) {
-        sensitivity = TrackpadSensitivity.stepped(sensitivity, by: steps)
-        UserDefaults.standard.set(sensitivity, forKey: TrackpadSensitivity.defaultsKey)
-        valueLabel.text = TrackpadSensitivity.displayText(sensitivity)
-        onSensitivityChange?(sensitivity)
+        let next = TrackpadSendRate.stepped(sendRate, by: steps)
+        guard next != sendRate else { return }
+        setSendRate(next)
+        onSendRateChange?(next)
+    }
+
+    /// Shows and uses `rate` (clamped); storing it is the owner's job.
+    func setSendRate(_ rate: Int) {
+        sendRate = TrackpadSendRate.clamped(rate)
+        valueLabel.text = TrackpadSendRate.displayText(sendRate)
+        if let link = displayLink { Self.configure(link, rate: sendRate) }
+    }
+
+    private static func configure(_ link: CADisplayLink, rate: Int) {
+        let range = TrackpadSendRate.frameRate(for: rate)
+        link.preferredFrameRateRange = CAFrameRateRange(
+            minimum: range.minimum, maximum: range.maximum, preferred: range.preferred)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -179,7 +193,7 @@ final class TrackpadPageView: UIView {
             let target = LinkTarget()
             target.owner = self
             let link = CADisplayLink(target: target, selector: #selector(LinkTarget.fire(_:)))
-            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 60, preferred: 60)
+            Self.configure(link, rate: sendRate)
             link.add(to: .main, forMode: .common)
             displayLink = link
         } else if !wanted, let link = displayLink {
