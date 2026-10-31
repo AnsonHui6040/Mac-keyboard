@@ -39,6 +39,16 @@ final class FocusTransitionTests: XCTestCase {
         XCTAssertTrue(trusted.ready)
     }
 
+    func testStatusNeverCarriesMeasureByDefault() {
+        XCTAssertFalse(FocusTransition.status(for: snap(true, epoch: 3)).measure)
+    }
+
+    #if DEBUG
+    func testStatusCarriesTheMeasureFlag() {
+        XCTAssertTrue(FocusTransition.status(for: snap(true, epoch: 3), measure: true).measure)
+    }
+    #endif
+
     func testStatusChangesOnEpochEditableAppOrTrust() {
         let base = snap(true, epoch: 3)
         XCTAssertTrue(FocusTransition.statusChanged(previous: nil, next: base))
@@ -182,6 +192,25 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         XCTAssertEqual(r.acks, [Ack(eventId: id, result: .posted)])
         XCTAssertEqual(r.poster.batches, 1)
     }
+
+    #if DEBUG
+    func testStatusCarriesMeasureModeOnlyWhileItIsOn() throws {
+        let r = rig()
+        var measure = false
+        r.coordinator.measureMode = { measure }
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        XCTAssertEqual(r.statuses.last?.measure, false)
+        measure = true
+        r.coordinator.sendStatus()
+        try r.pump()
+        XCTAssertEqual(r.statuses.last?.measure, true)
+        measure = false
+        r.coordinator.sendStatus()
+        try r.pump()
+        XCTAssertEqual(r.statuses.last?.measure, false)
+    }
+    #endif
 
     func testNoStatusIsWrittenBeforeThePhoneAuthenticates() throws {
         let r = rig()

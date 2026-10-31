@@ -28,6 +28,15 @@ enum FocusTransition {
             trusted: snapshot.axTrusted
         )
     }
+
+    #if DEBUG
+    /// The same status with the Receiver's measurement mode. A Release build has no such overload, so its status never says `measure`.
+    static func status(for snapshot: FocusSnapshot, measure: Bool) -> ReceiverStatus {
+        let base = status(for: snapshot)
+        return ReceiverStatus(
+            ready: base.ready, appName: base.appName, focusEpoch: base.focusEpoch, trusted: base.trusted, measure: measure)
+    }
+    #endif
 }
 
 /// Wires focus changes to the receive session (D13) and to the status the keyboard shows. Everything that goes to or
@@ -40,6 +49,11 @@ final class ReceiverCoordinator: ObservableObject {
 
     private let focus: FocusMonitor
     private let pipeline: EventPipeline?
+
+    #if DEBUG
+    /// Whether the Receiver's measurement mode is on, for the status the keyboard reads. Debug builds only.
+    var measureMode: () -> Bool = { false }
+    #endif
 
     /// Does not hook anything up; call `start()` for the live wiring.
     /// - Parameter pipeline: receives every verified event from `security`. Nil leaves the security callbacks alone.
@@ -71,6 +85,10 @@ final class ReceiverCoordinator: ObservableObject {
 
     func sendStatus() {
         guard let last else { return }
+        #if DEBUG
+        security.send(.status(FocusTransition.status(for: last, measure: measureMode())))
+        #else
         security.send(.status(FocusTransition.status(for: last)))
+        #endif
     }
 }

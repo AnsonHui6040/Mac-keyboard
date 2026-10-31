@@ -15,6 +15,7 @@ struct ReceiverPanel: View {
     @ObservedObject var notice: InputSourceNotice
     #if DEBUG
     @ObservedObject var burstVerifier: BurstVerifier
+    @ObservedObject var measurement: MeasurementEcho
     #endif
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
@@ -85,6 +86,13 @@ struct ReceiverPanel: View {
             Button("驗證 burst") { burstVerifier.verify() }
                 .disabled(burstVerifier.isRunning)
             Text(burstVerifier.status)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("量測模式", isOn: Binding(
+                get: { measurement.isMeasureMode },
+                set: { measurement.setMeasureMode($0) }
+            ))
+            Text(measurement.summary)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             #endif

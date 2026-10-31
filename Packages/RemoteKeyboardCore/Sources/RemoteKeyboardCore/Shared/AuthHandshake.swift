@@ -16,6 +16,9 @@ import Foundation
 // Both reducers are single-use: one instance per connection, constructed with a fresh `Pairing.randomNonce()`. Reusing a
 // nonce across connections would make a recorded `helloReply` valid again. A new connection needs new reducers.
 //
+// Once authenticated, each reducer hands out the connection's counter channels exactly once (`takeChannelSet()`); see
+// `ChannelSet`. The reducer never exposes a key.
+//
 // Nothing in the log or in any output carries keys, nonces, proofs or typed text.
 
 public enum HandshakeError: Error, Equatable, Sendable {
@@ -49,6 +52,7 @@ public struct PhoneHandshake: Sendable {
     private var macNonce = Data()
     private var eventCrypto: SessionCrypto?
     private var controlCrypto: SessionCrypto?
+    private var channelSetTaken = false
 
     /// - Parameters:
     ///   - pairKey: `nil` when this iPhone holds no pairing; the handshake then fails on the first `hello`.
@@ -114,6 +118,15 @@ public struct PhoneHandshake: Sendable {
         }
     }
 
+    /// The counter channels of this connection, once, after the Mac's proof verified. `nil` before that, after a failure
+    /// and on every later call. Keep the result for the life of the connection; asking again would give a second set whose
+    /// counters start at 1 under the same keys.
+    public mutating func takeChannelSet() -> ChannelSet? {
+        guard state == .authenticated, !channelSetTaken, let pairKey else { return nil }
+        channelSetTaken = true
+        return ChannelSet(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+    }
+
     /// Wraps one event for the wire: `PeripheralCodec` bytes sealed into `.sealed`. Throws until authenticated.
     public func sealEvent(_ event: KeyboardEvent) throws -> PeripheralMessage {
         guard state == .authenticated, let eventCrypto else { throw HandshakeError.notAuthenticated }
@@ -158,6 +171,8 @@ public struct MacHandshake: Sendable {
     private var state: State
     private var eventCrypto: SessionCrypto?
     private var controlCrypto: SessionCrypto?
+    private var phoneNonce = Data()
+    private var channelSetTaken = false
     /// The failure was already handed to the caller (a Mac built with a bad nonce reports it from `begin()`).
     private var failureReported = false
 
@@ -205,6 +220,7 @@ public struct MacHandshake: Sendable {
                   Pairing.verifyPhoneProof(proof, key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce) else { return fail() }
             eventCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .phoneToMac)
             controlCrypto = SessionCrypto(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, direction: .macToPhone)
+            self.phoneNonce = phoneNonce
             state = .authenticated
             return .authenticated(reply: .auth(proof: Pairing.macProof(key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)))
         case .sealed(let payload):
@@ -215,6 +231,14 @@ public struct MacHandshake: Sendable {
             default: return fail()
             }
         }
+    }
+
+    /// The counter channels of this connection, once, after the phone's proof verified. `nil` before that, after a failure
+    /// and on every later call. Keep the result for the life of the connection (see `PhoneHandshake.takeChannelSet()`).
+    public mutating func takeChannelSet() -> ChannelSet? {
+        guard state == .authenticated, !channelSetTaken, let pairKey else { return nil }
+        channelSetTaken = true
+        return ChannelSet(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
     }
 
     /// Wraps an `ack`, `status` or `bye` for the wire. After authentication the Mac sends nothing else on `control` except

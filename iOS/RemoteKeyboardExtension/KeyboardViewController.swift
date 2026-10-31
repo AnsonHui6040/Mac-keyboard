@@ -88,6 +88,8 @@ final class KeyboardViewController: UIInputViewController {
     private var dictationSentIds: Set<UUID> = []
     /// T15: the 10,000-line burst (long press on 換行 for four seconds).
     private let burst = BurstGenerator()
+    /// TP1: the M4 test surface while it covers the keyboard.
+    private var measureTouchView: MeasurementTouchView?
     #endif
 
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
@@ -126,6 +128,8 @@ final class KeyboardViewController: UIInputViewController {
         root.onDebugLongSpace = { [weak self] in self?.fillDraftToCap() }
         root.onDebugBurst = { [weak self] in self?.toggleBurst() }
         root.onDebugLongStatus = { [weak self] in self?.toggleDictationProbe() }
+        root.onMeasureCommand = { [weak self] command in self?.measureCommand(command) }
+        peripheral.measurement.onChange = { [weak self] in self?.measurementChanged() }
         restoreDictationProbe()
         #endif
         root.globeButton.addTarget(
@@ -182,6 +186,7 @@ final class KeyboardViewController: UIInputViewController {
         #endif
         #if DEBUG
         burst.cancel()
+        closeMeasureTouchView()
         #endif
         imeQueue.reset()
         resetQuick()
@@ -233,7 +238,65 @@ final class KeyboardViewController: UIInputViewController {
             showNote("Mac 尚未就緒，未輸入")
             return
         }
-        peripheral.send(.text(String(repeating: "一二三四五六七八九十ABCDEFGHIJ", count: 150)))
+        peripheral.sendDebugLongText()
+    }
+
+    /// TP1: a button of the measurement page. The runs themselves live in `MeasurementRunner`; this only starts them.
+    private func measureCommand(_ command: MeasureCommand) {
+        let runner = peripheral.measurement
+        let config = MeasureLaunchConfig.read()
+        switch command {
+        case .m2: runner.start(.m2)
+        case .m3: runner.start(.m3(samples: config.m3Samples))
+        case .m3Smoke: runner.start(.m3(samples: 200))
+        case .m5: runner.start(.m5(samples: config.m5Samples))
+        case .m6:
+            runner.start(.m6(MeasurementRunner.Scenario(rawValue: config.m6Scenario) ?? .normal, seconds: config.m6Seconds))
+        case .m4: showMeasureTouchView()
+        case .latency:
+            peripheral.cycleLatency()
+            refreshStatus()
+        case .stop: runner.cancel()
+        }
+    }
+
+    private func showMeasureTouchView() {
+        guard measureTouchView == nil, peripheral.isMeasureReady, !peripheral.measurement.isRunning else { return }
+        peripheral.measurement.start(.m4)
+        let surface = MeasurementTouchView(runner: peripheral.measurement)
+        surface.onClose = { [weak self] in self?.closeMeasureTouchView() }
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(surface)
+        NSLayoutConstraint.activate([
+            surface.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            surface.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            surface.topAnchor.constraint(equalTo: view.topAnchor),
+            surface.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        measureTouchView = surface
+    }
+
+    /// The runner's state changed. When the M4 job ended without the surface's × (the connection ended, or the run was
+    /// stopped), the surface goes away with it.
+    private func measurementChanged() {
+        if measureTouchView != nil, peripheral.measurement.job != .m4 { closeMeasureTouchView() }
+        refreshStatus()
+    }
+
+    private func closeMeasureTouchView() {
+        guard let surface = measureTouchView else { return }
+        measureTouchView = nil
+        surface.removeFromSuperview()
+        if peripheral.measurement.job == .m4 { peripheral.measurement.cancel() }
+    }
+
+    /// The measurement page of the probe panel: shown only while the Mac says its measurement mode is on.
+    private func measurePanelState() -> MeasurePanelState? {
+        guard peripheral.latestStatus?.measure == true else { return nil }
+        let runner = peripheral.measurement
+        return MeasurePanelState(
+            enabled: peripheral.isMeasureReady, running: runner.isRunning, text: runner.displayText,
+            latencyTitle: peripheral.latencySetting.title)
     }
 
     /// T15: a four-second press on 換行 starts the burst, and another four-second press stops it. Remote mode only.
@@ -808,6 +871,7 @@ final class KeyboardViewController: UIInputViewController {
         #if DEBUG
         var state = built
         state.dictationProbeLines = dictationProbeLines()
+        state.measurePanel = measurePanelState()
         #else
         let state = built
         #endif

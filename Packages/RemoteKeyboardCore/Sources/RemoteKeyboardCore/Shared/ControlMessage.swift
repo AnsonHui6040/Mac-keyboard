@@ -8,15 +8,19 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
     /// Whether the Mac has granted Accessibility. Left out of the wire when true, so an unchanged Receiver sends the same
     /// bytes as before and a status without the key reads as trusted.
     public let trusted: Bool
+    /// Whether the Mac's measurement mode is on (Debug builds of the Receiver only; a Release Receiver never sets it). Left
+    /// out of the wire when false, so a status without the key reads as off.
+    public let measure: Bool
 
-    public init(ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true) {
+    public init(ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true, measure: Bool = false) {
         self.ready = ready
         self.appName = appName
         self.focusEpoch = focusEpoch
         self.trusted = trusted
+        self.measure = measure
     }
 
-    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted }
+    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted, measure }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -24,6 +28,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         appName = try c.decodeIfPresent(String.self, forKey: .appName)
         focusEpoch = try c.decode(UInt64.self, forKey: .focusEpoch)
         trusted = try c.decodeIfPresent(Bool.self, forKey: .trusted) ?? true
+        measure = try c.decodeIfPresent(Bool.self, forKey: .measure) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -32,6 +37,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         try c.encodeIfPresent(appName, forKey: .appName)
         try c.encode(focusEpoch, forKey: .focusEpoch)
         if !trusted { try c.encode(false, forKey: .trusted) }
+        if measure { try c.encode(true, forKey: .measure) }
     }
 }
 

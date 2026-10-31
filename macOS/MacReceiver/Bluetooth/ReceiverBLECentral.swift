@@ -68,6 +68,19 @@ final class ReceiverBLECentral: ObservableObject {
 
     /// Receives the bytes of every complete message (all of its frames), in arrival order.
     var eventHandler: (@MainActor (Data) -> Void)?
+    /// Receives every `0x03` notification whole (one packet, never framed). Nothing sets it yet: the pointer channel comes later.
+    var pointerHandler: (@MainActor (Data) -> Void)?
+    #if DEBUG
+    /// Receives every `0x7E` measurement notification whole. Debug builds only; a Release build skips such packets.
+    var measureHandler: (@MainActor (Data) -> Void)?
+    /// What a Release build is: tests switch the measurement route off to see that nothing is decrypted or answered.
+    var measureEnabled = true
+    /// Fires when a control write issued by `sendMeasure` is answered.
+    var onMeasureWriteCompleted: (@MainActor () -> Void)?
+    /// One entry per control write in flight, oldest first: true for a measurement reply. CoreBluetooth answers writes in the
+    /// order they were issued, so the first entry belongs to the next answer.
+    private var writeTags: [Bool] = []
+    #endif
     /// Fires each time the link newly reaches ready (control characteristic is known by then).
     var onLinkReady: (@MainActor () -> Void)?
     /// Fires each time the link leaves ready (disconnect, invalidation, stop, idle timeout or radio off).
@@ -126,11 +139,30 @@ final class ReceiverBLECentral: ObservableObject {
     /// The focused Mac field became editable (D13): arms receiving, or extends it when already armed.
     func focusGainedEditable() { handleSession(.editableFocusGained) }
 
-    /// Called by the driver for every `event` notification (one frame). Only a complete message reaches the handler;
-    /// decoding and the idle deadline belong to the handler. A rejected frame is logged by kind and size only.
+    /// Called by the driver for every `event` notification. The first byte decides where it goes: `0x02` is a frame of the
+    /// keyboard's message, `0x03` a pointer packet, `0x7E` (Debug builds) a measurement packet. Anything else is skipped and
+    /// only its first byte and length are logged. Only a `0x02` frame reaches the reassembler, so a packet between two
+    /// frames of one message leaves that message alone.
     func receive(eventData: Data) {
         // Notifications only count on a ready link; anything else (a stale callback, a connection still being set up) is dropped.
         guard case .ready = link.state else { return }
+        switch eventData.first {
+        case CounterChannel.frameMagic?:
+            receive(frame: eventData)
+        case CounterChannel.Kind.pointer.magic?:
+            pointerHandler?(eventData)
+        #if DEBUG
+        case CounterChannel.measureMagic? where measureEnabled && measureHandler != nil:
+            measureHandler?(eventData)
+        #endif
+        default:
+            let first = eventData.first.map { Int($0) } ?? -1
+            Self.log.info("notification skipped first=\(first, privacy: .public) bytes=\(eventData.count, privacy: .public)")
+        }
+    }
+
+    /// One `0x02` frame. Only a complete message reaches the handler; decoding and the idle deadline belong to the handler.
+    private func receive(frame eventData: Data) {
         let droppedBefore = reassembler.droppedPartialMessages
         let result = reassembler.accept(eventData)
         let dropped = reassembler.droppedPartialMessages - droppedBefore
@@ -150,13 +182,31 @@ final class ReceiverBLECentral: ObservableObject {
     /// Writes a control message with response. Dropped unless the link is ready.
     func send(_ message: ControlMessage) {
         guard case .ready = link.state, let data = try? ControlCodec.encode(message) else { return }
-        if driver?.writeControl(data) == true { controlWritesInFlight += 1 }
+        if driver?.writeControl(data) == true {
+            controlWritesInFlight += 1
+            #if DEBUG
+            writeTags.append(false)
+            #endif
+        }
     }
+
+    #if DEBUG
+    /// Writes an already sealed measurement reply (`0x7E`, 41 bytes) with response. Returns whether a write was issued.
+    func sendMeasure(_ data: Data) -> Bool {
+        guard case .ready = link.state, driver?.writeControl(data) == true else { return false }
+        controlWritesInFlight += 1
+        writeTags.append(true)
+        return true
+    }
+    #endif
 
     /// The driver reports every answered control write (success or failure). Releases a waiting goodbye once the last
     /// write in flight is answered; CoreBluetooth answers writes in the order they were issued.
     func controlWriteCompleted() {
         controlWritesInFlight = max(0, controlWritesInFlight - 1)
+        #if DEBUG
+        if !writeTags.isEmpty, writeTags.removeFirst() { onMeasureWriteCompleted?() }
+        #endif
         if pendingGoodbye != nil, goodbyeTimer != nil, controlWritesInFlight == 0 { finishGoodbye() }
     }
 
@@ -226,6 +276,9 @@ final class ReceiverBLECentral: ObservableObject {
               let message = goodbye?(), let data = try? ControlCodec.encode(message), driver.writeControl(data)
         else { return }
         controlWritesInFlight += 1
+        #if DEBUG
+        writeTags.append(false)
+        #endif
         pendingGoodbye = id
     }
 
@@ -241,6 +294,9 @@ final class ReceiverBLECentral: ObservableObject {
         goodbyeTimer?.invalidate()
         goodbyeTimer = nil
         controlWritesInFlight = 0
+        #if DEBUG
+        writeTags.removeAll()
+        #endif
         if power == .poweredOn { driver?.cancel(id) } else { driver?.forget(id) }
         // A phone reported inside the window was ignored; the scan is repeated so the driver reports it again.
         if discoveryDeferred {
@@ -298,6 +354,9 @@ final class ReceiverBLECentral: ObservableObject {
         if after != before, case .ready = after {
             reassembler.reset()
             controlWritesInFlight = 0
+            #if DEBUG
+            writeTags.removeAll()
+            #endif
             handleSession(.linkReady)
             onLinkReady?()
         }
