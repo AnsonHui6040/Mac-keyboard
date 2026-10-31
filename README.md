@@ -26,6 +26,14 @@ swift test --package-path Packages/RemoteKeyboardCore
 
 `pod install` 必須帶 `LANG=en_US.UTF-8`（終端機不是 UTF-8 時 CocoaPods 會當掉）。手寫使用 Google ML Kit（CocoaPods）。ML Kit 沒有 arm64 模擬器版本，`Podfile` 讓 App 與 Extension 只在真機連結它；模擬器 build 使用替身辨識器，手寫在模擬器不會產生候選字。
 
+### 安裝 Mac Receiver
+
+```
+scripts/install-mac-receiver.sh
+```
+
+預設建置 Debug 版並安裝到 `/Applications/MacReceiver.app`（面板名稱為 Remote Keyboard Receiver），之後可從 Launchpad 或 Spotlight 開啟。`--configuration Release` 改建 Release，`--no-build` 只複製已建置的產物。
+
 ## 文件
 
 | 文件 | 路徑 |
