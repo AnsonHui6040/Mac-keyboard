@@ -102,7 +102,7 @@ Mac 處理每一個 `0x03` 時都檢查：通道為開啟、連線已認證、�
 |---|---|---|---|---|---|---|
 | 觸控板 | `0x03` | iPhone → Mac（notify） | `rk-pointer-p2m` | `PTR3` | 16 | 41 |
 | 量測 | `0x7E` | iPhone → Mac（notify） | `rk-measure-p2m` | `MSR3` | 16 或 157 | 41 或 182 |
-| 量測回覆 | `0x7E` | Mac → iPhone（control write） | `rk-measure-m2p` | `MSE3` | 16 | 41 |
+| 量測回覆 | `0x7E` | Mac → iPhone（control write） | `rk-measure-m2p` | `MSE3` | 24 | 49 |
 
 - 金鑰：`HKDF-SHA256(pairKey, salt: 空, info: 上表字串 ‖ macNonce ‖ phoneNonce, 32 bytes)`。與既有事件、控制通道的 session key 分開，避免同一把金鑰混用隨機 nonce 與計數器 nonce。
 - Nonce：12 bytes = 前綴 ‖ `counter`（8 bytes BE）。AAD：封包 byte 0–8。
@@ -186,7 +186,7 @@ iPhone 把所有 `0x03` 放進一個有序出口 `PointerOutbox`，內容是依�
 1. **屏障**：加入可靠事件時，先把目前的開放段「封閉」（內容與當時的 `buttons`／`buttonSeq` 固定），排在可靠事件之前；之後的位移進入可靠事件之後新開的開放段。所以順序必定是「點擊前的位移 → 點擊 → 點擊後的位移」，BUTTON_STATE（放開）也同樣排在拖曳位移之後。
 2. **依序交出**：只有佇列最前面的項目可以交給 `updateValue`；它被接受（回 `true`）後才輪到下一項。空的累加段直接略過。
 3. **背壓**：`updateValue` 回 `false` 後整個出口停止，直到 `peripheralManagerIsReady`；期間新位移只加入尾端開放段，不新增封包。被拒的項目維持在最前面，下次用新計數器重新加密（§6.3）。
-4. **與打字的關係（公平交錯）**：0x03 不是 0x02 frame，不影響 `FrameReassembler` 的重組（已查證），所以可以夾在長訊息的 frame 之間。兩邊都有待送項目時，每交出 4 個 0x02 frame（Provisional）就交出 1 個 0x03 項目，避免長文字期間心跳與放開被卡住而觸發看門狗誤放開；只有一邊有待送時就只送那一邊。
+4. **與打字的關係（公平交錯）**：0x03 不是 0x02 frame，不影響 `FrameReassembler` 的重組（已查證），所以可以夾在長訊息的 frame 之間。兩邊都有待送項目時，每交出 4 個 0x02 frame（Provisional）就交出 1 個 0x03 項目，避免長文字期間心跳與放開被卡住而觸發看門狗誤放開；只有一邊有待送時就只送那一邊。**觸控板模式中改為觸控板優先**：0x03 有待送時先送 0x03，0x02 只在出口沒有待送項目時，或每交出 4 個 0x03 後交出 1 個（讓組合快捷鍵與切換前尚未送完的文字仍會前進）；鍵盤模式維持上述 4:1。
 5. **節奏只限開放段**：封閉段、可靠事件與不可靠控制在輪到時立即交出；只有開放段受 §8.1 節奏限制。
 6. **重送**：可靠事件逾時重送時，以新項目加入尾端（同樣形成屏障），受 §6.5 的時間與次數上限限制，所以出口不會因重送無限增長。連線中 notification 不會遺失也不會亂序，所以同一連線內的重送幾乎只發生在 ACK 遺失；Mac 以 `actionId` 去重。
 7. **容量**：未 ACK 的 CLICK 與 GESTURE 合計最多 8 個（Provisional），滿了時新的 CLICK／GESTURE 不加入並計數。BUTTON_STATE 與 SCROLL ended／cancelled 一律加入、不合併（合併會改變其前後位移屬於拖曳或一般移動）；它們由手指動作產生，數量受手指動作限制。
@@ -272,20 +272,31 @@ TP1 只做量測工具（DEBUG build），不做正式觸控板 UI，也不做 �
 - Mac 面板（DEBUG）「量測模式」開關，預設關，Receiver 重開即關。開啟時 sealed status 帶 `measure: true`。
 - iPhone（DEBUG）只在已認證且收到 `measure: true` 後才送 `0x7E`。Mac 每個封包都重查：已認證、量測模式開。
 - `0x7E` 明文負載（16 bytes）：`kind`（1：burst、2：rtt、3：cursor、4：heartbeat）、保留 1 byte（0）、`dx` Int16（1/16 pt，只 cursor 用）、`seq` UInt32、`phoneTimeMicros` UInt64（iPhone 單調時鐘）。M2 的 182-byte 版本以 0 填充到 157 bytes 明文。
-- Mac 回覆（`0x7E`，control write，41 bytes）明文：`seq` UInt32、`phoneTimeMicros` UInt64、`macHoldMicros` UInt32（Mac 收到到寫出之間的時間）。iPhone 以 `rk-measure-m2p` 金鑰與自己的防重播視窗驗證。
+- Mac 回覆（`0x7E`，control write，49 bytes）明文：`seq` UInt32、`phoneTimeMicros` UInt64、`macHoldMicros` UInt32（Mac 收到到寫出之間的時間）、`macTimeMicros` UInt64（Mac 收到該封包時的單調時間，供 M3c 估計時鐘差）。
+- 每次量測可指定連線延遲偏好（`.low`、`.medium`、不設定），結果一律註明所用偏好。iPhone 以 `rk-measure-m2p` 金鑰與自己的防重播視窗驗證。
 - 內容沒有任何輸入文字或座標以外的使用者資料；`dx` 只用於 M4 測試游標，不寫入 log。
 - Release build：量測通道的型別、金鑰派生與處理程式（含 Core 內的部分）全部包在 `#if DEBUG`，Release 產物不含這些符號；收到 `0x7E` 一律略過。`ReceiverStatus.measure` 欄位為維持 status 編碼相容而保留在 Release，Release 的 Mac 永遠不設為 true。TP1 起每個 Task 以 Release build 加符號檢查驗證（檢查 `MeasurePayload`、`MeasureEchoPayload`、`measureP2M`、`measureM2P`、`MeasurementEcho`、`MeasurementRunner`）。
 
 ### 13.2 量測項目
 
-| 編號 | 量測 | 方法 | 輸出 |
-|---|---|---|---|
-| M1 | BLE connection interval | Mac 上 PacketLogger 看 LE Connection Update；同時 Mac 記錄封包到達間隔。預設、`.low`、`.medium` 各 ≥ 10 次、每次 60 秒 | 分佈（P50／P95／其他值比例） |
-| M2 | `updateValue` 背壓 | 在 ready 回呼內連續送 41 bytes 與 182 bytes 量測封包直到 `false`，各 100 輪；記錄次數與到下一次 ready 的時間 | 次數分佈、排空時間 |
-| M3 | 應用層 RTT | 41-byte rtt 封包 60 Hz；Mac 只在沒有回覆寫入在途時回覆（其餘只記到達時間、計為略過），避免回覆排隊本身拉高 RTT；iPhone 記錄 `交出時間 → 收到回覆` 往返；≥ 10,000 個回覆樣本 | P50／P95／P99、jitter（P95 − P50）、到達間隔標準差、略過比例 |
-| M4 | 觸控到游標可見 | 見 §13.3 | 見 §13.3 |
-| M5 | 積壓 | M3 同時送 3,000 字長文字；比較有無長文字時 RTT 走勢；另記錄 iPhone 出口被背壓阻塞的時間與次數 | RTT 是否隨時間持續上升、最大值、阻塞時間分佈 |
-| M6 | 心跳與看門狗 | iPhone 每 100 ms 送 heartbeat 量測封包，Mac 以 350 ms 看門狗只記錄「會放開」事件（不注入）；心跳依 §8.2 規則 4 與長文字公平交錯；情境：一般、同時傳送 3,000 字長文字、系統負載（Mac 與 iPhone 各跑壓力程式）、鍵盤暫時被遮蔽、BLE 干擾（附近大量藍牙／Wi-Fi 傳輸），各 10 分鐘 | 誤放開次數、心跳到達間隔最大值與 P99 |
+**使用情境假設（使用者 2026-11-01 修訂）**：鍵盤模式與觸控板模式分開。觸控板模式只產生 MOVE、CLICK、BUTTON_STATE、SCROLL 與低頻率組合快捷鍵（例如 ⌘C、⌘V），不會在使用觸控板期間持續輸入大量文字。因此**主要驗收以 `.low`、沒有長文字背景負載的觸控板情境為準**；長文字併發只作健壯性壓力測試。
+
+| 編號 | 類別 | 量測 | 方法 | 輸出 |
+|---|---|---|---|---|
+| M1 | 主要 | BLE connection interval | Mac 上 PacketLogger 看 LE Connection Update；`.low`（優先）、預設、`.medium` 各 ≥ 10 次、每次 60 秒 | 分佈（P50／P95／其他值比例） |
+| M2 | 主要 | `updateValue` 背壓 | ready 回呼內連送 41 與 182 bytes 量測封包直到 `false`，各 100 輪；`.low` 與預設各一組 | 接受次數、排空時間 |
+| M3a | 主要 | 往返延遲（RTT） | 41-byte rtt 封包 60 Hz；Mac 只在沒有回覆在途時回覆；`.low` | P50／P95／P99、jitter |
+| M3b | 主要 | 回覆覆蓋率 | 同 M3a：有回覆的封包比例、略過比例 | 覆蓋率；**不用於判定性能**，只說明 M3a 樣本代表性 |
+| M3c | 主要 | **估計**單程延遲（iPhone 交出 → Mac 收到） | Mac 回覆加上 Mac 單調時間；以最小 RTT 樣本估計兩端時鐘差，再對每個封包算單程 | 三者分開列出：① 時鐘差估計值；② 假設（最小 RTT 樣本的去回程延遲相等、量測期間兩端時鐘漂移可忽略，並報告漂移量）；③ 誤差範圍（± 最小 RTT／2，加上量測期間的漂移）。單程數字一律標「估計」，不得表述為實測 |
+| M4 | **關卡** | 觸控到游標可見 | 見 §13.3；`.low`、無長文字 | E2E P50／P95／P99 與分解 |
+
+**連線延遲偏好的紀錄**：每次量測記錄「要求的偏好」與「是否確認生效」。CoreBluetooth 沒有讀取實際 connection interval 的 API，所以 iPhone 只能記錄已呼叫 `setDesiredConnectionLatency` 的時間；「確認生效」只能由 M1 的 PacketLogger（LE Connection Update 的 interval 變化）判定，未經 PacketLogger 確認時一律標「已要求，生效未確認」，Mac 端到達間隔的變化只作旁證。
+| M6 | **關卡** | 長時間拖曳心跳 | `.low`、無長文字：iPhone 每 100 ms 心跳，Mac 以 350 ms 看門狗記錄「模擬誤釋放」（不注入）；30 分鐘；Mac 每個心跳記錄到達的單調時間 | **模擬誤釋放**次數、心跳到達間隔分佈、間隔異常的時間分佈。TP1 沒有正式拖曳協定，結果不得稱為已通過真實拖曳測試（真實拖曳在 TP3、TP5） |
+| M7 | **關卡** | 模式切換 | 每次先在相同傳送條件（`.low`、無長文字、相同節奏與封包大小）量 10 秒 cursor baseline；再於鍵盤模式送出 3,000 字長文字後立即進入觸控板量測（不等文字送完），出口依 §8.2 規則 4 的觸控板模式規則；共 20 次 | 每次的 baseline 與切換後第一個 cursor 封包、前 1 秒的估計單程延遲（同 M3c 方法）；長文字完整送達（Mac 端長度與雜湊相符）與送完所需時間；觸控板持續送時文字仍有前進（每秒至少交出的 0x02 frame 數），不得永久餓死 |
+| M8 | **關卡** | 觸控板工作負載 | `.low`、無長文字，10 分鐘：60 Hz cursor 封包（連續移動）、每 2 秒一個 rtt 封包（點擊代理）、每 5 秒一段 1 秒的 cursor 連送（捲動代理）、全程每 100 ms 心跳（拖曳代理） | cursor 估計單程 P50／P95／P99、點擊代理 RTT P95、模擬誤釋放次數。點擊代理 RTT 是量測封包的往返，不代表 TP3 正式 Click ACK 的延遲 |
+| M5 | 健壯性 | 長文字併發 | 固定時間三段：baseline 20 秒（無長文字）、load 60 秒（每秒一則 3,000 字）、recovery 30 秒（停止送文字）；三段都必須有有效樣本 | 三段延遲；停止送文字後 0x02 佇列排空所需時間；排空後多久回到 baseline 水準；**不要求達到 P95 60 ms** |
+| M6-L | 健壯性 | 長文字中的心跳 | M6 加上同時傳送長文字，10 分鐘 | 模擬誤釋放次數（只記錄） |
+| M6-X | 健壯性 | 其他壓力 | 系統負載、鍵盤暫時被遮蔽、BLE 干擾，各 10 分鐘（使用者製造條件） | 模擬誤釋放次數（只記錄） |
 
 ### 13.3 M4 觸控到游標可見的量測方法
 
@@ -334,12 +345,21 @@ TP1 只做量測工具（DEBUG build），不做正式觸控板 UI，也不做 �
 
 ### 13.4 決策關卡
 
+主要條件（全部在 `.low`、沒有長文字背景負載下量測）：
+
+| 條件 | 判定 |
+|---|---|
+| M4 E2E P95 < 60 ms | 必須通過（邊界時依 §13.3 增加樣本） |
+| M6 30 分鐘、M8 10 分鐘：模擬誤釋放次數 | 必須為 0（只代表 BLE 傳送條件足夠；真實拖曳在 TP3、TP5 驗證） |
+| M7 模式切換 | 切換後第一個 cursor 封包的估計單程延遲不得超過同次 baseline 的 P99 × 2；長文字必須完整送達，且觸控板持續送時文字仍持續前進 |
+| M3a／M3c、P50／P99、jitter | 只記錄，不設硬性門檻；**不得以 RTT 直接判定觸控板性能**（RTT 含 Mac 回覆的 write with response 往返） |
+
+健壯性（M5、M6-L、M6-X）：只記錄，不作為 BLE 能否用於觸控板的 PASS／FAIL 條件；但必須沒有當機、沒有卡住的狀態，且長文字結束後延遲回到前段水準。
+
 | 結果 | 決定 |
 |---|---|
-| E2E P95 < 60 ms，且 M5 沒有積壓 | 繼續 TP2–TP5，以 BLE 為正式傳輸 |
-| E2E P95 ≥ 60 ms 或 M5 有積壓 | 以 §13.3 的分解找出瓶頸（iPhone 觸控與軟體、BLE、Mac 注入與畫面）。能調整的先調（`.low`、節奏、封包大小）再量一次；仍未達標才另開 LAN 研究（D8），不立即放棄 BLE |
-
-P50、P99、jitter、封包積壓只記錄，不設硬性門檻。
+| 主要條件全部通過 | 繼續 TP2–TP5，以 BLE 為正式傳輸 |
+| 任一主要條件未通過 | 以 §13.3 分解找出瓶頸，能調整的先調（節奏、封包大小、心跳與看門狗參數）再量一次；仍未達標才另開 LAN 研究（D8），不立即放棄 BLE |
 
 ## 14. Provisional 參數總表
 
@@ -363,6 +383,7 @@ P50、P99、jitter、封包積壓只記錄，不設硬性門檻。
 | 三指門檻／捏合門檻 | 40 pt／20% | 30–60 pt／15–30% | TP5 |
 | AEAD 連續失敗關閉門檻 | 8 | 4–16 | TP5 |
 | M4 量測游標倍率 | 4 | 1–8 | TP1 |
+| 觸控板模式 0x03／0x02 比例 | 每 4 個 0x03 交出 1 個 0x02 | 2–8 | TP1 M7、TP5 |
 
 ## 15. 我的決定（請審閱）
 
@@ -387,6 +408,8 @@ P50、P99、jitter、封包積壓只記錄，不設硬性門檻。
 | C17 | CLICK／GESTURE 重送只限 300 ms 內 | 不在游標移走後才點下 |
 | C18 | 看門狗放開後通知 iPhone（`pointerReleased`） | iPhone 與 Mac 的拖曳狀態一致，不會卡在「以為按住」 |
 | C19 | M3 回覆不排隊，同時最多一個在途 | 避免量測工具自身拉高 RTT |
+| C20 | 關卡改以 `.low`、無長文字的觸控板情境判定；長文字併發只作健壯性測試（使用者 2026-11-01 修訂） | 觸控板模式不會同時輸入大量文字 |
+| C21 | 觸控板模式 0x03 優先於 0x02 | 切換模式時尚未送完的文字不影響游標即時操作 |
 
 ## 16. 留給實作者
 

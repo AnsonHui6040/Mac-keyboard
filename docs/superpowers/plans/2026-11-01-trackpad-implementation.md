@@ -134,16 +134,27 @@ func testCsvHasNoCoordinates() // CSV 標頭只含 seq、kind、bytes、counterG
   - M2、M3、M5、M6：面板操作與輸出位置。
   - M4：依 spec §13.3（時間點 T0–T6 表、器材設定、游標放大、高對比背景、確認影片實際幀率與兩端螢幕更新率、每筆從靜止開始、≥ 100 筆、邊界時 ≥ 200 筆）；逐筆記錄 T0、T2、T5′、T6 的幀號到 `docs/superpowers/verification/evidence/TP1-m4-frames.csv`，以 `swift scripts/tp1-m4-stats.swift <csv> <fps>` 算出 E2E、T6 − T2、T6 − T5′ 的 P50／P95／P99 與量化誤差，並標示是否落在邊界。
 - [ ] **Step 10: 主代理在實機跑 M2、M3、M5、M6，使用者跑 M1、M4**；結果填入驗收報告（實機項 TBD 直到使用者確認）。
-- [ ] **Step 11: 第一階段驗收對照（使用者 2026-11-01 指定）**
+- [ ] **Step 10b: 依使用者 2026-11-01 修訂補強量測工具並重量**（spec §13.2、§13.4；先寫測試再實作）：
+  - **M3c**：回覆加 `macTimeMicros`（回覆明文 24 bytes、封包 49 bytes）；Core `ClockOffsetEstimator`：輸出分開的「時鐘差估計值」「假設（對稱延遲、漂移量）」「誤差範圍（± 最小 RTT／2＋漂移）」；TDD：已知偏移與對稱延遲還原誤差 < 1 ms、非對稱延遲時誤差落在報告範圍內、漂移被量出。所有單程輸出標 `est_`。M3 輸出分 M3a（RTT）、M3b（覆蓋率）、M3c（估計單程）。
+  - **`.low`**：UI 測試環境變數 `RKMEAS_LATENCY=low|medium|none`，量測開始前呼叫 `setDesiredConnectionLatency`；每行結果帶 `latency_requested=` 與 `latency_confirmed=unconfirmed`（只有 PacketLogger 可確認）；另記錄要求前後 Mac 到達間隔的變化作旁證。
+  - **Mac CSV**：每列加 `macTimeMicros`（不含內容）。
+  - **M5**：固定三段 baseline 20 秒、load 60 秒、recovery 30 秒；三段都必須有樣本（不足則該次無效並回報）；記錄停止送文字後 0x02 佇列排空時間與回到 baseline 水準所需時間。
+  - **M7**：每次先量 10 秒同條件 cursor baseline，再送 3,000 字長文字並立即切到觸控板量測；觸控板模式出口依 spec §8.2 規則 4（0x03 優先、每 4 個 0x03 交出 1 個 0x02）；記錄 baseline 與切換後第一個封包、前 1 秒的估計單程延遲；Mac 端驗證長文字長度與雜湊；記錄觸控板持續送時每秒交出的 0x02 frame 數（> 0）。TDD：出口排程在 0x03 持續有待送時 0x02 仍每 4 個前進 1 個。
+  - **M8**：10 分鐘工作負載（60 Hz cursor、每 2 秒點擊代理 rtt、每 5 秒 1 秒 cursor 連送、全程 100 ms 心跳）；輸出 cursor 估計單程、點擊代理 RTT、模擬誤釋放次數。
+  - **用語**：看門狗結果一律寫「模擬誤釋放」；點擊 RTT 一律寫「點擊代理 RTT」。
+  - AEAD、計數器 nonce、防重播、log 無內容、Release 不含量測功能維持不變；完成後重跑全部 regression 與 Release 符號檢查。
+  - 實機依序（`.low`）：M2、M3、M6（30 分鐘）、M7（20 次）、M8（10 分鐘），再跑健壯性 M5、M6-L。
+- [ ] **Step 11: 第一階段驗收對照（使用者 2026-11-01 指定；同日修訂為主要／健壯性兩類）**
 
 | 指標 | 目標 | 在哪裡驗證 |
 |---|---|---|
-| 觸控到游標可見 P95 | < 60 ms | TP1 M4（加密量測封包，與正式封包同大小）；TP5 以正式協定重測 |
+| 觸控到游標可見 P95 | < 60 ms（`.low`、無長文字） | TP1 M4（加密量測封包，與正式封包同大小）；TP5 以正式協定重測 |
 | P50／P99 | 完整記錄，不設門檻 | TP1 M3、M4 |
 | BLE connection interval | 實測分佈 | TP1 M1 |
-| 背壓 | 不累積過時 MOVE | TP1 M5（RTT 不隨時間上升）；TP2 出口與過時測試 |
+| 背壓 | 不累積過時 MOVE | 主要：TP1 M8、M7；健壯性：M5（長文字併發，不要求 P95 60 ms）；TP2 出口與過時測試 |
+| 模式切換 | 尚未送完的文字不影響觸控板即時操作 | TP1 M7 |
 | 重複點擊 | 0 次 | TP2、TP3 單元測試；TP5 實機 |
-| 斷線後卡住拖曳 | 0 次 | TP1 M6 量看門狗誤放開；TP3 單元測試；TP5 實機 100 次 |
+| 斷線後卡住拖曳 | 0 次 | TP1 M6（`.low`、30 分鐘）與 M8 的會誤放開次數必須為 0；TP3 單元測試；TP5 實機 100 次 |
 | 現有鍵盤回歸 | 全部通過 | 每個 Task 全套測試＋TP5 |
 
 - [ ] **Step 12: 決策關卡報告** `docs/superpowers/verification/2026-11-xx-tp1-decision.md`：各指標 P50／P95／P99／jitter、M4 分解（E2E、T6 − T2、T6 − T5′、iPhone 軟體、Mac 軟體、BLE 估計）與誤差、M5 積壓、M6 誤放開次數、建議；並把 spec §14 已量到的 Provisional 值改成實測值。停下等使用者決定。

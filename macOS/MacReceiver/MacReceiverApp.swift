@@ -12,6 +12,7 @@ struct MacReceiverApp: App {
     @StateObject private var notice: InputSourceNotice
     #if DEBUG
     @StateObject private var burstVerifier = BurstVerifier()
+    @StateObject private var measurement: MeasurementEcho
     #endif
     private let pipeline: EventPipeline
 
@@ -60,6 +61,23 @@ struct MacReceiverApp: App {
                 MainActor.assumeIsolated { central?.prepareForTermination() }
             }
         }
+        #if DEBUG
+        // TP1 measurement: answers the iPhone's encrypted probes while 「量測模式」 is on. Memory only; the mode is off after
+        // every launch unless `-rkMeasureMode YES` is passed, which also starts receiving.
+        let measurement = MeasurementEcho(
+            write: { [weak central] in central?.sendMeasure($0) ?? false },
+            cursor: MeasureCursorMover(), flash: MeasureFlashWindow(), csv: MeasureCSVFile(fileURL: MeasureCSVFile.defaultFileURL),
+            noteActivity: { [weak central] in central?.noteEvent() })
+        measurement.connect(central: central, security: security)
+        coordinator.measureMode = { [weak measurement] in measurement?.isMeasureMode ?? false }
+        measurement.onModeChange = { [weak coordinator] in coordinator?.sendStatus() }
+        coordinator.measureTextArrived = { [weak measurement] in measurement?.noteText($0) }
+        if !Self.isRunningUnitTests, UserDefaults.standard.bool(forKey: "rkMeasureMode") {
+            measurement.setMeasureMode(true)
+            central.startReceiving()
+        }
+        _measurement = StateObject(wrappedValue: measurement)
+        #endif
         self.pipeline = pipeline
         _central = StateObject(wrappedValue: central)
         _security = StateObject(wrappedValue: security)
@@ -75,7 +93,7 @@ struct MacReceiverApp: App {
             #if DEBUG
             ReceiverPanel(
                 central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,
-                notice: notice, burstVerifier: burstVerifier)
+                notice: notice, burstVerifier: burstVerifier, measurement: measurement)
             #else
             ReceiverPanel(
                 central: central, focus: focus, testInsert: testInsert, loginItem: loginItem, security: security,

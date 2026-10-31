@@ -1,0 +1,23 @@
+# TP1 實機量測原始統計（2026-11-01，iPhone 17 Pro iOS 27.0.1，連線延遲偏好：未設定）
+## m2
+RKMEAS M2 packet=41 rounds=100 accepted_p50=1.0 accepted_min=1.0 accepted_max=1.0 drain_p50_ms=0.7 drain_p95_ms=20.9 drain_max_ms=26.5
+RKMEAS M2 packet=182 rounds=100 accepted_p50=1.0 accepted_min=1.0 accepted_max=1.0 drain_p50_ms=0.9 drain_p95_ms=25.1 drain_max_ms=32.3
+## m3
+RKMEAS M3 count=10001 p50_ms=53.2 p95_ms=83.2 p99_ms=119.4 jitter_ms=30.0 max_ms=286.6
+RKMEAS M3 sent=37799 skipped=27798 skipped_pct=73.5 refused=42 superseded=0 arrival_sd_ms=14.5 hold_p50_ms=0.1 wait_p50_ms=0.0 wait_p95_ms=0.0
+## m5
+RKMEAS M5 phase=baseline count=154 rtt_p50=53.4 rtt_p95=81.5 rtt_p99=126.9 rtt_max=165.0
+RKMEAS M5 phase=load count=1781 rtt_p50=55.5 rtt_p95=421.1 rtt_p99=559.4 rtt_max=855.4 texts=201
+RKMEAS M5 phase=recovery count=0 rtt_p50=nan rtt_p95=nan rtt_p99=nan rtt_max=nan
+RKMEAS M5 trend_p50_ms=3.5 blocked_count=4031 blocked_p50_ms=0.7 blocked_p95_ms=19.1 blocked_max_ms=194.7 sent=12001 skipped=10066 refused=1451 superseded=462
+## m6-normal
+RKMEAS M6 scenario=normal seconds=600 sent=6000 superseded=0 refused=0 texts=0
+RKMEAS M6 handoff_gap_p50_ms=100.0 handoff_gap_p99_ms=124.3 handoff_gap_max_ms=135.4 blocked_count=0 blocked_max_ms=nan
+## m6-longText
+RKMEAS M6 scenario=longText seconds=600 sent=6000 superseded=0 refused=1140 texts=570
+RKMEAS M6 handoff_gap_p50_ms=100.0 handoff_gap_p99_ms=125.8 handoff_gap_max_ms=143.1 blocked_count=9690 blocked_max_ms=24.2
+## Mac 端心跳到達間隔（measure CSV，依 seq 分系列；系列 1–2 為當機前那次，2 被當機截斷）
+series 1: n=5999 max_ms=400.0 over200ms=82 over350ms=4
+series 2: n=1537 max_ms=1201.5 over200ms=148 over350ms=133
+series 3: n=5999 max_ms=540.6 over200ms=139 over350ms=4
+series 4: n=5999 max_ms=858.0 over200ms=613 over350ms=532

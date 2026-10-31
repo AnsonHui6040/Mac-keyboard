@@ -1,0 +1,81 @@
+# TP1 第二輪實機量測（2026-11-01 04:00–05:14，iPhone 17 Pro iOS 27.0.1；要求 .low，生效未確認）
+## m2
+RKMEAS M2 packet=41 rounds=100 accepted_p50=1.0 accepted_min=1.0 accepted_max=1.0 drain_p50_ms=0.8 drain_p95_ms=21.6 drain_max_ms=29.6 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M2 packet=182 rounds=100 accepted_p50=1.0 accepted_min=1.0 accepted_max=1.0 drain_p50_ms=1.0 drain_p95_ms=26.1 drain_max_ms=51.9 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=211876242275 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m3
+RKMEAS M3a count=10001 p50_ms=53.7 p95_ms=86.5 p99_ms=137.2 jitter_ms=32.8 max_ms=375.5 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M3b sent=39021 replies=10001 coverage_pct=25.6 skipped=29020 skipped_pct=74.4 refused=27 superseded=0 arrival_sd_ms=17.8 hold_p50_ms=0.1 wait_p50_ms=0.0 wait_p95_ms=0.0 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M3c 估計單程 est_oneway_p50_ms=31.8 est_oneway_p95_ms=51.8 est_oneway_p99_ms=71.5 offset_est_us=-206128441260 ref_phone_us=212397227013 drift_us_per_min=-340.5 drift_measured=true error_bound_ms=34.2 samples=10001 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=211901287812 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m6
+RKMEAS M6 scenario=normal seconds=1800 sent=18000 superseded=0 refused=0 texts=0 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M6 handoff_gap_p50_ms=100.0 handoff_gap_p99_ms=127.1 handoff_gap_max_ms=137.8 blocked_count=0 blocked_max_ms=nan latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M6 模擬誤釋放 simulated_release=pending_mac_csv latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=212589999580 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m7
+RKMEAS M7 rounds=20/20 baseline_s=10 trackpad_s=10 texts=20 frames_per_s_min=17 starved_s_total=0 sent=23734 superseded=12 refused=70 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M7 est_oneway=from_mac_csv (scripts/tp1-oneway-stats) long_text_check=mac_csv latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL offset_est_us=-206128459066 ref_phone_us=214883771779 drift_us_per_min=-54.6 drift_measured=true error_bound_ms=22.8 samples=148 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL_START offset_est_us=-206128458644 ref_phone_us=214419010178 drift_us_per_min=0.0 drift_measured=false error_bound_ms=26.0 samples=80 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL_END offset_est_us=-206128459066 ref_phone_us=214883771779 drift_us_per_min=0.0 drift_measured=false error_bound_ms=22.8 samples=68 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=214416803028 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m8
+RKMEAS M8 seconds=600 body_seq=587..48520 sent=48510 superseded=5 refused=2579 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M8 點擊代理 RTT count=299 click_proxy_rtt_p50_ms=50.6 click_proxy_rtt_p95_ms=91.5 click_proxy_rtt_p99_ms=155.0 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M8 heartbeat_handoff_gap_p99_ms=124.7 heartbeat_handoff_gap_max_ms=136.0 blocked_count=2340 blocked_max_ms=32.4 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M8 模擬誤釋放 simulated_release=pending_mac_csv latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M8 est_oneway=from_mac_csv (scripts/tp1-oneway-stats) latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL offset_est_us=-206128464436 ref_phone_us=215082825123 drift_us_per_min=5.9 drift_measured=true error_bound_ms=34.6 samples=426 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL_START offset_est_us=-206128464546 ref_phone_us=214915675768 drift_us_per_min=0.0 drift_measured=false error_bound_ms=21.5 samples=51 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS CAL_END offset_est_us=-206128463914 ref_phone_us=215520641822 drift_us_per_min=0.0 drift_measured=false error_bound_ms=28.3 samples=76 assumption=symmetric latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=214911778087 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m5
+RKMEAS M5 phase=baseline count=312 rtt_p50=52.2 rtt_p95=80.5 rtt_p99=88.6 rtt_max=174.3 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M5 phase=load count=589 rtt_p50=58.0 rtt_p95=317.6 rtt_p99=405.6 rtt_max=558.5 texts=60 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M5 phase=recovery count=449 rtt_p50=54.5 rtt_p95=85.2 rtt_p99=141.4 rtt_max=224.9 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M5 trend_p50_ms=1.5 blocked_count=1096 blocked_p50_ms=0.7 blocked_p95_ms=2.3 blocked_max_ms=35.9 sent=6423 skipped=5073 refused=224 superseded=15 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M5 drain_ms=0.0 recover_ms=664.4 recover_run=10 min_samples=30 valid=true latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=215543788699 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## m6l
+RKMEAS M6 scenario=longText seconds=600 sent=6000 superseded=0 refused=1138 texts=569 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M6 handoff_gap_p50_ms=100.0 handoff_gap_p99_ms=126.2 handoff_gap_max_ms=136.7 blocked_count=9673 blocked_max_ms=30.4 latency_requested=low latency_confirmed=unconfirmed
+RKMEAS M6 模擬誤釋放 simulated_release=pending_mac_csv latency_requested=low latency_confirmed=unconfirmed
+RKMEAS LAT request_phone_us=215676248471 settle_s=2 window_s=5 evidence=mac_csv_burst_rows latency_requested=low latency_confirmed=unconfirmed
+## M7 後處理（CSV run 4）
+CSV run 4 of 7: 24045 rows
+MODEL assumption=symmetric error_bound_ms=22.8 drift_us_per_min=-54.6 drift_measured=true
+CAL_CHECK start_end_drift_us_per_min=-54.5 line_drift_us_per_min=-54.6 apart_s=464.8
+LAT arrival_interval_before_ms=26.8 arrival_interval_after_ms=nan change_ms=nan n_before=290 n_after=0 evidence=supporting_only latency_confirmed=unconfirmed
+M7 round=1 baseline_est_oneway_p50_ms=33.4 baseline_est_oneway_p95_ms=67.3 baseline_est_oneway_p99_ms=140.8 n=577 first_after_est_oneway_ms=50.7 first_second_est_oneway_p50_ms=56.2 first_second_est_oneway_p95_ms=368.5 first_second_est_oneway_p99_ms=400.1 n=57 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=18.0
+M7 round=2 baseline_est_oneway_p50_ms=34.9 baseline_est_oneway_p95_ms=58.3 baseline_est_oneway_p99_ms=83.6 n=578 first_after_est_oneway_ms=111.0 first_second_est_oneway_p50_ms=50.6 first_second_est_oneway_p95_ms=320.8 first_second_est_oneway_p99_ms=357.8 n=59 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=16.3
+M7 round=3 baseline_est_oneway_p50_ms=34.1 baseline_est_oneway_p95_ms=56.5 baseline_est_oneway_p99_ms=83.0 n=578 first_after_est_oneway_ms=46.4 first_second_est_oneway_p50_ms=39.7 first_second_est_oneway_p95_ms=197.4 first_second_est_oneway_p99_ms=234.5 n=59 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=11.2
+M7 round=4 baseline_est_oneway_p50_ms=33.1 baseline_est_oneway_p95_ms=58.7 baseline_est_oneway_p99_ms=104.9 n=578 first_after_est_oneway_ms=246.5 first_second_est_oneway_p50_ms=59.3 first_second_est_oneway_p95_ms=332.7 first_second_est_oneway_p99_ms=368.4 n=57 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=16.4
+M7 round=5 baseline_est_oneway_p50_ms=30.2 baseline_est_oneway_p95_ms=77.2 baseline_est_oneway_p99_ms=119.2 n=580 first_after_est_oneway_ms=56.8 first_second_est_oneway_p50_ms=59.6 first_second_est_oneway_p95_ms=361.1 first_second_est_oneway_p99_ms=401.6 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=13.7
+M7 round=6 baseline_est_oneway_p50_ms=30.1 baseline_est_oneway_p95_ms=82.0 baseline_est_oneway_p99_ms=128.3 n=579 first_after_est_oneway_ms=202.0 first_second_est_oneway_p50_ms=52.0 first_second_est_oneway_p95_ms=318.8 first_second_est_oneway_p99_ms=358.3 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=17.2
+M7 round=7 baseline_est_oneway_p50_ms=31.2 baseline_est_oneway_p95_ms=54.3 baseline_est_oneway_p99_ms=68.4 n=582 first_after_est_oneway_ms=337.9 first_second_est_oneway_p50_ms=46.9 first_second_est_oneway_p95_ms=288.7 first_second_est_oneway_p99_ms=329.2 n=59 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=11.7
+M7 round=8 baseline_est_oneway_p50_ms=31.2 baseline_est_oneway_p95_ms=58.3 baseline_est_oneway_p99_ms=89.9 n=582 first_after_est_oneway_ms=355.1 first_second_est_oneway_p50_ms=46.4 first_second_est_oneway_p95_ms=361.8 first_second_est_oneway_p99_ms=397.6 n=57 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=17.8
+M7 round=9 baseline_est_oneway_p50_ms=28.4 baseline_est_oneway_p95_ms=57.9 baseline_est_oneway_p99_ms=114.9 n=584 first_after_est_oneway_ms=46.1 first_second_est_oneway_p50_ms=47.3 first_second_est_oneway_p95_ms=358.6 first_second_est_oneway_p99_ms=397.3 n=59 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=12.5
+M7 round=10 baseline_est_oneway_p50_ms=29.5 baseline_est_oneway_p95_ms=53.4 baseline_est_oneway_p99_ms=89.8 n=578 first_after_est_oneway_ms=46.6 first_second_est_oneway_p50_ms=50.5 first_second_est_oneway_p95_ms=311.4 first_second_est_oneway_p99_ms=351.3 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=14.7
+M7 round=11 baseline_est_oneway_p50_ms=28.8 baseline_est_oneway_p95_ms=68.9 baseline_est_oneway_p99_ms=151.0 n=579 first_after_est_oneway_ms=55.7 first_second_est_oneway_p50_ms=44.5 first_second_est_oneway_p95_ms=331.2 first_second_est_oneway_p99_ms=367.7 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=12.7
+M7 round=12 baseline_est_oneway_p50_ms=28.8 baseline_est_oneway_p95_ms=50.9 baseline_est_oneway_p99_ms=63.3 n=582 first_after_est_oneway_ms=120.3 first_second_est_oneway_p50_ms=41.9 first_second_est_oneway_p95_ms=367.4 first_second_est_oneway_p99_ms=405.3 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=15.0
+M7 round=13 baseline_est_oneway_p50_ms=30.5 baseline_est_oneway_p95_ms=73.9 baseline_est_oneway_p99_ms=126.2 n=578 first_after_est_oneway_ms=298.9 first_second_est_oneway_p50_ms=41.0 first_second_est_oneway_p95_ms=253.4 first_second_est_oneway_p99_ms=289.6 n=58 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=10.3
+M7 round=14 baseline_est_oneway_p50_ms=29.9 baseline_est_oneway_p95_ms=66.5 baseline_est_oneway_p99_ms=103.4 n=577 first_after_est_oneway_ms=91.0 first_second_est_oneway_p50_ms=38.2 first_second_est_oneway_p95_ms=240.3 first_second_est_oneway_p99_ms=277.5 n=59 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=18.4
+M7 round=15 baseline_est_oneway_p50_ms=32.7 baseline_est_oneway_p95_ms=64.3 baseline_est_oneway_p99_ms=120.8 n=579 first_after_est_oneway_ms=62.7 first_second_est_oneway_p50_ms=63.0 first_second_est_oneway_p95_ms=367.0 first_second_est_oneway_p99_ms=396.4 n=58 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=12.6
+M7 round=16 baseline_est_oneway_p50_ms=30.0 baseline_est_oneway_p95_ms=82.3 baseline_est_oneway_p99_ms=112.5 n=578 first_after_est_oneway_ms=132.2 first_second_est_oneway_p50_ms=39.4 first_second_est_oneway_p95_ms=213.9 first_second_est_oneway_p99_ms=253.9 n=57 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=16.0
+M7 round=17 baseline_est_oneway_p50_ms=28.9 baseline_est_oneway_p95_ms=64.5 baseline_est_oneway_p99_ms=109.3 n=579 first_after_est_oneway_ms=141.8 first_second_est_oneway_p50_ms=37.5 first_second_est_oneway_p95_ms=313.1 first_second_est_oneway_p99_ms=354.1 n=59 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=15.9
+M7 round=18 baseline_est_oneway_p50_ms=30.7 baseline_est_oneway_p95_ms=54.5 baseline_est_oneway_p99_ms=87.6 n=579 first_after_est_oneway_ms=234.7 first_second_est_oneway_p50_ms=36.3 first_second_est_oneway_p95_ms=263.0 first_second_est_oneway_p99_ms=301.9 n=57 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=11.2
+M7 round=19 baseline_est_oneway_p50_ms=29.0 baseline_est_oneway_p95_ms=54.0 baseline_est_oneway_p99_ms=67.2 n=581 first_after_est_oneway_ms=467.7 first_second_est_oneway_p50_ms=42.9 first_second_est_oneway_p95_ms=422.0 first_second_est_oneway_p99_ms=459.2 n=55 first_within_2x_baseline_p99=false frames_per_s_min=17 text_send_ms=11.8
+M7 round=20 baseline_est_oneway_p50_ms=31.7 baseline_est_oneway_p95_ms=104.3 baseline_est_oneway_p99_ms=146.6 n=582 first_after_est_oneway_ms=214.9 first_second_est_oneway_p50_ms=58.9 first_second_est_oneway_p95_ms=363.2 first_second_est_oneway_p99_ms=398.6 n=56 first_within_2x_baseline_p99=true frames_per_s_min=17 text_send_ms=16.4
+M7 rounds=20 judged=20 first_within_2x_baseline_p99=14/20 long_text_match=20 long_text_mismatch=0 texts_sent=20 long_text_complete=true
+## M8 後處理（CSV run 5）
+CSV run 5 of 7: 48805 rows
+MODEL assumption=symmetric error_bound_ms=34.6 drift_us_per_min=5.9 drift_measured=true
+CAL_CHECK start_end_drift_us_per_min=62.7 line_drift_us_per_min=5.9 apart_s=605.0
+LAT arrival_interval_before_ms=0.1 arrival_interval_after_ms=nan change_ms=nan n_before=294 n_after=0 evidence=supporting_only latency_confirmed=unconfirmed
+M8 cursor 估計單程 est_oneway_p50_ms=35.7 est_oneway_p95_ms=64.1 est_oneway_p99_ms=117.2 n=41629
+M8 模擬誤釋放 simulated_release=0 heartbeat_gaps=5999 max_gap_ms=344.7
+## Mac 端心跳到達間隔（macTimeMicros；系列依序為 M6 30 分鐘、M8、M6-L）
+series 1: n=17999 max_ms=360.4 over200ms=213 over350ms=1
+series 2: n=5999 max_ms=344.7 over200ms=36 over350ms=0
+series 3: n=5999 max_ms=470.1 over200ms=770 over350ms=14

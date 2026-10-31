@@ -451,4 +451,58 @@ final class AuthHandshakeTests: XCTestCase {
               case .authenticated = mac.receive(reply) else { return XCTFail("second handshake") }
         XCTAssertEqual(mac.receive(.sealed(recorded)), .authFailed)
     }
+
+    // MARK: Channel set
+
+    func testChannelSetNilBeforeAuthenticated() {
+        var mac = MacHandshake(pairKey: pairKey, macNonce: macNonce)
+        var phone = PhoneHandshake(pairKey: pairKey, phoneNonce: phoneNonce)
+        XCTAssertNil(mac.takeChannelSet())
+        XCTAssertNil(phone.takeChannelSet())
+        guard case .send(let hello) = mac.begin(), case .send(let reply) = phone.receive(hello) else { return XCTFail("hello") }
+        // The phone answered, but neither side is authenticated yet.
+        XCTAssertNil(mac.takeChannelSet())
+        XCTAssertNil(phone.takeChannelSet())
+        guard case .authenticated(let auth) = mac.receive(reply) else { return XCTFail("mac") }
+        XCTAssertNil(phone.takeChannelSet(), "the phone is authenticated only when the Mac's proof verified")
+        XCTAssertNotNil(mac.takeChannelSet())
+        XCTAssertEqual(phone.receive(auth), .authenticated)
+        XCTAssertNotNil(phone.takeChannelSet())
+    }
+
+    func testChannelSetNilAfterFailure() {
+        var (mac, phone, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+        XCTAssertEqual(mac.receive(.event(makeEvent())), .authFailed)
+        XCTAssertNil(mac.takeChannelSet())
+        XCTAssertEqual(phone.receive(.authFailed), .failed)
+        XCTAssertNil(phone.takeChannelSet())
+    }
+
+    func testChannelSetsInteroperateBothSides() throws {
+        var (mac, phone, _, _) = handshake(macKey: pairKey, phoneKey: pairKey)
+        let macSet = try XCTUnwrap(mac.takeChannelSet())
+        let phoneSet = try XCTUnwrap(phone.takeChannelSet())
+        let plain = Data(repeating: 0x42, count: 16)
+        // iPhone to Mac.
+        let packet = try phoneSet.sealer(.pointer).seal(plain)
+        XCTAssertEqual(try macSet.opener(.pointer).open(packet).get(), plain)
+        #if DEBUG
+        XCTAssertEqual(try macSet.opener(.measureP2M).open(try phoneSet.sealer(.measureP2M).seal(plain)).get(), plain)
+        // Mac to iPhone.
+        let reply = Data(repeating: 0x42, count: 24)
+        XCTAssertEqual(try phoneSet.opener(.measureM2P).open(try macSet.sealer(.measureM2P).seal(reply)).get(), reply)
+        #endif
+    }
+
+    func testChannelSetsOfAnotherHandshakeDoNotOpenEachOther() throws {
+        var first = handshake(macKey: pairKey, phoneKey: pairKey).phone
+        var second = PhoneHandshake(pairKey: pairKey, phoneNonce: Data(repeating: 0x42, count: 16))
+        var secondMac = MacHandshake(pairKey: pairKey, macNonce: Data(repeating: 0x41, count: 16))
+        guard case .send(let hello) = secondMac.begin(), case .send(let reply) = second.receive(hello),
+              case .authenticated(let auth) = secondMac.receive(reply), second.receive(auth) == .authenticated
+        else { return XCTFail("second handshake") }
+        let recorded = try XCTUnwrap(first.takeChannelSet()).sealer(.pointer).seal(Data(repeating: 1, count: 16))
+        let macSet = try XCTUnwrap(secondMac.takeChannelSet())
+        XCTAssertEqual(macSet.opener(.pointer).open(recorded), .failure(.authFailed))
+    }
 }

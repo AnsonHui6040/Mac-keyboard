@@ -38,6 +38,8 @@ struct KeyboardViewState: Equatable {
     /// T13 dictation probe checklist (five lines, one item each), drawn over the English page's letter rows; nil when
     /// the probe is off.
     var dictationProbeLines: [String]?
+    /// TP1: the measurement page of the probe panel; nil shows the checklist.
+    var measurePanel: MeasurePanelState?
     #endif
 }
 
@@ -78,6 +80,11 @@ final class KeyboardRootView: UIView {
     var onDebugLongStatus: (() -> Void)? {
         get { topArea.onDebugLongStatus }
         set { topArea.onDebugLongStatus = newValue }
+    }
+    /// TP1: a button of the measurement page.
+    var onMeasureCommand: ((MeasureCommand) -> Void)? {
+        get { dictationPanel.onMeasureCommand }
+        set { dictationPanel.onMeasureCommand = newValue }
     }
     #endif
 
@@ -174,6 +181,7 @@ final class KeyboardRootView: UIView {
         // pages are left as they are, so the letter keys stay usable there.
         if let lines = state.dictationProbeLines, state.page == .english, state.mode == .remote {
             dictationPanel.setLines(lines)
+            dictationPanel.setMeasure(state.measurePanel)
             dictationPanel.isHidden = false
         } else {
             dictationPanel.isHidden = true

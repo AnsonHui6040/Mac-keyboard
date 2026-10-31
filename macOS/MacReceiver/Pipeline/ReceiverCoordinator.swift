@@ -28,6 +28,15 @@ enum FocusTransition {
             trusted: snapshot.axTrusted
         )
     }
+
+    #if DEBUG
+    /// The same status with the Receiver's measurement mode. A Release build has no such overload, so its status never says `measure`.
+    static func status(for snapshot: FocusSnapshot, measure: Bool) -> ReceiverStatus {
+        let base = status(for: snapshot)
+        return ReceiverStatus(
+            ready: base.ready, appName: base.appName, focusEpoch: base.focusEpoch, trusted: base.trusted, measure: measure)
+    }
+    #endif
 }
 
 /// Wires focus changes to the receive session (D13) and to the status the keyboard shows. Everything that goes to or
@@ -40,6 +49,13 @@ final class ReceiverCoordinator: ObservableObject {
 
     private let focus: FocusMonitor
     private let pipeline: EventPipeline?
+
+    #if DEBUG
+    /// Whether the Receiver's measurement mode is on, for the status the keyboard reads. Debug builds only.
+    var measureMode: () -> Bool = { false }
+    /// Sees the text of every text event the moment it arrives, before it is queued (M7 checks the long text with it).
+    var measureTextArrived: (@MainActor (String) -> Void)?
+    #endif
 
     /// Does not hook anything up; call `start()` for the live wiring.
     /// - Parameter pipeline: receives every verified event from `security`. Nil leaves the security callbacks alone.
@@ -55,7 +71,12 @@ final class ReceiverCoordinator: ObservableObject {
         // The first status goes out only after the phone proved the pair key, and then sealed.
         security.onAuthenticated = { [weak self] in self?.sendStatus() }
         if let pipeline {
-            security.onEvent = { [pipeline] event in pipeline.submit(event) }
+            security.onEvent = { [pipeline, weak self] event in
+                #if DEBUG
+                if case .text(let text) = event.kind { self?.measureTextArrived?(text) }
+                #endif
+                pipeline.submit(event)
+            }
             security.onMalformed = { [pipeline] in pipeline.submitMalformed() }
             // Queued keys of a lost link are dropped; what the pipeline has already processed stays remembered.
             security.onLinkLost = { [pipeline] in pipeline.discardQueued() }
@@ -71,6 +92,10 @@ final class ReceiverCoordinator: ObservableObject {
 
     func sendStatus() {
         guard let last else { return }
+        #if DEBUG
+        security.send(.status(FocusTransition.status(for: last, measure: measureMode())))
+        #else
         security.send(.status(FocusTransition.status(for: last)))
+        #endif
     }
 }

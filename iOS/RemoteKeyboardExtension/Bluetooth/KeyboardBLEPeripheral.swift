@@ -46,7 +46,13 @@ final class KeyboardBLEPeripheral: NSObject {
     /// no Full Access and cannot read the Keychain).
     private var pairKey: SymmetricKey?
     /// One per Mac connection, with its own nonce. Events leave only once it `canSendEvents`, and only sealed.
-    private var handshake: PhoneHandshake?
+    private var handshake: PhoneHandshake? {
+        didSet {
+            #if DEBUG
+            if handshake == nil { measureConnectionEnded() }
+            #endif
+        }
+    }
 
     // Reconnect timing of the current appearance, and the one probe sent for it.
     private var tracker = ReconnectTracker()
@@ -62,6 +68,107 @@ final class KeyboardBLEPeripheral: NSObject {
     private static let controlID = CBUUID(string: GATTServiceSpec.Link.controlUUID)
 
     var linkState: KeyboardLinkState { machine.state }
+
+    #if DEBUG
+    // TP1 measurement (Debug builds only). The channel set of the authenticated connection is kept until it ends.
+    /// 3,000 characters in one `TEXT` (6,000 UTF-8 bytes): the T07 check and the load of M5, M6-L and M7.
+    static let debugLongText = MeasureLongText.text
+
+    enum LatencySetting: Equatable {
+        case unset, low, medium
+        var title: String {
+            switch self {
+            case .unset: "延遲 預設"
+            case .low: "延遲 低"
+            case .medium: "延遲 中"
+            }
+        }
+    }
+
+    private(set) var measureChannels: ChannelSet?
+    private(set) lazy var measurement = MeasurementRunner(peripheral: self)
+    private(set) var latencySetting = LatencySetting.unset
+    /// Which of a long text's frames and a measurement probe goes next, in keyboard or touchpad mode (spec §8.2 rule 4).
+    private var interleave = TransmitInterleave()
+    /// How long an `updateValue` refusal lasted, in microseconds, reported when the radio is ready again.
+    private var blockedSince: UInt64?
+
+    /// Authenticated, subscribed, and the Mac says its measurement mode is on.
+    var isMeasureReady: Bool {
+        machine.state == .connected && subscribedCentral != nil && handshake?.canSendEvents == true
+            && measureChannels != nil && latestStatus?.measure == true
+    }
+
+    var hasQueuedFrames: Bool { queue.pendingCount > 0 }
+
+    /// Hands one sealed measurement packet to `updateValue`. `false` when the radio refused it or no central is subscribed.
+    func sendChannelPacket(_ packet: Data) -> Bool {
+        guard let manager, let eventCharacteristic, let central = subscribedCentral else { return false }
+        let accepted = manager.updateValue(packet, for: eventCharacteristic, onSubscribedCentrals: [central])
+        if !accepted { noteBlocked() }
+        return accepted
+    }
+
+    /// One `TEXT` of 3,000 characters through the normal send path.
+    @discardableResult
+    func sendDebugLongText() -> Bool { send(.text(Self.debugLongText)) != nil }
+
+    /// 預設 → 低 → 中 → 預設. "預設" makes no call; it only takes effect on the next connection, since CoreBluetooth has no way
+    /// back to the system's default once a latency was requested.
+    func cycleLatency() {
+        switch latencySetting {
+        case .unset: latencySetting = .low
+        case .low: latencySetting = .medium
+        case .medium: latencySetting = .unset
+        }
+        applyLatency()
+    }
+
+    /// Asks the subscribed central for the latency a measurement run wants; nothing for `.none`. Returns whether a request
+    /// was made. A request stays in force until the connection ends, so a later run that asks for nothing is told what is
+    /// still active (`latencyCarryover`).
+    @discardableResult
+    func requestMeasureLatency(_ preference: MeasureLatencyPreference) -> Bool {
+        switch preference {
+        case .none: return false
+        case .low: latencySetting = .low
+        case .medium: latencySetting = .medium
+        }
+        guard manager != nil, subscribedCentral != nil else { return false }
+        applyLatency()
+        return true
+    }
+
+    /// The name of a latency request that is still in force on this connection, if any.
+    var latencyCarryover: String? {
+        switch latencySetting {
+        case .unset: nil
+        case .low: "low"
+        case .medium: "medium"
+        }
+    }
+
+    private func applyLatency() {
+        guard let manager, let central = subscribedCentral else { return }
+        switch latencySetting {
+        case .unset: break
+        case .low: manager.setDesiredConnectionLatency(.low, for: central)
+        case .medium: manager.setDesiredConnectionLatency(.medium, for: central)
+        }
+    }
+
+    private func noteBlocked() {
+        if blockedSince == nil { blockedSince = MeasureClock.nowMicros() }
+    }
+
+    private func measureConnectionEnded() {
+        measureChannels = nil
+        blockedSince = nil
+        // A latency request belongs to the connection it was made on.
+        latencySetting = .unset
+        measurement.connectionEnded()
+    }
+    #endif
 
     /// Shown-to-connected time of this appearance, once the link has connected.
     var reconnectLatencyMs: Int64? { tracker.latencyMs }
@@ -312,10 +419,58 @@ final class KeyboardBLEPeripheral: NSObject {
     /// the rest waits for `peripheralManagerIsReady(toUpdateSubscribers:)`.
     private func drain() {
         guard let manager, let eventCharacteristic, let central = subscribedCentral else { return }
+        #if DEBUG
+        drainTracked(manager: manager, characteristic: eventCharacteristic, central: central)
+        #else
         queue.drain { frame in
             manager.updateValue(frame, for: eventCharacteristic, onSubscribedCentrals: [central])
         }
+        #endif
     }
+
+    #if DEBUG
+    /// The runner asks for the exit to be worked (a probe is waiting while frames are queued).
+    func drainQueuedFrames() { drain() }
+
+    /// The same drain as above, plus the measurement duties: it notes how long the radio stays full, and while a run that
+    /// interleaves is going it lets `TransmitInterleave` pick between the next frame and the waiting probe (keyboard mode:
+    /// four frames, then a probe; touchpad mode: four probes, then a frame). It also tells the runner when a frame left and
+    /// when the queue ran empty.
+    private func drainTracked(manager: CBPeripheralManager, characteristic: CBMutableCharacteristic, central: CBCentral) {
+        let interleaving = measurement.wantsInterleave
+        interleave.mode = measurement.transmitMode
+        while true {
+            let hasFrame = queue.pendingCount > 0
+            let hasPacket = interleaving && measurement.hasWaitingPacket
+            guard let source = interleave.choose(hasFrame: hasFrame, hasPacket: hasPacket) else { break }
+            switch source {
+            case .frame:
+                var handedOne = false
+                var refused = false
+                queue.drain { frame in
+                    if handedOne { return false }
+                    guard manager.updateValue(frame, for: characteristic, onSubscribedCentrals: [central]) else {
+                        refused = true
+                        return false
+                    }
+                    handedOne = true
+                    return true
+                }
+                if refused {
+                    noteBlocked()
+                    return
+                }
+                interleave.handed(.frame, otherWaiting: hasPacket)
+                measurement.noteFrameHanded()
+                if queue.pendingCount == 0 { measurement.noteQueueEmpty() }
+            case .packet:
+                guard measurement.offerPacket() else { return }
+                interleave.handed(.packet, otherWaiting: hasFrame)
+            }
+        }
+        measurement.pump()
+    }
+    #endif
 
     private static func diagnosticKey(_ kind: EventKind) -> (DiagnosticKeyKind, Int)? {
         switch kind {
@@ -443,6 +598,10 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
         // Every Mac connection runs its own handshake with its own nonce; a recorded reply is useless on the next one.
         loadPairKey()
+        #if DEBUG
+        measureConnectionEnded()
+        applyLatency()
+        #endif
         handshake = PhoneHandshake(pairKey: pairKey, phoneNonce: Pairing.randomNonce())
         KeyboardLifecycleLog.note(.handshakeStarted)
         feed(.subscribed)
@@ -466,7 +625,16 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
     }
 
     func peripheralManagerIsReady(toUpdateSubscribers peripheral: CBPeripheralManager) {
+        #if DEBUG
+        if let since = blockedSince {
+            blockedSince = nil
+            measurement.noteBlocked(micros: MeasureClock.nowMicros() &- since)
+        }
+        #endif
         drain()
+        #if DEBUG
+        measurement.radioReady()
+        #endif
     }
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
@@ -475,6 +643,14 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         let pieces = requests.filter { $0.characteristic.uuid == Self.controlID }.sorted { $0.offset < $1.offset }
         var payload = Data()
         for piece in pieces { payload.append(piece.value ?? Data()) }
+        #if DEBUG
+        // A reply to a measurement probe: not JSON, opened by the runner with the measureM2P opener.
+        if payload.first == CounterChannel.measureMagic {
+            peripheral.respond(to: first, withResult: .success)
+            if binding.shouldAcceptWrite(from: first.central.identifier) { measurement.handleReply(payload) }
+            return
+        }
+        #endif
         guard !pieces.isEmpty, let message = try? ControlCodec.decode(payload) else {
             peripheral.respond(to: first, withResult: .invalidAttributeValueLength)
             return
@@ -493,6 +669,10 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             transmit(reply)
         case .authenticated:
             KeyboardLifecycleLog.note(.handshakeAuthenticated)
+            #if DEBUG
+            measureChannels = current.takeChannelSet()
+            handshake = current
+            #endif
             onStateChange?(machine.state)
         case .deliver(let inner):
             deliver(inner)
