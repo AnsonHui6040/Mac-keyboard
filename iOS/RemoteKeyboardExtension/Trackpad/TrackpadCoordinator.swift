@@ -13,13 +13,16 @@ final class TrackpadCoordinator {
     private(set) var isActive = false
     /// Multiplier on one-finger cursor motion (`TrackpadSensitivity`); scroll and the gesture thresholds are not scaled.
     var sensitivity = TrackpadSensitivity.defaultValue
-    /// Most cursor packets per second (`TrackpadSendRate`); the sender is paced by it.
-    var sendRate = TrackpadSendRate.defaultValue
+    /// Most cursor packets per second, or 自動 (`TrackpadSendRate`); the sender is paced by it.
+    var sendRate = TrackpadSendRate.defaultValue {
+        didSet { peripheral.pointerSendRate = sendRate }
+    }
     /// The page's state may have changed (the channel opened, was refused, or the link dropped).
     var onChange: (() -> Void)?
 
     init(peripheral: KeyboardBLEPeripheral) {
         self.peripheral = peripheral
+        peripheral.pointerSendRate = sendRate
     }
 
     /// The line to draw on the page, or nil when it takes touches.
@@ -73,7 +76,7 @@ final class TrackpadCoordinator {
 
     func tick(nowMicros now: UInt64) {
         guard isActive else { return }
-        peripheral.pointerSender?.pacingMicros = TrackpadSendRate.pacingMicros(sendRate)
+        peripheral.pointerSender?.rate = sendRate
         feed(gesture.tick(nowMicros: now))
         // Pacing, the heartbeat and anything the radio refused earlier are worked on every refresh.
         peripheral.pumpPointer()
@@ -81,7 +84,7 @@ final class TrackpadCoordinator {
 
     private func feed(_ outputs: [TrackpadOutput]) {
         guard peripheral.pointerState == .open, let sender = peripheral.pointerSender else { return }
-        sender.pacingMicros = TrackpadSendRate.pacingMicros(sendRate)
+        sender.rate = sendRate
         for output in outputs {
             switch output {
             case .strokeBegan(let t): sender.strokeBegan(atMicros: t)

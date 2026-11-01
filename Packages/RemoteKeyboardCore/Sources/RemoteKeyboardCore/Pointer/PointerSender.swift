@@ -2,12 +2,17 @@ import Foundation
 
 /// The iPhone's single ordered exit for `0x03` packets (trackpad spec §8, MVP subset).
 ///
-/// Finger movement is added up and only leaves as quantized MOVE or SCROLL packets, at most one per
-/// `moveIntervalMicros`; whatever is left of a division by 1/16 point stays for the next packet. Anything that changes what a
+/// Finger movement is added up and only leaves as quantized MOVE or SCROLL packets, at most `rate` per second; whatever is left of a division by 1/16 point stays for the next packet. Anything that changes what a
 /// position means (a click, a button going down or up, the end of a scroll) first **closes** the movement before it into a
 /// packet of its own, so the order on the wire is always: movement before the click, the click, movement after it. Closed
-/// packets are handed out at once and in order; the open accumulation waits for its pacing. A held button adds a HEARTBEAT
+/// packets are handed out at once and in order; the open accumulation waits for its credit. A held button adds a HEARTBEAT
 /// every `heartbeatIntervalMicros`.
+///
+/// The rate is kept by a **token bucket**: every `peek` adds `rate × elapsed` of credit (a rest never becomes more than a packet or
+/// two), an open MOVE or SCROLL needs 1 and spends it. A display tick that is a little early or late therefore
+/// does not change the average (in 自動 there is no limit: every `peek` with movement and a free radio gets a packet, which
+/// is how a mouse works: one report per connection event): at 90 per second on a 120 Hz tick, three of every four ticks send. The first movement after a
+/// rest goes at once.
 ///
 /// The adapter asks `peek` for the next packet, seals and writes it, and then calls `handedOff` when the radio took it, or
 /// `refused` when it did not. While refused (`isBlocked`) no packet is formed and the movement keeps adding up, so the first
@@ -17,8 +22,8 @@ import Foundation
 /// Time is always passed in (`PointerClock.nowMicros()`, the same clock as the touches). Single serial context only; no lock.
 /// Nothing here is logged.
 public final class PointerSender {
-    /// The pacing at 60 packets per second (`TrackpadSendRate.pacingMicros(60)`); what a new sender starts with.
-    public static let moveIntervalMicros: UInt64 = 15_000
+    /// One interval at the default 60 packets per second.
+    public static let moveIntervalMicros: UInt64 = 16_667
     public static let heartbeatIntervalMicros: UInt64 = 100_000
     /// One displacement is split into at most this many packets; what does not fit is dropped and flagged as truncated.
     static let maxSplit = 8
@@ -73,8 +78,9 @@ public final class PointerSender {
         case openScroll
     }
 
-    /// The least time between two open MOVE or SCROLL packets; set from `TrackpadSendRate.pacingMicros`.
-    public var pacingMicros: UInt64 = PointerSender.moveIntervalMicros
+    /// Most open MOVE or SCROLL packets per second (`TrackpadSendRate`); `TrackpadSendRate.automatic` (0) has no limit: a packet
+    /// is formed whenever the radio is not blocked and there is movement, so the radio sets the pace. A new sender uses 60.
+    public var rate: Int = 60
 
     private var closed: [PointerPayload] = []
     private var move = Axis()
@@ -88,10 +94,15 @@ public final class PointerSender {
     private var scrollBeganSent = false
     private var afterBlock = false
     private var lastOpenSentAt: UInt64?
+    /// Credit for open packets, 0…2, and the time it was last brought up to date.
+    private var credit = 1.0
+    private var creditAt: UInt64?
     private var lastHeartbeatAt: UInt64 = 0
 
-    public init(startingButtonSeq: UInt16 = 0) {
+    /// - Parameter rate: the rate to start with, so a session in 自動 is not limited before the first tick sets it.
+    public init(startingButtonSeq: UInt16 = 0, rate: Int = 60) {
         buttonSeq = startingButtonSeq
+        self.rate = rate
     }
 
     private var buttons: UInt8 { isLeftDown ? PointerPayload.leftButtonBit : 0 }
@@ -166,6 +177,7 @@ public final class PointerSender {
     /// The next packet to send, or `nil`. Nothing changes until `handedOff`.
     public func peek(nowMicros now: UInt64) -> PointerPayload? {
         offered = nil
+        accrueCredit(to: now)
         guard !isBlocked else { return nil }
         if let first = closed.first {
             offered = .closed
@@ -175,7 +187,7 @@ public final class PointerSender {
             offered = .heartbeat
             return payload(.heartbeat)
         }
-        guard lastOpenSentAt.map({ now &- $0 >= pacingMicros }) ?? true else { return nil }
+        guard TrackpadSendRate.isAutomatic(rate) || lastOpenSentAt == nil || credit >= Self.creditNeeded else { return nil }
         if isScrolling, scroll.hasPacket {
             offered = .openScroll
             var copy = scroll
@@ -199,22 +211,42 @@ public final class PointerSender {
         case .closed?:
             let sent = closed.removeFirst()
             if sent.opcode == .move || sent.opcode == .scroll {
-                lastOpenSentAt = now
+                spendCredit(at: now)
                 if sent.opcode == .move { afterBlock = false }
             }
         case .heartbeat?:
             lastHeartbeatAt = now
         case .openMove?:
             _ = move.take()
-            lastOpenSentAt = now
+            spendCredit(at: now)
             afterBlock = false
         case .openScroll?:
             _ = scroll.take()
             scrollBeganSent = true
-            lastOpenSentAt = now
+            spendCredit(at: now)
         case nil:
             break
         }
+    }
+
+    /// Slightly under 1, so floating point rounding never costs a packet.
+    private static let creditNeeded = 1.0 - 1e-9
+
+    private func accrueCredit(to now: UInt64) {
+        defer { creditAt = now }
+        guard let before = creditAt, now > before else { return }
+        // One look adds at most one packet's worth. The credit stops at 1, except in steady streaming (the last open packet went
+        // within two intervals) while movement waits: there it may run up to 2, so a tick a little late does not throw away the
+        // part beyond 1 and the average does not fall short of `rate`. After a rest nothing is carried over.
+        let gain = min(1, Double(max(rate, 1)) * Double(now - before) / 1_000_000)
+        let waiting = move.hasPacket || scroll.hasPacket || !closed.isEmpty
+        let streaming = lastOpenSentAt.map { Double(now &- $0) * Double(max(rate, 1)) <= 2_000_000 } ?? false
+        credit = min(credit + gain, waiting && streaming ? 2 : 1)
+    }
+
+    private func spendCredit(at now: UInt64) {
+        lastOpenSentAt = now
+        credit = max(0, credit - 1)
     }
 
     /// The radio did not take the packet; nothing is formed until `radioReady`.

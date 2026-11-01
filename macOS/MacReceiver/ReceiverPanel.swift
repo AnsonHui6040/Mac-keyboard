@@ -105,6 +105,12 @@ struct ReceiverPanel: View {
             if pointer.isOpen {
                 Text("觸控板使用中")
                     .foregroundStyle(.secondary)
+                if let summary = pointer.linkSummary {
+                    Text("觸控板連線")
+                    ForEach(summary + (pointer.playoutSummary ?? []), id: \.self) { line in
+                        Text(line).foregroundStyle(.secondary)
+                    }
+                }
             }
             Toggle("登入時啟動", isOn: Binding(
                 get: { loginItem.isOn },

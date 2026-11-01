@@ -34,7 +34,7 @@ final class TrackpadPageView: UIView {
     /// The user pressed − or ＋ on the 「傳輸次數」 bar; the value is already stored.
     var onSendRateChange: ((Int) -> Void)?
 
-    /// Most cursor packets per second (`TrackpadSendRate`); also the frame rate the display link asks for.
+    /// Most cursor packets per second, or 自動 (`TrackpadSendRate`); also decides the frame rate the display link asks for.
     private(set) var sendRate = TrackpadSendRate.defaultValue
 
     private let surface = UIView()

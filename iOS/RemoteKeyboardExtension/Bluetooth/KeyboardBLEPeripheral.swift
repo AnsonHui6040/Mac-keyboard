@@ -70,6 +70,10 @@ final class KeyboardBLEPeripheral: NSObject {
     var onPointerChange: (() -> Void)?
     /// The packets of the open channel; nil while it is not open.
     private(set) var pointerSender: PointerSender?
+    /// The trackpad's send rate (`TrackpadSendRate`, 0 is 自動), set by the coordinator; a new sender starts with it.
+    var pointerSendRate = TrackpadSendRate.defaultValue {
+        didSet { pointerSender?.rate = pointerSendRate }
+    }
     private var pointerOpenEventId: UUID?
     /// Ids of `pointerOpen` and `pointerClose` events: their acks are not typed keys and say nothing in the status line.
     private var pointerEventIds: Set<UUID> = []
@@ -310,7 +314,7 @@ final class KeyboardBLEPeripheral: NSObject {
         guard pointerState == .opening else { return }
         cancelPointerOpenTimeout()
         if result == .posted {
-            pointerSender = PointerSender()
+            pointerSender = PointerSender(rate: pointerSendRate)
             pointerState = .open
         } else {
             pointerState = .denied
