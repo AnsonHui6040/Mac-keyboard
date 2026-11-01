@@ -28,8 +28,9 @@ public enum AppGroup {
         /// 「震動強度」, a `Double` 0…1 written by the host App and read by the Extension. Not set means 0.7
         /// (`KeyFeedbackSettings`).
         public static let keyHapticIntensity = "rk.keyHapticIntensity"
-        /// 「傳輸次數」, an `Int` 20…120 written by the Extension's trackpad bar. Not set means 60 (`TrackpadSendRate`).
-        public static let trackpadSendRate = "rk.trackpadSendRate"
+        /// 「傳輸次數」, an `Int` written by the Extension's trackpad bar: 20…120, or 0 for 自動. Not set means 自動
+        /// (`TrackpadSendRate`). The key is `.v2`: the old `rk.trackpadSendRate` held a rate with 60 as default and is not read.
+        public static let trackpadSendRate = "rk.trackpadSendRate.v2"
         /// 「靈敏度」, a `Double` 0.2…3.0 written by the host App and read by the Extension. Not set means 1.0
         /// (`TrackpadSensitivity`).
         public static let trackpadSensitivity = "rk.trackpadSensitivity"

@@ -10,11 +10,33 @@ final class PointerOutputSpy: PointerOutput {
     func clear() { actions.removeAll() }
 }
 
+/// A frame source that runs only when told to: the test calls `fire()` for one screen refresh.
+@MainActor
+final class ManualFrameSource: PointerFrameSource {
+    var onFrame: ((_ timestampMicros: UInt64, _ targetMicros: UInt64) -> Void)?
+    private(set) var isRunning = false
+    private(set) var starts = 0
+    private(set) var stops = 0
+    func start() {
+        guard !isRunning else { return }
+        isRunning = true
+        starts += 1
+    }
+    func stop() {
+        stops += 1
+        isRunning = false
+    }
+    func fire(timestamp: UInt64 = 0, target: UInt64 = 0) {
+        if isRunning { onFrame?(timestamp, target) }
+    }
+}
+
 /// A `PointerReceiver` on a spy output, a manual clock and a recording log, with the iPhone's channel set of the same
 /// handshake to seal packets against it.
 @MainActor
 final class PointerRig {
     let output = PointerOutputSpy()
+    let frames = ManualFrameSource()
     let defaults: UserDefaults
     let phone: ChannelSet
     let mac: ChannelSet
@@ -40,7 +62,7 @@ final class PointerRig {
         self.mac = mac
         self.phone = phone
         receiver = PointerReceiver(
-            defaults: defaults, output: output, clock: { [unowned self] in now },
+            defaults: defaults, output: output, frames: frames, clock: { [unowned self] in now },
             makeGrant: { [unowned self] in
                 defer { nextGrant += 1 }
                 return nextGrant
@@ -60,6 +82,24 @@ final class PointerRig {
     func send(_ payload: PointerPayload) {
         let packet = try! phone.sealer(.pointer).seal(payload.encode())
         receiver.handle(packet)
+    }
+
+    /// The time moves on and the screen refreshes once.
+    func frame(after micros: UInt64) {
+        now += micros
+        frames.fire(timestamp: now, target: now + 4_000)
+    }
+
+    func click(seq: UInt16 = 0) -> PointerPayload {
+        PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(count: 1), buttonSeq: seq)
+    }
+
+    /// Every `move` action the output has seen, added up.
+    var movedX: Double {
+        output.actions.reduce(0) { sum, action in
+            if case .move(let dx, _, _) = action { return sum + dx }
+            return sum
+        }
     }
 
     func move(dx: Int16, dy: Int16 = 0, buttons: UInt8 = 0, seq: UInt16 = 0) -> PointerPayload {
@@ -239,6 +279,8 @@ final class PointerReceiverTests: XCTestCase {
         let rig = PointerRig()
         rig.openChannel()
         rig.send(rig.move(dx: 256, dy: 0))
+        XCTAssertEqual(rig.output.actions, [], "a move waits for the next screen refresh")
+        rig.frame(after: 20_000)
         guard case .move(let dx, let dy, let dragging)? = rig.output.actions.first, rig.output.actions.count == 1
         else { return XCTFail("\(rig.output.actions)") }
         XCTAssertGreaterThan(dx, 16)
@@ -294,8 +336,10 @@ final class PointerReceiverTests: XCTestCase {
         rig.receiver.handle(forged)
         XCTAssertEqual(rig.output.actions, [])
         rig.receiver.handle(packet)
+        rig.frame(after: 20_000)
         XCTAssertEqual(rig.output.actions.count, 1)
         rig.receiver.handle(packet)
+        rig.frame(after: 20_000)
         XCTAssertEqual(rig.output.actions.count, 1, "the same packet twice moves once")
     }
 
@@ -323,12 +367,228 @@ final class PointerReceiverTests: XCTestCase {
         XCTAssertFalse(rig.receiver.isOpen)
     }
 
+    // MARK: Playout
+
+    func testAMoveIsSpreadOverTheScreenRefreshesAndAddsUpToTheWholeMove() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 256))
+        XCTAssertTrue(rig.frames.isRunning)
+        for _ in 0..<4 { rig.frame(after: 4_000) }
+        XCTAssertEqual(rig.output.actions.count, 4, "one event per refresh")
+        let expected = PointerAcceleration.scaled(dxSixteenths: 256, dySixteenths: 0, dtTenthsOfMs: 160).dx
+        XCTAssertEqual(rig.movedX, expected, accuracy: 1e-9)
+    }
+
+    func testTwoPacketsThatArriveTogetherPlayOneAfterTheOther() {
+        let rig = PointerRig()
+        rig.openChannel()
+        // 8 ms each: together 16 ms, inside the 20 ms lag limit, so neither is squeezed.
+        rig.send(PointerPayload(opcode: .move, buttons: 0, dx: 160, dy: 0, dt: 80, buttonSeq: 0))
+        rig.send(PointerPayload(opcode: .move, buttons: 0, dx: 160, dy: 0, dt: 80, buttonSeq: 0))
+        rig.frame(after: 8_000)
+        let afterFirstSpan = rig.movedX
+        rig.frame(after: 8_000)
+        let total = rig.movedX
+        XCTAssertEqual(afterFirstSpan * 2, total, accuracy: 1e-9, "each took its own 8 ms")
+        XCTAssertGreaterThan(afterFirstSpan, 0)
+    }
+
+    func testMoreThanTheLagLimitIsSqueezedToTheSpanPlusFiveMilliseconds() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<4 { rig.send(rig.move(dx: 160)) }
+        // 16 ms packets: the bound is the packet's span plus 5 ms.
+        rig.frame(after: 21_000)
+        XCTAssertEqual(rig.output.actions.count, 1)
+        XCTAssertFalse(rig.frames.isRunning, "everything was out 21 ms after it arrived")
+    }
+
+    func testAClickFlushesTheMovesBeforeItAndKeepsTheOrder() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 160))
+        rig.send(rig.click())
+        XCTAssertEqual(rig.output.actions.count, 2)
+        guard case .move? = rig.output.actions.first else { return XCTFail("\(rig.output.actions)") }
+        XCTAssertEqual(rig.output.actions.last, .click(count: 1))
+        XCTAssertFalse(rig.frames.isRunning, "nothing is left to play")
+    }
+
+    func testAButtonPressAndReleaseFlushTheMovesBeforeThem() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 160))
+        rig.send(rig.buttonState(down: true, seq: 1))
+        guard case .move(_, _, let first)? = rig.output.actions.first, rig.output.actions.count == 2
+        else { return XCTFail("\(rig.output.actions)") }
+        XCTAssertFalse(first, "the move before the press is not a drag")
+        XCTAssertEqual(rig.output.actions.last, .leftButton(down: true))
+        rig.output.clear()
+        rig.send(rig.move(dx: 160, buttons: 1, seq: 1))
+        rig.send(rig.buttonState(down: false, seq: 2))
+        guard case .move(_, _, let second)? = rig.output.actions.first, rig.output.actions.count == 2
+        else { return XCTFail("\(rig.output.actions)") }
+        XCTAssertTrue(second, "the move before the release is a drag")
+        XCTAssertEqual(rig.output.actions.last, .leftButton(down: false))
+    }
+
+    func testAScrollFlushesTheMovesBeforeIt() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 160))
+        rig.send(PointerPayload(opcode: .scroll, buttons: 0, dx: 0, dy: 160, dt: 160, arg: 1, buttonSeq: 0))
+        guard case .move? = rig.output.actions.first, case .scroll? = rig.output.actions.last, rig.output.actions.count == 2
+        else { return XCTFail("\(rig.output.actions)") }
+    }
+
+    func testTheWatchdogFlushesTheMovesBeforeItReleasesTheButton() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.buttonState(down: true, seq: 1))
+        rig.send(rig.move(dx: 160, buttons: 1, seq: 1))
+        rig.output.clear()
+        rig.now += 350_000
+        rig.receiver.watchdogTick()
+        guard case .move? = rig.output.actions.first, rig.output.actions.count == 2
+        else { return XCTFail("\(rig.output.actions)") }
+        XCTAssertEqual(rig.output.actions.last, .leftButton(down: false))
+    }
+
+    func testALostConnectionDropsTheMovesNotPlayedYetAndStillReleasesTheButton() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.buttonState(down: true, seq: 1))
+        rig.send(rig.move(dx: 160, buttons: 1, seq: 1))
+        rig.output.clear()
+        rig.receiver.detach()
+        XCTAssertEqual(rig.output.actions, [.leftButton(down: false)])
+        XCTAssertFalse(rig.frames.isRunning)
+        rig.frame(after: 100_000)
+        XCTAssertEqual(rig.output.actions, [.leftButton(down: false)], "nothing is played later")
+    }
+
+    func testCloseAndTheSwitchGoingOffDropTheMovesNotPlayedYet() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 160))
+        XCTAssertEqual(rig.receiver.handleClose(), .posted)
+        XCTAssertEqual(rig.output.actions, [])
+        XCTAssertFalse(rig.frames.isRunning)
+
+        let other = PointerRig()
+        other.openChannel()
+        other.send(other.move(dx: 160))
+        other.receiver.setEnabled(false)
+        other.frame(after: 100_000)
+        XCTAssertEqual(other.output.actions, [])
+        XCTAssertFalse(other.frames.isRunning)
+    }
+
+    func testTheFrameSourceRunsOnlyWhileSomethingIsWaitingToBePlayed() {
+        let rig = PointerRig()
+        rig.openChannel()
+        XCTAssertFalse(rig.frames.isRunning)
+        XCTAssertEqual(rig.frames.starts, 0)
+        rig.send(rig.move(dx: 160))
+        XCTAssertTrue(rig.frames.isRunning)
+        rig.frame(after: 8_000)
+        XCTAssertTrue(rig.frames.isRunning, "half is still to come")
+        rig.frame(after: 20_000)
+        XCTAssertFalse(rig.frames.isRunning, "everything was played")
+        rig.send(rig.move(dx: 160))
+        XCTAssertTrue(rig.frames.isRunning)
+        XCTAssertEqual(rig.frames.starts, 2)
+    }
+
+    func testScrollPacketsWithAnIdlePlayoutDoNotTouchTheFrameSource() {
+        let rig = PointerRig()
+        rig.openChannel()
+        let before = (rig.frames.starts, rig.frames.stops)
+        for _ in 0..<5 {
+            rig.send(PointerPayload(opcode: .scroll, buttons: 0, dx: 0, dy: 160, dt: 160, arg: 1, buttonSeq: 0))
+        }
+        XCTAssertEqual(rig.frames.starts, before.0)
+        XCTAssertEqual(rig.frames.stops, before.1)
+    }
+
+    func testAMoveWithoutAnyDisplacementStartsNoFrames() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 0))
+        XCTAssertFalse(rig.frames.isRunning)
+    }
+
+    // MARK: Link statistics
+
+    func testValidMovePacketsFeedTheLinkSummary() {
+        let rig = PointerRig()
+        rig.openChannel()
+        XCTAssertNil(rig.receiver.linkSummary)
+        for _ in 0..<30 {
+            rig.send(rig.move(dx: 16))
+            rig.now += 15_000
+        }
+        rig.receiver.refreshLinkSummary()
+        let lines = rig.receiver.linkSummary
+        XCTAssertEqual(lines?.first, "每秒封包 67", "\(String(describing: lines))")
+        XCTAssertTrue(lines?.contains("推估連線間隔 15 ms") == true)
+    }
+
+    func testPacketsThatDoNotVerifyOrAreNotMovementAreNotCounted() {
+        let rig = PointerRig()
+        rig.openChannel()
+        let garbage = Data([0x03]) + Data(repeating: 9, count: 40)
+        for _ in 0..<7 { rig.receiver.handle(garbage) }
+        for i in 0..<30 {
+            rig.send(rig.heartbeat(down: false, seq: UInt16(i)))
+            rig.now += 15_000
+        }
+        rig.receiver.refreshLinkSummary()
+        XCTAssertNil(rig.receiver.linkSummary, "no samples yet")
+    }
+
+    func testClosingTheChannelClearsTheSummaryAndLogsOneAggregateLine() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<30 {
+            rig.send(rig.move(dx: 16))
+            rig.now += 15_000
+        }
+        rig.receiver.refreshLinkSummary()
+        XCTAssertNotNil(rig.receiver.linkSummary)
+        _ = rig.receiver.handleClose()
+        XCTAssertNil(rig.receiver.linkSummary)
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 1)
+        // A new session starts with nothing.
+        XCTAssertEqual(rig.receiver.handleOpen(grant: rig.receiver.grant!), .posted)
+        rig.receiver.refreshLinkSummary()
+        XCTAssertNil(rig.receiver.linkSummary)
+    }
+
+    func testPlayoutDiagnosticsAppearAfterFramesAndClearOnClose() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<40 {
+            rig.send(rig.move(dx: 16))
+            rig.frame(after: 8_333)
+            rig.frame(after: 8_333)
+        }
+        rig.receiver.refreshLinkSummary()
+        XCTAssertEqual(rig.receiver.playoutSummary?.count, 4)
+        XCTAssertTrue(rig.receiver.playoutSummary?.first?.hasPrefix("播放中斷") == true)
+        _ = rig.receiver.handleClose()
+        XCTAssertNil(rig.receiver.playoutSummary)
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer diag") }.count, 1)
+    }
+
     // MARK: Log
 
     func testTheLogNeverHoldsCoordinatesOrDisplacements() {
         let rig = PointerRig()
         rig.openChannel()
         rig.send(rig.move(dx: 12_345, dy: -23_456))
+        rig.frame(after: 20_000)
         rig.send(rig.buttonState(down: true, seq: 1))
         rig.send(PointerPayload(opcode: .scroll, buttons: 1, dx: 8_765, dy: -9_876, dt: 160, arg: 1, buttonSeq: 1))
         rig.receiver.watchdogTick()
