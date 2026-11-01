@@ -117,3 +117,4 @@ Result: NOT_STARTED
 - 修復後重新執行原始 failing case + 受影響範圍 regression；記 red-green 和 regression 證據。
 
 **狀態聲明：**沒有在本次會話中存取 Xcode 專案、編譯、連接實機或運行測試。驗收欄全部為 `NOT_STARTED` 是事實，不是對技術可行性的否定。
+| 鍵盤版面優化 D26（branch `keyboard-layout`） | 自動通過（Core、MacReceiver、模擬器與 Release build、`HitAreaUITests`；`KeyboardT10UITests` 因模擬器沒有 Notes 未能執行）；實機 TBD | 狀態文字與顏色、頂部五格等寬、刪除版本行、觸控板鍵常駐（本機隱藏、遠端未連接灰色）、手寫候選字浮在書寫區 | 自動：`swift test` 907 項 0 失敗；預覽截圖 375 與 402 寬；實機：e2e/E2E-LAYOUT.md 全部 TBD |

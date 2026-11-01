@@ -1,9 +1,10 @@
 import RemoteKeyboardCore
 import UIKit
 
-/// The candidate row of the top area: Chinese candidates in a horizontally scrolling strip. The first candidate has a
-/// light background because the space key commits it. On the Chinese page the delete key sits at the right end and the
-/// strip stops before it. With no candidates and no delete key nothing is shown.
+/// A strip of Chinese candidates that scrolls sideways. In the top area (Quick) the first candidate has a light
+/// background because the space key commits it. On the handwriting page the strip floats over the writing area with
+/// the delete key at its right end; there nothing has a background and empty space passes touches through to the ink.
+/// With no candidates and no delete key nothing is shown.
 final class CandidateBarView: UIView {
     /// The user tapped the candidate at this index.
     var onSelect: ((Int) -> Void)?
@@ -16,6 +17,13 @@ final class CandidateBarView: UIView {
     var backspaceAllowsRepeat: (() -> Bool)? {
         get { backspaceKey.allowsRepeat }
         set { backspaceKey.allowsRepeat = newValue }
+    }
+
+    /// The first candidate gets a light background (the one the space key commits).
+    var highlightsFirst = true
+    /// Floating over the writing area: empty space does not take touches, and the delete key has no fill.
+    var floatsOverInk = false {
+        didSet { backspaceKey.isTransparent = floatsOverInk }
     }
 
     private let scrollView = UIScrollView()
@@ -63,6 +71,18 @@ final class CandidateBarView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Only a candidate or the delete key takes a touch when floating over the ink; everything else is not hit.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        guard floatsOverInk, let hit else { return hit }
+        var view: UIView? = hit
+        while let current = view, current !== self {
+            if current is UIControl { return hit }
+            view = current.superview
+        }
+        return nil
+    }
 
     /// The delete key is shown on the Chinese page only. It keeps the row visible even when there are no candidates.
     func setBackspaceVisible(_ visible: Bool) {
@@ -113,7 +133,7 @@ final class CandidateBarView: UIView {
             configuration.baseForegroundColor = .label
             configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10)
             configuration.background.cornerRadius = 6
-            configuration.background.backgroundColor = index == 0 ? .tertiarySystemFill : .clear
+            configuration.background.backgroundColor = index == 0 && highlightsFirst ? .tertiarySystemFill : .clear
             let button = UIButton(configuration: configuration)
             button.accessibilityIdentifier = "rk.candidate.\(index)"
             button.accessibilityLabel = text

@@ -69,9 +69,10 @@ final class SegmentToggle: UIControl {
     }
 }
 
-/// The top area, two or three rows of 36 pt:
-/// row 1 mode toggle, status, transmit toggle; row 2 the draft (cursor keys, text, send); row 3 candidates (with the
-/// delete key at the right end on the Chinese page). The stack divides its height equally, so every row is 36 pt.
+/// The top area, one to three rows of 36 pt:
+/// row 1 mode toggle, status, touchpad key, dismiss key, transmit toggle in five equal cells; then the draft (cursor
+/// keys, text, send) when shown; then the candidates on the Quick page. The stack divides its height equally, so every
+/// row is 36 pt.
 final class TopAreaView: UIView {
     var onAction: ((KeyAction) -> Void)?
     /// The user tapped the candidate at this index.
@@ -83,24 +84,13 @@ final class TopAreaView: UIView {
     /// The key beside the dismiss key was tapped: open the touchpad page, or go back to the keyboard.
     var onTrackpadToggle: (() -> Void)?
 
-    /// The delete key at the right end of the candidate row (Chinese page only).
-    var onBackspace: (() -> Void)? {
-        get { candidateBar.onBackspace }
-        set { candidateBar.onBackspace = newValue }
-    }
-    /// Asked at touch down: false means this delete press fires once and does not repeat.
-    var backspaceAllowsRepeat: (() -> Bool)? {
-        get { candidateBar.backspaceAllowsRepeat }
-        set { candidateBar.backspaceAllowsRepeat = newValue }
-    }
-
     private let modeToggle = SegmentToggle(
         titles: ["本機", "遠端"], identifier: "rk.mode", accessibilityName: "輸入位置")
     private let dismissKey = KeyButton(
         style: .function, symbol: "keyboard.chevron.compact.down", label: "收起鍵盤", identifier: "rk.dismiss")
     private let transmitToggle = SegmentToggle(
         titles: ["即時", "草稿"], identifier: "rk.transmit", accessibilityName: "傳送方式")
-    /// 觸控板 on the keyboard, 鍵盤 on the touchpad page.
+    /// 觸控板 on the keyboard (usable only on a connected Remote link), 鍵盤 on the touchpad page (always usable).
     private let trackpadKey = KeyButton(
         style: .function, title: "觸控板", label: "觸控板", identifier: "rk.trackpad.toggle")
     private let statusLabel = UILabel()
@@ -114,7 +104,6 @@ final class TopAreaView: UIView {
 
     private let candidateRow = UIView()
     private let candidateBar = CandidateBarView()
-    private let probeLabel = UILabel()
     private let stack = UIStackView()
     #if DEBUG
     /// T13: a 2-second press on the status label (Remote mode) turns the dictation probe on or off.
@@ -148,41 +137,62 @@ final class TopAreaView: UIView {
         let onPad = state.trackpad != nil
         modeToggle.setSelected(state.mode == .remote ? 1 : 0)
         transmitToggle.setSelected(state.transmit == .draft ? 1 : 0)
-        // On the touchpad page only the status row is left: the mode and transmit switches have nothing to do there.
+        // On the touchpad page only the top row is left: the mode and transmit switches have nothing to do there.
+        // A hidden control keeps its cell, so the others do not move.
         modeToggle.isHidden = onPad
         transmitToggle.isHidden = !top.showsTransmitToggle || onPad
-        trackpadKey.isHidden = !(state.showsTrackpadKey || onPad)
         trackpadKey.setTitle(onPad ? "鍵盤" : "觸控板", for: .normal)
         trackpadKey.accessibilityLabel = onPad ? "回到鍵盤" : "觸控板"
-        statusLabel.isHidden = !top.showsStatus
-        statusLabel.text = state.statusText
-        // `rk.status` keeps the BLE link state name as its value, which the UI tests read.
-        statusLabel.accessibilityValue = state.linkName
+        // Local mode has no touchpad: the key is hidden and its cell stays. In Remote mode it is grey until connected.
+        trackpadKey.isHidden = !top.showsTrackpadKey && !onPad
+        trackpadKey.isEnabled = onPad || state.trackpadAvailable
+        applyStatus(state, visible: top.showsStatus)
         draftRow.isHidden = !top.showsDraftRow || onPad
         candidateRow.isHidden = !top.showsCandidateRow || onPad
         draftView.set(draft: state.draft)
         setSendEnabled(top.sendEnabled)
-        probeLabel.text = state.probeText
-        candidateBar.setCandidates(state.candidates, composing: state.composing)
-        let isChinesePage = state.page == .chinese
-        // Handwriting has its delete key at the right end of this row; Quick uses the one on its letter rows.
-        candidateBar.setBackspaceVisible(isChinesePage && state.chineseMethod == .handwriting)
-        // The small build line gives way to the candidates and, on the Chinese page, to the delete key.
-        probeLabel.isHidden = !state.candidates.isEmpty || isChinesePage
+        // Only Quick has its candidates here; the handwriting page draws its own over the writing area.
+        let isQuick = state.page == .chinese && state.chineseMethod == .quick
+        candidateBar.setCandidates(isQuick ? state.candidates : [], composing: isQuick ? state.composing : "")
+    }
+
+    private static let standardStatusTexts: Set<String> = [
+        StatusLine.connectedText, StatusLine.disconnectedText, StatusLine.notPairedShortText
+    ]
+
+    private func applyStatus(_ state: KeyboardViewState, visible: Bool) {
+        guard visible, let display = state.status else {
+            statusLabel.isHidden = true
+            return
+        }
+        statusLabel.isHidden = false
+        statusLabel.text = display.text
+        statusLabel.textColor = display.tone == .connected ? .systemGreen : .systemRed
+        // The three plain states are short; a note or a warning is longer and gets the smaller size.
+        statusLabel.font = Self.standardStatusTexts.contains(display.text)
+            ? .systemFont(ofSize: 13, weight: .medium) : .systemFont(ofSize: 11)
+        #if DEBUG
+        // The UI tests read the long line (app name, latency, note) from the label.
+        statusLabel.accessibilityLabel = state.statusDetail
+        #else
+        statusLabel.accessibilityLabel = display.text
+        #endif
+        // `rk.status` keeps the BLE link state name as its value, which the UI tests read.
+        statusLabel.accessibilityValue = state.linkName
     }
 
     // MARK: Rows
 
     private func buildStatusRow() {
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabel
+        statusLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        statusLabel.textColor = .systemRed
+        statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 2
         statusLabel.adjustsFontSizeToFitWidth = true
         statusLabel.minimumScaleFactor = 0.8
         statusLabel.accessibilityIdentifier = "rk.status"
         statusLabel.accessibilityValue = KeyboardLinkState.idle.name
-        statusLabel.text = KeyboardLinkState.idle.statusText
-        statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        statusLabel.text = StatusLine.disconnectedText
         #if DEBUG
         statusLabel.isUserInteractionEnabled = true
         let press = UILongPressGestureRecognizer(target: self, action: #selector(statusLongPressed(_:)))
@@ -191,44 +201,37 @@ final class TopAreaView: UIView {
         #endif
         modeToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleMode) }, for: .touchUpInside)
         transmitToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleTransmit) }, for: .touchUpInside)
-        modeToggle.setContentHuggingPriority(.required, for: .horizontal)
-        modeToggle.setContentCompressionResistancePriority(.required, for: .horizontal)
-        transmitToggle.setContentHuggingPriority(.required, for: .horizontal)
-        transmitToggle.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        statusRow.axis = .horizontal
-        statusRow.alignment = .center
-        statusRow.spacing = 8
-        statusRow.isLayoutMarginsRelativeArrangement = true
-        statusRow.layoutMargins = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
-        statusRow.addArrangedSubview(modeToggle)
-        statusRow.addArrangedSubview(statusLabel)
-        // Takes the spare width, so the toggles stay compact when the status label is hidden (Local mode).
-        let spacer = UIView()
-        spacer.setContentHuggingPriority(UILayoutPriority(1), for: .horizontal)
-        spacer.setContentCompressionResistancePriority(UILayoutPriority(1), for: .horizontal)
-        statusRow.addArrangedSubview(spacer)
         trackpadKey.titleLabel?.font = .systemFont(ofSize: 14)
         dismissKey.onTap = { [weak self] in self?.onAction?(.dismissKeyboard) }
         dismissKey.layer.shadowOpacity = 0
-        dismissKey.setContentHuggingPriority(.required, for: .horizontal)
-        dismissKey.setContentCompressionResistancePriority(.required, for: .horizontal)
-        NSLayoutConstraint.activate([
-            dismissKey.widthAnchor.constraint(equalToConstant: 38),
-            dismissKey.heightAnchor.constraint(equalToConstant: 28)
-        ])
         trackpadKey.onTap = { [weak self] in self?.onTrackpadToggle?() }
         trackpadKey.layer.shadowOpacity = 0
-        trackpadKey.setContentHuggingPriority(.required, for: .horizontal)
-        trackpadKey.setContentCompressionResistancePriority(.required, for: .horizontal)
-        trackpadKey.isHidden = true
+        trackpadKey.isEnabled = false
+
+        // Five equal cells. Each control fills its cell, and a hidden control leaves the cell empty, so nothing moves.
+        statusRow.axis = .horizontal
+        statusRow.alignment = .center
+        statusRow.distribution = .fillEqually
+        statusRow.spacing = 6
+        statusRow.isLayoutMarginsRelativeArrangement = true
+        statusRow.layoutMargins = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
+        for control in [modeToggle, statusLabel, trackpadKey, dismissKey, transmitToggle] {
+            statusRow.addArrangedSubview(Self.cell(holding: control))
+        }
+    }
+
+    private static func cell(holding view: UIView) -> UIView {
+        let cell = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        cell.addSubview(view)
         NSLayoutConstraint.activate([
-            trackpadKey.widthAnchor.constraint(equalToConstant: 52),
-            trackpadKey.heightAnchor.constraint(equalToConstant: 28)
+            view.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+            view.topAnchor.constraint(equalTo: cell.topAnchor),
+            view.bottomAnchor.constraint(equalTo: cell.bottomAnchor),
+            cell.heightAnchor.constraint(equalToConstant: 28)
         ])
-        statusRow.addArrangedSubview(trackpadKey)
-        statusRow.addArrangedSubview(dismissKey)
-        statusRow.addArrangedSubview(transmitToggle)
+        return cell
     }
 
     #if DEBUG
@@ -280,7 +283,7 @@ final class TopAreaView: UIView {
         sendButton.setTitleColor(.tertiaryLabel, for: .disabled)
     }
 
-    /// The Chinese candidates when there are any; otherwise the small build line the earlier tasks showed.
+    /// The Quick candidates, a strip that fills the row.
     private func buildCandidateRow() {
         candidateBar.translatesAutoresizingMaskIntoConstraints = false
         candidateRow.addSubview(candidateBar)
@@ -289,18 +292,6 @@ final class TopAreaView: UIView {
             candidateBar.trailingAnchor.constraint(equalTo: candidateRow.trailingAnchor),
             candidateBar.topAnchor.constraint(equalTo: candidateRow.topAnchor),
             candidateBar.bottomAnchor.constraint(equalTo: candidateRow.bottomAnchor)
-        ])
-        probeLabel.font = .systemFont(ofSize: 9)
-        probeLabel.textColor = .tertiaryLabel
-        probeLabel.textAlignment = .right
-        probeLabel.adjustsFontSizeToFitWidth = true
-        probeLabel.minimumScaleFactor = 0.7
-        probeLabel.translatesAutoresizingMaskIntoConstraints = false
-        candidateRow.addSubview(probeLabel)
-        NSLayoutConstraint.activate([
-            probeLabel.trailingAnchor.constraint(equalTo: candidateRow.trailingAnchor, constant: -8),
-            probeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: candidateRow.leadingAnchor, constant: 8),
-            probeLabel.centerYAnchor.constraint(equalTo: candidateRow.centerYAnchor)
         ])
     }
 }

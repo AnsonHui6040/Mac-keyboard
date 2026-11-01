@@ -9,10 +9,13 @@ struct KeyboardViewState: Equatable {
     var page: KeyboardPage
     var top: TopAreaState
     var draft: DraftBuffer
-    var statusText: String
+    /// What the status label shows and its tone; nil shows nothing (Local mode without a note).
+    var status: StatusLine.Display?
+    /// The old long status line (app name, latency, note). Debug builds expose it as the accessibility label of
+    /// `rk.status`, so the UI tests keep reading it; Release shows `status` only.
+    var statusDetail: String
     /// The BLE link state name, exposed as the accessibility value of `rk.status`.
     var linkName: String
-    var probeText: String
     var showsGlobe: Bool
     var chineseAvailable: Bool
     /// Handwriting candidates for the candidate row; empty outside the Chinese page.
@@ -34,8 +37,8 @@ struct KeyboardViewState: Equatable {
     var customSound = false
     /// Tap strength 0…1.
     var hapticIntensity: Double = KeyFeedbackSettings.defaultHapticIntensity
-    /// Remote mode with a connected link: the status row offers the 觸控板 key.
-    var showsTrackpadKey = false
+    /// Remote mode with a connected link: the 觸控板 key is usable. The key itself is always shown.
+    var trackpadAvailable = false
     /// The touchpad page; nil shows the keyboard.
     var trackpad: TrackpadPageState?
     #if DEBUG
@@ -102,7 +105,7 @@ final class KeyboardRootView: UIView {
     /// The controller adds the system input-mode-list target to this button.
     var globeButton: UIButton { bottomRow.globeKey }
     /// The height the controller should give the keyboard for the state last applied.
-    private(set) var preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: 2))
+    private(set) var preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: 1))
 
     private let topArea = TopAreaView()
     private let english = EnglishPageView()
@@ -117,7 +120,7 @@ final class KeyboardRootView: UIView {
     private let dictationPanel = DictationProbePanel()
     #endif
     private var shift = ShiftState()
-    private var topRows = 2
+    private var topRows = 1
     private var showsHandwriting = false
     private var showsTrackpad = false
 
@@ -141,9 +144,8 @@ final class KeyboardRootView: UIView {
         topArea.onSelectCandidate = { [weak self] in self?.onSelectCandidate?($0) }
         handwriting.onStrokeBegan = { [weak self] in self?.onStrokeBegan?() }
         handwriting.onStrokesEnded = { [weak self] strokes, size in self?.onStrokesEnded?(strokes, size) }
-        topArea.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
-        // A press that clears ink or candidates must not turn into a held delete of the text behind them.
-        topArea.backspaceAllowsRepeat = { [weak self] in !(self?.handwriting.hasInk ?? false) }
+        handwriting.onSelectCandidate = { [weak self] in self?.onSelectCandidate?($0) }
+        handwriting.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
         bottomRow.onClear = { [weak self] in self?.onClearInk?() }
         quick.onLetter = { [weak self] letter in self?.onIMEInput?(.key(letter)) }
         quick.onShift = { [weak self] in self?.onIMEInput?(.shift) }
@@ -194,6 +196,7 @@ final class KeyboardRootView: UIView {
         quick.setShift(isQuick && state.quickShift)
         bottomRow.setClearVisible(isHandwriting)
         handwriting.setMessage(state.handwritingMessage)
+        handwriting.setCandidates(isHandwriting ? state.candidates : [])
         #if DEBUG
         // The panel covers the three English letter rows only in Remote mode; Local mode and the Chinese and symbols
         // pages are left as they are, so the letter keys stay usable there.
@@ -205,7 +208,7 @@ final class KeyboardRootView: UIView {
             dictationPanel.isHidden = true
         }
         #endif
-        // On the touchpad page the top area is the status row alone, and the keyboard is as tall as with two top rows.
+        // On the touchpad page the top area is the top row alone, and the keyboard is as tall as with two top rows.
         let rows = onPad ? 1 : state.top.visibleRowCount
         if rows != topRows || isHandwriting != showsHandwriting || onPad != showsTrackpad {
             topRows = rows
@@ -312,7 +315,8 @@ final class KeyboardRootView: UIView {
                 }
             }
         }
-        for page in [english, symbols, quick, handwriting, bottomRow] where isShown(page) { collect(page) }
+        // The handwriting page holds no letter keys: its candidates and delete key sit over the writing area.
+        for page in [english, symbols, quick, bottomRow] where isShown(page) { collect(page) }
         return result
     }
 

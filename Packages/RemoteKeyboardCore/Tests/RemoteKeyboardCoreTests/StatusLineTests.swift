@@ -98,4 +98,66 @@ final class StatusLineTests: XCTestCase {
     func testLatencyIsIgnoredWhenNotConnected() {
         XCTAssertEqual(StatusLine.text(mode: .local, link: .advertising, receiver: nil, connectedMs: 482), "BLE: advertising")
     }
+
+    // MARK: Display (text and tone)
+
+    private func display(
+        _ link: KeyboardLinkState = .connected, mode: KeyboardMode = .remote, receiver: ReceiverStatus? = nil,
+        paired: Bool = true, note: String? = nil
+    ) -> StatusLine.Display? {
+        StatusLine.display(mode: mode, link: link, receiver: receiver, paired: paired, note: note)
+    }
+
+    func testDisplayUnpairedRemoteComesFirstAndIsAProblem() {
+        let expected = StatusLine.Display(text: "尚未配對", tone: .problem)
+        for link in [KeyboardLinkState.advertising, .connected, .publishing] {
+            XCTAssertEqual(display(link, receiver: status(), paired: false, note: "Mac 輸入失敗"), expected)
+        }
+    }
+
+    func testDisplayNoteWinsOverLinkState() {
+        XCTAssertEqual(display(receiver: status(), note: "Mac 輸入失敗"), .init(text: "Mac 輸入失敗", tone: .problem))
+        XCTAssertEqual(display(.advertising, note: "焦點已改變，未輸入"), .init(text: "焦點已改變，未輸入", tone: .problem))
+    }
+
+    func testDisplayPostedNoteCountsAsNoNote() {
+        let posted = StatusLine.ackText(.posted)
+        XCTAssertEqual(display(receiver: status(), note: posted), .init(text: "已連接", tone: .connected))
+        XCTAssertEqual(display(.advertising, note: posted), .init(text: "未連接", tone: .problem))
+    }
+
+    func testDisplayUntrustedReceiverNeedsAConnectedLink() {
+        let untrusted = ReceiverStatus(ready: false, appName: "Finder", focusEpoch: 2, trusted: false)
+        XCTAssertEqual(display(receiver: untrusted), .init(text: "Mac 未授權輔助使用", tone: .problem))
+        XCTAssertEqual(display(.advertising, receiver: untrusted), .init(text: "未連接", tone: .problem))
+    }
+
+    func testDisplayConnectedIsGreenWithoutAppNameOrLatency() {
+        XCTAssertEqual(display(receiver: status(app: "TextEdit")), .init(text: "已連接", tone: .connected))
+        XCTAssertEqual(display(receiver: nil), .init(text: "已連接", tone: .connected))
+        XCTAssertEqual(display(receiver: status(ready: false, app: "Finder")), .init(text: "已連接", tone: .connected))
+    }
+
+    func testDisplayAnyOtherLinkIsNotConnected() {
+        for link in [KeyboardLinkState.idle, .advertising, .publishing] {
+            XCTAssertEqual(display(link, receiver: status()), .init(text: "未連接", tone: .problem))
+        }
+    }
+
+    func testDisplayLocalModeShowsNothingWithoutANote() {
+        for link in [KeyboardLinkState.advertising, .connected] {
+            XCTAssertNil(display(link, mode: .local))
+            XCTAssertNil(display(link, mode: .local, paired: false))
+            XCTAssertNil(display(link, mode: .local, note: StatusLine.ackText(.posted)))
+        }
+    }
+
+    func testDisplayLocalModeShowsANoteAsAProblem() {
+        XCTAssertEqual(display(.connected, mode: .local, note: "2 個按鍵未確認是否送達"),
+                       .init(text: "2 個按鍵未確認是否送達", tone: .problem))
+    }
+
+    func testDisplayDoesNotChangeTheOldText() {
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: status(), connectedMs: 90), "Mac → TextEdit (90 ms)")
+    }
 }

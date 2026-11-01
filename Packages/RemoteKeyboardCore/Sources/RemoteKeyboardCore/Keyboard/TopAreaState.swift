@@ -1,28 +1,35 @@
 /// Which parts of the keyboard's top area are visible. Pure, so the table can be tested without UIKit.
 ///
-/// Row 1 (mode toggle, status, transmit toggle) and the candidate row (blank until the Chinese pages) are always
-/// there; the draft row is the optional one. So the area is two or three rows high.
+/// Row 1 (mode toggle, status, touchpad key, dismiss key, transmit toggle) is always there. The draft row and the
+/// candidate row (Quick page only) are optional, so the area is one to three rows high.
 public struct TopAreaState: Equatable, Sendable {
     public let showsStatus: Bool
     public let showsTransmitToggle: Bool
+    /// The 觸控板 key: Remote mode only (usable only while connected; that is the view's state, not this one).
+    public let showsTrackpadKey: Bool
     public let showsDraftRow: Bool
     public let showsCandidateRow: Bool
     public let sendEnabled: Bool
 
-    public init(mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draftEmpty: Bool, hasNote: Bool) {
+    /// - Parameter showsCandidates: the Quick page, the only page whose candidates sit in the top area.
+    public init(
+        mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draftEmpty: Bool, hasNote: Bool, showsCandidates: Bool
+    ) {
         switch mode {
         case .remote:
             showsStatus = true
             showsTransmitToggle = true
+            showsTrackpadKey = true
             showsDraftRow = transmit == .draft || !draftEmpty || !ready
             sendEnabled = ready && !draftEmpty
         case .local:
             showsStatus = hasNote
             showsTransmitToggle = false
+            showsTrackpadKey = false
             showsDraftRow = false
             sendEnabled = false
         }
-        showsCandidateRow = true
+        showsCandidateRow = showsCandidates
     }
 
     public var visibleRowCount: Int { 1 + (showsDraftRow ? 1 : 0) + (showsCandidateRow ? 1 : 0) }

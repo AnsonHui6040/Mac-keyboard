@@ -10,16 +10,15 @@ final class MinimalKeyboardView: UIView {
     let globeButton = UIButton(type: .system)
     private let modeButton = UIButton(type: .system)
     private let statusLabel = UILabel()
-    private let probeLabel = UILabel()
 
     private var isShifted = false
     private var letterButtons: [UIButton] = []
     private var shiftButton = UIButton(type: .system)
     private let rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
 
-    init(showsGlobeKey: Bool, probeText: String) {
+    init(showsGlobeKey: Bool) {
         super.init(frame: .zero)
-        build(probeText: probeText)
+        build()
         setGlobeVisible(showsGlobeKey)
     }
 
@@ -35,10 +34,6 @@ final class MinimalKeyboardView: UIView {
         statusLabel.accessibilityValue = linkName
     }
 
-    func setProbeText(_ text: String) {
-        probeLabel.text = text
-    }
-
     func setMode(_ mode: KeyboardMode) {
         modeButton.setTitle(mode == .remote ? "遠端" : "本機", for: .normal)
         modeButton.accessibilityValue = mode.rawValue
@@ -47,13 +42,7 @@ final class MinimalKeyboardView: UIView {
 
     // MARK: - Layout
 
-    private func build(probeText: String) {
-        let probe = probeLabel
-        probe.text = probeText
-        probe.font = .systemFont(ofSize: 10)
-        probe.textColor = .secondaryLabel
-        probe.textAlignment = .right
-
+    private func build() {
         statusLabel.text = KeyboardLinkState.idle.statusText
         statusLabel.font = .systemFont(ofSize: 10)
         statusLabel.textColor = .secondaryLabel
@@ -108,21 +97,17 @@ final class MinimalKeyboardView: UIView {
         NSLayoutConstraint.activate([spaceRatio, globeRatio, modeRatio])
         stack.addArrangedSubview(bottom)
 
-        probe.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(statusLabel)
-        addSubview(probe)
         addSubview(stack)
         let height = heightAnchor.constraint(equalToConstant: 230)
         height.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             height,
-            probe.topAnchor.constraint(equalTo: topAnchor, constant: 2),
-            probe.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             statusLabel.topAnchor.constraint(equalTo: topAnchor, constant: 2),
             statusLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: probe.leadingAnchor, constant: -8),
-            stack.topAnchor.constraint(equalTo: probe.bottomAnchor, constant: 2),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            stack.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 2),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)

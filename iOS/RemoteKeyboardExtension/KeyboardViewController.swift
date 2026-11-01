@@ -775,7 +775,7 @@ final class KeyboardViewController: UIInputViewController {
         reclaimPeripheralIfVacant()
         if trackpad.isActive {
             trackpad.leave()
-        } else if mode == .remote {
+        } else if mode == .remote, peripheral.linkState == .connected {
             refreshTrackpadSettings()
             trackpad.enter()
         }
@@ -908,16 +908,19 @@ final class KeyboardViewController: UIInputViewController {
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
             paired: peripheral.isPaired)
+        let display = StatusLine.display(
+            mode: mode, link: link, receiver: peripheral.latestStatus, paired: peripheral.isPaired, note: note)
         let built = KeyboardViewState(
             mode: mode,
             transmit: transmit,
             page: navigator.page,
             top: TopAreaState(
-                mode: mode, transmit: transmit, ready: isReady, draftEmpty: draft.isEmpty, hasNote: note != nil),
+                mode: mode, transmit: transmit, ready: isReady, draftEmpty: draft.isEmpty, hasNote: display != nil,
+                showsCandidates: navigator.page == .chinese && isQuick),
             draft: draft,
-            statusText: StatusLine.appendingNote(line, note: note),
+            status: display,
+            statusDetail: StatusLine.appendingNote(line, note: note),
             linkName: link.name,
-            probeText: Self.probeStatusText(),
             showsGlobe: needsInputModeSwitchKey,
             chineseAvailable: navigator.chineseAvailable,
             candidates: navigator.page == .chinese ? (isQuick ? quickOutput.candidates : chinese.candidates) : [],
@@ -928,7 +931,7 @@ final class KeyboardViewController: UIInputViewController {
             hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound,
             soundVolume: keyFeedback.soundVolume, customSound: keyFeedback.customSound,
             hapticIntensity: keyFeedback.hapticIntensity,
-            showsTrackpadKey: mode == .remote && link == .connected,
+            trackpadAvailable: mode == .remote && link == .connected,
             trackpad: trackpad.isActive ? TrackpadPageState(message: trackpad.message) : nil)
         #if DEBUG
         var state = built
@@ -961,11 +964,5 @@ final class KeyboardViewController: UIInputViewController {
             self?.note = nil
             self?.refreshStatus()
         }
-    }
-
-    private static func probeStatusText() -> String {
-        let value = UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.probe)
-        let group = value == nil ? "AppGroup: NIL" : "AppGroup: OK"
-        return "\(group)  版本 \(BuildStamp.current())"
     }
 }

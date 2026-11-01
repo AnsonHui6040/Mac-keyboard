@@ -128,6 +128,11 @@ final class KeyButton: UIButton {
     }
     private var rolloverID: Int?
 
+    /// No fill at rest (a key floating over other content); a light fill shows only while pressed.
+    var isTransparent = false {
+        didSet { updateBackground() }
+    }
+
     private let style: Style
     private var repeatTask: Task<Void, Never>?
     private var isOn = false
@@ -196,6 +201,10 @@ final class KeyButton: UIButton {
         let light = style == .letter || isOn
         let base: UIColor = light ? Self.letterColor : Self.functionColor
         let pressed: UIColor = light ? Self.functionColor : Self.letterColor
+        if isTransparent {
+            backgroundColor = isHighlighted ? .tertiarySystemFill : .clear
+            return
+        }
         backgroundColor = isHighlighted ? pressed : base
     }
 
