@@ -11,7 +11,9 @@ import UIKit
 /// yet), `handwritingNoModel` (the model is missing), `quick` (T12b: Chinese page with the Quick radical keys, nothing typed),
 /// `quickComposing` (the code 日月 and its candidates), `dictationProbe` (T13 checklist panel over the English letter rows),
 /// `trackpad` (the touchpad page, ready), `trackpadDenied` (the same with the Mac not allowing it), `remoteTrackpadKey`
-/// (the English page with the 觸控板 key in the status row).
+/// (the English page with the 觸控板 key usable), `connected` (green 已連接, 觸控板 usable), `disconnected` (red 未連接,
+/// 觸控板 grey), `unpaired` (尚未配對), `statusNote` (a two-line note in the status cell), `handwritingDisconnected` (the
+/// handwriting page with a disconnected link).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -74,17 +76,19 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
     private static func preview(named name: String) -> (state: KeyboardViewState, shift: ShiftState.Mode) {
         func make(
             mode: KeyboardMode = .remote, transmit: TransmitMode = .instant, page: KeyboardPage = .english,
-            ready: Bool = true, draft: DraftBuffer = DraftBuffer(), status: String = "● Mac → TextEdit",
-            link: String = "connected", candidates: [String] = [], message: String? = nil,
+            ready: Bool = true, draft: DraftBuffer = DraftBuffer(),
+            status: StatusLine.Display? = StatusLine.Display(text: StatusLine.connectedText, tone: .connected),
+            detail: String = "Mac → TextEdit", link: String = "connected", trackpad: Bool = true, candidates: [String] = [], message: String? = nil,
             method: ChineseInputMethodID = .handwriting, composing: String = ""
         ) -> KeyboardViewState {
             KeyboardViewState(
                 mode: mode, transmit: transmit, page: page,
-                top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false),
-                draft: draft, statusText: status, linkName: link, probeText: "AppGroup: OK  版本 預覽",
+                top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false,
+                    showsCandidates: page == .chinese && method == .quick),
+                draft: draft, status: status, statusDetail: detail, linkName: link,
                 showsGlobe: true, chineseAvailable: true, candidates: candidates, chineseMethod: method,
                 composing: composing, handwritingMessage: message, hapticsEnabled: false,
-                soundEnabled: false)
+                soundEnabled: false, trackpadAvailable: trackpad)
         }
         func draft(_ text: String, cursorBack: Int = 0) -> DraftBuffer {
             var buffer = DraftBuffer()
@@ -94,11 +98,11 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         }
         switch name {
         case "local":
-            return (make(mode: .local, status: "BLE: idle", link: "idle"), .off)
+            return (make(mode: .local, status: nil, detail: "BLE: idle", link: "idle", trackpad: false), .off)
         case "remoteDraft":
             return (make(transmit: .draft, draft: draft("香港你好", cursorBack: 2)), .off)
         case "notReady":
-            return (make(ready: false, draft: draft("abc"), status: "Mac（無輸入欄位）"), .off)
+            return (make(ready: false, draft: draft("abc"), detail: "Mac（無輸入欄位）"), .off)
         case "symbols", "symbolsEnglish2":
             return (make(page: .symbols(origin: .english)), .off)
         case "symbolsChinese1", "symbolsChinese2", "symbolsChinese3":
@@ -107,7 +111,15 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (make(page: .chinese, candidates: Self.sampleCandidates), .off)
         case "handwritingLocal":
             return (
-                make(mode: .local, page: .chinese, status: "BLE: idle", link: "idle", candidates: Self.sampleCandidates),
+                make(
+                    mode: .local, page: .chinese, status: nil, detail: "BLE: idle", link: "idle", trackpad: false,
+                    candidates: Self.sampleCandidates),
+                .off)
+        case "handwritingDisconnected":
+            return (
+                make(
+                    page: .chinese, status: StatusLine.Display(text: StatusLine.disconnectedText, tone: .problem),
+                    link: "advertising", trackpad: false, candidates: Self.sampleCandidates),
                 .off)
         case "handwritingEmpty":
             return (make(page: .chinese), .off)
@@ -133,18 +145,28 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             return (state, .off)
         case "trackpad":
             var state = make()
-            state.showsTrackpadKey = true
             state.trackpad = TrackpadPageState(message: nil)
             return (state, .off)
         case "trackpadDenied":
             var state = make()
-            state.showsTrackpadKey = true
             state.trackpad = TrackpadPageState(message: StatusLine.pointerDeniedText)
             return (state, .off)
-        case "remoteTrackpadKey":
-            var state = make()
-            state.showsTrackpadKey = true
-            return (state, .off)
+        case "remoteTrackpadKey", "connected":
+            return (make(), .off)
+        case "disconnected":
+            return (
+                make(
+                    status: StatusLine.Display(text: StatusLine.disconnectedText, tone: .problem), link: "advertising",
+                    trackpad: false),
+                .off)
+        case "unpaired":
+            return (
+                make(
+                    status: StatusLine.Display(text: StatusLine.notPairedShortText, tone: .problem), link: "advertising",
+                    trackpad: false),
+                .off)
+        case "statusNote":
+            return (make(status: StatusLine.Display(text: StatusLine.unconfirmedText(2), tone: .problem)), .off)
         case "caps":
             return (make(), .capsLock)
         default:

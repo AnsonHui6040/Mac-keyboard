@@ -128,15 +128,26 @@ final class InkCanvasView: UIView {
     }
 }
 
-/// The handwriting page: the writing area over the three upper key rows, the full width. Delete sits at the right end
-/// of the candidate row and 重寫 in the bottom row, so this view holds nothing else. The bottom row is `BottomRowView`,
-/// shared with the other pages.
+/// The handwriting page: the writing area over the three upper key rows, the full width. The candidates and the delete
+/// key float over its top 36 pt without a background; the strokes are drawn under them and a stroke may start in the
+/// empty space between them. 重寫 is in the bottom row, which is `BottomRowView`, shared with the other pages.
 final class HandwritingPageView: UIView {
     /// A stroke started or ended; see `InkCanvasView`.
     var onStrokeBegan: (() -> Void)?
     var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
+    /// The user tapped the candidate at this index.
+    var onSelectCandidate: ((Int) -> Void)? {
+        get { candidateBar.onSelect }
+        set { candidateBar.onSelect = newValue }
+    }
+    /// The delete key fired (touch down, then repeating while held unless there is ink).
+    var onBackspace: (() -> Void)? {
+        get { candidateBar.onBackspace }
+        set { candidateBar.onBackspace = newValue }
+    }
 
     private let canvas = InkCanvasView()
+    private let candidateBar = CandidateBarView()
     private let messageLabel = UILabel()
     private var message: String?
 
@@ -152,7 +163,12 @@ final class HandwritingPageView: UIView {
         messageLabel.textAlignment = .center
         messageLabel.numberOfLines = 0
         messageLabel.accessibilityIdentifier = "rk.hwMessage"
-        for view in [canvas, messageLabel] { addSubview(view) }
+        candidateBar.highlightsFirst = false
+        candidateBar.floatsOverInk = true
+        candidateBar.setBackspaceVisible(true)
+        // A press that clears ink or candidates must not turn into a held delete of the text behind them.
+        candidateBar.backspaceAllowsRepeat = { [weak self] in !(self?.hasInk ?? false) }
+        for view in [canvas, messageLabel, candidateBar] { addSubview(view) }
         canvas.onStrokeBegan = { [weak self] in
             self?.updateMessage()
             self?.onStrokeBegan?()
@@ -173,6 +189,10 @@ final class HandwritingPageView: UIView {
 
     /// True while the writing area takes strokes (visible, touchable, no message over it).
     var acceptsInk: Bool { !canvas.isHidden && canvas.isUserInteractionEnabled }
+
+    func setCandidates(_ list: [String]) {
+        candidateBar.setCandidates(list)
+    }
 
     func clearInk() {
         canvas.clear()
@@ -213,6 +233,7 @@ final class HandwritingPageView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         canvas.frame = bounds
+        candidateBar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: CandidateBarLayout.rowHeight)
         messageLabel.frame = canvas.frame.insetBy(dx: 16, dy: 8)
     }
 }

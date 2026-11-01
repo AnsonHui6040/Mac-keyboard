@@ -21,6 +21,37 @@ public enum StatusLine {
         return (receiver.ready ? base : base + "（無輸入欄位）") + latency
     }
 
+    /// The status line as the keyboard draws it: a short text and a tone for its colour.
+    public struct Display: Equatable, Sendable {
+        public enum Tone: Equatable, Sendable { case connected, problem }
+        public let text: String
+        public let tone: Tone
+
+        public init(text: String, tone: Tone) {
+            self.text = text
+            self.tone = tone
+        }
+    }
+
+    public static let notPairedShortText = "尚未配對"
+    public static let connectedText = "已連接"
+    public static let disconnectedText = "未連接"
+
+    /// First match wins: unpaired Remote, a note (a `.posted` note counts as none), an untrusted Mac, connected,
+    /// not connected. Local mode shows nothing while there is no note (`nil`).
+    public static func display(
+        mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, paired: Bool, note: String?
+    ) -> Display? {
+        if mode == .remote, !paired { return Display(text: notPairedShortText, tone: .problem) }
+        if let note, note != ackText(.posted) { return Display(text: note, tone: .problem) }
+        guard mode == .remote else { return nil }
+        if link == .connected, let receiver, !receiver.trusted {
+            return Display(text: ackText(.notAuthorized) ?? "", tone: .problem)
+        }
+        if link == .connected { return Display(text: connectedText, tone: .connected) }
+        return Display(text: disconnectedText, tone: .problem)
+    }
+
     /// Shown on the touchpad page while the Mac does not accept pointer control.
     public static let pointerDeniedText = "Mac 未允許觸控板控制"
     public static let pointerTimeoutText = "無法連接觸控板，請按鍵盤再按觸控板重試"

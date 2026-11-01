@@ -2,7 +2,7 @@ import XCTest
 
 /// Device smoke for the touchpad page (main agent runs it; needs the Mac Receiver paired, receiving, with 「允許觸控板控制」 on).
 ///
-/// It opens the Remote Keyboard from the 測試輸入 field with the globe key, switches to Remote, waits for the 觸控板 key, taps it,
+/// It opens the Remote Keyboard from the 測試輸入 field with the globe key, switches to Remote, waits for the 觸控板 key to be enabled, taps it,
 /// waits until the pad reports `ready` (`rk.trackpad.state`) and then makes one slow horizontal drag across it (the finger moves at
 /// once: no tap, no long press). No click, no long press and no scroll. It prints only `RKTP state=ready swiped=1`: no position,
 /// no distance and no text.
@@ -23,9 +23,10 @@ final class TrackpadSmokeUITests: XCTestCase {
     func testPadReportsReadyAndTakesASlowSwipe() throws {
         try openOurKeyboardInRemoteMode()
         let key = element("rk.trackpad.toggle")
-        guard key.waitForExistence(timeout: 15) else {
+        // The key is always on the keyboard; it is usable (enabled) only once the Remote link is connected.
+        guard key.waitForExistence(timeout: 15), wait(15, until: { key.isEnabled }) else {
             attach("trackpad-key-missing")
-            throw XCTSkip("the 觸控板 key did not appear (Mac not connected?)")
+            throw XCTSkip("the 觸控板 key did not become usable (Mac not connected?)")
         }
         key.tap()
 
