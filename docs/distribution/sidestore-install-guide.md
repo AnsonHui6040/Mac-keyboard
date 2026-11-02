@@ -34,10 +34,21 @@ SideStore 是第三方工具，不是 Apple 的服務。首次安裝可能要花
 6. 在 iPhone 打開「設定 > 一般 > VPN 與裝置管理」，在「開發者 App」下選你的帳號，然後按信任。iOS 18 以上要選「允許並重新啟動」，再輸入密碼。
 7. 如果系統要求開發者模式：到「設定 > 隱私權與安全性」，捲到最下面開啟「開發者模式」，iPhone 會重新啟動。
 8. 連上 Wi-Fi，打開 LocalDevVPN 並按 Connect。
-9. 打開 SideStore，用剛才在 iloader 用的同一個 Apple 帳號登入。
+9. 打開 SideStore，用剛才在 iloader 用的同一個 Apple 帳號登入。如果出現「This action cannot be completed at this time. (-80045)」，先照下面的方法處理，再登入。
 10. 到 My Apps，按 SideStore 旁邊的「7 DAYS」進行 Refresh。如果詢問是否撤銷或建立新憑證，按 Yes 或 Refresh Now。
 
 成功時 iPhone 會回到主畫面並顯示通知，幾秒後 SideStore 就可以再次使用。**請先完成這次 Refresh，再安裝其他 App。**
+
+### 登入出現 (-80045)
+這是 SideStore 目前已知的問題，和密碼無關。在 SideStore 的 Settings 依序做：
+
+1. User Customizations：關閉 **On-Device Anisette**，詢問是否重新啟動時選是。
+2. Anisette Servers：選 **SideStore (New)**，再捲到最下面關閉 **Enable Auto Rotation**。
+3. User Customizations > Anisette Client Configuration > Remote Server Sync：按 **Fetch**，再按 **Save as Overrides**。
+4. 回到 User Customizations，按 **Reset adi.pb**。
+5. 完全關閉 SideStore 再打開，重新登入，可能要等一下。
+
+如果仍然失敗，第 2 步改選 **Jkcoxson**，再做一次第 3 至 5 步。不要連續嘗試太多次，Apple 可能暫時限制登入。登入後帳號的裝置清單可能多出一部 Mac，那是 Anisette 伺服器產生的虛擬裝置。
 
 > iOS 26.4 以上：SideStore 官方的錯誤碼文件提到，遇到錯誤 (27) 時要改用 nightly 版。如果 Stable 版無法 Refresh，請先告訴開發者你的 iOS 版本。
 
@@ -52,7 +63,7 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 
 3. 確認 Wi-Fi 和 LocalDevVPN 都已連線。
 4. 打開 SideStore 的 My Apps，按左上角的「+」，選擇這個 IPA。
-5. **如果詢問如何處理 App Extension，選保留全部（Keep All）。不要選移除，移除後就沒有鍵盤了。**
+5. **詢問 App Extension 時，選「Keep App Extensions (Register App ID for Each Extension)」。不要選 Remove，移除後就沒有鍵盤了。** 這會多用 1 個 App ID。
 6. 等待安裝完成。
 
 ### 開啟鍵盤
@@ -67,10 +78,10 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 1. 下載 `RemoteKeyboardReceiver-v版本號-macOS.zip` 並核對 SHA-256，然後解壓縮，把 App 拖到「應用程式」資料夾。
 2. 打開 App。這個版本沒有經過 Apple 公證，系統會阻擋。先關閉提示，到「系統設定 > 隱私權與安全性」，捲到「安全性」，按「仍要打開」，再輸入密碼確認。
 3. 依提示允許**藍牙**。
-4. 到「系統設定 > 隱私權與安全性 > 輔助使用」，開啟 Remote Keyboard Receiver。App 需要這個權限才能把文字輸入到其他 App。
+4. 到「系統設定 > 隱私權與安全性 > 輔助使用」，開啟 Remote Keyboard Receiver。清單沒有它時，按左下角「＋」，在「應用程式」選它加入。App 需要這個權限才能把文字輸入到其他 App。
 5. 從選單列打開 Receiver，依畫面和 iPhone 配對。
 
-更新 Mac 版之後，可能要重新開啟輔助使用權限。如果開關已開啟卻無法輸入，請把它從清單移除，再重新加入。
+更新 Mac 版之後要重新開啟輔助使用權限，配對會保留，不用重新配對。如果開關已開啟，面板仍顯示「輔助使用未授權」，請把它從清單移除，再按「＋」重新加入。
 
 為了安全，Mac 鎖定畫面、游標在密碼欄，或其他 App 開啟安全輸入（例如終端機的「安全鍵盤輸入」）時，文字不會送出，也不會留在草稿，鍵盤會顯示「密碼不能輸入」。其他 App 忘了關閉安全輸入時，一般欄位也會顯示這句，關閉該 App 的安全輸入即可恢復。Mac 沒有輸入欄位時，即時模式打的字同樣不會保留，鍵盤會提示「Mac 沒有輸入欄位，未輸入」。**請不要用這個鍵盤輸入密碼。**
 
@@ -90,7 +101,7 @@ SideStore 會嘗試在背景自動續簽，但這取決於系統的背景執行�
 2. 確認仍使用**同一個 Apple 帳號**。
 3. **不要先刪除舊版。**
 4. 連上 Wi-Fi 和 LocalDevVPN，在 SideStore 用同樣方式選擇新版 IPA。
-5. 詢問 App Extension 時選保留全部。
+5. 詢問 App Extension 時，選「Keep App Extensions (Register App ID for Each Extension)」。
 6. 打開 App，確認配對和設定還在。
 
 ### 可能遺失資料的情況
@@ -111,11 +122,12 @@ SideStore 會嘗試在背景自動續簽，但這取決於系統的背景執行�
 | IPA 格式錯誤，出現 (1007) | 比對 SHA-256 | 重新下載 IPA；值仍不同就回報開發者 |
 | 簽署失敗，出現 ldid、(3007)、(3008)、(3017) | 記下完整錯誤碼 | 重新 Refresh SideStore 再試；仍失敗請把錯誤碼回報開發者，不要傳憑證 |
 | 安裝後無法開啟 | App 圖示一點就退出 | 先確認已信任開發者並開啟開發者模式；再確認未過期；然後 Refresh。把 iOS 版本回報開發者 |
-| 鍵盤清單沒有 Remote Keyboard | 到「新增鍵盤」查看 | 可能安裝時移除了 Extension。重新安裝 IPA 並選保留全部 |
+| 鍵盤清單沒有 Remote Keyboard | 到「新增鍵盤」查看 | 可能安裝時移除了 Extension。重新安裝 IPA，Extension 選「Keep App Extensions (Register App ID for Each Extension)」 |
 | 無法配對或設定不共用 | App 顯示未配對，或鍵盤讀不到設定 | 確認已開啟完整取用；回報開發者，這正是測試重點之一 |
+| 鍵盤顯示「配對驗證失敗」 | Mac 的 Receiver 面板配對狀態 | 兩邊重新配對：Mac 按「配對新 iPhone」，iPhone App 按「配對 Mac」，核對配對碼後兩邊都按確認，最後按完成 |
 | 超過 App ID 上限，出現 (1009)、(3013) | 查看 My Apps 的到期日 | App ID 無法手動刪除，只能等最舊的滿 7 天；不要反覆刪除重裝 |
 | 鍵盤連不上 Mac | Mac 的 Receiver 面板顯示沒有在接收 | Receiver 閒置 30 分鐘會停止接收。在 Mac 點一下文字欄位，或從選單列打開 Receiver 按「開始接收」。如果仍然不行，關閉停在密碼欄的瀏覽器分頁或其他 App，它們可能開著安全輸入 |
-| 超過 3 個 App | 安裝時提示數量已滿 | 停用或移除其他側載 App |
+| 超過 3 個 App | 安裝時提示數量已滿，或出現「無法驗證其完整性」 | 免費帳號同時最多 3 個側載 App，SideStore 佔 1 個。停用或移除其他用同一個 Apple 帳號簽署的 App，包括自己用 Xcode 裝的 App |
 | App 已到期 | 圖示點了打不開 | 連上 Wi-Fi 和 LocalDevVPN 後 Refresh；不要刪除 App |
 | 更新後資料不見 | 配對或設定消失 | 確認有沒有換帳號或刪除舊版；重新配對，並回報發生經過 |
 

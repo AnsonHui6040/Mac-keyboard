@@ -23,23 +23,23 @@
 
 | 編號 | 操作 | 通過條件 | 狀態 |
 |---|---|---|---|
-| D1 | 用乾淨的 iPhone 或新 Apple 帳號，完全照安裝指南做 | 不靠開發者協助可以完成 | BLOCKED（iPhone 未安裝 SideStore；登入 Apple 帳號與信任設定要本人操作） |
-| D2 | 確認 SideStore Stable 能否在目前 iOS 上 Refresh | 成功；失敗就記下錯誤碼，決定是否改指南 | BLOCKED（同 D1） |
-| D3 | 匯入 IPA，選保留全部 | 鍵盤出現在「新增鍵盤」 | BLOCKED（同 D1） |
-| D4 | 配對 Mac | 配對成功，重開 App 仍在（Keychain 群組正確） | BLOCKED（同 D1） |
-| D5 | App 改按鍵音量，鍵盤重開 | 設定跟著改變（App Group 正確） | BLOCKED（同 D1；Xcode 無法替免費帳號自動註冊改名後的 App Group，改名模擬也做不到） |
-| D6 | 下載手寫模型 | 鍵盤手寫可辨識 | BLOCKED（同 D1；開發簽署下下載、匯入、辨識、刪除後重新下載均通過） |
+| D1 | 用乾淨的 iPhone 或新 Apple 帳號，完全照安裝指南做 | 不靠開發者協助可以完成 | 部分 PASS（開發者 iPhone、自己的 Apple 帳號：iloader 2.4.1 安裝 SideStore 成功；登入遇到 -80045，用指南的 Anisette 設定解決；未用乾淨 iPhone 或新帳號） |
+| D2 | 確認 SideStore Stable 能否在目前 iOS 上 Refresh | 成功；失敗就記下錯誤碼，決定是否改指南 | PASS（iOS 27.2、SideStore 0.7.0 Stable，Refresh 沒有錯誤） |
+| D3 | 匯入 IPA，選保留全部 | 鍵盤出現在「新增鍵盤」 | PASS（匯入成功，bundle ID 加上 Team ID 後綴；Extension 選項實際名稱與舊指南不同，已更新） |
+| D4 | 配對 Mac | 配對成功，重開 App 仍在（Keychain 群組正確） | PASS（修正 Mac 配對匙儲存後，配對成功，重開 App 仍在，開發者確認可輸入文字） |
+| D5 | App 改按鍵音量，鍵盤重開 | 設定跟著改變（App Group 正確） | NOT TESTED（SideStore 版設定預設值與開發版不同，顯示 App Group 已改名；鍵盤讀取設定未實測） |
+| D6 | 下載手寫模型 | 鍵盤手寫可辨識 | NOT TESTED |
 | D7 | 手動 Refresh，再重做 D4–D6 | 全部仍然正常 | BLOCKED（同 D1） |
 | D8 | 不刪舊版安裝新版 IPA | 配對與設定保留 | BLOCKED（同 D1） |
-| D9 | 只有 SideStore 和本 App 時，再裝第 3 個 App | 記錄名額行為，修正指南 | BLOCKED（同 D1） |
+| D9 | 只有 SideStore 和本 App 時，再裝第 3 個 App | 記錄名額行為，修正指南 | PASS（SideStore、本 App 與第 3 個 App 已佔滿；再裝第 4 個時 iOS 拒絕，訊息為無法驗證其完整性） |
 
 ## Mac App（必過）
 
 | 編號 | 操作 | 通過條件 | 狀態 |
 |---|---|---|---|
 | M1 | 用瀏覽器下載 zip（會帶隔離標記），在**沒有開發環境的另一部 Mac** 照指南安裝 | 可以打開 | BLOCKED（沒有第二部 Mac） |
-| M2 | 授權藍牙與輔助使用 | 面板顯示已授權，TextEdit 可收到文字 | 部分 PASS（開發簽署版本可收到文字；ad-hoc 成品未測授權） |
-| M3 | 更新一次版本 | 記錄是否要重新授權，核對指南 | BLOCKED（ad-hoc 成品未安裝） |
+| M2 | 授權藍牙與輔助使用 | 面板顯示已授權，TextEdit 可收到文字 | PASS（發佈 zip、ad-hoc 簽署：授權輔助使用與藍牙後可配對；清單沒有時要用「＋」加入） |
+| M3 | 更新一次版本 | 記錄是否要重新授權，核對指南 | PASS（換簽名模擬更新兩次：配對保留、沒有鑰匙圈密碼視窗；輔助使用每次都要重新授權） |
 | M4 | Intel Mac（如果要支援） | 可以執行，或在指南寫明只支援 Apple 晶片 | BLOCKED（沒有 Intel Mac） |
 
 ## 核心功能（抽查，不跑完整 T16）
