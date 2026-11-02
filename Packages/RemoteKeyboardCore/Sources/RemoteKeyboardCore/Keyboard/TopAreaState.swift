@@ -20,7 +20,7 @@ public struct TopAreaState: Equatable, Sendable {
             showsStatus = true
             showsTransmitToggle = true
             showsTrackpadKey = true
-            showsDraftRow = transmit == .draft || !draftEmpty || !ready
+            showsDraftRow = transmit == .draft || !draftEmpty
             sendEnabled = ready && !draftEmpty
         case .local:
             showsStatus = hasNote

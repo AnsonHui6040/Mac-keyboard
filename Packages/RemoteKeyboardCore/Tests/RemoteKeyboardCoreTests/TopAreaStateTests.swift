@@ -44,11 +44,18 @@ final class TopAreaStateTests: XCTestCase {
         XCTAssertTrue(s.showsDraftRow); XCTAssertTrue(s.sendEnabled); XCTAssertEqual(s.visibleRowCount, 2)
     }
 
-    func testRemoteInstantNotReadyShowsDraftRowWithSendDisabled() {
+    func testRemoteInstantNotReadyAndEmptyShowsNoDraftRow() {
         let s = state(.remote, .instant, ready: false)
-        XCTAssertTrue(s.showsDraftRow); XCTAssertFalse(s.sendEnabled); XCTAssertEqual(s.visibleRowCount, 2)
-        let withText = state(.remote, .instant, ready: false, draftEmpty: false)
-        XCTAssertFalse(withText.sendEnabled)
+        XCTAssertFalse(s.showsDraftRow); XCTAssertFalse(s.sendEnabled); XCTAssertEqual(s.visibleRowCount, 1)
+    }
+
+    func testRemoteNotReadyWithDraftTextShowsTheRowWithSendDisabled() {
+        for transmit in [TransmitMode.instant, .draft] {
+            let withText = state(.remote, transmit, ready: false, draftEmpty: false)
+            XCTAssertTrue(withText.showsDraftRow); XCTAssertFalse(withText.sendEnabled)
+        }
+        let draftMode = state(.remote, .draft, ready: false)
+        XCTAssertTrue(draftMode.showsDraftRow); XCTAssertFalse(draftMode.sendEnabled)
     }
 
     func testRemoteDraftReadyWithTextEnablesSend() {

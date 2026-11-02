@@ -15,6 +15,11 @@ struct SettingsView: View {
         legacy: nil
     ).value
 
+    /// Same read as the keyboard: App Group first, then the extension's own defaults.
+    @State private var trackpadSendRate = TrackpadSendRate.clamped(
+        UserDefaults(suiteName: AppGroup.identifier)?.object(forKey: AppGroup.Key.trackpadSendRate)
+            ?? UserDefaults.standard.object(forKey: AppGroup.Key.trackpadSendRate))
+
     @State private var keySound = Self.storedFlag(AppGroup.Key.keySound)
     @State private var keyHaptics = Self.storedFlag(AppGroup.Key.keyHaptics)
     @State private var soundVolume = Self.storedLevels().soundVolume
@@ -65,10 +70,25 @@ struct SettingsView: View {
                     }
                 }
                 .accessibilityIdentifier("rk.settings.trackpadSensitivity")
+                Stepper {
+                    HStack {
+                        Text("傳輸次數")
+                        Spacer()
+                        Text(TrackpadSendRate.displayText(trackpadSendRate))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("rk.settings.trackpadSendRateValue")
+                    }
+                } onIncrement: {
+                    trackpadSendRate = TrackpadSendRate.stepped(trackpadSendRate, by: 1)
+                } onDecrement: {
+                    trackpadSendRate = TrackpadSendRate.stepped(trackpadSendRate, by: -1)
+                }
+                .accessibilityIdentifier("rk.settings.trackpadSendRate")
             } header: {
                 Text("觸控板")
             } footer: {
-                Text("調整單指移動與拖曳時游標移動的距離。")
+                Text("調整單指移動與拖曳時游標移動的距離。傳輸次數是游標每秒最多傳送的次數，自動則依連線狀況決定。更改後，下次開啟鍵盤時生效。")
             }
             Section {
                 methodRow("手寫", id: .handwriting)
@@ -118,6 +138,11 @@ struct SettingsView: View {
         .onChange(of: trackpadSensitivity) { _, value in
             UserDefaults(suiteName: AppGroup.identifier)?.set(
                 TrackpadSensitivity.clamped(value), forKey: AppGroup.Key.trackpadSensitivity)
+        }
+        .onChange(of: trackpadSendRate) { _, rate in
+            let value = TrackpadSendRate.clamped(rate)
+            UserDefaults(suiteName: AppGroup.identifier)?.set(value, forKey: AppGroup.Key.trackpadSendRate)
+            UserDefaults.standard.set(value, forKey: AppGroup.Key.trackpadSendRate)
         }
         .onChange(of: keySound) { _, enabled in
             UserDefaults(suiteName: AppGroup.identifier)?.set(enabled, forKey: AppGroup.Key.keySound)

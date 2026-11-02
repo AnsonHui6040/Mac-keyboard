@@ -13,3 +13,6 @@ build/
 # 本機工作檔
 .claude/*.local.md
 .claude/settings.local.json
+
+# SideStore 發佈產物
+release/

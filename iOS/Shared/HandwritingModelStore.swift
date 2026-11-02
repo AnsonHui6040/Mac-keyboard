@@ -141,6 +141,7 @@ enum HandwritingModelStore {
         let manager = FileManager.default
         try manager.createDirectory(at: root, withIntermediateDirectories: true)
         try? manager.removeItem(at: root.appendingPathComponent(completeMarkerName))
+        ImmutableFiles.clearFlags(under: destination)
         try? manager.removeItem(at: destination)
         var summary = try copyTree(from: source, to: destination, rename: nil)
         guard FileManager.default.createFile(
@@ -156,6 +157,7 @@ enum HandwritingModelStore {
     /// Removes the App Group copy. A missing copy is not an error.
     static func removeGroupCopy() {
         guard let root = groupRoot else { return }
+        ImmutableFiles.clearFlags(under: root)
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -175,7 +177,10 @@ enum HandwritingModelStore {
         try manager.createDirectory(at: parent, withIntermediateDirectories: true)
         removeStaleStagingDirectories(in: parent)
         let staging = parent.appendingPathComponent(stagingPrefix + UUID().uuidString, isDirectory: true)
-        defer { try? manager.removeItem(at: staging) }
+        defer {
+            ImmutableFiles.clearFlags(under: staging)
+            try? manager.removeItem(at: staging)
+        }
 
         var summary = try copyTree(from: source, to: staging, rename: { name in
             ModelFileNaming.rekey(name, from: host, to: own)
@@ -184,6 +189,7 @@ enum HandwritingModelStore {
         try checkNotCancelled()
         do {
             if manager.fileExists(atPath: destination.path) {
+                ImmutableFiles.clearFlags(under: destination)
                 _ = try manager.replaceItemAt(destination, withItemAt: staging)
             } else {
                 try manager.moveItem(at: staging, to: destination)
@@ -203,6 +209,7 @@ enum HandwritingModelStore {
 
     /// Removes this process's ML Kit directory (the model was dropped by the host app, or turned out to be unusable).
     static func removeLocalCopy() {
+        ImmutableFiles.clearFlags(under: localDirectory)
         try? FileManager.default.removeItem(at: localDirectory)
         try? FileManager.default.removeItem(at: importedMarkerURL)
     }
@@ -210,7 +217,9 @@ enum HandwritingModelStore {
     private static func removeStaleStagingDirectories(in parent: URL) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: parent.path)) ?? []
         for name in names where name.hasPrefix(stagingPrefix) {
-            try? FileManager.default.removeItem(at: parent.appendingPathComponent(name))
+            let stale = parent.appendingPathComponent(name)
+            ImmutableFiles.clearFlags(under: stale)
+            try? FileManager.default.removeItem(at: stale)
         }
     }
 
@@ -245,8 +254,10 @@ enum HandwritingModelStore {
                     try manager.createDirectory(at: target, withIntermediateDirectories: true)
                 } else {
                     try manager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    ImmutableFiles.clearFlags(under: target)
                     try? manager.removeItem(at: target)
                     try manager.copyItem(at: url, to: target)
+                    ImmutableFiles.clearFlags(under: target)
                     summary.bytes += Int64(values.fileSize ?? 0)
                     summary.files += 1
                 }

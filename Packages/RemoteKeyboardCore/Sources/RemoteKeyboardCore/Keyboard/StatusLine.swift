@@ -18,6 +18,7 @@ public enum StatusLine {
         if let receiver, !receiver.trusted { return "Mac 未授權輔助使用" + latency }
         let base = receiver?.appName.map { "Mac → \($0)" } ?? "Mac"
         guard let receiver else { return base + "（等待狀態）" + latency }
+        if receiver.inputBlocked { return base + "（密碼欄，不能輸入）" + latency }
         return (receiver.ready ? base : base + "（無輸入欄位）") + latency
     }
 
@@ -37,8 +38,11 @@ public enum StatusLine {
     public static let connectedText = "已連接"
     public static let disconnectedText = "未連接"
 
-    /// First match wins: unpaired Remote, a note (a `.posted` note counts as none), an untrusted Mac, connected,
-    /// not connected. Local mode shows nothing while there is no note (`nil`).
+    /// Said while the Mac is blocked (password field, secure input, locked screen). Six characters, for the narrow cell.
+    public static let inputBlockedText = "密碼不能輸入"
+
+    /// First match wins: unpaired Remote, a note (a `.posted` note counts as none), an untrusted Mac, a blocked Mac,
+    /// connected, not connected. Local mode shows nothing while there is no note (`nil`).
     public static func display(
         mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, paired: Bool, note: String?
     ) -> Display? {
@@ -48,8 +52,19 @@ public enum StatusLine {
         if link == .connected, let receiver, !receiver.trusted {
             return Display(text: ackText(.notAuthorized) ?? "", tone: .problem)
         }
+        if link == .connected, receiver?.inputBlocked == true { return Display(text: inputBlockedText, tone: .problem) }
         if link == .connected { return Display(text: connectedText, tone: .connected) }
         return Display(text: disconnectedText, tone: .problem)
+    }
+
+    /// The note for a typing key that was dropped (`RouteOutcome.rejected`) while the Mac was not ready. `nil` says
+    /// nothing: the status line already names the cause (a password field, a Mac without Accessibility), and a note would
+    /// cover it.
+    public static func droppedKeyNote(link: KeyboardLinkState, receiver: ReceiverStatus?) -> String? {
+        guard link == .connected else { return "Mac 未連接，未輸入" }
+        guard let receiver else { return "Mac 尚未就緒，未輸入" }
+        if receiver.inputBlocked || !receiver.trusted { return nil }
+        return "Mac 沒有輸入欄位，未輸入"
     }
 
     /// Shown on the touchpad page while the Mac does not accept pointer control.

@@ -156,6 +156,9 @@ final class TopAreaView: UIView {
         candidateBar.setCandidates(isQuick ? state.candidates : [], composing: isQuick ? state.composing : "")
     }
 
+    /// Status texts up to this many characters are kept on one line (the cell is one fifth of the width, 68 to 71 pt).
+    private static let singleLineStatusLimit = 6
+
     private static let standardStatusTexts: Set<String> = [
         StatusLine.connectedText, StatusLine.disconnectedText, StatusLine.notPairedShortText
     ]
@@ -167,6 +170,8 @@ final class TopAreaView: UIView {
         }
         statusLabel.isHidden = false
         statusLabel.text = display.text
+        // A short state such as 密碼不能輸入 stays on one line and shrinks to fit rather than breaking in the middle.
+        statusLabel.numberOfLines = display.text.count <= Self.singleLineStatusLimit ? 1 : 2
         statusLabel.textColor = display.tone == .connected ? .systemGreen : .systemRed
         // The three plain states are short; a note or a warning is longer and gets the smaller size.
         statusLabel.font = Self.standardStatusTexts.contains(display.text)
@@ -242,6 +247,7 @@ final class TopAreaView: UIView {
     #endif
 
     private func buildDraftRow() {
+        draftView.onSetCursor = { [weak self] index in self?.onAction?(.setDraftCursor(index)) }
         cursorLeft.onTap = { [weak self] in self?.onAction?(.cursorLeft) }
         cursorRight.onTap = { [weak self] in self?.onAction?(.cursorRight) }
         for key in [cursorLeft, cursorRight] {
@@ -298,10 +304,25 @@ final class TopAreaView: UIView {
 
 /// The draft text with a caret. Text before the caret is cut at its head and text after it at its tail, so the
 /// caret stays in view however long the draft is.
-final class DraftTextView: UIView {
+///
+/// A touch moves the caret to the nearest visible boundary, and a finger dragged along the draft moves it
+/// continuously. A real text field cannot live in a keyboard extension, so the view measures what the two labels show
+/// and `DraftCaretHitTest` decides where a point lands. It is a `UIControl` like the keys, which gets the touch down at
+/// once; the click plays once per touch, not per drag step. An empty draft takes no touch.
+final class DraftTextView: UIControl {
+    /// The caret should sit before the Character at this index (counted like `DraftBuffer`).
+    var onSetCursor: ((Int) -> Void)?
+
     private let before = UILabel()
     private let after = UILabel()
     private let caret = UIView()
+    private static let font = UIFont.systemFont(ofSize: 17)
+    /// What the labels show, one string per Character of the draft, so an index here is a draft index.
+    private var beforeShown: [String] = []
+    private var afterShown: [String] = []
+    private var cursorIndex = 0
+    private var isDraftEmpty = true
+    private var widths: [String: Double] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -312,7 +333,7 @@ final class DraftTextView: UIView {
         accessibilityTraits = .staticText
         accessibilityLabel = "草稿"
         for label in [before, after] {
-            label.font = .systemFont(ofSize: 17)
+            label.font = Self.font
             label.textColor = .label
             label.numberOfLines = 1
         }
@@ -327,6 +348,7 @@ final class DraftTextView: UIView {
         row.spacing = 0
         row.isLayoutMarginsRelativeArrangement = true
         row.layoutMargins = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        row.isUserInteractionEnabled = false
         row.translatesAutoresizingMaskIntoConstraints = false
         addSubview(row)
         before.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -348,19 +370,63 @@ final class DraftTextView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func set(draft: DraftBuffer) {
-        before.text = Self.singleLine(draft.textBeforeCursor)
+        beforeShown = Self.shown(draft.textBeforeCursor)
+        afterShown = Self.shown(draft.textAfterCursor)
+        cursorIndex = draft.cursor
+        isDraftEmpty = draft.isEmpty
+        before.text = beforeShown.joined()
         if draft.isEmpty {
             after.text = "輸入草稿"
             after.textColor = .tertiaryLabel
         } else {
-            after.text = Self.singleLine(draft.textAfterCursor)
+            after.text = afterShown.joined()
             after.textColor = .label
         }
         accessibilityValue = draft.isEmpty ? "空白" : draft.text
     }
 
-    /// A line break in the draft is shown as a return mark so the draft stays on one line.
-    private static func singleLine(_ text: String) -> String {
-        text.replacingOccurrences(of: "\n", with: "\u{23CE}")
+    /// One string per Character of `text`; a line break is shown as a return mark so the draft stays on one line.
+    private static func shown(_ text: String) -> [String] {
+        text.map { $0 == "\n" || $0 == "\r\n" ? "\u{23CE}" : String($0) }
+    }
+
+    // MARK: Touches
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        guard !isDraftEmpty else { return false }
+        KeyFeedback.touchDown()
+        moveCaret(to: touch)
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        moveCaret(to: touch)
+        return true
+    }
+
+    private func moveCaret(to touch: UITouch) {
+        guard let index = DraftCaretHitTest.nearestIndex(x: touch.location(in: self).x, stops: stops()),
+            index != cursorIndex
+        else { return }
+        onSetCursor?(index)
+    }
+
+    /// The cursor positions the two labels show right now, with the x each is drawn at. The earlier move may have left a
+    /// layout pass pending, so lay out first.
+    private func stops() -> [DraftCaretHitTest.Stop] {
+        layoutIfNeeded()
+        let ellipsis = width(of: "\u{2026}")
+        return DraftCaretHitTest.stopsBefore(
+            widths: beforeShown.map(width(of:)), originX: before.frame.minX, available: before.frame.width, ellipsis: ellipsis)
+            + DraftCaretHitTest.stopsAfter(
+                widths: afterShown.map(width(of:)), originX: after.frame.minX, available: after.frame.width, ellipsis: ellipsis,
+                baseIndex: cursorIndex)
+    }
+
+    private func width(of character: String) -> Double {
+        if let known = widths[character] { return known }
+        let measured = Double((character as NSString).size(withAttributes: [.font: Self.font]).width)
+        widths[character] = measured
+        return measured
     }
 }

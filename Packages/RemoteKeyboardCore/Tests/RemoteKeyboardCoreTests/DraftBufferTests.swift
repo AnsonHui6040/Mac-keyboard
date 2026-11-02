@@ -143,4 +143,135 @@ final class DraftBufferTests: XCTestCase {
         XCTAssertEqual(draft.textBeforeCursor, "香港")
         XCTAssertEqual(draft.textAfterCursor, "你好")
     }
+
+    // MARK: moveCursor
+
+    func testMoveCursorSetsTheIndexAndTypingFollowsIt() {
+        var draft = DraftBuffer()
+        _ = draft.insert("abcd")
+        draft.moveCursor(to: 2)
+        XCTAssertEqual(draft.cursor, 2)
+        XCTAssertEqual(draft.textBeforeCursor, "ab"); XCTAssertEqual(draft.textAfterCursor, "cd")
+        XCTAssertTrue(draft.insert("X"))
+        XCTAssertEqual(draft.text, "abXcd"); XCTAssertEqual(draft.cursor, 3)
+        draft.deleteBackward()
+        XCTAssertEqual(draft.text, "abcd"); XCTAssertEqual(draft.cursor, 2)
+    }
+
+    func testMoveCursorClampsToTheTextLength() {
+        var draft = DraftBuffer()
+        _ = draft.insert("abc")
+        draft.moveCursor(to: -5)
+        XCTAssertEqual(draft.cursor, 0)
+        draft.moveCursor(to: 99)
+        XCTAssertEqual(draft.cursor, 3)
+        var empty = DraftBuffer()
+        empty.moveCursor(to: 4)
+        XCTAssertEqual(empty.cursor, 0)
+    }
+
+    func testMoveCursorCountsCharactersNotScalars() {
+        var draft = DraftBuffer()
+        _ = draft.insert("a👨‍👩‍👧‍👦b")
+        draft.moveCursor(to: 2)
+        XCTAssertEqual(draft.textBeforeCursor, "a👨‍👩‍👧‍👦"); XCTAssertEqual(draft.textAfterCursor, "b")
+        draft.moveCursor(to: 1)
+        XCTAssertEqual(draft.textBeforeCursor, "a")
+    }
+
+    func testMoveCursorKeepsTheTextAndTheCap() {
+        var draft = DraftBuffer()
+        _ = draft.insert(String(repeating: "a", count: DraftBuffer.maxCharacters))
+        draft.moveCursor(to: 10)
+        XCTAssertEqual(draft.text.count, DraftBuffer.maxCharacters)
+        XCTAssertFalse(draft.insert("b"))
+    }
+}
+
+final class DraftCaretHitTestTests: XCTestCase {
+    private typealias Stop = DraftCaretHitTest.Stop
+    private let widths = [10.0, 10, 10, 10]   // "abcd", each 10 pt wide
+
+    func testNearestBoundaryOfAPlainDraft() {
+        let stops = DraftCaretHitTest.stopsAfter(
+            widths: widths, originX: 8, available: 200, ellipsis: 8, baseIndex: 0)
+        XCTAssertEqual(stops.map(\.index), [0, 1, 2, 3, 4])
+        XCTAssertEqual(stops.map(\.x), [8, 18, 28, 38, 48])
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 8, stops: stops), 0)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 22, stops: stops), 1)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 23.5, stops: stops), 2)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 47, stops: stops), 4)
+    }
+
+    func testTouchesOutsideTheTextGoToTheEnds() {
+        let stops = DraftCaretHitTest.stopsAfter(widths: widths, originX: 8, available: 200, ellipsis: 8, baseIndex: 0)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: -50, stops: stops), 0)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 400, stops: stops), 4)
+    }
+
+    func testAHalfwayTouchGoesToTheEarlierBoundary() {
+        let stops = DraftCaretHitTest.stopsAfter(widths: widths, originX: 0, available: 200, ellipsis: 8, baseIndex: 0)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 5, stops: stops), 0)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 15, stops: stops), 1)
+    }
+
+    func testNoStopsMeansNoIndex() {
+        XCTAssertNil(DraftCaretHitTest.nearestIndex(x: 10, stops: []))
+    }
+
+    func testTextAfterTheCaretCutAtItsTailKeepsOnlyWhatFitsPlusTheEllipsis() {
+        // Room for 3 characters and the ellipsis (3 x 10 + 8 = 38 <= 39), not for all 4 (40).
+        let stops = DraftCaretHitTest.stopsAfter(widths: widths, originX: 100, available: 39, ellipsis: 8, baseIndex: 5)
+        XCTAssertEqual(stops.map(\.index), [5, 6, 7, 8])
+        XCTAssertEqual(stops.map(\.x), [100, 110, 120, 130])
+        // A touch on the ellipsis lands on the last visible boundary.
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 138, stops: stops), 8)
+    }
+
+    func testAfterTextThatFitsExactlyHasNoEllipsis() {
+        let stops = DraftCaretHitTest.stopsAfter(widths: widths, originX: 0, available: 40, ellipsis: 30, baseIndex: 0)
+        XCTAssertEqual(stops.map(\.index), [0, 1, 2, 3, 4])
+    }
+
+    func testAfterLabelWithNoRoomOffersOnlyTheCaretPosition() {
+        let stops = DraftCaretHitTest.stopsAfter(widths: widths, originX: 100, available: 0, ellipsis: 8, baseIndex: 2)
+        XCTAssertEqual(stops, [Stop(x: 100, index: 2)])
+    }
+
+    func testTextBeforeTheCaretCutAtItsHeadStartsAfterTheEllipsis() {
+        // Four characters before the caret (indices 0..4), room for the ellipsis and two of them: 8 + 20 <= 30.
+        let stops = DraftCaretHitTest.stopsBefore(widths: widths, originX: 8, available: 30, ellipsis: 8)
+        XCTAssertEqual(stops.map(\.index), [2, 3, 4])
+        XCTAssertEqual(stops.map(\.x), [16, 26, 36])
+        // The ellipsis itself maps to the first visible boundary, never to a hidden one.
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 8, stops: stops), 2)
+    }
+
+    func testBeforeTextThatFitsKeepsEveryBoundary() {
+        let stops = DraftCaretHitTest.stopsBefore(widths: widths, originX: 8, available: 100, ellipsis: 8)
+        XCTAssertEqual(stops.map(\.index), [0, 1, 2, 3, 4])
+        XCTAssertEqual(stops.last?.x, 48)
+    }
+
+    func testBeforeLabelNarrowerThanTheEllipsisStillOffersTheCaret() {
+        let stops = DraftCaretHitTest.stopsBefore(widths: widths, originX: 8, available: 5, ellipsis: 8)
+        XCTAssertEqual(stops.map(\.index), [4])
+    }
+
+    func testEmptySidesGiveASingleStopAndNeverCrash() {
+        XCTAssertEqual(DraftCaretHitTest.stopsBefore(widths: [], originX: 8, available: 50, ellipsis: 8), [Stop(x: 8, index: 0)])
+        XCTAssertEqual(DraftCaretHitTest.stopsAfter(widths: [], originX: 8, available: 50, ellipsis: 8, baseIndex: 3), [Stop(x: 8, index: 3)])
+        XCTAssertEqual(DraftCaretHitTest.stopsAfter(widths: widths, originX: 0, available: -4, ellipsis: 8, baseIndex: 0).count, 1)
+    }
+
+    func testBothSidesTogetherMapAcrossTheCaret() {
+        // "ab|cd": before stops end at the caret's left edge, after stops start at its right edge (2 pt caret).
+        let before = DraftCaretHitTest.stopsBefore(widths: [10, 10], originX: 8, available: 100, ellipsis: 8)
+        let after = DraftCaretHitTest.stopsAfter(widths: [10, 10], originX: 30, available: 100, ellipsis: 8, baseIndex: 2)
+        let stops = before + after
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 28, stops: stops), 2)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 31, stops: stops), 2)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 41, stops: stops), 3)
+        XCTAssertEqual(DraftCaretHitTest.nearestIndex(x: 9, stops: stops), 0)
+    }
 }

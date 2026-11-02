@@ -123,9 +123,15 @@ public final class PointerSender {
         move.add(dx, dy, at: time)
     }
 
-    public func click(atMicros time: UInt64) {
+    /// A left click; `count` 2 is the second click of a double click.
+    public func click(count: Int = 1, atMicros time: UInt64) {
         closeMoves()
-        closed.append(payload(.click, arg: PointerPayload.clickArg(count: 1)))
+        closed.append(payload(.click, arg: PointerPayload.clickArg(count: count)))
+    }
+
+    public func rightClick(atMicros time: UInt64) {
+        closeMoves()
+        closed.append(payload(.click, arg: PointerPayload.clickArg(button: 1, count: 1)))
     }
 
     /// Presses or releases the left button. A repeat of the state it already has is nothing.

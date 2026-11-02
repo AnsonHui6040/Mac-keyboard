@@ -43,6 +43,11 @@ public struct DraftBuffer: Sendable, Equatable {
         cursor = min(text.count, cursor + 1)
     }
 
+    /// Puts the cursor before the Character at `index`, clamped to `0...text.count`.
+    public mutating func moveCursor(to index: Int) {
+        cursor = min(max(0, index), text.count)
+    }
+
     /// Empties the draft and returns what to send: each line as `.text` events of at most `maxEventBytes` UTF-8 bytes
     /// (never cut inside a character), and one `.returnKey` for every line break. No empty `.text`.
     public mutating func takeEvents() -> [EventKind] {
@@ -69,5 +74,64 @@ public struct DraftBuffer: Sendable, Equatable {
         text = ""
         cursor = 0
         return events
+    }
+}
+
+/// Maps a touch on the draft row to a cursor position. Pure: the view measures the character widths and the label
+/// frames, this decides which boundary a touch is nearest and which boundaries a truncated label still shows.
+///
+/// A stop is a cursor position the user can see, with the x it is drawn at. Widths are per Character (a line break is
+/// shown as one return mark, so it is one Character here too), which keeps the indices the draft's own.
+public enum DraftCaretHitTest {
+    public struct Stop: Equatable, Sendable {
+        public let x: Double
+        public let index: Int
+
+        public init(x: Double, index: Int) {
+            self.x = x
+            self.index = index
+        }
+    }
+
+    /// The visible cursor positions in the text before the caret. The label cuts its head, so it shows an ellipsis and
+    /// then the longest tail of `widths` that fits `available`; positions in the hidden head are not offered, and a
+    /// touch on the ellipsis lands on the first visible one. Positions run to `widths.count`, the caret itself.
+    public static func stopsBefore(widths: [Double], originX: Double, available: Double, ellipsis: Double) -> [Stop] {
+        var tail = widths.reduce(0, +)
+        var first = 0
+        while first < widths.count, tail + (first > 0 ? ellipsis : 0) > available {
+            tail -= widths[first]
+            first += 1
+        }
+        var x = originX + (first > 0 ? ellipsis : 0)
+        var stops = [Stop(x: x, index: first)]
+        for index in first..<widths.count {
+            x += widths[index]
+            stops.append(Stop(x: x, index: index + 1))
+        }
+        return stops
+    }
+
+    /// The visible cursor positions in the text after the caret, which starts at `baseIndex`. The label cuts its tail,
+    /// so it shows the longest head of `widths` that fits `available` together with the ellipsis (none when everything
+    /// fits). The caret position itself is always offered.
+    public static func stopsAfter(
+        widths: [Double], originX: Double, available: Double, ellipsis: Double, baseIndex: Int
+    ) -> [Stop] {
+        var xs = [originX]
+        for width in widths { xs.append(xs[xs.count - 1] + width) }
+        // The largest count that fits; all of them need no ellipsis, fewer need room for it.
+        var shown = 0
+        for count in widths.indices.map({ $0 + 1 }) where xs[count] - originX + (count < widths.count ? ellipsis : 0) <= available {
+            shown = count
+        }
+        return (0...shown).map { Stop(x: xs[$0], index: baseIndex + $0) }
+    }
+
+    /// The index of the stop nearest `x`; the earlier one when two are equally near. `nil` without stops.
+    public static func nearestIndex(x: Double, stops: [Stop]) -> Int? {
+        var best: Stop?
+        for stop in stops where best == nil || abs(stop.x - x) < abs(best!.x - x) { best = stop }
+        return best?.index
     }
 }

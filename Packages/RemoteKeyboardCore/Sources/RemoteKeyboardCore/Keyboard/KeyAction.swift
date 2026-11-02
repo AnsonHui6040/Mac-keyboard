@@ -19,6 +19,8 @@ public enum KeyAction: Equatable, Sendable {
     case returnKey
     case cursorLeft
     case cursorRight
+    /// A tap or drag on the draft put the cursor before the Character at this index (clamped by the draft).
+    case setDraftCursor(Int)
     case sendDraft
     case toggleMode
     case toggleTransmit

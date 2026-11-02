@@ -14,16 +14,6 @@ struct TrackpadPageState: Equatable {
 /// The view itself is a (nearly) transparent surface with the grey drawn on a non-interactive subview, so the touches of the
 /// 3 pt edge also land here (D24: a fully transparent pixel of a keyboard extension gets no touch).
 final class TrackpadPageView: UIView {
-    /// A bar that takes the touches on it without passing them on to the pad behind (a plain view would forward them).
-    private final class BarView: UIView {
-        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {}
-        override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {}
-        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {}
-        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {}
-    }
-
-    private static let barHeight: CGFloat = 36
-
     var onTouchesBegan: (([TrackpadTouch]) -> Void)?
     var onTouchesMoved: (([TrackpadTouch]) -> Void)?
     var onTouchesEnded: (([TrackpadTouch]) -> Void)?
@@ -31,16 +21,11 @@ final class TrackpadPageView: UIView {
     /// Once per display refresh while the page is shown (at least as fast as the send rate); drives the long press, the pacing
     /// and the heartbeat.
     var onTick: ((UInt64) -> Void)?
-    /// The user pressed − or ＋ on the 「傳輸次數」 bar; the value is already stored.
-    var onSendRateChange: ((Int) -> Void)?
-
     /// Most cursor packets per second, or 自動 (`TrackpadSendRate`); also decides the frame rate the display link asks for.
     private(set) var sendRate = TrackpadSendRate.defaultValue
 
     private let surface = UIView()
     private let label = UILabel()
-    private let bar = BarView()
-    private let valueLabel = UILabel()
     private var ids: [ObjectIdentifier: Int] = [:]
     private var nextID = 0
     private var displayLink: CADisplayLink?
@@ -74,70 +59,11 @@ final class TrackpadPageView: UIView {
         label.accessibilityIdentifier = "rk.trackpad.message"
         addSubview(label)
         label.isHidden = true
-
-        setUpBar()
     }
 
-    private func setUpBar() {
-        bar.backgroundColor = .keyboardTouchSurface
-        bar.accessibilityIdentifier = "rk.trackpad.rateBar"
-        addSubview(bar)
-
-        let title = UILabel()
-        title.text = "傳輸次數"
-        title.font = .systemFont(ofSize: 14)
-        title.textColor = .secondaryLabel
-
-        valueLabel.font = .monospacedDigitSystemFont(ofSize: 16, weight: .medium)
-        valueLabel.textColor = .label
-        valueLabel.textAlignment = .center
-        valueLabel.accessibilityIdentifier = "rk.trackpad.rateValue"
-        valueLabel.widthAnchor.constraint(equalToConstant: 76).isActive = true
-
-        let stack = UIStackView(arrangedSubviews: [
-            title, stepButton("−", steps: -1, id: "rk.trackpad.rateDown"), valueLabel,
-            stepButton("＋", steps: 1, id: "rk.trackpad.rateUp"),
-        ])
-        stack.axis = .horizontal
-        stack.alignment = .center
-        stack.spacing = 10
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        bar.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
-        ])
-        valueLabel.text = TrackpadSendRate.displayText(sendRate)
-    }
-
-    private func stepButton(_ title: String, steps: Int, id: String) -> UIButton {
-        var configuration = UIButton.Configuration.plain()
-        configuration.attributedTitle = AttributedString(
-            title, attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 20, weight: .medium)]))
-        configuration.baseForegroundColor = .label
-        configuration.background.cornerRadius = 6
-        configuration.background.backgroundColor = .tertiarySystemFill
-        let button = UIButton(configuration: configuration)
-        button.accessibilityIdentifier = id
-        button.accessibilityLabel = steps < 0 ? "降低傳輸次數" : "提高傳輸次數"
-        button.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
-        button.addAction(UIAction { [weak self] _ in self?.step(steps) }, for: .touchUpInside)
-        button.widthAnchor.constraint(equalToConstant: 48).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
-        return button
-    }
-
-    private func step(_ steps: Int) {
-        let next = TrackpadSendRate.stepped(sendRate, by: steps)
-        guard next != sendRate else { return }
-        setSendRate(next)
-        onSendRateChange?(next)
-    }
-
-    /// Shows and uses `rate` (clamped); storing it is the owner's job.
+    /// Uses `rate` (clamped) for the display link; it is set in the App's settings and read by the owner.
     func setSendRate(_ rate: Int) {
         sendRate = TrackpadSendRate.clamped(rate)
-        valueLabel.text = TrackpadSendRate.displayText(sendRate)
         if let link = displayLink { Self.configure(link, rate: sendRate) }
     }
 
@@ -172,10 +98,7 @@ final class TrackpadPageView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        bar.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.barHeight)
-        let area = bounds.insetBy(dx: KeyboardMetrics.keyAreaSideInset, dy: KeyboardMetrics.keyAreaVerticalInset)
-        let top = max(area.minY, Self.barHeight)
-        surface.frame = CGRect(x: area.minX, y: top, width: area.width, height: max(0, area.maxY - top))
+        surface.frame = bounds.insetBy(dx: KeyboardMetrics.keyAreaSideInset, dy: KeyboardMetrics.keyAreaVerticalInset)
         label.frame = surface.frame.insetBy(dx: 16, dy: 8)
     }
 

@@ -1,7 +1,9 @@
 /// Decides where a key goes: the host app's field (Local), the draft, or the Mac (Remote).
 ///
-/// In Remote mode a typing key edits the draft when the draft already has text, when the user chose the draft, or
-/// when the Mac is not ready; otherwise it is sent at once. Cursor keys only ever move the draft cursor.
+/// In Remote mode a typing key edits the draft when the draft already has text or when the user chose the draft;
+/// otherwise it is sent at once when the Mac is ready and dropped when it is not. While the Mac is blocked (a password
+/// field) text and return are dropped whatever the mode, so a password never sits in the draft. Cursor keys only ever
+/// move the draft cursor.
 public struct InputRouter {
     private let local: KeyboardActionRouter
     private let remote: RemoteEventSink
@@ -12,7 +14,8 @@ public struct InputRouter {
     }
 
     public func route(
-        _ action: KeyAction, mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draft: inout DraftBuffer
+        _ action: KeyAction, mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draft: inout DraftBuffer,
+        blocked: Bool = false
     ) -> RouteOutcome {
         switch action {
         case .toggleMode:
@@ -33,27 +36,37 @@ public struct InputRouter {
             guard mode == .remote else { return .rejected }
             draft.moveRight()
             return .draftEdited
+        case .setDraftCursor(let index):
+            guard mode == .remote else { return .rejected }
+            draft.moveCursor(to: index)
+            return .draftEdited
         case .sendDraft:
             guard mode == .remote, ready, !draft.isEmpty else { return .rejected }
             let events = draft.takeEvents()
             for event in events { remote.enqueue(event) }
             return .draftSent(events.count)
         case .character(let text):
-            return type(.text(text), mode: mode, transmit: transmit, ready: ready, draft: &draft)
+            return type(.text(text), mode: mode, transmit: transmit, ready: ready, blocked: blocked, draft: &draft)
         case .space:
-            return type(.text(" "), mode: mode, transmit: transmit, ready: ready, draft: &draft)
+            return type(.text(" "), mode: mode, transmit: transmit, ready: ready, blocked: blocked, draft: &draft)
         case .returnKey:
-            return type(.returnKey, mode: mode, transmit: transmit, ready: ready, draft: &draft)
+            return type(.returnKey, mode: mode, transmit: transmit, ready: ready, blocked: blocked, draft: &draft)
         case .backspace:
-            return type(.backspace, mode: mode, transmit: transmit, ready: ready, draft: &draft)
+            return type(.backspace, mode: mode, transmit: transmit, ready: ready, blocked: blocked, draft: &draft)
         }
     }
 
+    /// Remote order: blocked keeps text out of the draft altogether (backspace may still trim what is there); then the
+    /// draft takes the key when it is chosen or already has text; otherwise the key goes to the Mac if it is ready, and
+    /// is dropped (`.rejected`, nothing stored) if not.
     private func type(
-        _ key: TypedKey, mode: KeyboardMode, transmit: TransmitMode, ready: Bool, draft: inout DraftBuffer
+        _ key: TypedKey, mode: KeyboardMode, transmit: TransmitMode, ready: Bool, blocked: Bool, draft: inout DraftBuffer
     ) -> RouteOutcome {
         guard mode == .remote else { return local.type(key) }
-        guard transmit == .draft || !draft.isEmpty || !ready else {
+        if blocked {
+            guard case .backspace = key, !draft.isEmpty else { return .rejected }
+        } else if transmit != .draft, draft.isEmpty {
+            guard ready else { return .rejected }
             remote.enqueue(key.eventKind)
             return .enqueuedRemote
         }

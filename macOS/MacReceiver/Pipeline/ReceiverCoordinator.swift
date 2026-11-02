@@ -12,21 +12,24 @@ enum FocusTransition {
         return !previous.editable || previous.epoch != next.epoch
     }
 
-    /// The keyboard must hear about a change of epoch, editable state, app or trust.
+    /// The keyboard must hear about a change of epoch, editable state, app, trust or blocked input (Secure Input can turn
+    /// on or off with no focus change at all).
     static func statusChanged(previous: FocusSnapshot?, next: FocusSnapshot) -> Bool {
         guard let previous else { return true }
         return previous.epoch != next.epoch || previous.editable != next.editable
             || previous.appName != next.appName || previous.axTrusted != next.axTrusted
+            || previous.inputBlocked != next.inputBlocked
     }
 
-    /// `ready` only when the focused field can take text. The name is cut so the write stays far below one ATT payload.
+    /// `ready` only when the focused field can take text and input is not blocked. The name is cut so the write stays far below one ATT payload.
     static func status(for snapshot: FocusSnapshot, pointerGrant: UInt32? = nil) -> ReceiverStatus {
         ReceiverStatus(
-            ready: snapshot.axTrusted && snapshot.editable,
+            ready: snapshot.axTrusted && snapshot.editable && !snapshot.inputBlocked,
             appName: snapshot.appName.map { String($0.prefix(maxAppNameLength)) },
             focusEpoch: snapshot.epoch,
             trusted: snapshot.axTrusted,
-            pointerGrant: pointerGrant
+            pointerGrant: pointerGrant,
+            inputBlocked: snapshot.inputBlocked
         )
     }
 
@@ -36,7 +39,7 @@ enum FocusTransition {
         let base = status(for: snapshot, pointerGrant: pointerGrant)
         return ReceiverStatus(
             ready: base.ready, appName: base.appName, focusEpoch: base.focusEpoch, trusted: base.trusted, measure: measure,
-            pointerGrant: pointerGrant)
+            pointerGrant: pointerGrant, inputBlocked: base.inputBlocked)
     }
     #endif
 }

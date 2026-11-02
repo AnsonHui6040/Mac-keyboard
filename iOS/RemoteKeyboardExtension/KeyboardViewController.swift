@@ -97,6 +97,8 @@ final class KeyboardViewController: UIInputViewController {
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
     private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
     private var isReady: Bool { peripheral.isRemoteReady(for: lifecycle.token) }
+    /// The Mac says typing cannot go anywhere (password field, secure input, locked screen): text never enters the draft.
+    private var isBlocked: Bool { mode == .remote && peripheral.latestStatus?.inputBlocked == true }
     /// The sync runs in Remote mode with 「聽寫同步到 Mac」 on (the same in Debug and Release).
     private var dictationActive: Bool { DictationSync.isActive(mode: mode, storedSetting: dictationStoredSetting) }
 
@@ -130,10 +132,6 @@ final class KeyboardViewController: UIInputViewController {
         root.trackpadPage.onTouchesMoved = { [weak self] in self?.trackpad.touchesMoved($0) }
         root.trackpadPage.onTouchesEnded = { [weak self] in self?.trackpad.touchesEnded($0) }
         root.trackpadPage.onTouchesCancelled = { [weak self] in self?.trackpad.touchesCancelled(atMicros: $0) }
-        root.trackpadPage.onSendRateChange = { [weak self] rate in
-            self?.trackpad.sendRate = rate
-            Self.storeTrackpadSendRate(rate)
-        }
         root.trackpadPage.onTick = { [weak self] in self?.trackpad.tick(nowMicros: $0) }
         trackpad.onChange = { [weak self] in self?.refreshStatus() }
         #if DEBUG
@@ -366,13 +364,13 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// T10 step 31 hook: fills the draft with `a` until it holds the cap, so nobody has to tap 1,000 keys. Remote mode
-    /// only. The router is told the Mac is not ready, so every key lands in the draft and the enqueue branch is
-    /// unreachable by construction: nothing here can reach the Mac.
+    /// only. The router is told to use the draft (and that the Mac is not ready), so every key lands in the draft and the
+    /// enqueue branch is unreachable by construction: nothing here can reach the Mac.
     private func fillDraftToCap() {
         reclaimPeripheralIfVacant()
         guard mode == .remote else { return }
         while draft.text.count < DraftBuffer.maxCharacters {
-            let outcome = router.route(.character("a"), mode: mode, transmit: transmit, ready: false, draft: &draft)
+            let outcome = router.route(.character("a"), mode: mode, transmit: .draft, ready: false, draft: &draft)
             guard outcome == .draftEdited else { break }
         }
         refreshStatus()
@@ -546,11 +544,17 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func syncDictation(_ events: [EventKind]) {
+        // A password field takes no text, and a difference that deleted draft text without typing the new text would
+        // leave a hole, so the whole difference is dropped. The status line already says why.
+        if DictationSync.isDropped(events: events, blocked: isBlocked) {
+            Self.dictationLog.info("sync outcome=blocked")
+            return
+        }
         // A difference with backspaces goes into the draft only when the draft cursor sits right behind the text it
         // deletes; if the user moved the cursor away or edited the draft since, the whole difference (its new text
         // too) is dropped, so nothing unrelated is deleted and nothing is doubled. Straight to the Mac is not checked.
         if events.contains(.backspace),
-            DictationSync.goesToDraft(transmit: transmit, draftEmpty: draft.isEmpty, ready: isReady),
+            DictationSync.goesToDraft(transmit: transmit, draftEmpty: draft.isEmpty),
             !DictationSync.draftAccepts(deleted: dictationMirror.lastDeleted, draft: draft) {
             dictationMirror.noteDraftSkipped()
             Self.dictationLog.info("sync outcome=draftSkipped")
@@ -567,14 +571,18 @@ final class KeyboardViewController: UIInputViewController {
             case .backspace: action = .backspace
             default: continue
             }
-            let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+            let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft, blocked: isBlocked)
             switch outcome {
             case .draftEdited: drafted += 1
             case .draftFull:
                 showNote("草稿已滿，聽寫差分未同步")
+            case .rejected:
+                // Dropped, not drafted and not sent: the Mac has nowhere to type it. Every later key of this difference
+                // would be dropped the same way, so stop and say so once.
+                if let text = StatusLine.droppedKeyNote(link: peripheral.linkState, receiver: peripheral.latestStatus) { showNote(text) }
             default: break
             }
-            if outcome == .draftFull { break }
+            if outcome == .draftFull || outcome == .rejected { break }
         }
         if drafted > 0 {
             dictationMirror.noteDrafted(drafted)
@@ -766,11 +774,6 @@ final class KeyboardViewController: UIInputViewController {
         rootView?.trackpadPage.setSendRate(rate)
     }
 
-    private static func storeTrackpadSendRate(_ rate: Int) {
-        UserDefaults(suiteName: AppGroup.identifier)?.set(rate, forKey: AppGroup.Key.trackpadSendRate)
-        UserDefaults.standard.set(rate, forKey: AppGroup.Key.trackpadSendRate)
-    }
-
     private func toggleTrackpad() {
         reclaimPeripheralIfVacant()
         if trackpad.isActive {
@@ -845,7 +848,7 @@ final class KeyboardViewController: UIInputViewController {
 
     @discardableResult
     private func route(_ action: KeyAction) -> Bool {
-        let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft)
+        let outcome = router.route(action, mode: mode, transmit: transmit, ready: isReady, draft: &draft, blocked: isBlocked)
         handle(outcome, for: action)
         return outcome != .draftFull && outcome != .rejected
     }
@@ -876,8 +879,12 @@ final class KeyboardViewController: UIInputViewController {
             showNote("草稿已達 1,000 字上限")
         case .rejected:
             // A draft key pressed in Local mode does nothing and says nothing; so does 傳送 on an empty draft
-            // while the Mac is ready (the button is grey then anyway).
-            if mode == .remote, !isReady { showNote("Mac 尚未就緒，未輸入") }
+            // while the Mac is ready (the button is grey then anyway). A key dropped because the Mac is not ready says
+            // why, unless the status line already does (a password field, a Mac without Accessibility).
+            if mode == .remote, !isReady,
+                let text = StatusLine.droppedKeyNote(link: peripheral.linkState, receiver: peripheral.latestStatus) {
+                showNote(text)
+            }
         case .draftEdited, .draftSent:
             refreshStatus()
         case .dismissKeyboard:

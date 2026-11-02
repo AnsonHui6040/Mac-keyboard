@@ -1,14 +1,23 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import Foundation
 import OSLog
 import RemoteKeyboardCore
 
-/// The element found by one AX read and whether it takes typed text. `AXUIElement` is a thread safe CF object that is
-/// only ever read after it is handed back, so crossing actors is safe.
+/// The element found by one AX read, whether it takes typed text, and whether it is a password field (subrole read as
+/// AXSecureTextField; a subrole that could not be read is not reported as one). `AXUIElement` is a thread safe CF object
+/// that is only ever read after it is handed back, so crossing actors is safe.
 struct FocusReadResult: @unchecked Sendable {
     let element: AXUIElement?
     let editable: Bool
+    let secure: Bool
+
+    init(element: AXUIElement?, editable: Bool, secure: Bool = false) {
+        self.element = element
+        self.editable = editable
+        self.secure = secure
+    }
 }
 
 /// Seam over the blocking AX walk so it can run off the main thread and be replaced in tests.
@@ -21,6 +30,13 @@ struct FocusEnvironment {
     let trusted: @MainActor () -> Bool
     let frontmost: @MainActor () -> (pid: Int32, name: String?)
     let ownPID: Int32
+    /// True while typing must not go anywhere: secure keyboard input is on (a password field somewhere) or the screen is locked.
+    var inputBlocked: @MainActor () -> Bool = { false }
+
+    /// `CGSessionCopyCurrentDictionary()` says the screen is locked with `CGSSessionScreenIsLocked`. Pure so it can be tested.
+    nonisolated static func screenLocked(session: [String: Any]?) -> Bool {
+        (session?["CGSSessionScreenIsLocked"] as? Bool) == true
+    }
 
     @MainActor static var live: FocusEnvironment {
         FocusEnvironment(
@@ -29,7 +45,10 @@ struct FocusEnvironment {
                 let app = NSWorkspace.shared.frontmostApplication
                 return (app?.processIdentifier ?? 0, app?.localizedName)
             },
-            ownPID: ProcessInfo.processInfo.processIdentifier
+            ownPID: ProcessInfo.processInfo.processIdentifier,
+            inputBlocked: {
+                IsSecureEventInputEnabled() || screenLocked(session: CGSessionCopyCurrentDictionary() as? [String: Any])
+            }
         )
     }
 }
@@ -78,10 +97,43 @@ final class FocusMonitor: ObservableObject {
     /// The element read by the latest `refreshNow()`; `nil` when untrusted, nothing focused, or Receiver itself is frontmost.
     var focusedElement: AXUIElement? { lastElement }
 
-    /// Pure classification, kept free of AX types so it can be unit tested.
-    nonisolated static func isEditable(role: String?, valueSettable: Bool) -> Bool {
+    /// A password field has role AXTextField, so the subrole is what tells it apart.
+    nonisolated static let secureSubrole = "AXSecureTextField"
+
+    /// Pure classification, kept free of AX types so it can be unit tested. A secure field is never editable, whatever
+    /// its role says and even when its value is settable.
+    nonisolated static func isEditable(role: String?, subrole: String? = nil, valueSettable: Bool) -> Bool {
+        if subrole == secureSubrole { return false }
         if let role, editableRoles.contains(role) { return true }
         return valueSettable
+    }
+
+    /// The same decision when the subrole came from a read that may have failed; an unreadable subrole is not editable.
+    /// The reader takes the shortcuts below (no value copy for text roles) but must agree with this.
+    nonisolated static func isEditable(role: String?, subroleRead: SubroleRead, valueSettable: Bool) -> Bool {
+        guard case .value(let subrole) = subroleRead else { return false }
+        return isEditable(role: role, subrole: subrole, valueSettable: valueSettable)
+    }
+
+    /// What reading the subrole attribute told us. A subrole the element simply does not have is not secure; any other
+    /// error means we cannot tell whether it is, so it fails closed.
+    enum SubroleRead: Equatable {
+        case value(String?)
+        case unreadable
+    }
+
+    /// Whether a read subrole says password field. An unreadable one is a guess, so it does not.
+    nonisolated static func isSecure(subroleRead: SubroleRead) -> Bool {
+        guard case .value(let subrole) = subroleRead else { return false }
+        return subrole == secureSubrole
+    }
+
+    nonisolated static func subroleRead(error: AXError, value: String?) -> SubroleRead {
+        switch error {
+        case .success: .value(value)
+        case .noValue, .attributeUnsupported: .value(nil)
+        default: .unreadable
+        }
     }
 
     /// No AX reads when untrusted, with no frontmost app, or when we are frontmost ourselves: the Receiver's own
@@ -160,7 +212,11 @@ final class FocusMonitor: ObservableObject {
         if ticket < appliedRead, let current = snapshot { return current }
         appliedRead = ticket
         let element = result.element
-        let editable = result.editable
+        // Secure input or a locked screen: nothing is editable, but the epoch rule above is not touched. A password field
+        // or either of those also tells the keyboard why, so it can say so instead of "no input field".
+        let environmentBlocked = environment.inputBlocked()
+        let editable = result.editable && !environmentBlocked
+        let inputBlocked = result.secure || environmentBlocked
 
         let pidChanged = lastPID != pid
         let elementChanged = !Self.sameElement(lastElement, element)
@@ -172,7 +228,7 @@ final class FocusMonitor: ObservableObject {
         lastElement = element
 
         let next = FocusSnapshot(
-            axTrusted: trusted, frontmostPID: pid, appName: name, editable: editable, epoch: epoch
+            axTrusted: trusted, frontmostPID: pid, appName: name, editable: editable, epoch: epoch, inputBlocked: inputBlocked
         )
         if next != snapshot {
             snapshot = next
@@ -196,19 +252,19 @@ struct AXFocusReader: FocusReading {
     private static let editableRoles = FocusMonitor.editableRoles
 
     func read(pid: pid_t) -> FocusReadResult {
-        let (element, editable) = Self.readFocus(pid: pid)
-        return FocusReadResult(element: element, editable: editable)
+        let (element, editable, secure) = Self.readFocus(pid: pid)
+        return FocusReadResult(element: element, editable: editable, secure: secure)
     }
 
-    /// Any AX error or timeout yields `(nil or element, false)`.
-    private static func readFocus(pid: pid_t) -> (AXUIElement?, Bool) {
+    /// Any AX error or timeout yields `(nil or element, false, false)`; only a subrole read as secure sets the last flag.
+    private static func readFocus(pid: pid_t) -> (AXUIElement?, Bool, Bool) {
         let application = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(application, axTimeout)
 
         var focused: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXFocusedUIElementAttribute as CFString, &focused) == .success,
               let focused, CFGetTypeID(focused) == AXUIElementGetTypeID()
-        else { return (nil, false) }
+        else { return (nil, false, false) }
         let element = unsafeDowncast(focused, to: AXUIElement.self)
         AXUIElementSetMessagingTimeout(element, axTimeout)
 
@@ -216,8 +272,15 @@ struct AXFocusReader: FocusReading {
         let role = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleRef) == .success
             ? roleRef as? String : nil
 
+        // The subrole comes first: a password field is an AXTextField. Only the subrole string is read, never the value.
+        var subroleRef: CFTypeRef?
+        let subroleError = AXUIElementCopyAttributeValue(element, kAXSubroleAttribute as CFString, &subroleRef)
+        let subrole = FocusMonitor.subroleRead(error: subroleError, value: subroleRef as? String)
+        guard case .value(let subroleName) = subrole else { return (element, false, false) }
+        if FocusMonitor.isSecure(subroleRead: subrole) { return (element, false, true) }
+
         // A text role already qualifies, so the value (the whole document, for a text area) is never copied for it.
-        if let role, editableRoles.contains(role) { return (element, true) }
+        if let role, editableRoles.contains(role) { return (element, true, false) }
 
         // A settable value only counts when it is text; sliders and checkboxes settle numbers, not typed characters.
         var settable: DarwinBoolean = false
@@ -227,7 +290,7 @@ struct AXFocusReader: FocusReading {
             valueSettable = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &valueRef) == .success
                 && valueRef is String
         }
-        return (element, FocusMonitor.isEditable(role: role, valueSettable: valueSettable))
+        return (element, FocusMonitor.isEditable(role: role, subrole: subroleName, valueSettable: valueSettable), false)
     }
 }
 
