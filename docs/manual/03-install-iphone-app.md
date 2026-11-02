@@ -59,7 +59,7 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 
 也可以從「設定」App 的最下方找到 **Remote Keyboard**，進入後再按「鍵盤」，同樣可以開啟。
 
-<img src="images/iphone-ios-app-settings.png" width="320" alt="設定 App 中 Remote Keyboard 的頁面，有藍牙、流動數據與鍵盤三項">
+<img src="images/iphone-ios-app-settings.png" width="320" alt="設定 App 中 Remote Keyboard 的頁面，有藍牙、行動數據與鍵盤三項">
 
 <img src="images/iphone-ios-app-keyboard-fullaccess.png" width="320" alt="設定 App 中 Remote Keyboard 的鍵盤頁面，Remote Keyboard 與允許全權取用兩個開關都已開啟">
 
