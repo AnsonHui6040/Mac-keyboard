@@ -73,6 +73,8 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 2. 捲到最下方的「藍牙」區，按「允許藍牙」。
 3. iOS 詢問是否允許 Remote Keyboard 使用藍牙時，按「允許」。
 
+<img src="images/iphone-rk-bluetooth.png" width="320" alt="Remote Keyboard 主畫面捲到下方：Mac 配對區顯示尚未配對，藍牙區有允許藍牙按鈕，狀態為已允許">
+
 
 成功時，「藍牙」區的狀態顯示「已允許」。如果顯示「已拒絕，請到設定開啟」，按「到設定開啟藍牙」，在設定裡開啟藍牙。
 
