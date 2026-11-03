@@ -9,7 +9,7 @@
 1. 在 iPhone 任一個輸入框點一下，叫出鍵盤。可以使用 Remote Keyboard 主畫面的「測試輸入」。
 2. 按住鍵盤左下角的地球鍵，在清單選擇 **Remote Keyboard**。連按地球鍵也可以依序切換鍵盤。
 
-<img src="images/kb-disconnected.png" width="360" alt="Remote Keyboard 的英文頁面，頂部左側為本機與遠端切換，遠端已選取，中間是連線狀態，右側有觸控板、收起鍵盤與即時、草稿切換；鍵盤下方是系統的地球鍵與麥克風">
+<img src="images/kb-connected.png" width="360" alt="Remote Keyboard 的英文頁面，頂部左側為本機與遠端切換，遠端已選取，中間顯示已連接，右側有觸控板、收起鍵盤與即時、草稿切換；鍵盤下方是系統的地球鍵與麥克風">
 
 成功時，鍵盤上方出現「本機」與「遠端」切換。選了「遠端」並已連上 Mac 時，中間顯示綠色的「已連接」。
 
@@ -43,7 +43,7 @@
 | 即時 | 每按一個鍵，文字立刻出現在 Mac | 一般打字 |
 | 草稿 | 先在鍵盤上方的草稿列編輯，按「傳送」才一次送到 Mac | 想先檢查或修改再送出 |
 
-<img src="images/kb-disconnected.png" width="360" alt="遠端、即時模式的英文頁面，沒有草稿列，圖中尚未連上 Mac">
+<img src="images/kb-connected.png" width="360" alt="遠端、即時模式的英文頁面，沒有草稿列">
 
 ### 草稿列
 
@@ -128,7 +128,7 @@
 | 密碼不能輸入 | Mac 目前在密碼欄、開啟了安全輸入，或螢幕已鎖定 | 見下方「密碼的處理」 |
 | Mac 未授權輔助使用 | Mac 的 Receiver 還沒有輔助使用權限 | 在 Mac 依 [04 安裝 Mac Receiver](04-install-mac-receiver.md) 允許 |
 
-<img src="images/kb-remoteDraft.png" width="360" alt="狀態列顯示綠色的已連接，圖中為草稿模式">
+<img src="images/kb-connected.png" width="360" alt="狀態列顯示綠色的已連接">
 
 <img src="images/kb-disconnected.png" width="360" alt="狀態列顯示紅色的未連接，觸控板按鍵是灰色">
 
@@ -158,6 +158,8 @@
 | Mac 輸入失敗、Mac 無法處理、順序錯誤，未輸入 | 這一次的輸入沒有成功 | 重新打字；一直出現時，結束 Receiver 再重新開啟 |
 | N 個按鍵未確認是否送達（N 為數字） | 連線中斷時，有幾個按鍵沒有收到 Mac 的確認 | 到 Mac 檢查文字，把缺少或重複的部分補上或刪掉 |
 
+
+<img src="images/kb-statusNote.png" width="360" alt="狀態列位置顯示兩行紅字：2 個按鍵未確認是否送達">
 
 連線不穩時，文字可能遺漏或重複，重要的內容請在送出前再檢查一次。
 
