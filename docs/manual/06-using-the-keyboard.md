@@ -9,7 +9,7 @@
 1. 在 iPhone 任一個輸入框點一下，叫出鍵盤。可以使用 Remote Keyboard 主畫面的「測試輸入」。
 2. 按住鍵盤左下角的地球鍵，在清單選擇 **Remote Keyboard**。連按地球鍵也可以依序切換鍵盤。
 
-<img src="images/kb-connected.png" width="360" alt="Remote Keyboard 的英文頁面，頂部左側為本機與遠端切換，遠端已選取，中間顯示已連接，右側有觸控板、收起鍵盤與即時、草稿切換">
+<img src="images/kb-disconnected.png" width="360" alt="Remote Keyboard 的英文頁面，頂部左側為本機與遠端切換，遠端已選取，中間是連線狀態，右側有觸控板、收起鍵盤與即時、草稿切換；鍵盤下方是系統的地球鍵與麥克風">
 
 成功時，鍵盤上方出現「本機」與「遠端」切換。選了「遠端」並已連上 Mac 時，中間顯示綠色的「已連接」。
 
@@ -43,7 +43,7 @@
 | 即時 | 每按一個鍵，文字立刻出現在 Mac | 一般打字 |
 | 草稿 | 先在鍵盤上方的草稿列編輯，按「傳送」才一次送到 Mac | 想先檢查或修改再送出 |
 
-<img src="images/kb-remoteInstant.png" width="360" alt="遠端、即時模式的英文頁面，沒有草稿列">
+<img src="images/kb-disconnected.png" width="360" alt="遠端、即時模式的英文頁面，沒有草稿列，圖中尚未連上 Mac">
 
 ### 草稿列
 
@@ -89,12 +89,14 @@
 
 手寫需要先在 App 的「中文輸入設定」下載手寫模型，並開啟「允許完整取用」。沒有完整取用時，中文頁會改用速成。
 
-1. 在白色的書寫區，用手指寫一個字。
+<img src="images/kb-handwriting-empty.png" width="360" alt="手寫頁尚未書寫：書寫區中央顯示在這裡手寫，底部有符號、中英、空白、重寫與換行">
+
+1. 在書寫區用手指寫一個字。
 2. 書寫區上方會出現候選字，向左滑動可以看到更多。
 3. 點選你要的字，字就會輸入。
 4. 寫錯時，按右下方的「重寫」清除書寫區。候選列最右邊的刪除鍵可以刪除已輸入的字。
 
-<img src="images/kb-handwriting.png" width="360" alt="手寫頁：白色書寫區寫著一個字，上方浮著候選字列，右端有刪除鍵，底部有符號、中英、空白、重寫與換行">
+<img src="images/kb-handwriting.png" width="360" alt="手寫頁：書寫區寫著「香港」，上方是候選字列，右端有刪除鍵，底部有符號、中英、空白、重寫與換行">
 
 底部列有「符號」、「中英」、「空白」、「重寫」與「換行」。
 
@@ -108,7 +110,7 @@
 
 <img src="images/kb-quick.png" width="360" alt="速成頁：與英文頁相同的字母排列，每個按鍵的主字是字根，右上角是英文字母">
 
-<img src="images/kb-quickComposing.png" width="360" alt="速成輸入中：候選列最左邊是藍色的輸入碼，後面是候選字，第一個候選字有淺色底">
+<img src="images/kb-quickComposing.png" width="360" alt="速成輸入中：草稿列顯示已選的字，下方候選列是接著可選的候選字，第一個候選字有淺色底">
 
 ## 收起鍵盤
 
@@ -126,7 +128,7 @@
 | 密碼不能輸入 | Mac 目前在密碼欄、開啟了安全輸入，或螢幕已鎖定 | 見下方「密碼的處理」 |
 | Mac 未授權輔助使用 | Mac 的 Receiver 還沒有輔助使用權限 | 在 Mac 依 [04 安裝 Mac Receiver](04-install-mac-receiver.md) 允許 |
 
-<img src="images/kb-connected.png" width="360" alt="狀態列顯示綠色的已連接">
+<img src="images/kb-remoteDraft.png" width="360" alt="狀態列顯示綠色的已連接，圖中為草稿模式">
 
 <img src="images/kb-disconnected.png" width="360" alt="狀態列顯示紅色的未連接，觸控板按鍵是灰色">
 
@@ -156,8 +158,6 @@
 | Mac 輸入失敗、Mac 無法處理、順序錯誤，未輸入 | 這一次的輸入沒有成功 | 重新打字；一直出現時，結束 Receiver 再重新開啟 |
 | N 個按鍵未確認是否送達（N 為數字） | 連線中斷時，有幾個按鍵沒有收到 Mac 的確認 | 到 Mac 檢查文字，把缺少或重複的部分補上或刪掉 |
 
-
-<img src="images/kb-statusNote.png" width="360" alt="狀態列位置改顯示兩行紅字：2 個按鍵未確認是否送達">
 
 連線不穩時，文字可能遺漏或重複，重要的內容請在送出前再檢查一次。
 

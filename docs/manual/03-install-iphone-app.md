@@ -6,15 +6,15 @@
 
 ## 一、取得並驗證 IPA
 
-1. 取得開發者提供的 `RemoteKeyboard-v版本號-unsigned.ipa` 與對應的 SHA-256 值。
-2. 把 IPA 存到 iPhone 的「檔案」App。
-3. 在 Mac 的「終端機」執行下面的指令，把檔案路徑換成你的 IPA 位置。
+1. 在 Mac 下載開發者提供的 `RemoteKeyboard-v版本號-unsigned.ipa`，同時取得對應的 SHA-256 值。
+2. 在 Mac 的「終端機」執行下面的指令，把檔案路徑換成你的 IPA 位置。
 
 ```bash
 shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 ```
 
-4. 比對輸出的值與開發者提供的 SHA-256，兩者必須完全相同。
+3. 比對輸出的值與開發者提供的 SHA-256，兩者必須完全相同。
+4. 用 AirDrop 把同一個 IPA 傳到 iPhone，存到「檔案」App。之後匯入的就是這個已核對過的檔案。
 
 值不同時，請重新下載；重新下載後仍然不同，請回報開發者，不要安裝。
 
@@ -39,7 +39,7 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 2. 按「新增鍵盤」。
 3. 在「第三方鍵盤」區找到 **Remote Keyboard**，按一下。
 
-<img src="images/iphone-ios-add-keyboard.png" width="320" alt="iPhone 的新增鍵盤頁面，上方為建議鍵盤，下方為第三方鍵盤清單">
+<img src="images/iphone-ios-add-keyboard.png" width="320" alt="iPhone 的新增鍵盤頁面，上方為建議鍵盤，往下捲是第三方鍵盤區塊">
 
 4. 回到「鍵盤」頁面，確認清單裡有 Remote Keyboard。
 5. 按一下 **Remote Keyboard** 這一列。
@@ -73,7 +73,6 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 2. 捲到最下方的「藍牙」區，按「允許藍牙」。
 3. iOS 詢問是否允許 Remote Keyboard 使用藍牙時，按「允許」。
 
-<img src="images/iphone-rk-home.png" width="320" alt="Remote Keyboard 主畫面：版本、設定、測試輸入、鍵盤、Mac 配對、藍牙等區塊">
 
 成功時，「藍牙」區的狀態顯示「已允許」。如果顯示「已拒絕，請到設定開啟」，按「到設定開啟藍牙」，在設定裡開啟藍牙。
 
