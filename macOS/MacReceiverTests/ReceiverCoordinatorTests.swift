@@ -203,6 +203,24 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         XCTAssertEqual(r.poster.batches, 1)
     }
 
+    func testInputBlockedTurningOnWithNoFocusChangeReachesThePhone() throws {
+        let r = rig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        XCTAssertEqual(r.statuses.last?.inputBlocked, false)
+        let before = r.statuses.count
+        r.focus.onChange?(FocusSnapshot(
+            axTrusted: true, frontmostPID: 42, appName: "TextEdit", editable: false, epoch: 3, inputBlocked: true))
+        try r.pump()
+        XCTAssertEqual(r.statuses.count, before + 1)
+        XCTAssertEqual(r.statuses.last?.inputBlocked, true)
+        XCTAssertEqual(r.statuses.last?.ready, false)
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try r.pump()
+        XCTAssertEqual(r.statuses.last?.inputBlocked, false)
+        XCTAssertEqual(r.statuses.last?.ready, true)
+    }
+
     #if DEBUG
     func testStatusCarriesMeasureModeOnlyWhileItIsOn() throws {
         let r = rig()

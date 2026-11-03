@@ -24,4 +24,33 @@ final class ReceiverStatusTests: XCTestCase {
         XCTAssertTrue(String(decoding: bytes, as: UTF8.self).contains(#""measure":true"#))
         XCTAssertEqual(try ControlCodec.decode(bytes), .status(status))
     }
+
+    func testStatusWithoutInputBlockedEncodesSameBytesAsBefore() throws {
+        let status = ReceiverStatus(ready: true, appName: "Notes", focusEpoch: 1)
+        XCTAssertFalse(status.inputBlocked)
+        let bytes = try ControlCodec.encode(.status(status))
+        XCTAssertFalse(String(decoding: bytes, as: UTF8.self).contains("inputBlocked"))
+        let explicit = try ControlCodec.encode(.status(ReceiverStatus(ready: true, appName: "Notes", focusEpoch: 1, inputBlocked: false)))
+        XCTAssertEqual(bytes, explicit)
+    }
+
+    func testOldStatusBytesDecodeInputBlockedFalse() throws {
+        let old = Data(#"{"status":{"_0":{"appName":"Notes","focusEpoch":1,"ready":true}}}"#.utf8)
+        guard case .status(let status) = try ControlCodec.decode(old) else { return XCTFail("not a status") }
+        XCTAssertFalse(status.inputBlocked)
+    }
+
+    func testInputBlockedTrueRoundTrips() throws {
+        let status = ReceiverStatus(ready: false, appName: "Safari", focusEpoch: 5, inputBlocked: true)
+        let bytes = try ControlCodec.encode(.status(status))
+        XCTAssertTrue(String(decoding: bytes, as: UTF8.self).contains(#""inputBlocked":true"#))
+        XCTAssertEqual(try ControlCodec.decode(bytes), .status(status))
+    }
+
+    func testInputBlockedDoesNotDisturbTheOtherFlags() throws {
+        let status = ReceiverStatus(
+            ready: false, appName: nil, focusEpoch: 2, trusted: false, measure: true, pointerGrant: 7, inputBlocked: true)
+        let decoded = try ControlCodec.decode(try ControlCodec.encode(.status(status)))
+        XCTAssertEqual(decoded, .status(status))
+    }
 }

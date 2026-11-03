@@ -1,7 +1,8 @@
 import Foundation
+import RemoteKeyboardCore
 
 enum AppGroupProbe {
-    static let suiteName = "group.com.ansonhui.remotekeyboard"
+    static let suiteName = AppGroup.identifier
     static let key = "probe"
 
     /// Stores the current time in the shared App Group defaults.

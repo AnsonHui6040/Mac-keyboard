@@ -160,4 +160,51 @@ final class StatusLineTests: XCTestCase {
     func testDisplayDoesNotChangeTheOldText() {
         XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: status(), connectedMs: 90), "Mac → TextEdit (90 ms)")
     }
+
+    // MARK: Input blocked (password field, secure input, locked screen)
+
+    private func blocked(app: String? = "Safari") -> ReceiverStatus {
+        ReceiverStatus(ready: false, appName: app, focusEpoch: 6, inputBlocked: true)
+    }
+
+    func testDisplayBlockedConnectedSaysThePasswordCannotBeTyped() {
+        XCTAssertEqual(display(receiver: blocked()), .init(text: "密碼不能輸入", tone: .problem))
+        XCTAssertEqual(display(receiver: blocked(app: nil)), .init(text: "密碼不能輸入", tone: .problem))
+    }
+
+    func testDisplayBlockedOrderIsUnpairedThenNoteThenUntrustedThenBlocked() {
+        let problem = { (text: String) in StatusLine.Display(text: text, tone: .problem) }
+        XCTAssertEqual(display(receiver: blocked(), paired: false, note: "x"), problem("尚未配對"))
+        XCTAssertEqual(display(receiver: blocked(), note: "Mac 輸入失敗"), problem("Mac 輸入失敗"))
+        let untrustedAndBlocked = ReceiverStatus(ready: false, appName: "Safari", focusEpoch: 6, trusted: false, inputBlocked: true)
+        XCTAssertEqual(display(receiver: untrustedAndBlocked), problem("Mac 未授權輔助使用"))
+        XCTAssertEqual(display(receiver: blocked(), note: StatusLine.ackText(.posted)), problem("密碼不能輸入"))
+    }
+
+    func testDisplayBlockedNeedsAConnectedRemoteLink() {
+        XCTAssertEqual(display(.advertising, receiver: blocked()), .init(text: "未連接", tone: .problem))
+        XCTAssertNil(display(.connected, mode: .local, receiver: blocked()))
+    }
+
+    func testDisplayBlockedClearsWhenTheStateEnds() {
+        XCTAssertEqual(display(receiver: status(ready: false, app: "Safari")), .init(text: "已連接", tone: .connected))
+    }
+
+    func testDroppedKeyNoteSaysWhyOnlyWhenTheStatusLineDoesNot() {
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .advertising, receiver: nil), "Mac 未連接，未輸入")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .idle, receiver: status()), "Mac 未連接，未輸入")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .connected, receiver: status(ready: false, app: "Finder")), "Mac 沒有輸入欄位，未輸入")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .connected, receiver: nil), "Mac 尚未就緒，未輸入")
+        XCTAssertNil(StatusLine.droppedKeyNote(link: .connected, receiver: blocked()))
+        let untrusted = ReceiverStatus(ready: false, appName: "Finder", focusEpoch: 2, trusted: false)
+        XCTAssertNil(StatusLine.droppedKeyNote(link: .connected, receiver: untrusted))
+    }
+
+    func testTextNamesThePasswordFieldWhileBlocked() {
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: blocked()), "Mac → Safari（密碼欄，不能輸入）")
+        XCTAssertEqual(
+            StatusLine.text(mode: .remote, link: .connected, receiver: blocked(app: nil), connectedMs: 80), "Mac（密碼欄，不能輸入） (80 ms)")
+        XCTAssertEqual(
+            StatusLine.text(mode: .remote, link: .connected, receiver: status(ready: false, app: "Finder")), "Mac → Finder（無輸入欄位）")
+    }
 }

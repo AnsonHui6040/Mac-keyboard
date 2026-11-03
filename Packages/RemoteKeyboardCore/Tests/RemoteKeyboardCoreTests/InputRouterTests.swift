@@ -45,12 +45,115 @@ final class InputRouterTests: XCTestCase {
         XCTAssertEqual(draft.text, "香"); XCTAssertEqual(remote.events, [])
     }
 
-    func testNotReadyInstantWritesToDraft() {
+    func testNotReadyInstantWithEmptyDraftDropsTheKey() {
+        let (router, local, remote) = makeRouter()
+        for action in [KeyAction.character("a"), .space, .returnKey, .backspace] {
+            var draft = DraftBuffer()
+            XCTAssertEqual(router.route(action, mode: .remote, transmit: .instant, ready: false, draft: &draft), .rejected, "\(action)")
+            XCTAssertTrue(draft.isEmpty, "\(action)")
+        }
+        XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testNotReadyDraftModeStillWritesToDraft() {
         var draft = DraftBuffer()
         let (router, local, remote) = makeRouter()
-        XCTAssertEqual(router.route(.character("a"), mode: .remote, transmit: .instant, ready: false, draft: &draft), .draftEdited)
+        XCTAssertEqual(router.route(.character("a"), mode: .remote, transmit: .draft, ready: false, draft: &draft), .draftEdited)
         XCTAssertEqual(draft.text, "a")
         XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testNotReadyInstantWithDraftTextKeepsEditingTheDraft() {
+        var draft = DraftBuffer(); _ = draft.insert("ab")
+        let (router, _, remote) = makeRouter()
+        XCTAssertEqual(router.route(.character("c"), mode: .remote, transmit: .instant, ready: false, draft: &draft), .draftEdited)
+        XCTAssertEqual(router.route(.backspace, mode: .remote, transmit: .instant, ready: false, draft: &draft), .draftEdited)
+        XCTAssertEqual(draft.text, "ab"); XCTAssertEqual(remote.events, [])
+    }
+
+    // MARK: Blocked (password field, secure input, locked screen)
+
+    func testBlockedInstantEmptyDraftDropsEveryTypingKeyAndStoresNothing() {
+        let (router, local, remote) = makeRouter()
+        for ready in [true, false] {
+            for action in [KeyAction.character("p"), .space, .returnKey, .backspace] {
+                var draft = DraftBuffer()
+                XCTAssertEqual(
+                    router.route(action, mode: .remote, transmit: .instant, ready: ready, draft: &draft, blocked: true),
+                    .rejected, "\(action) ready \(ready)")
+                XCTAssertTrue(draft.isEmpty)
+            }
+        }
+        XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testBlockedDraftModeDropsTextAndReturnSoAPasswordCanNeverSitInTheDraft() {
+        let (router, _, remote) = makeRouter()
+        for transmit in [TransmitMode.instant, .draft] {
+            var draft = DraftBuffer(); _ = draft.insert("note")
+            for action in [KeyAction.character("p"), .space, .returnKey] {
+                XCTAssertEqual(
+                    router.route(action, mode: .remote, transmit: transmit, ready: false, draft: &draft, blocked: true),
+                    .rejected, "\(action) \(transmit)")
+            }
+            XCTAssertEqual(draft.text, "note")
+        }
+        var empty = DraftBuffer()
+        XCTAssertEqual(router.route(.character("p"), mode: .remote, transmit: .draft, ready: false, draft: &empty, blocked: true), .rejected)
+        XCTAssertTrue(empty.isEmpty); XCTAssertEqual(remote.events, [])
+    }
+
+    func testBlockedStillLetsBackspaceAndCursorKeysEditExistingDraftText() {
+        var draft = DraftBuffer(); _ = draft.insert("abc")
+        let (router, _, remote) = makeRouter()
+        XCTAssertEqual(router.route(.backspace, mode: .remote, transmit: .instant, ready: false, draft: &draft, blocked: true), .draftEdited)
+        XCTAssertEqual(draft.text, "ab")
+        XCTAssertEqual(router.route(.cursorLeft, mode: .remote, transmit: .instant, ready: false, draft: &draft, blocked: true), .draftEdited)
+        XCTAssertEqual(draft.cursor, 1)
+        XCTAssertEqual(router.route(.setDraftCursor(0), mode: .remote, transmit: .instant, ready: false, draft: &draft, blocked: true), .draftEdited)
+        XCTAssertEqual(draft.cursor, 0)
+        XCTAssertEqual(router.route(.cursorRight, mode: .remote, transmit: .draft, ready: false, draft: &draft, blocked: true), .draftEdited)
+        XCTAssertEqual(draft.cursor, 1); XCTAssertEqual(remote.events, [])
+    }
+
+    func testBlockedNeverSendsTheDraftBecauseReadyIsFalse() {
+        var draft = DraftBuffer(); _ = draft.insert("ab")
+        let (router, _, remote) = makeRouter()
+        XCTAssertEqual(router.route(.sendDraft, mode: .remote, transmit: .draft, ready: false, draft: &draft, blocked: true), .rejected)
+        XCTAssertEqual(draft.text, "ab"); XCTAssertEqual(remote.events, [])
+    }
+
+    func testBlockedChangesNothingInLocalMode() {
+        var draft = DraftBuffer()
+        let (router, local, _) = makeRouter()
+        XCTAssertEqual(router.route(.character("a"), mode: .local, transmit: .instant, ready: false, draft: &draft, blocked: true), .insertedLocally)
+        XCTAssertEqual(local.inserted, ["a"])
+    }
+
+    // MARK: Draft cursor from a tap
+
+    func testSetDraftCursorMovesTheCaretInRemoteModeOnly() {
+        var draft = DraftBuffer(); _ = draft.insert("香港你好")
+        let (router, local, remote) = makeRouter()
+        for transmit in [TransmitMode.instant, .draft] {
+            XCTAssertEqual(router.route(.setDraftCursor(1), mode: .remote, transmit: transmit, ready: true, draft: &draft), .draftEdited)
+            XCTAssertEqual(draft.cursor, 1)
+            XCTAssertEqual(router.route(.setDraftCursor(99), mode: .remote, transmit: transmit, ready: true, draft: &draft), .draftEdited)
+            XCTAssertEqual(draft.cursor, 4)
+        }
+        XCTAssertEqual(router.route(.setDraftCursor(0), mode: .local, transmit: .draft, ready: true, draft: &draft), .rejected)
+        XCTAssertEqual(draft.cursor, 4); XCTAssertEqual(draft.text, "香港你好")
+        XCTAssertEqual(remote.events, []); XCTAssertEqual(local.inserted, [])
+    }
+
+    func testTypingAfterATapLandsAtTheCaret() {
+        var draft = DraftBuffer(); _ = draft.insert("ac")
+        let (router, _, _) = makeRouter()
+        _ = router.route(.setDraftCursor(1), mode: .remote, transmit: .draft, ready: true, draft: &draft)
+        _ = router.route(.character("b"), mode: .remote, transmit: .draft, ready: true, draft: &draft)
+        XCTAssertEqual(draft.text, "abc"); XCTAssertEqual(draft.cursor, 2)
+        _ = router.route(.backspace, mode: .remote, transmit: .draft, ready: true, draft: &draft)
+        XCTAssertEqual(draft.text, "ac"); XCTAssertEqual(draft.cursor, 1)
     }
 
     func testReadyInstantEmptyDraftSendsImmediately() {
@@ -221,9 +324,13 @@ final class InputRouterTests: XCTestCase {
     func testReadinessIsDecidedPerKey() {
         var draft = DraftBuffer()
         let (router, _, remote) = makeRouter()
-        XCTAssertEqual(router.route(.character("a"), mode: .remote, transmit: .instant, ready: false, draft: &draft), .draftEdited)
+        XCTAssertEqual(router.route(.character("a"), mode: .remote, transmit: .draft, ready: false, draft: &draft), .draftEdited)
         // The draft now holds "a", so the next key keeps editing it even though the Mac became ready.
         XCTAssertEqual(router.route(.character("b"), mode: .remote, transmit: .instant, ready: true, draft: &draft), .draftEdited)
         XCTAssertEqual(draft.text, "ab"); XCTAssertEqual(remote.events, [])
+        // Empty again and ready: the key goes straight to the Mac.
+        _ = draft.takeEvents()
+        XCTAssertEqual(router.route(.character("c"), mode: .remote, transmit: .instant, ready: true, draft: &draft), .enqueuedRemote)
+        XCTAssertEqual(remote.events, [.text("c")])
     }
 }

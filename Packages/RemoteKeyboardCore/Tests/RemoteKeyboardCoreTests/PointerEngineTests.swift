@@ -112,9 +112,20 @@ final class PointerEngineTests: XCTestCase {
         XCTAssertEqual(engine.handle(click, nowMicros: 1 * ms), [])
     }
 
-    func testRightButtonClickIsNotSupportedYet() {
+    func testDoubleClickCarriesItsCount() {
+        let click = PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(count: 2), buttonSeq: 0)
+        XCTAssertEqual(engine.handle(click, nowMicros: 0), [.click(count: 2)])
+    }
+
+    func testRightButtonClick() {
         let click = PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(button: 1, count: 1), buttonSeq: 0)
-        XCTAssertEqual(engine.handle(click, nowMicros: 0), [])
+        XCTAssertEqual(engine.handle(click, nowMicros: 0), [.rightClick])
+    }
+
+    func testRightClickIsIgnoredWhileTheButtonIsHeld() {
+        _ = engine.handle(buttonState(buttons: 1, seq: 1), nowMicros: 0)
+        let click = PointerPayload(opcode: .click, buttons: 1, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(button: 1, count: 1), buttonSeq: 1)
+        XCTAssertEqual(engine.handle(click, nowMicros: 1 * ms), [])
     }
 
     func testScrollPhasesAndUnitScale() {

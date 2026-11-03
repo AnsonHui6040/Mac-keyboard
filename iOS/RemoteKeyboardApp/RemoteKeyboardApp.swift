@@ -68,7 +68,9 @@ extension BluetoothPermission: @preconcurrency CBCentralManagerDelegate {
 }
 
 private struct ContentView: View {
+    #if DEBUG
     @State private var probeStatus = "未寫入"
+    #endif
     @State private var isPaired = PairingStore.loadPairKey() != nil
     @StateObject private var bluetooth = BluetoothPermission()
     @Environment(\.scenePhase) private var scenePhase
@@ -92,12 +94,14 @@ private struct ContentView: View {
                     TextField("在這裡輸入", text: $draft)
                         .accessibilityIdentifier("rk.home.testInput")
                 }
+                #if DEBUG
                 Section("App Group") {
                     Button("寫入 probe") {
                         probeStatus = AppGroupProbe.write() ? "已寫入" : "寫入失敗"
                     }
                     Text(probeStatus)
                 }
+                #endif
                 Section("鍵盤") {
                     NavigationLink("中文輸入設定") { SettingsView() }
                 }

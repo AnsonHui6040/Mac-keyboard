@@ -14,9 +14,13 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
     /// The Mac accepts touchpad control from this connection; the value is the grant the keyboard must repeat in its
     /// `pointerOpen`. Absent while the Mac's switch is off, so a status of a Receiver without the touchpad is unchanged.
     public let pointerGrant: UInt32?
+    /// Typing cannot go anywhere right now: the focused field is a password field, secure keyboard input is on, or the
+    /// screen is locked. Left out of the wire when false, so a status without the key reads as not blocked.
+    public let inputBlocked: Bool
 
     public init(
-        ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true, measure: Bool = false, pointerGrant: UInt32? = nil
+        ready: Bool, appName: String?, focusEpoch: UInt64, trusted: Bool = true, measure: Bool = false, pointerGrant: UInt32? = nil,
+        inputBlocked: Bool = false
     ) {
         self.ready = ready
         self.appName = appName
@@ -24,9 +28,10 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         self.trusted = trusted
         self.measure = measure
         self.pointerGrant = pointerGrant
+        self.inputBlocked = inputBlocked
     }
 
-    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted, measure, pointerGrant }
+    private enum CodingKeys: String, CodingKey { case ready, appName, focusEpoch, trusted, measure, pointerGrant, inputBlocked }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -36,6 +41,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         trusted = try c.decodeIfPresent(Bool.self, forKey: .trusted) ?? true
         measure = try c.decodeIfPresent(Bool.self, forKey: .measure) ?? false
         pointerGrant = try c.decodeIfPresent(UInt32.self, forKey: .pointerGrant)
+        inputBlocked = try c.decodeIfPresent(Bool.self, forKey: .inputBlocked) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -46,6 +52,7 @@ public struct ReceiverStatus: Codable, Equatable, Sendable {
         if !trusted { try c.encode(false, forKey: .trusted) }
         if measure { try c.encode(true, forKey: .measure) }
         try c.encodeIfPresent(pointerGrant, forKey: .pointerGrant)
+        if inputBlocked { try c.encode(true, forKey: .inputBlocked) }
     }
 }
 

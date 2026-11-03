@@ -19,6 +19,9 @@ struct ReceiverPanel: View {
     @ObservedObject var measurement: MeasurementEcho
     #endif
 
+    /// Set to true to bring back the 「測試插入」 and 「除錯」 sections.
+    private static let showsDeveloperTools = false
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
     var body: some View {
@@ -59,44 +62,46 @@ struct ReceiverPanel: View {
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider()
-            Text("測試插入").font(.headline)
-            LazyVGrid(columns: columns, spacing: 6) {
-                ForEach(TestInsertItem.all.filter(\.chunked)) { item in
+            if Self.showsDeveloperTools {
+                Divider()
+                Text("測試插入").font(.headline)
+                LazyVGrid(columns: columns, spacing: 6) {
+                    ForEach(TestInsertItem.all.filter(\.chunked)) { item in
+                        Button(item.label) { testInsert.start(item) }
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                ForEach(TestInsertItem.all.filter { !$0.chunked }) { item in
                     Button(item.label) { testInsert.start(item) }
                         .frame(maxWidth: .infinity)
                 }
-            }
-            ForEach(TestInsertItem.all.filter { !$0.chunked }) { item in
-                Button(item.label) { testInsert.start(item) }
-                    .frame(maxWidth: .infinity)
-            }
-            if let remaining = testInsert.remaining {
-                HStack {
-                    Text("倒數 \(remaining) 秒")
-                    Spacer()
-                    Button("取消測試插入") { testInsert.cancel() }
+                if let remaining = testInsert.remaining {
+                    HStack {
+                        Text("倒數 \(remaining) 秒")
+                        Spacer()
+                        Button("取消測試插入") { testInsert.cancel() }
+                    }
                 }
+                Text(testInsert.status)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                #if DEBUG
+                Divider()
+                Text("除錯").font(.headline)
+                Button("驗證 burst") { burstVerifier.verify() }
+                    .disabled(burstVerifier.isRunning)
+                Text(burstVerifier.status)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Toggle("量測模式", isOn: Binding(
+                    get: { measurement.isMeasureMode },
+                    set: { measurement.setMeasureMode($0) }
+                ))
+                Text(measurement.summary)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                #endif
             }
-            Text(testInsert.status)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            #if DEBUG
-            Divider()
-            Text("除錯").font(.headline)
-            Button("驗證 burst") { burstVerifier.verify() }
-                .disabled(burstVerifier.isRunning)
-            Text(burstVerifier.status)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Toggle("量測模式", isOn: Binding(
-                get: { measurement.isMeasureMode },
-                set: { measurement.setMeasureMode($0) }
-            ))
-            Text(measurement.summary)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            #endif
             Divider()
             Toggle("允許觸控板控制", isOn: Binding(
                 get: { pointer.isEnabled },

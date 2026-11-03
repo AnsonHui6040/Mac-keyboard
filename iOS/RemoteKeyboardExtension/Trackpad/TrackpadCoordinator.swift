@@ -91,7 +91,8 @@ final class TrackpadCoordinator {
             case .move(let dx, let dy, let t):
                 let scaled = TrackpadSensitivity.scaled(dx: dx, dy: dy, by: sensitivity)
                 sender.addMove(dx: scaled.dx, dy: scaled.dy, atMicros: t)
-            case .click(let t): sender.click(atMicros: t)
+            case .click(let count, let t): sender.click(count: count, atMicros: t)
+            case .rightClick(let t): sender.rightClick(atMicros: t)
             case .buttonDown(let t): sender.setLeftButton(true, atMicros: t)
             case .buttonUp(let t): sender.setLeftButton(false, atMicros: t)
             case .scrollBegan(let t): sender.scrollBegan(atMicros: t)
@@ -102,3 +103,4 @@ final class TrackpadCoordinator {
         peripheral.pumpPointer()
     }
 }
+

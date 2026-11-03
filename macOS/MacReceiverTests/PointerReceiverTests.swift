@@ -90,8 +90,8 @@ final class PointerRig {
         frames.fire(timestamp: now, target: now + 4_000)
     }
 
-    func click(seq: UInt16 = 0) -> PointerPayload {
-        PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(count: 1), buttonSeq: seq)
+    func click(button: Int = 0, count: Int = 1, seq: UInt16 = 0) -> PointerPayload {
+        PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(button: button, count: count), buttonSeq: seq)
     }
 
     /// Every `move` action the output has seen, added up.
@@ -413,6 +413,14 @@ final class PointerReceiverTests: XCTestCase {
         guard case .move? = rig.output.actions.first else { return XCTFail("\(rig.output.actions)") }
         XCTAssertEqual(rig.output.actions.last, .click(count: 1))
         XCTAssertFalse(rig.frames.isRunning, "nothing is left to play")
+    }
+
+    func testADoubleClickAndARightClickReachTheOutput() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.click(count: 2))
+        rig.send(rig.click(button: 1))
+        XCTAssertEqual(rig.output.actions, [.click(count: 2), .rightClick])
     }
 
     func testAButtonPressAndReleaseFlushTheMovesBeforeThem() {

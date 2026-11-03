@@ -73,6 +73,24 @@ final class PointerSenderTests: XCTestCase {
         XCTAssertEqual(move.status & 0x01, 0x01, "flagged as accumulated during a block")
     }
 
+    func testDoubleClickAndRightClickPackets() {
+        let sender = PointerSender()
+        sender.click(count: 2, atMicros: 1 * ms)
+        sender.rightClick(atMicros: 2 * ms)
+        let packets = drain(sender, at: 2 * ms)
+        XCTAssertEqual(packets.map(\.opcode), [.click, .click])
+        XCTAssertEqual(packets[0].arg, 0x20)
+        XCTAssertEqual(packets[1].arg, 0x11)
+        for packet in packets {
+            let decoded = PointerPayload.decode(packet.encode())
+            XCTAssertEqual(decoded, packet)
+        }
+        XCTAssertEqual(packets[0].clickButton, 0)
+        XCTAssertEqual(packets[0].clickCount, 2)
+        XCTAssertEqual(packets[1].clickButton, 1)
+        XCTAssertEqual(packets[1].clickCount, 1)
+    }
+
     func testClickIsPrecededByTheMoveThatCameBeforeIt() {
         let sender = PointerSender()
         sender.strokeBegan(atMicros: 0)

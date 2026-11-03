@@ -13,9 +13,20 @@ public enum DictationSync {
     }
 
     /// Whether a difference goes into the draft rather than straight to the Mac. The same rule `InputRouter` applies
-    /// to a typing key in Remote mode.
-    public static func goesToDraft(transmit: TransmitMode, draftEmpty: Bool, ready: Bool) -> Bool {
-        transmit == .draft || !draftEmpty || !ready
+    /// to a typing key in Remote mode. When it is false and the Mac is not ready the router drops the keys instead.
+    public static func goesToDraft(transmit: TransmitMode, draftEmpty: Bool) -> Bool {
+        transmit == .draft || !draftEmpty
+    }
+
+    /// A difference that types text is dropped whole while the Mac is blocked (a password field). Applying only its
+    /// backspaces would delete draft text and put nothing back. A pure deletion is left to the router.
+    public static func isDropped(events: [EventKind], blocked: Bool) -> Bool {
+        blocked && events.contains { event in
+            switch event {
+            case .text, .returnKey: true
+            default: false
+            }
+        }
     }
 
     /// A difference that deletes text may only be applied to the draft when the draft cursor sits right behind that

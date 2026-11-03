@@ -326,18 +326,20 @@ final class DictationMirrorTests: XCTestCase {
 
     // MARK: 2026-10-31 device observation: the draft no longer ends with the text iOS revises
 
-    private enum Landed: Equatable { case draft, mac, skipped }
+    private enum Landed: Equatable { case draft, mac, skipped, dropped }
 
     /// What the controller does with one difference: in draft mode a difference with backspaces is applied only when the
     /// draft cursor sits right behind the text being deleted; otherwise the whole difference is dropped.
     @discardableResult
     private func apply(
         _ outcome: DictationMirror.Outcome, mirror: inout DictationMirror, draft: inout DraftBuffer,
-        transmit: TransmitMode = .draft, ready: Bool = true
+        transmit: TransmitMode = .draft, ready: Bool = true, blocked: Bool = false
     ) -> Landed? {
         guard case .events(let events) = outcome else { return nil }
-        let toDraft = DictationSync.goesToDraft(transmit: transmit, draftEmpty: draft.isEmpty, ready: ready)
-        guard toDraft else { return .mac }
+        if DictationSync.isDropped(events: events, blocked: blocked) { return .dropped }
+        let toDraft = DictationSync.goesToDraft(transmit: transmit, draftEmpty: draft.isEmpty)
+        // Instant with an empty draft: straight to the Mac when it is ready, otherwise the router drops every key.
+        guard toDraft else { return ready ? .mac : .dropped }
         if events.contains(.backspace), !DictationSync.draftAccepts(deleted: mirror.lastDeleted, draft: draft) {
             mirror.noteDraftSkipped()
             return .skipped
@@ -440,10 +442,44 @@ final class DictationMirrorTests: XCTestCase {
     }
 
     func testWhereADifferenceGoes() {
-        XCTAssertTrue(DictationSync.goesToDraft(transmit: .draft, draftEmpty: true, ready: true))
-        XCTAssertTrue(DictationSync.goesToDraft(transmit: .instant, draftEmpty: false, ready: true))
-        XCTAssertTrue(DictationSync.goesToDraft(transmit: .instant, draftEmpty: true, ready: false))
-        XCTAssertFalse(DictationSync.goesToDraft(transmit: .instant, draftEmpty: true, ready: true))
+        XCTAssertTrue(DictationSync.goesToDraft(transmit: .draft, draftEmpty: true))
+        XCTAssertTrue(DictationSync.goesToDraft(transmit: .instant, draftEmpty: false))
+        XCTAssertFalse(DictationSync.goesToDraft(transmit: .instant, draftEmpty: true))
+    }
+
+    func testABlockedMacRefusesADifferenceThatTypesText() {
+        XCTAssertTrue(DictationSync.isDropped(events: [.text("p")], blocked: true))
+        XCTAssertTrue(DictationSync.isDropped(events: [.backspace, .text("p")], blocked: true))
+        XCTAssertTrue(DictationSync.isDropped(events: [.returnKey], blocked: true))
+        // A pure deletion may still trim existing draft text; the router decides whether there is any.
+        XCTAssertFalse(DictationSync.isDropped(events: [.backspace, .backspace], blocked: true))
+        XCTAssertFalse(DictationSync.isDropped(events: [.backspace, .text("p")], blocked: false))
+    }
+
+    func testBlockedDictationStoresNothingAndNothingIsCountedAsDraftedOrSent() {
+        var mirror = DictationMirror()
+        var draft = DraftBuffer()
+        mirror.rebaseline(before: "", after: "")
+        let landed = apply(
+            mirror.observe(before: "secret", after: "", at: 0), mirror: &mirror, draft: &draft, transmit: .draft, ready: false,
+            blocked: true)
+        XCTAssertEqual(landed, .dropped)
+        XCTAssertTrue(draft.isEmpty)
+        XCTAssertEqual(mirror.counters.eventsDrafted, 0); XCTAssertEqual(mirror.counters.eventsSent, 0)
+        // The baseline moved with the text, so the next difference is measured from what the field holds now.
+        XCTAssertEqual(mirror.observe(before: "secret", after: "", at: 1), .unchanged)
+        guard case .events(let more) = mirror.observe(before: "secret!", after: "", at: 2) else { return XCTFail("expected events") }
+        XCTAssertEqual(more, [.text("!")])
+    }
+
+    func testNotReadyInstantEmptyDraftDictationIsDroppedNotDrafted() {
+        var mirror = DictationMirror()
+        var draft = DraftBuffer()
+        mirror.rebaseline(before: "", after: "")
+        let landed = apply(
+            mirror.observe(before: "hi", after: "", at: 0), mirror: &mirror, draft: &draft, transmit: .instant, ready: false)
+        XCTAssertEqual(landed, .dropped)
+        XCTAssertTrue(draft.isEmpty)
     }
 
     func testTheDraftCheckComparesCharactersBeforeTheCursor() {

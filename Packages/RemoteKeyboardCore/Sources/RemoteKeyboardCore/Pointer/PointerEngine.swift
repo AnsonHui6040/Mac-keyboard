@@ -5,6 +5,7 @@ public enum PointerAction: Equatable, Sendable {
     /// Move the cursor by this much (already scaled by the speed curve). `dragging` posts a drag event instead of a move.
     case move(dx: Double, dy: Double, dragging: Bool)
     case click(count: Int)
+    case rightClick
     case leftButton(down: Bool)
     case scroll(dx: Double, dy: Double, phase: PointerPayload.ScrollPhase)
 }
@@ -45,8 +46,13 @@ public struct PointerEngine: Sendable {
         case .scroll:
             scroll(payload, into: &actions)
         case .click:
-            // Only the left button, and not in the middle of a drag.
-            if payload.clickButton == 0, !leftDown { actions.append(.click(count: payload.clickCount)) }
+            // Not in the middle of a drag.
+            guard !leftDown else { break }
+            switch payload.clickButton {
+            case 0: actions.append(.click(count: payload.clickCount))
+            case 1: actions.append(.rightClick)
+            default: break
+            }
         case .buttonState, .heartbeat:
             break
         }

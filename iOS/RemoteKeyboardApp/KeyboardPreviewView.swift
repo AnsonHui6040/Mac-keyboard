@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 
 /// Debug only. Launch the app with `-rkPreview <state>` to see the keyboard views at their real height with fake
-/// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady`, `symbols`, `caps`,
+/// state, pinned to the bottom of the screen: `local`, `remoteInstant`, `remoteDraft`, `notReady` (connected, the Mac has no input field: one top row, no draft), `blocked` (a password field: 密碼不能輸入), `symbols`, `caps`,
 /// `symbolsEnglish2`, `symbolsChinese1`, `symbolsChinese2`, `symbolsChinese3` (symbols layers; `symbols` is English layer 1),
 /// `handwriting` (Remote mode, Chinese page with sample ink and nine candidates 禾 乐 木 夭 米 未 朱 末 林),
 /// `handwritingLocal` (the same in Local mode, where the top area is two rows), `handwritingEmpty` (nothing written
@@ -102,7 +102,11 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
         case "remoteDraft":
             return (make(transmit: .draft, draft: draft("香港你好", cursorBack: 2)), .off)
         case "notReady":
-            return (make(ready: false, draft: draft("abc"), detail: "Mac（無輸入欄位）"), .off)
+            return (make(ready: false, detail: "Mac → Finder（無輸入欄位）"), .off)
+        case "blocked":
+            return (make(
+                ready: false, status: StatusLine.Display(text: StatusLine.inputBlockedText, tone: .problem),
+                detail: "Mac → Safari（密碼欄，不能輸入）"), .off)
         case "symbols", "symbolsEnglish2":
             return (make(page: .symbols(origin: .english)), .off)
         case "symbolsChinese1", "symbolsChinese2", "symbolsChinese3":

@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import RemoteKeyboardCore
 
-/// Posts the pointer actions as CGEvents (mouse move or drag, click, left button, pixel scroll). A thin adapter: what the
+/// Posts the pointer actions as CGEvents (mouse move or drag, left and right click, left button, pixel scroll). A thin adapter: what the
 /// actions are is decided in Core, and nothing here is logged.
 ///
 /// The cursor position is read from the system every time and added to; the part of a movement under one point is kept here
@@ -25,6 +25,10 @@ final class PointerInjector: PointerOutput {
             let position = currentPosition()
             postMouse(.leftMouseDown, at: position, clickState: count)
             postMouse(.leftMouseUp, at: position, clickState: count)
+        case .rightClick:
+            let position = currentPosition()
+            postMouse(.rightMouseDown, at: position, clickState: 1, button: .right)
+            postMouse(.rightMouseUp, at: position, clickState: 1, button: .right)
         case .leftButton(let down):
             postMouse(down ? .leftMouseDown : .leftMouseUp, at: currentPosition(), clickState: 1)
         case .scroll(let dx, let dy, let phase):
@@ -55,8 +59,8 @@ final class PointerInjector: PointerOutput {
         event.post(tap: .cghidEventTap)
     }
 
-    private func postMouse(_ type: CGEventType, at point: CGPoint, clickState: Int) {
-        guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left)
+    private func postMouse(_ type: CGEventType, at point: CGPoint, clickState: Int, button: CGMouseButton = .left) {
+        guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button)
         else { return }
         event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
         event.post(tap: .cghidEventTap)
