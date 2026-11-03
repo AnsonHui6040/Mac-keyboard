@@ -56,6 +56,8 @@
 | 無法連接觸控板，請按鍵盤再按觸控板重試 | 通道建立逾時 | 按「鍵盤」，再按「觸控板」重試 |
 | 尚未連線 Mac | iPhone 沒有連上 Mac | 見 [06 使用鍵盤](06-using-the-keyboard.md) 的「未連接」 |
 
+<img src="images/kb-trackpadDenied.png" width="360" alt="觸控板頁中央顯示灰色文字：Mac 未允許觸控板控制">
+
 「觸控板」按鍵是灰色，表示鍵盤尚未連上 Mac 或尚未配對。
 
 ## 安全提醒
