@@ -70,23 +70,27 @@ shasum -a 256 RemoteKeyboard-v版本號-unsigned.ipa
 ## 五、打開 App 並允許藍牙
 
 1. 在主畫面打開 **Remote Keyboard**。
-2. 捲到最下方的「藍牙」區，按「允許藍牙」。
-3. iOS 詢問是否允許 Remote Keyboard 使用藍牙時，按「允許」。
+2. 第一次打開會出現四頁的使用引導，依序是這個 App 做什麼、在 Mac 安裝 Receiver、開啟權限與加入鍵盤、配對 Mac。可以按右上角的「略過」，或一頁一頁按「下一步」，最後按「完成」。
+3. 進入主畫面後，在最上方的「設定進度」按「藍牙」，再按「允許藍牙」。
+4. iOS 詢問是否允許 Remote Keyboard 使用藍牙時，按「允許」。
 
-<img src="images/iphone-rk-bluetooth.png" width="320" alt="Remote Keyboard 主畫面捲到下方：Mac 配對區顯示尚未配對，藍牙區有允許藍牙按鈕，狀態為已允許">
+<img src="images/iphone-rk-setup.png" width="320" alt="Remote Keyboard 主畫面展開的設定進度：藍牙、已配對 Mac、加入鍵盤並允許完整取用三項，下方是設定與幫助">
 
+成功時，「藍牙」那一列打勾。如果顯示「已拒絕，請到設定開啟」，按「到設定開啟藍牙」，在設定裡開啟藍牙。
 
-成功時，「藍牙」區的狀態顯示「已允許」。如果顯示「已拒絕，請到設定開啟」，按「到設定開啟藍牙」，在設定裡開啟藍牙。
+「加入鍵盤並允許完整取用」這一列，要等鍵盤在有「允許完整取用」的情況下出現過一次才會打勾。完成第三、四節之後，到任一個輸入框叫出 Remote Keyboard，回到 App 就會看到打勾。這一列也可以直接按，跳到設定 App 的 Remote Keyboard 頁面。
 
-主畫面的各區塊如下。
+三項都完成後，「設定進度」會收成一行綠色的「設定完成」。按一下可以展開，再看到三項。
+
+<img src="images/iphone-rk-home.png" width="320" alt="Remote Keyboard 主畫面：設定進度收成一行設定完成，下方是設定、幫助、GitHub 連結與法律聲明">
+
+主畫面由上到下的區塊如下。
 
 | 區塊 | 內容 |
 |---|---|
-| 版本 | 這個版本的建置時間 |
-| 設定 | 「打開 iPhone 設定」，直接跳到設定 App 的 Remote Keyboard 頁面 |
-| 測試輸入 | 一個輸入框，可以在這裡試用鍵盤 |
-| 鍵盤 | 「中文輸入設定」，見 [08 App 設定](08-app-settings.md) |
-| Mac 配對 | 目前的配對狀態、「配對 Mac」與「解除配對」，見 [05 配對](05-pairing.md) |
-| 藍牙 | 「允許藍牙」與目前的藍牙授權狀態 |
+| 設定進度 | 藍牙、已配對 Mac、加入鍵盤並允許完整取用。「已配對 Mac」的配對步驟見 [05 配對](05-pairing.md) |
+| 設定 | 鍵盤回饋、觸控板、中文輸入與手寫、聽寫，見 [08 App 設定](08-app-settings.md) |
+| 幫助 | 使用教學、測試輸入、關於與授權 |
+| 最下方 | GitHub 連結、版權一行與法律聲明 |
 
 下一章：[04 安裝 Mac Receiver](04-install-mac-receiver.md)

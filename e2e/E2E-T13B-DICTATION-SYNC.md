@@ -6,7 +6,7 @@
 
 - `swift test --package-path Packages/RemoteKeyboardCore`：`BottomRowLayoutTests`（符號在左、中英在右；有無地球儀、有無重寫、375 與 402 pt）、`DictationMirrorTests`（同步條件：遠端且設定開啟才同步，設定未寫入視為開；聽寫修正只在草稿游標緊接著被刪文字時才套用，否則整個差分略過；nil 基準只在 textWillChange 路徑取；各路徑的第一個基準）。
 - 模擬器、真機（Debug）與 Release 真機 build。
-- 模擬器預覽截圖：`local`、`handwriting`、`symbols` 於 402 與 375 pt；主 App「中文輸入設定」頁。
+- 模擬器預覽截圖：`local`、`handwriting`、`symbols` 於 402 與 375 pt；主 App「中文輸入與手寫」頁。
 
 ## 前置條件
 
@@ -14,7 +14,7 @@
 - iPhone 設定已啟用聽寫，並加入繁體中文與英文。
 - Mac 執行本分支的 MacReceiver，TextEdit 開新純文字文件，游標在文件內。
 - 備忘錄新建一則空白備忘錄，切到 Remote Keyboard，模式「遠端」，等狀態列顯示 Mac 已就緒。
-- 主 App「中文輸入設定」的「聽寫同步到 Mac」開關為開（預設）。
+- 主 App「設定 > 聽寫」的「聽寫同步到 Mac」開關為開（預設）。
 
 ## 步驟與結果
 
@@ -31,7 +31,7 @@
 | 9 | 在草稿用鍵盤打一個字再刪掉，之後 iOS 修正前一個詞 | 修正照常套用，草稿與備忘錄一致 | TBD |
 | 10 | 草稿有聽寫的字，手動改幾個字，再聽寫一句，最後按「傳送」 | 草稿內容符合手動編輯加聽寫新增；傳送後 TextEdit 與草稿一致 | TBD |
 | 11 | 傳送方式「即時」，按「傳送」（草稿清空）後再聽寫並等 iOS 修正 | 修正直接送到 Mac，不受影響，TextEdit 與備忘錄一致 | TBD |
-| 12 | 主 App「中文輸入設定」關閉「聽寫同步到 Mac」，回備忘錄（鍵盤重新出現），遠端即時模式聽寫一句 | 只寫進 iPhone 欄位，TextEdit 與草稿都沒有收到 | TBD |
+| 12 | 主 App「設定 > 聽寫」關閉「聽寫同步到 Mac」，回備忘錄（鍵盤重新出現），遠端即時模式聽寫一句 | 只寫進 iPhone 欄位，TextEdit 與草稿都沒有收到 | TBD |
 | 13 | 重新開啟開關，回備忘錄聽寫一句 | 恢復同步 | TBD |
 | 14 | 切到「本機」模式聽寫一句 | 只寫進 iPhone 欄位，Mac 沒有收到 | TBD |
 | 15 | 強制關閉備忘錄後重開，新建空白備忘錄，切到本鍵盤（遠端即時），第一次就聽寫一句 | 第一句就同步到 TextEdit，沒有被吃掉（驗證 textWillChange 路徑對空欄位的處理）。若被吃掉，記為 FAIL 並記下 Console.app 的 outcome | TBD |
