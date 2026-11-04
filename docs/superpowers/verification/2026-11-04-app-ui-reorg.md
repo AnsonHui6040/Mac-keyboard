@@ -30,7 +30,7 @@
 
 | 項目 | 狀況 |
 |---|---|
-| `HitAreaUITests` | 在 `HitAreaUITests.swift:165` 失敗。這個 branch 與未修改的 main（`f08afb8`）失敗的方式相同，原因尚未查明，發佈 v0.1.0-b2 之前必須解決 |
+| `HitAreaUITests` | 已解決：PASS。不是程式問題：模擬器重置後，鍵盤清單沒有這個鍵盤，`com.apple.keyboard.preferences` 的 `AutomaticMinimizationEnabled` 也回到開啟，軟鍵盤停在螢幕外。`scripts/prerelease-check.sh` 現在每次先設定，從重置狀態重跑 16 項全部 PASS |
 
 ## 實機驗證
 
