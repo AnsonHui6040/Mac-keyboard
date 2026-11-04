@@ -102,11 +102,15 @@ final class ReceiverBLECentral: ObservableObject {
         self.makeDriver = makeDriver
     }
 
+    /// Plain wording for the panel, Taiwan Traditional Chinese. The reason a radio is unusable is `linkReason`.
     var linkLabel: String {
-        if case .ready = linkState, let readyMilliseconds {
-            return "Link: ready (\(readyMilliseconds) ms)"
+        switch linkState {
+        case .idle: "尚未開始接收"
+        case .unavailable: "無法接收"
+        case .scanning: "未連線，正在尋找 iPhone"
+        case .connecting, .discovering: "正在連線 iPhone"
+        case .ready: "已連線"
         }
-        return "Link: \(linkState.name)"
     }
 
     /// Why the radio cannot be used right now; `nil` when it can.

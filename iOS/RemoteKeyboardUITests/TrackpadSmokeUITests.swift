@@ -17,7 +17,7 @@ final class TrackpadSmokeUITests: XCTestCase {
     override func setUp() async throws {
         continueAfterFailure = false
         app = XCUIApplication()
-        app.launch()
+        app.launchAtTestInput()
     }
 
     func testPadReportsReadyAndTakesASlowSwipe() throws {

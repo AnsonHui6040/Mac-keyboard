@@ -22,22 +22,23 @@ struct ReceiverPanel: View {
     /// Set to true to bring back the 「測試插入」 and 「除錯」 sections.
     private static let showsDeveloperTools = false
 
+    @Environment(\.openWindow) private var openWindow
+
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("版本：\(BuildStamp.current())")
-                .foregroundStyle(.secondary)
+            warnings
             VStack(alignment: .leading, spacing: 2) {
-                Text(central.linkLabel)
-                if let reason = central.linkReason {
-                    Text(reason)
-                        .foregroundStyle(.red)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if central.needsBluetoothPermission {
-                        Button("打開藍牙設定") { SystemSettings.open(.bluetoothPrivacy) }
-                    }
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Self.dotColor(central.linkState))
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    Text(central.linkLabel)
                 }
+                Text(FocusMenuText.line(focus.snapshot))
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(ReceiverMenu.remainingText(central.remainingSeconds))
                     .foregroundStyle(.secondary)
             }
@@ -45,22 +46,6 @@ struct ReceiverPanel: View {
                 Button("開始接收") { central.startReceiving() }
                 Button("停止接收") { central.stopReceiving() }
                     .disabled(!central.isArmed)
-            }
-            Divider()
-            PairingSheet(security: security, now: central.now)
-            Divider()
-            Text(FocusMenuText.line(focus.snapshot))
-                .fixedSize(horizontal: false, vertical: true)
-            if let snapshot = focus.snapshot, !snapshot.axTrusted {
-                HStack(spacing: 8) {
-                    Button("授權輔助使用") { focus.requestTrustPrompt() }
-                    Button("打開輔助使用設定") { SystemSettings.open(.accessibility) }
-                }
-            }
-            if let message = notice.message {
-                Text(message)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             if Self.showsDeveloperTools {
                 Divider()
@@ -103,6 +88,17 @@ struct ReceiverPanel: View {
                 #endif
             }
             Divider()
+            PairingSheet(security: security, now: central.now)
+            if !security.isPaired, case .idle = security.phase {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("1 在 iPhone 開啟 Remote Keyboard App")
+                    Text("2 按「配對新 iPhone」")
+                    Text("3 兩邊核對配對碼後按確認")
+                }
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Divider()
             Toggle("允許觸控板控制", isOn: Binding(
                 get: { pointer.isEnabled },
                 set: { pointer.setEnabled($0) }
@@ -110,7 +106,7 @@ struct ReceiverPanel: View {
             if pointer.isOpen {
                 Text("觸控板使用中")
                     .foregroundStyle(.secondary)
-                if let summary = pointer.linkSummary {
+                if Self.showsDeveloperTools, let summary = pointer.linkSummary {
                     Text("觸控板連線")
                     ForEach(summary + (pointer.playoutSummary ?? []), id: \.self) { line in
                         Text(line).foregroundStyle(.secondary)
@@ -135,11 +131,63 @@ struct ReceiverPanel: View {
                 Button("登入項目") { SystemSettings.open(.loginItems) }
             }
             Divider()
-            Button("結束") { NSApplication.shared.terminate(nil) }
+            HStack(spacing: 8) {
+                Button("使用教學") {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                    openWindow(id: MacTutorialWindow.id)
+                }
+                Text("版本：\(BuildStamp.current())")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+                Button("結束") { NSApplication.shared.terminate(nil) }
+            }
         }
         .font(.callout)
         .controlSize(.small)
         .padding(12)
         .frame(width: Self.width, alignment: .leading)
+    }
+
+    /// Red warnings first: missing Accessibility, the Bluetooth reason, a failed input source restore.
+    @ViewBuilder
+    private var warnings: some View {
+        if let snapshot = focus.snapshot, !snapshot.axTrusted {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("尚未授權輔助使用，無法輸入文字")
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("授權輔助使用") { focus.requestTrustPrompt() }
+                    Button("打開輔助使用設定") { SystemSettings.open(.accessibility) }
+                }
+            }
+        }
+        if let reason = central.linkReason {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(reason)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+                if central.needsBluetoothPermission {
+                    Button("打開藍牙設定") { SystemSettings.open(.bluetoothPrivacy) }
+                }
+            }
+        }
+        if let message = notice.message {
+            Text(message)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Green when connected, orange while looking or connecting, grey when not receiving, red when the radio is unusable.
+    private static func dotColor(_ state: ReceiverLinkState) -> Color {
+        switch state {
+        case .ready: .green
+        case .scanning, .connecting, .discovering: .orange
+        case .idle: .gray
+        case .unavailable: .red
+        }
     }
 }

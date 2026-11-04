@@ -28,7 +28,7 @@ final class HitAreaUITests: XCTestCase {
         results = []
         typed = 0
         app = XCUIApplication()
-        app.launch()
+        app.launchAtTestInput()
         field = app.textFields["rk.home.testInput"]
     }
 

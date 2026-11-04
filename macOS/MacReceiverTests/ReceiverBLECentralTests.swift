@@ -45,7 +45,7 @@ final class ReceiverBLECentralTests: XCTestCase {
         let central = make()
         XCTAssertEqual(central.linkState, .idle)
         XCTAssertEqual(madeDrivers, 0)
-        XCTAssertEqual(central.linkLabel, "Link: idle")
+        XCTAssertEqual(central.linkLabel, "尚未開始接收")
         XCTAssertNil(central.remainingSeconds)
     }
 
@@ -56,10 +56,10 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(madeDrivers, 1)
         central.handleLink(.power(.poweredOn))
         XCTAssertEqual(driver.calls, [.startScan])
-        XCTAssertEqual(central.linkLabel, "Link: scanning")
+        XCTAssertEqual(central.linkLabel, "未連線，正在尋找 iPhone")
     }
 
-    func testReadyLabelCarriesMilliseconds() {
+    func testReadyLabelIsPlainWithoutMilliseconds() {
         let central = make()
         let p = UUID()
         central.startReceiving()
@@ -68,8 +68,27 @@ final class ReceiverBLECentralTests: XCTestCase {
         central.handleLink(.connected(p))
         central.handleLink(.linkReady(p))
         XCTAssertEqual(driver.calls, [.startScan, .stopScan, .connect(p), .discover(p)])
-        XCTAssertTrue(central.linkLabel.hasPrefix("Link: ready ("))
-        XCTAssertTrue(central.linkLabel.hasSuffix(" ms)"))
+        XCTAssertEqual(central.linkLabel, "已連線")
+    }
+
+    func testEveryLinkStateHasPlainWording() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOff))
+        XCTAssertEqual(central.linkLabel, "無法接收")
+        central.handleLink(.power(.poweredOn))
+        XCTAssertEqual(central.linkLabel, "未連線，正在尋找 iPhone")
+        central.handleLink(.discovered(p))
+        XCTAssertEqual(central.linkLabel, "正在連線 iPhone")
+        central.handleLink(.connected(p))
+        XCTAssertEqual(central.linkLabel, "正在連線 iPhone")
+        central.handleLink(.linkReady(p))
+        XCTAssertEqual(central.linkLabel, "已連線")
+        for label in ["無法接收", "未連線，正在尋找 iPhone", "正在連線 iPhone", "已連線"] {
+            XCTAssertFalse(label.contains("Link"))
+            XCTAssertFalse(label.contains("ms"))
+        }
     }
 
     func testManualStopReturnsToIdleAndCancelsPeripheral() {

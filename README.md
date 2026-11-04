@@ -11,6 +11,7 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 - 即時與草稿：即時模式每按一個鍵就送出；草稿模式先在鍵盤上編輯，按「傳送」才一次送出。
 - 輸入方式：英文、符號、中文手寫、速成。
 - 觸控板：移動、點按、雙擊、右鍵、拖曳、捲動。
+- 首次引導與教學：第一次打開 App 有四頁引導，可以略過；之後在 App 的「使用教學」查看，Mac 選單列面板也有「使用教學」。
 - 密碼保護：系統標示為密碼欄的欄位、安全輸入與鎖定畫面不會收到文字，其他情況見下方「隱私與安全」。
 
 ## 需求
@@ -47,7 +48,7 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 | [05 配對](docs/manual/05-pairing.md) | 用六位數配對碼把 iPhone 與 Mac 配成一組 |
 | [06 使用鍵盤](docs/manual/06-using-the-keyboard.md) | 本機與遠端、即時與草稿、手寫、速成、狀態列提示、密碼的處理 |
 | [07 觸控板](docs/manual/07-trackpad.md) | 觸控板手勢與設定 |
-| [08 App 設定](docs/manual/08-app-settings.md) | 聽寫、按鍵回饋、觸控板靈敏度、手寫模型 |
+| [08 App 設定](docs/manual/08-app-settings.md) | 主畫面、鍵盤回饋、觸控板、中文輸入與手寫、聽寫、使用教學、法律聲明 |
 | [09 續簽與更新](docs/manual/09-refresh-and-update.md) | 7 天續簽、更新 IPA 與 Mac Receiver、什麼情況會遺失資料 |
 | [10 疑難排解](docs/manual/10-troubleshooting.md) | 安裝、配對與打字的常見問題 |
 
@@ -64,3 +65,11 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 ## 開發者
 
 建置方式、專案狀態與發佈腳本請見 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+
+## 法律聲明
+
+本軟體為測試版，依現狀提供，不提供任何明示或默示的保證。在法律允許的最大範圍內，開發者不對因使用或無法使用本軟體造成的任何損害負責，包括資料遺失、輸入錯誤或輸入到錯誤的視窗。請勿用於醫療、金融交易等不容許錯誤的用途。
+
+© 2026 AnsonHui6040。保留所有權利。未經同意，不得修改或重新散布本軟體及其原始碼。第三方元件依各自的授權條款提供。
+
+Apple、iPhone、Mac、Google、ML Kit、SideStore 為各自權利人所有。本專案與上述公司及專案沒有關聯，也未獲其認可。

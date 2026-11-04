@@ -44,7 +44,7 @@ final class MeasurementUITests: XCTestCase {
         for name in Self.settingNames {
             if let value = Self.environment[name] { app.launchEnvironment[name] = value }
         }
-        app.launch()
+        app.launchAtTestInput()
         field = app.textFields["rk.home.testInput"]
     }
 
