@@ -63,5 +63,9 @@ public enum AppGroup {
         /// A `Bool` written by the Extension each time it appears with 「允許完整取用」 on, and read by the host App for
         /// the setup checklist. Not set means the keyboard has not been seen with full access yet.
         public static let keyboardReady = "rk.keyboardReady"
+        /// A `LastLinkResult` raw value written by the Extension when a keyboard appearance ends or its handshake settles,
+        /// read by the host App for the setup checklist, and cleared by the App on a new pairing and on 解除配對.
+        public static let lastLink = "rk.lastLink"
+        public static let lastLinkAt = "rk.lastLinkAt"
     }
 }

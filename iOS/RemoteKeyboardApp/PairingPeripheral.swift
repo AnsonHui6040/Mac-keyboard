@@ -91,6 +91,7 @@ final class PairingPeripheral: NSObject, ObservableObject {
     func confirm() {
         guard case .confirming = phase, let key = attempt?.pairKey, window.isOpen(at: Date()) else { return }
         guard PairingStore.savePairKey(key) == errSecSuccess else { return end(.failed(.storeFailed)) }
+        LastLinkStore.clear()
         // No message tells the Mac that this side confirmed, so the connection stays up until the Mac leaves.
         phase = .confirmed
     }

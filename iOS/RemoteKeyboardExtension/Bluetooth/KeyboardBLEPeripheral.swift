@@ -18,6 +18,10 @@ final class KeyboardBLEPeripheral: NSObject {
     private var onControl: ((ControlMessage) -> Void)?
     /// A short user-facing note, for example when a key could not be sent.
     private var onNote: ((String) -> Void)?
+    /// How the current Mac connection's handshake ended. For the setup checklist only.
+    private var onHandshake: ((HandshakeOutcome) -> Void)?
+
+    enum HandshakeOutcome { case authenticated, failed }
 
     private var ownership = PeripheralOwnership<UUID>()
     /// The service add in flight. Only its own `didAdd` may advance the link state machine.
@@ -347,6 +351,11 @@ final class KeyboardBLEPeripheral: NSObject {
             && latestStatus?.ready == true
     }
 
+    /// The link is up and the Mac proved the pair key, whether or not the Mac can take input right now.
+    var isLinkAuthenticated: Bool {
+        machine.state == .connected && subscribedCentral != nil && handshake?.canSendEvents == true
+    }
+
     private override init() { super.init() }
 
     /// A controller that no longer owns the peripheral never sends.
@@ -361,7 +370,8 @@ final class KeyboardBLEPeripheral: NSObject {
         owner: UUID, hasFullAccess: Bool,
         onStateChange: @escaping (KeyboardLinkState) -> Void,
         onControl: @escaping (ControlMessage) -> Void,
-        onNote: @escaping (String) -> Void
+        onNote: @escaping (String) -> Void,
+        onHandshake: ((HandshakeOutcome) -> Void)? = nil
     ) {
         let hadOwner = ownership.owner != nil
         // The clock starts when the owning controller's appearance starts. A replacement controller or a repeated
@@ -375,6 +385,7 @@ final class KeyboardBLEPeripheral: NSObject {
         self.onStateChange = onStateChange
         self.onControl = onControl
         self.onNote = onNote
+        self.onHandshake = onHandshake
         // Without Full Access no CBPeripheralManager is created at all.
         if hasFullAccess && manager == nil {
             manager = CBPeripheralManager(delegate: self, queue: nil)
@@ -412,6 +423,7 @@ final class KeyboardBLEPeripheral: NSObject {
         onStateChange = nil
         onControl = nil
         onNote = nil
+        onHandshake = nil
     }
 
     /// A controller is going away. Same as a disappear when it is still the owner, otherwise nothing.
@@ -898,6 +910,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             channels = current.takeChannelSet()
             handshake = current
             onStateChange?(machine.state)
+            onHandshake?(.authenticated)
         case .deliver(let inner):
             deliver(inner)
         case .failed:
@@ -905,6 +918,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             // An unpaired keyboard already says so in the status line; only a failed proof needs a note.
             if pairKey != nil { onNote?("配對驗證失敗") }
             onStateChange?(machine.state)
+            onHandshake?(.failed)
             // The Mac drops the connection, but iOS may keep the link and never report it. Publish the service again so
             // the keyboard does not sit "connected" forever. The Mac's skip list stops it from reconnecting meanwhile.
             if LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: pairKey != nil) { resetLink() }

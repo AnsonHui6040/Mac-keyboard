@@ -35,4 +35,45 @@ final class SetupProgressTests: XCTestCase {
         XCTAssertTrue(progress.steps.allSatisfy(\.isDone))
         XCTAssertTrue(progress.isComplete)
     }
+
+    // MARK: Last link result
+
+    private func progress(paired: Bool = true, last: LastLinkResult?) -> SetupProgress {
+        SetupProgress(bluetoothAllowed: true, isPaired: paired, keyboardReady: true, lastLink: last)
+    }
+
+    func testNoLastLinkIsNoProblem() {
+        XCTAssertNil(progress(last: nil).connectionProblem)
+        XCTAssertTrue(progress(last: nil).isComplete)
+    }
+
+    func testConnectedIsNoProblem() {
+        XCTAssertNil(progress(last: .connected).connectionProblem)
+        XCTAssertTrue(progress(last: .connected).isComplete)
+    }
+
+    func testAuthFailedIsAProblemAndNotComplete() {
+        XCTAssertEqual(progress(last: .authFailed).connectionProblem, .authFailed)
+        XCTAssertFalse(progress(last: .authFailed).isComplete)
+    }
+
+    func testUnreachableIsAProblemAndNotComplete() {
+        XCTAssertEqual(progress(last: .unreachable).connectionProblem, .unreachable)
+        XCTAssertFalse(progress(last: .unreachable).isComplete)
+    }
+
+    func testUnpairedHidesTheProblem() {
+        XCTAssertNil(progress(paired: false, last: .authFailed).connectionProblem)
+        XCTAssertNil(progress(paired: false, last: .unreachable).connectionProblem)
+    }
+
+    func testProblemDoesNotChangeTheThreeSteps() {
+        XCTAssertEqual(progress(last: .unreachable).steps, progress(last: nil).steps)
+    }
+
+    func testClearingTheResultClearsTheProblem() {
+        // Re-pairing and 解除配對 both store nil.
+        XCTAssertNil(progress(last: nil).connectionProblem)
+        XCTAssertTrue(progress(last: nil).isComplete)
+    }
 }

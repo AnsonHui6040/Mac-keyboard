@@ -16,15 +16,28 @@ public struct SetupProgress: Equatable, Sendable {
         public let isDone: Bool
     }
 
-    public let steps: [Item]
+    /// What the keyboard last ran into, when the three steps are done but typing still would not work.
+    public enum ConnectionProblem: Equatable, Sendable {
+        case authFailed
+        case unreachable
+    }
 
-    public init(bluetoothAllowed: Bool, isPaired: Bool, keyboardReady: Bool) {
+    public let steps: [Item]
+    /// `nil` when nothing went wrong, and always `nil` while this iPhone is not paired: the pairing step says so.
+    public let connectionProblem: ConnectionProblem?
+
+    public init(bluetoothAllowed: Bool, isPaired: Bool, keyboardReady: Bool, lastLink: LastLinkResult? = nil) {
         steps = [
             Item(step: .bluetooth, isDone: bluetoothAllowed),
             Item(step: .pairing, isDone: isPaired),
             Item(step: .keyboard, isDone: keyboardReady),
         ]
+        switch (isPaired, lastLink) {
+        case (true, .authFailed?): connectionProblem = .authFailed
+        case (true, .unreachable?): connectionProblem = .unreachable
+        default: connectionProblem = nil
+        }
     }
 
-    public var isComplete: Bool { steps.allSatisfy(\.isDone) }
+    public var isComplete: Bool { steps.allSatisfy(\.isDone) && connectionProblem == nil }
 }
