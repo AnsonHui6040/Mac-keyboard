@@ -4,6 +4,9 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type ScreenId = string;
 export type TargetId = string;
 
+import { PHONE_ORIGIN_RIGHT, phoneRect } from './phone.ts';
+import * as L from './layouts.ts';
+
 export { PHONE_LOGICAL, PHONE_ORIGIN, PHONE_ORIGIN_RIGHT, PHONE_SCALE, phoneRect } from './phone.ts';
 
 export const center = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
@@ -61,6 +64,9 @@ export const SETTINGS_WINDOW: Rect = { x: 260, y: 54, width: 1200, height: 660 }
 export const SETTINGS_SIDEBAR_W = 280;
 export const SETTINGS_OPEN: Rect = { x: 1192, y: 455, width: 200, height: 64 };
 
+// Scenes 1 to 9. iPhone targets are logical rects mapped to the canvas; the phone sits alone (PHONE_ORIGIN) unless noted.
+const P = (r: Rect): Rect => phoneRect(r);
+
 export const DIALOGS: Record<ScreenId, Rect> = {
   dialogBlocked: BLOCKED,
   settingsSecurity: SETTINGS_WINDOW,
@@ -74,4 +80,30 @@ export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   settingsSecurity: { open: SETTINGS_OPEN },
   dialogConfirm: { trash: confirmBtn(502), open: confirmBtn(596), done: confirmBtn(690) },
   auth: { password: authBtn(0), cancel: authBtn(1) },
+  typing: {},
+  checklist: {},
+  reminders: {},
+  vpnFlow: { get: P(L.APPSTORE_GET), connect: P(L.VPN_CONNECT), allow: P(L.ALERT_VPN.buttons[1]), status: P(L.VPN_STATUS) },
+  // The phone is on the right of the iloader window (PHONE_ORIGIN_RIGHT).
+  iloader: {
+    trust: phoneRect(L.ALERT_TRUST.buttons[0], PHONE_ORIGIN_RIGHT),
+    add: L.ILO_ADD,
+    device: L.ILO_DEVICE,
+    stable: L.ILO_STABLE,
+  },
+  settingsFlow: {
+    settings: P(L.HOME_SETTINGS),
+    general: P(L.SET_GENERAL),
+    vpnmgmt: P(L.GEN_VPNMGMT),
+    row: P(L.VPNMGMT_ROW),
+    trust: P(L.DEVPAGE_TRUST),
+    allow: P(L.ALERT_RESTART.buttons[0]),
+    keypad: P(L.KEYPAD),
+    privacy: P(L.SET_PRIVACY),
+    devmode: P(L.PRIVACY_DEVMODE),
+    on: P(L.ALERT_DEVMODE.buttons[1]),
+  },
+  signIn: { status: P(L.VPN_STATUS), sidestore: P(L.HOME_SIDESTORE), signin: P(L.SIGNIN_BUTTON) },
+  myApps: { myapps: P(L.TAB_MYAPPS), days: P(L.MYAPPS_DAYS), refresh: P(L.ALERT_REFRESH.buttons[1]) },
+  loginError: {},
 };

@@ -209,3 +209,13 @@ test('the first press step of a run needs 42 frames (the entry cue takes the fir
   const switched = compileScene({ n: 79, beats: [blocked({ steps: [{ target: 'done' }] }), two(0, 'iphone')] }, A + B, 6, 30);
   assert.ok(switched.timeline[1].to - switched.timeline[1].from >= 84);
 });
+
+test('stepTimes: per step, when the pointer starts and lands (arrival, or the press peak), relative to the beat', () => {
+  const c = compileScene({ n: 80, beats: [blocked({ steps: [{ target: 'done' }, { target: 'trash', press: true }] })] }, A, 5, 30);
+  const [t] = c.timeline;
+  const slot = Math.floor((t.to - t.from) / 2);
+  // the first step of a run starts one frame late (the entry cue takes the first frame); a plain step lands after travel 18 + hold 15
+  assert.deepEqual(c.stepTimes[0], [{ start: 1, land: 34 }, { start: slot, land: slot + 37 }]);
+  // the press peak is the frame where pointerAt reports press 1
+  assert.equal(pointerAt(t.from + slot + 37, c.cues, 30).press, 1);
+});

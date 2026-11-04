@@ -1,7 +1,7 @@
 /** Data-driven scenes: a SceneSpec lists, per subtitle beat, the screen, the device, the pointer steps and the labels. compileScene turns it into frames. */
 import { SCREENS, restPoint } from '../screens/geometry.ts';
 import { beatTimeline, splitBeats } from './captions.ts';
-import type { PointerCue } from './pointer.ts';
+import { PRESS_FRAMES, SETTLE_SECONDS, TRAVEL_SECONDS, type PointerCue } from './pointer.ts';
 
 export type Device = 'mac' | 'iphone';
 /**
@@ -17,9 +17,14 @@ export type Span = { from: number; to: number };
 /** Pointer cues of consecutive beats on one device. The pointer is drawn only while the run lasts. */
 export type PointerRun = { device: Device; from: number; to: number; cues: PointerCue[] };
 
+/** When a step happens, in frames since its beat started: `start` is when the pointer begins moving to the target, `land` when it arrives (a step without a press) or when its press peaks. */
+export type StepTime = { start: number; land: number };
+
 export type CompiledScene = {
   beats: string[];
   timeline: Span[];
+  /** Per beat, per step: when the step starts and lands. Screens use it to show a step's result after it happens. */
+  stepTimes: StepTime[][];
   /** Every run's cues, in order. */
   cues: PointerCue[];
   runs: PointerRun[];
@@ -99,6 +104,9 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   }
 
   const runs: PointerRun[] = [];
+  const stepTimes: StepTime[][] = spec.beats.map(() => []);
+  const travel = Math.round(TRAVEL_SECONDS * fps);
+  const settle = Math.round(SETTLE_SECONDS * fps);
   let run: PointerRun | undefined;
   spec.beats.forEach((b, i) => {
     const span = timeline[i];
@@ -114,6 +122,8 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     steps.forEach((step, k) => {
       const p = restPoint(SCREENS[b.screen][step.target]);
       const from = span.from + k * slot;
+      const moveFrom = run!.cues.length === 0 ? from + 1 : from;
+      stepTimes[i][k] = { start: moveFrom - span.from, land: moveFrom - span.from + travel + settle + (step.press ? PRESS_FRAMES / 2 : 0) };
       if (run!.cues.length === 0) {
         run!.cues.push({ from, x: p.x, y: p.y + ENTRY_OFFSET, press: false });
         run!.cues.push({ from: from + 1, x: p.x, y: p.y, press: !!step.press });
@@ -133,6 +143,7 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   return {
     beats,
     timeline,
+    stepTimes,
     cues: shown.flatMap((r) => r.cues),
     runs: shown,
     deviceAt: (frame) => spec.beats[beatAt(frame)]?.device,

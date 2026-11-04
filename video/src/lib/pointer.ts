@@ -3,9 +3,9 @@
 export type PointerCue = { from: number; x: number; y: number; press: boolean };
 export type PointerState = { x: number; y: number; visible: boolean; press: number };
 
-const TRAVEL_SECONDS = 0.6;
-const SETTLE_SECONDS = 0.5;
-const PRESS_FRAMES = 8;
+export const TRAVEL_SECONDS = 0.6;
+export const SETTLE_SECONDS = 0.5;
+export const PRESS_FRAMES = 8;
 
 const easeOutCubic = (t: number): number => 1 - Math.pow(1 - t, 3);
 
