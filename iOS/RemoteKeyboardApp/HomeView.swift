@@ -11,12 +11,13 @@ struct HomeView: View {
         && !ProcessInfo.processInfo.arguments.contains(HomeView.skipOnboardingArgument)
     @State private var isPaired = PairingStore.loadPairKey() != nil
     @State private var keyboardReady = KeyboardReadyMarker.isReady
+    @State private var lastLink = LastLinkStore.current
     @State private var showsSetupRows = false
     @StateObject private var bluetooth = BluetoothPermission()
     @Environment(\.scenePhase) private var scenePhase
 
     private var progress: SetupProgress {
-        SetupProgress(bluetoothAllowed: bluetooth.isAllowed, isPaired: isPaired, keyboardReady: keyboardReady)
+        SetupProgress(bluetoothAllowed: bluetooth.isAllowed, isPaired: isPaired, keyboardReady: keyboardReady, lastLink: lastLink)
     }
 
     var body: some View {
@@ -68,6 +69,10 @@ struct HomeView: View {
             .onChange(of: showsOnboarding) { _, shown in
                 if !shown { refresh() }
             }
+            .onChange(of: isPaired) { _, _ in
+                // A new pairing or 解除配對 clears the stored result; read it again.
+                refresh()
+            }
         }
     }
 
@@ -75,14 +80,33 @@ struct HomeView: View {
         bluetooth.refresh()
         isPaired = PairingStore.loadPairKey() != nil
         keyboardReady = KeyboardReadyMarker.isReady
+        lastLink = LastLinkStore.current
+        // A problem opens the section each time it is read; the user can still close it by hand.
+        if progress.connectionProblem != nil { showsSetupRows = true }
     }
 
     // MARK: Setup checklist
 
-    /// Three rows until all are done, then one 「設定完成」 row that opens the same rows.
+    /// Three rows until all are done, then one 「設定完成」 row that opens the same rows. A connection problem the keyboard
+    /// recorded turns that row into a warning and opens it, with the problem as the first row.
     @ViewBuilder
     private var setupSection: some View {
-        if progress.isComplete {
+        if let problem = progress.connectionProblem {
+            Section {
+                DisclosureGroup(isExpanded: $showsSetupRows) {
+                    connectionProblemRow(problem)
+                    setupRows
+                } label: {
+                    Label("連線有問題", systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("rk.home.setupProblem")
+            } header: {
+                Text("設定進度")
+            } footer: {
+                Text("鍵盤下次連上後，這一行會自動消失。")
+            }
+        } else if progress.isComplete {
             Section {
                 DisclosureGroup(isExpanded: $showsSetupRows) {
                     setupRows
@@ -102,6 +126,35 @@ struct HomeView: View {
             } footer: {
                 Text("鍵盤出現過一次後才會打勾。")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func connectionProblemRow(_ problem: SetupProgress.ConnectionProblem) -> some View {
+        switch problem {
+        case .authFailed:
+            NavigationLink {
+                MacPairingPage(isPaired: $isPaired)
+            } label: {
+                problemLabel("配對驗證失敗，請重新配對")
+            }
+            .accessibilityIdentifier("rk.home.connectionProblem")
+        case .unreachable:
+            NavigationLink {
+                ConnectionHelpView(isPaired: $isPaired)
+            } label: {
+                problemLabel("鍵盤上次連不上 Mac")
+            }
+            .accessibilityIdentifier("rk.home.connectionProblem")
+        }
+    }
+
+    private func problemLabel(_ title: String) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .accessibilityHidden(true)
+            Text(title)
         }
     }
 
@@ -182,6 +235,7 @@ struct MacPairingPage: View {
                 if isPaired {
                     Button("解除配對", role: .destructive) {
                         PairingStore.deletePairKey()
+                        LastLinkStore.clear()
                         isPaired = PairingStore.loadPairKey() != nil
                     }
                     .accessibilityIdentifier("rk.home.unpair")

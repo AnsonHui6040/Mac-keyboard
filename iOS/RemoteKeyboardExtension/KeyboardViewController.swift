@@ -69,6 +69,8 @@ final class KeyboardViewController: UIInputViewController {
     private var noteTask: Task<Void, Never>?
     /// Between `viewWillAppear` and `viewDidDisappear`; only a controller on screen may reclaim the peripheral.
     private var isOnScreen = false
+    /// What this appearance tells the host App about the link (App Group, no text).
+    private var linkRecorder = LinkResultRecorder()
     // Dictation sync (D18). Memory holds the text snapshot; nothing about the text is ever written out or logged.
     private static let dictationLog = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "dictation")
     /// The raw App Group value of 「聽寫同步到 Mac」, read in `viewDidLoad` and `viewWillAppear`.
@@ -170,6 +172,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        linkRecorder.appeared(atMs: MonotonicClock.nowMs(), remote: mode == .remote)
         KeyboardReadyMarker.markIfReady(hasFullAccess: hasFullAccess)
         refreshTrackpadSettings()
         refreshKeyFeedback()
@@ -196,9 +199,11 @@ final class KeyboardViewController: UIInputViewController {
         // Before the peripheral is let go: a held button is released and the Mac is told while the link is still there.
         // A stale controller's late disappear touches nothing shared: not the peripheral's channel, not the key feedback.
         if peripheral.isOwner(lifecycle.token) {
+            recordLink(linkRecorder.disappeared(atMs: MonotonicClock.nowMs(), paired: peripheral.isPaired))
             trackpad.leave()
             KeyFeedback.deactivate()
         } else {
+            linkRecorder = LinkResultRecorder()
             trackpad.abandon()
         }
         #if DEBUG
@@ -237,10 +242,26 @@ final class KeyboardViewController: UIInputViewController {
             owner: lifecycle.token, hasFullAccess: hasFullAccess,
             onStateChange: { [weak self] _ in self?.refreshStatus() },
             onControl: { [weak self] message in self?.received(message) },
-            onNote: { [weak self] text in self?.showNote(text) }
+            onNote: { [weak self] text in self?.showNote(text) },
+            onHandshake: { [weak self] outcome in self?.handshakeSettled(outcome) }
         )
+        // A link the previous controller already brought up counts as connected for this appearance too.
+        if peripheral.isLinkAuthenticated { handshakeSettled(.authenticated) }
         // A channel the previous controller left open is closed; this controller's page opens its own when entered.
         if !trackpad.isActive { peripheral.closePointer() }
+    }
+
+    /// Only the controller that owns the peripheral records; a stale one's late events say nothing about the link.
+    private func handshakeSettled(_ outcome: KeyboardBLEPeripheral.HandshakeOutcome) {
+        switch outcome {
+        case .authenticated: recordLink(linkRecorder.linkAuthenticated())
+        case .failed: recordLink(linkRecorder.authenticationFailed())
+        }
+    }
+
+    private func recordLink(_ result: LastLinkResult?) {
+        guard let result, peripheral.isOwner(lifecycle.token) else { return }
+        LastLinkStore.record(result, hasFullAccess: hasFullAccess)
     }
 
     /// If a newer controller claimed the peripheral and then disappeared while this one stayed on screen, nobody owns
@@ -867,6 +888,7 @@ final class KeyboardViewController: UIInputViewController {
             // Persist what actually took effect, so a refused Remote (no Full Access) is not remembered as Remote.
             let applied = ModeResolver.effectiveMode(saved: requested, hasFullAccess: hasFullAccess)
             savedMode = applied
+            linkRecorder.modeChanged(remote: applied == .remote)
             chinese.resetHistory()
             if applied == .remote, DictationSync.isEnabled(stored: dictationStoredSetting) {
                 rebaselineDictationFromVisibleKeyboard()
