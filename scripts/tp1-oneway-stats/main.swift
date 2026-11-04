@@ -2,9 +2,9 @@ import Foundation
 
 // TP1 M3c, M6, M7, M8: what only the Mac's CSV and the iPhone's printed lines can tell together.
 //
-//   swiftc -DDEBUG -o /private/tmp/claude-501/rk-oneway \
+//   swiftc -DDEBUG -o /tmp/rk-oneway \
 //     Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Measurement/*.swift scripts/tp1-oneway-stats/main.swift
-//   /private/tmp/claude-501/rk-oneway <rkmeas.txt> <mac-measure.csv> [--run N]
+//   /tmp/rk-oneway <rkmeas.txt> <mac-measure.csv> [--run N]
 //
 // <rkmeas.txt> holds the `RKMEAS ...` lines of one run (the XCUITest prints them and attaches measure-<item>.txt); <mac-measure.csv>
 // is `~/Library/Logs/RemoteKeyboard/measure-<date>.csv`. The CSV holds several runs one after the other; the last one is read

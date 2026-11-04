@@ -11,6 +11,8 @@ actor ModelImporter {
     enum Outcome: Equatable, Sendable {
         case ready
         case missing
+        /// The copy or the check after it failed; no import is tried again until the host app writes a new copy.
+        case importFailed
         /// The import was cancelled; nothing was changed.
         case cancelled
     }
@@ -66,11 +68,11 @@ actor ModelImporter {
             } catch HandwritingModelStore.StoreError.cancelled {
                 return Result(outcome: .cancelled)
             } catch {
-                return Result(outcome: .missing, failedStamp: group)
+                return Result(outcome: .importFailed, failedStamp: group)
             }
             // ML Kit may still not accept the copy: back off until the host app writes a new one.
             return MLKitHandwriting.isModelDownloaded()
-                ? Result(outcome: .ready) : Result(outcome: .missing, failedStamp: group)
+                ? Result(outcome: .ready) : Result(outcome: .importFailed, failedStamp: group)
         }
     }
 }

@@ -113,9 +113,9 @@ log show --last 30m --predicate 'subsystem == "com.ansonhui.remotekeyboard.recei
 
 ```bash
 cd <worktree>
-swiftc -DDEBUG -o /private/tmp/claude-501/rk-oneway \
+swiftc -DDEBUG -o <暫存資料夾>/rk-oneway \
   Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Measurement/*.swift scripts/tp1-oneway-stats/main.swift
-/private/tmp/claude-501/rk-oneway <RKMEAS 輸出檔> ~/Library/Logs/RemoteKeyboard/measure-<日期>.csv [--run N]
+<暫存資料夾>/rk-oneway <RKMEAS 輸出檔> ~/Library/Logs/RemoteKeyboard/measure-<日期>.csv [--run N]
 ```
 
 - `<RKMEAS 輸出檔>`：測試附件 `measure-<項目>.txt`，或 `xcodebuild` 輸出中的 `RKMEAS ...` 行存成的檔案。
@@ -320,8 +320,8 @@ M2、M3、M5、M6、M7、M8 的 XCUITest 在 `iOS/RemoteKeyboardUITests/Measurem
 
 ```bash
 cd <worktree>
-DEV="-workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination id=00008150-000C65DA26C0401C \
-  -derivedDataPath /private/tmp/claude-501/rk-tp1-dd-dev -allowProvisioningUpdates"
+DEV="-workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination id=<你的 iPhone UDID> \
+  -derivedDataPath <暫存資料夾>/rk-tp1-dd-dev -allowProvisioningUpdates"
 
 # 先確認鏈路（200 個樣本）
 xcodebuild test $DEV -only-testing:RemoteKeyboardUITests/MeasurementUITests/testM3Smoke

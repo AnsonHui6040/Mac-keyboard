@@ -24,7 +24,7 @@ Notes 準備：開始前讓 Notes 停在備忘錄列表或關閉 Notes；自動�
 主代理執行：
 
 ```bash
-xcodebuild test -project RemoteKeyboard.xcodeproj -scheme RemoteKeyboardApp -only-testing:RemoteKeyboardUITests/ReconnectUITests -destination "platform=iOS,id=00008150-000C65DA26C0401C" -allowProvisioningUpdates -resultBundlePath /private/tmp/claude-501/t06-uitests.xcresult
+xcodebuild test -project RemoteKeyboard.xcodeproj -scheme RemoteKeyboardApp -only-testing:RemoteKeyboardUITests/ReconnectUITests -destination "platform=iOS,id=<你的 iPhone UDID>" -allowProvisioningUpdates -resultBundlePath <暫存資料夾>/t06-uitests.xcresult
 ```
 
 測試期間不要碰 iPhone。若結果為 `XCTSkip("O6: third-party keyboard not reachable")`，O6 FAIL，改做步驟 2。

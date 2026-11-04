@@ -49,6 +49,13 @@ final class TrackpadCoordinator {
         onChange?()
     }
 
+    /// A stale controller's late disappear: the page is gone, but the peripheral belongs to another controller now, so
+    /// nothing is sent and the shared callbacks are left alone.
+    func abandon() {
+        isActive = false
+        gesture = TrackpadGesture()
+    }
+
     /// The link or the Mac's status changed; ask again when the channel is not open yet.
     func refresh() {
         guard isActive else { return }

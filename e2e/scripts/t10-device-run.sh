@@ -5,7 +5,7 @@
 #   e2e/scripts/t10-device-run.sh [--list] [--skip-build] [case ...]
 #
 # Environment:
-#   T10_UDID              device UDID (default 00008150-000C65DA26C0401C)
+#   T10_UDID              device UDID (required, except for --list and --help)
 #   T10_OUT               scratch directory (default /tmp/t10-device-run); each run writes into run.<time>.<pid> inside it
 #   T10_CASE_TIMEOUT_S    per-case limit for xcodebuild (default 480)
 #   T10_NOTREADY_HOLD_S   how long the Mac stays not ready in the not-ready case (default 15)
@@ -20,7 +20,7 @@ set -u -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-UDID="${T10_UDID:-00008150-000C65DA26C0401C}"
+UDID="${T10_UDID:-}"
 OUT="${T10_OUT:-/tmp/t10-device-run}"
 DERIVED="$OUT/derived"
 CASE_TIMEOUT_S="${T10_CASE_TIMEOUT_S:-480}"
@@ -42,6 +42,11 @@ for arg in "$@"; do
     *) SELECTED+=("$arg") ;;
   esac
 done
+
+if [ "$LIST_ONLY" -eq 0 ] && [ -z "$UDID" ]; then
+  echo "T10_UDID is not set: export the iPhone's UDID (xcrun devicectl list devices) and run again" >&2
+  exit 2
+fi
 
 # ---------------------------------------------------------------------------------------------------------------
 # Expectations, poller and checker (python3 -I, standard library only).

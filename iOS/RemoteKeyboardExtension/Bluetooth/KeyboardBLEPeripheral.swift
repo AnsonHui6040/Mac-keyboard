@@ -327,6 +327,10 @@ final class KeyboardBLEPeripheral: NSObject {
         guard pointerState == .opening || pointerState == .open, status.pointerGrant != pointerGrant else { return }
         pointerSender = nil
         pointerOpenEventId = nil
+        pointerAttempts = 0
+        cancelPointerOpenTimeout()
+        interleave.mode = .keyboard
+        setPointerLatency(low: false)
         pointerState = status.pointerGrant == nil ? .denied : .closed
     }
 
@@ -347,6 +351,9 @@ final class KeyboardBLEPeripheral: NSObject {
 
     /// A controller that no longer owns the peripheral never sends.
     func isRemoteReady(for owner: UUID) -> Bool { ownership.isOwner(owner) && isRemoteReady }
+
+    /// Whether `owner` is the controller that currently holds the peripheral.
+    func isOwner(_ owner: UUID) -> Bool { ownership.isOwner(owner) }
 
     /// `owner` takes the callbacks and feeds `.appeared`. A claim by a new owner starts a new session (id, seq,
     /// queue) but keeps a live subscription, so a replacement controller does not drop an established link.

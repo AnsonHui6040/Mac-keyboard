@@ -34,7 +34,7 @@
 - 遠端模式草稿：草稿非空、草稿狀態或未就緒時，按鍵（含刪除、Return）只編輯草稿；`◀ ▶` 不送 Mac；草稿上限 1,000 字元，只存記憶體。
 - 速成字碼表須授權可散布（O9），授權檔隨 App 附上。
 - 新增依賴前先跑網路 preflight；只有 O7 判定改用 ML Kit 時才加入，且只能在 `MLKitRecognizer.swift` import。
-- 模擬器沒有 CoreBluetooth：T03a、T03b、T05、T06 的驗收只能用實體 iPhone（iPhone 17 Pro，UDID `00008150-000C65DA26C0401C`）。
+- 模擬器沒有 CoreBluetooth：T03a、T03b、T05、T06 的驗收只能用實體 iPhone（iPhone 17 Pro，UDID `<你的 iPhone UDID>`）。
 
 ## 執行規則
 

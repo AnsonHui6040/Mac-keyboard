@@ -163,9 +163,10 @@ final class ReceiverSecurity: ObservableObject {
         central.send(.authFailed)
         Self.log.info("authentication failed, peripheral dropped")
         // A pairing attempt dies with its connection, and the window with it. A failure on any other connection leaves
-        // an open window alone.
+        // an open window alone, and inside it the peripheral is not skipped: it may be the iPhone the user is about to pair
+        // (a keyboard that was still on screen when the window opened).
         if attempt != nil { return endPairing(.failed) }
-        central.disconnectCurrent(skipForSession: true)
+        central.disconnectCurrent(skipForSession: phase == .idle)
     }
 
     private func startHandshakeTimer() {
@@ -173,10 +174,13 @@ final class ReceiverSecurity: ObservableObject {
         handshakeTimer = CommonModeTimer.make(handshakeTimeout, repeats: false) { [weak self] in self?.handshakeTimerFired() }
     }
 
-    /// A peripheral that has not authenticated in time is dropped, unless a pairing window is open (that connection may
-    /// be the iPhone that is about to pair; the window's own deadline bounds it).
+    /// A peripheral that has not authenticated in time is dropped. While a pairing window waits, that holds for a peripheral
+    /// that has made no offer too (the App sends its offer right on subscribe, so a silent one is not about to pair, and it
+    /// must not hold the only connection for the whole window). Once an attempt is on the connection, or this side is
+    /// confirming or has confirmed, only the window's own deadline bounds it.
     func handshakeTimerFired() {
-        guard let handshake, !handshake.isAuthenticated, phase == .idle else { return }
+        guard let handshake, !handshake.isAuthenticated, attempt == nil else { return }
+        guard phase == .idle || phase == .waiting else { return }
         failAuth()
     }
 
