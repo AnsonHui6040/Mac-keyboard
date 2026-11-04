@@ -55,6 +55,20 @@ else
     add FAIL "iOS 模擬器建置" "見 build/prerelease/ios-build.log"
   fi
   # 這個測試要鍵盤已加入模擬器的鍵盤清單，否則第一步就打不出字；這不是 App 的問題，所以找不到時標 BLOCKED。
+  # 模擬器重置後兩項設定都會還原：鍵盤清單沒有這個鍵盤，軟鍵盤也會自動縮到螢幕外，所以每次都先設定一次。
+  PREP_SIM="$(xcrun simctl list devices available | grep 'iPhone 18 Pro (' | head -n 1 | grep -oE '[0-9A-F-]{36}')"
+  if [ -n "$PREP_SIM" ]; then
+    xcrun simctl boot "$PREP_SIM" 2>/dev/null || true
+    xcrun simctl bootstatus "$PREP_SIM" >/dev/null 2>&1 || true
+    if ! xcrun simctl spawn "$PREP_SIM" defaults read -g AppleKeyboards 2>/dev/null | grep -q 'com.ansonhui.remotekeyboard.keyboard'; then
+      xcrun simctl spawn "$PREP_SIM" defaults write -g AppleKeyboards -array-add com.ansonhui.remotekeyboard.keyboard
+    fi
+    xcrun simctl spawn "$PREP_SIM" defaults write com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool NO
+    # 縮小鍵盤的設定要重開機才生效；讀鍵盤清單也要模擬器開著，所以測試完才關機。
+    xcrun simctl shutdown "$PREP_SIM" 2>/dev/null || true
+    xcrun simctl boot "$PREP_SIM" 2>/dev/null || true
+    xcrun simctl bootstatus "$PREP_SIM" >/dev/null 2>&1 || true
+  fi
   KEYBOARD_SIM=""
   while read -r udid; do
     if xcrun simctl spawn "$udid" defaults read -g AppleKeyboards 2>/dev/null | grep -q 'com.ansonhui.remotekeyboard.keyboard'; then
@@ -72,6 +86,7 @@ else
   else
     add FAIL "模擬器 UI 測試 HitAreaUITests" "見 build/prerelease/ios-ui.log"
   fi
+  [ -n "$PREP_SIM" ] && { xcrun simctl shutdown "$PREP_SIM" 2>/dev/null || true; }
 fi
 
 # 5 兩個打包腳本、6 兩個驗證腳本
