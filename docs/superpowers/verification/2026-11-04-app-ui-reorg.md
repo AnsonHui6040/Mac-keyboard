@@ -50,5 +50,5 @@
 |---|---|
 | 判斷邏輯（`LinkResultRecorder`、`SetupProgress`） | Core 測試通過 |
 | 配對驗證失敗時首頁提示，重新配對後消失 | 實機 TBD |
-| 關掉 Receiver 後鍵盤停留 10 秒，首頁提示，連上後消失 | 實機 TBD |
-| 只用本機模式不提示 | 實機 TBD |
+| 關掉 Receiver 後鍵盤停留 10 秒，首頁提示，連上後消失 | PASS（開發者親手測試，main `7b8d62c`） |
+| 只用本機模式不提示 | PASS（開發者親手測試，main `7b8d62c`） |
