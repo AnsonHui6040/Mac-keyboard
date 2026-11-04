@@ -111,6 +111,10 @@ struct MacReceiverApp: App {
             #endif
         }
         .menuBarExtraStyle(.window)
+        Window("使用教學", id: MacTutorialWindow.id) {
+            MacTutorialView()
+        }
+        .windowResizability(.contentSize)
     }
 }
 

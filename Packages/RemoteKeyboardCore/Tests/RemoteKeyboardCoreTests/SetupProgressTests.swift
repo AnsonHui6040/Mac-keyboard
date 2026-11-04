@@ -1,0 +1,38 @@
+import XCTest
+@testable import RemoteKeyboardCore
+
+final class SetupProgressTests: XCTestCase {
+    func testStepsAreInOrder() {
+        let progress = SetupProgress(bluetoothAllowed: false, isPaired: false, keyboardReady: false)
+        XCTAssertEqual(progress.steps.map(\.step), [.bluetooth, .pairing, .keyboard])
+    }
+
+    func testNothingDoneIsNotComplete() {
+        let progress = SetupProgress(bluetoothAllowed: false, isPaired: false, keyboardReady: false)
+        XCTAssertEqual(progress.steps.map(\.isDone), [false, false, false])
+        XCTAssertFalse(progress.isComplete)
+    }
+
+    func testEachFlagMapsToItsOwnStep() {
+        XCTAssertEqual(
+            SetupProgress(bluetoothAllowed: true, isPaired: false, keyboardReady: false).steps.map(\.isDone),
+            [true, false, false])
+        XCTAssertEqual(
+            SetupProgress(bluetoothAllowed: false, isPaired: true, keyboardReady: false).steps.map(\.isDone),
+            [false, true, false])
+        XCTAssertEqual(
+            SetupProgress(bluetoothAllowed: false, isPaired: false, keyboardReady: true).steps.map(\.isDone),
+            [false, false, true])
+    }
+
+    func testTwoOfThreeIsNotComplete() {
+        XCTAssertFalse(SetupProgress(bluetoothAllowed: true, isPaired: true, keyboardReady: false).isComplete)
+        XCTAssertFalse(SetupProgress(bluetoothAllowed: true, isPaired: false, keyboardReady: true).isComplete)
+    }
+
+    func testAllDoneIsComplete() {
+        let progress = SetupProgress(bluetoothAllowed: true, isPaired: true, keyboardReady: true)
+        XCTAssertTrue(progress.steps.allSatisfy(\.isDone))
+        XCTAssertTrue(progress.isComplete)
+    }
+}

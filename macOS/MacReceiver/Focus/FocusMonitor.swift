@@ -297,11 +297,11 @@ struct AXFocusReader: FocusReading {
 /// Menu copy for the focus state, Taiwan Traditional Chinese.
 enum FocusMenuText {
     static func line(_ snapshot: FocusSnapshot?) -> String {
-        guard let snapshot else { return "焦點：讀取中" }
-        guard snapshot.axTrusted else { return "輔助使用未授權" }
-        let name = snapshot.appName ?? "未知"
-        let state = snapshot.editable ? "可編輯" : "不可編輯"
-        return "焦點：\(name)（\(state)，epoch \(snapshot.epoch)）"
+        guard let snapshot else { return "目前欄位：讀取中" }
+        guard snapshot.axTrusted else { return "目前欄位：無法讀取（尚未授權輔助使用）" }
+        let name = snapshot.appName ?? "未知的 App"
+        let state = snapshot.editable ? "可輸入" : "不可輸入"
+        return "目前欄位：\(name)（\(state)）"
     }
 
     static func reason(_ decision: InjectionDecision) -> String {

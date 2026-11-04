@@ -170,6 +170,7 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         isOnScreen = true
+        KeyboardReadyMarker.markIfReady(hasFullAccess: hasFullAccess)
         refreshTrackpadSettings()
         refreshKeyFeedback()
         refreshDictationSetting()

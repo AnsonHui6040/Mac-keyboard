@@ -186,10 +186,12 @@ final class InjectionAdapterTests: XCTestCase {
         func snap(ax: Bool = true, editable: Bool, name: String? = "TextEdit", epoch: UInt64 = 12) -> FocusSnapshot {
             FocusSnapshot(axTrusted: ax, frontmostPID: 1, appName: name, editable: editable, epoch: epoch)
         }
-        XCTAssertEqual(FocusMenuText.line(snap(editable: true)), "焦點：TextEdit（可編輯，epoch 12）")
-        XCTAssertEqual(FocusMenuText.line(snap(editable: false, name: "Finder", epoch: 3)), "焦點：Finder（不可編輯，epoch 3）")
-        XCTAssertEqual(FocusMenuText.line(snap(ax: false, editable: false)), "輔助使用未授權")
-        XCTAssertEqual(FocusMenuText.line(nil), "焦點：讀取中")
+        XCTAssertEqual(FocusMenuText.line(snap(editable: true)), "目前欄位：TextEdit（可輸入）")
+        XCTAssertEqual(FocusMenuText.line(snap(editable: false, name: "Finder", epoch: 3)), "目前欄位：Finder（不可輸入）")
+        XCTAssertEqual(FocusMenuText.line(snap(editable: true, name: nil)), "目前欄位：未知的 App（可輸入）")
+        XCTAssertEqual(FocusMenuText.line(snap(ax: false, editable: false)), "目前欄位：無法讀取（尚未授權輔助使用）")
+        XCTAssertEqual(FocusMenuText.line(nil), "目前欄位：讀取中")
+        XCTAssertFalse(FocusMenuText.line(snap(editable: true)).contains("epoch"))
     }
 
     func testEveryRefusalHasADistinctReason() {
