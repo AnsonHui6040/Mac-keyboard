@@ -115,6 +115,7 @@ struct MacReceiverApp: App {
             MacTutorialView()
         }
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 

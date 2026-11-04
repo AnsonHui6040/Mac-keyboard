@@ -60,10 +60,13 @@ struct HomeView: View {
                 if phase == .active { refresh() }
             }
             .fullScreenCover(isPresented: $showsOnboarding) {
-                OnboardingView(onFinish: {
+                OnboardingView(bluetooth: bluetooth, onFinish: {
                     onboardingDone = true
                     showsOnboarding = false
                 })
+            }
+            .onChange(of: showsOnboarding) { _, shown in
+                if !shown { refresh() }
             }
         }
     }

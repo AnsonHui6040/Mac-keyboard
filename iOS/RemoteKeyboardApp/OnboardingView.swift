@@ -2,10 +2,10 @@ import SwiftUI
 
 /// The first launch guide: four pages, skippable. Shown as a full screen cover by `ContentView`.
 struct OnboardingView: View {
+    @ObservedObject var bluetooth: BluetoothPermission
     var onFinish: () -> Void
 
     @State private var page = 0
-    @StateObject private var bluetooth = BluetoothPermission()
 
     private static let pageCount = 4
 
@@ -30,7 +30,9 @@ struct OnboardingView: View {
                     symbol: "lock.open", title: "開啟權限與加入鍵盤",
                     text: "允許藍牙。再到 iPhone 設定的「鍵盤」加入 Remote Keyboard，並開啟「允許完整取用」。"
                 ) {
-                    Button("允許藍牙") { bluetooth.request() }
+                    Button(bluetooth.isDenied ? "到設定開啟藍牙" : "允許藍牙") {
+                        if bluetooth.isDenied { OpenSettings.open() } else { bluetooth.request() }
+                    }
                         .buttonStyle(.bordered)
                         .disabled(bluetooth.isAllowed)
                         .accessibilityIdentifier("rk.onboarding.bluetooth")
