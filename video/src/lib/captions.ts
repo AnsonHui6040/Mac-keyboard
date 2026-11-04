@@ -55,7 +55,14 @@ export function splitBeats(text: string, maxChars = 30): string[] {
   return beats;
 }
 
-/** Break a beat into units: an ASCII word run (no break inside), a space, or one character. */
+/** A pure ASCII word (not a space, and not a word that already took a character). */
+const isWordUnit = (u: string | undefined): boolean => u !== undefined && u !== ' ' && [...u].every((c) => (c.codePointAt(0) as number) <= 0x7f);
+
+/**
+ * Break a beat into units: an ASCII word run (no break inside), a space, or one character. A CJK character that
+ * follows an ASCII word (directly, or after one space) joins that word's unit, so a line never starts with a lone
+ * character cut off from the word it belongs to ("USB 線").
+ */
 function units(beat: string): string[] {
   const out: string[] = [];
   let word = '';
@@ -68,7 +75,16 @@ function units(beat: string): string[] {
         out.push(word);
         word = '';
       }
-      out.push(ch);
+      const cjk = code > 0x7f && !NO_LINE_START.includes(ch);
+      if (cjk && out.length >= 1 && out[out.length - 1] === ' ' && isWordUnit(out[out.length - 2])) {
+        // word + one space + character
+        out.pop();
+        out[out.length - 1] += ' ' + ch;
+      } else if (cjk && isWordUnit(out[out.length - 1])) {
+        out[out.length - 1] += ch;
+      } else {
+        out.push(ch);
+      }
     }
   }
   if (word !== '') out.push(word);

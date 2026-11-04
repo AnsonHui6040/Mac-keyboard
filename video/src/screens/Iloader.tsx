@@ -32,6 +32,34 @@ const Tap = ({ target, rect, children }: { target: string; rect: Box; children: 
   </Layer>
 );
 
+/** Sign-in sheet: the fictional account, a masked password, and the Sign in button. */
+const SignInSheet = ({ opacity }: { opacity: number }) => {
+  const s = L.ILO_SHEET;
+  const f1 = L.ILO_SHEET_FIELD1;
+  const f2 = L.ILO_SHEET_FIELD2;
+  const b = L.ILO_SIGNIN;
+  const W = L.ILOADER_WINDOW;
+  return (
+    <Layer id="signin-sheet" opacity={opacity}>
+      <Rect x={W.x + 2} y={W.y + 58} width={W.width - 4} height={W.height - 60} radius={24} fill="#000000" opacity={0.5} />
+      <Rect x={s.x} y={s.y} width={s.width} height={s.height} radius={26} fill="#2b2c31" stroke={{ color: '#4a4b50', width: 2 }} />
+      <T x={s.x + 32} y={s.y + 28} size={36} weight={700}>Apple ID</T>
+      <T x={f1.x} y={f1.y - 40} size={24} color={theme.muted}>Email</T>
+      <Rect x={f1.x} y={f1.y} width={f1.width} height={f1.height} radius={14} fill="#1f2024" stroke={{ color: '#4a4b50', width: 2 }} />
+      <T x={f1.x + 20} y={f1.y + (f1.height - 28 * 1.45) / 2} size={28}>{EMAIL}</T>
+      <T x={f2.x} y={f2.y - 40} size={24} color={theme.muted}>Password</T>
+      <Rect x={f2.x} y={f2.y} width={f2.width} height={f2.height} radius={14} fill="#1f2024" stroke={{ color: '#4a4b50', width: 2 }} />
+      {Array.from({ length: 9 }, (_, i) => (
+        <Ellipse key={i} x={f2.x + 22 + i * 28} y={f2.y + 24} width={16} height={16} fill={theme.ink} />
+      ))}
+      <Tap target="signin" rect={b}>
+        <Rect width={b.width} height={b.height} radius={20} fill="#0a84ff" />
+        <BtnText r={b} size={30}>Sign in</BtnText>
+      </Tap>
+    </Layer>
+  );
+};
+
 /** The cable from the Mac window to the iPhone: it grows from the window's edge to the plug. */
 const Cable = ({ progress }: { progress: number }) => {
   const w = 60 * progress;
@@ -45,7 +73,7 @@ const Cable = ({ progress }: { progress: number }) => {
 
 const Card = ({ r }: { r: Box }) => <Rect x={r.x} y={r.y} width={r.width} height={r.height} radius={26} fill={PANEL} stroke={{ color: '#3f4046', width: 2 }} />;
 
-const Window = ({ loggedIn, deviceListed, toast, installing }: { loggedIn: boolean; deviceListed: boolean; toast: number; installing: number }) => {
+const Window = ({ loggedIn, deviceListed, toast, installing, sheet }: { loggedIn: boolean; deviceListed: boolean; toast: number; installing: number; sheet: number }) => {
   const W = L.ILOADER_WINDOW;
   const left = L.ILO_LEFT;
   const right = L.ILO_RIGHT;
@@ -109,6 +137,8 @@ const Window = ({ loggedIn, deviceListed, toast, installing }: { loggedIn: boole
       <Rect x={324} y={756} width={992} height={14} radius={7} fill="#3b3c41" />
       {installing > 0 && <Rect x={324} y={756} width={992 * installing} height={14} radius={7} fill="#2fd36d" />}
 
+      {sheet > 0 && <SignInSheet opacity={sheet} />}
+
       {toast > 0 && (
         <Layer id="toast" opacity={toast}>
           <Rect x={1040} y={738} width={296} height={64} radius={14} fill="#e8f8ee" />
@@ -123,21 +153,23 @@ const Window = ({ loggedIn, deviceListed, toast, installing }: { loggedIn: boole
 
 /**
  * Scene 5: the iloader window on the left and the iPhone on the right, one of them dimmed.
- * Beat 0: cable connects. Beat 1: 信任這部電腦？ on the iPhone. Beat 2: the account is added, the iPhone is listed. Beat 3: install Stable SideStore.
+ * Beat 0: cable connects. Beat 1: 信任這部電腦？ on the iPhone. Beat 2: Add Account + opens a sign-in sheet, Sign in, then the account and the iPhone are listed. Beat 3: install Stable SideStore.
  */
 export const Iloader = ({ active, prevActive, beatIndex, beatFrame, stepTimes }: ScreenProps) => {
   const dim = (d: 'mac' | 'iphone') => deviceBrightness(d, { active, prevActive, beatFrame });
   const cable = beatIndex > 0 ? 1 : clamp01((beatFrame - 20) / 30);
   const addLand = stepTimes[0]?.land ?? Infinity;
-  const loggedIn = beatIndex === 2 ? beatFrame >= addLand : beatIndex > 2;
-  const deviceListed = beatIndex >= 2;
-  const toast = beatIndex === 2 ? fadeIn(beatFrame, 0, 8) * (1 - fadeIn(beatFrame, 70, 10)) : 0;
+  const signinLand = stepTimes[1]?.land ?? Infinity;
+  const loggedIn = beatIndex === 2 ? beatFrame >= signinLand : beatIndex > 2;
+  const deviceListed = loggedIn;
+  const sheet = beatIndex === 2 ? fadeIn(beatFrame, addLand, 6) * (1 - fadeIn(beatFrame, signinLand, 4)) : 0;
+  const toast = beatIndex === 2 ? fadeIn(beatFrame, signinLand, 8) * (1 - fadeIn(beatFrame, signinLand + 60, 10)) : 0;
   const installing = beatIndex === 3 ? clamp01((beatFrame - (stepTimes[0]?.land ?? Infinity)) / 50) : 0;
   const trust = L.ALERT_TRUST;
   return (
     <Layer id="screen-iloader">
       <Layer id="mac-device" opacity={dim('mac')}>
-        <Window loggedIn={loggedIn} deviceListed={deviceListed} toast={toast} installing={installing} />
+        <Window loggedIn={loggedIn} deviceListed={deviceListed} toast={toast} installing={installing} sheet={sheet} />
       </Layer>
       <Cable progress={cable} />
       <PhoneScreen origin={PHONE_ORIGIN_RIGHT} brightness={dim('iphone')}>

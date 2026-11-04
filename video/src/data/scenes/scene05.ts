@@ -9,7 +9,7 @@ export const scene05: SceneSpec = {
     // 在 iPhone 按「信任」。
     { screen: 'iloader', device: 'iphone', steps: [{ target: 'trust', press: true }] },
     // 在 iloader 登入你的 Apple 帳號，確認有列出 iPhone，
-    { screen: 'iloader', device: 'mac', steps: [{ target: 'add', press: true }, { target: 'device' }] },
+    { screen: 'iloader', device: 'mac', steps: [{ target: 'add', press: true }, { target: 'signin', press: true }, { target: 'device' }] },
     // 再安裝 Stable SideStore。
     { screen: 'iloader', device: 'mac', steps: [{ target: 'stable', press: true }] },
   ],

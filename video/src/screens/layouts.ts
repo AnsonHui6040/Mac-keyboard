@@ -106,6 +106,11 @@ export const ILO_RIGHT = R(844, 214, 500, 340);
 export const ILO_ADD = R(324, 448, 444, 72);
 export const ILO_DEVICE = R(872, 300, 444, 84);
 export const ILO_REFRESH = R(872, 404, 444, 64);
+/** Sign-in sheet that opens over the window when Add Account + is pressed. */
+export const ILO_SHEET = R(520, 190, 600, 450);
+export const ILO_SHEET_FIELD1 = R(552, 304, 536, 64);
+export const ILO_SHEET_FIELD2 = R(552, 420, 536, 64);
+export const ILO_SIGNIN = R(552, 528, 536, 72);
 export const ILO_INSTALLERS = R(296, 578, 1048, 230);
 export const ILO_STABLE = R(324, 660, 420, 72);
 

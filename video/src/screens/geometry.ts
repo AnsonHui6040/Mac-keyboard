@@ -88,6 +88,7 @@ export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   iloader: {
     trust: phoneRect(L.ALERT_TRUST.buttons[0], PHONE_ORIGIN_RIGHT),
     add: L.ILO_ADD,
+    signin: L.ILO_SIGNIN,
     device: L.ILO_DEVICE,
     stable: L.ILO_STABLE,
   },
