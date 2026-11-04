@@ -1,0 +1,130 @@
+{
+  "scenes": [
+    {
+      "n": 1,
+      "seconds": 10,
+      "focus": "把 iPhone 變成 Mac 的藍牙鍵盤",
+      "caption": "Remote Keyboard 把 iPhone 變成 Mac 的藍牙鍵盤和觸控板。接下來一步一步帶你裝好。"
+    },
+    {
+      "n": 2,
+      "seconds": 13,
+      "focus": "iOS 18 以上且已設定螢幕鎖定密碼、macOS 15 以上（Apple 晶片）、USB 線、Wi-Fi、免費 Apple 帳號",
+      "caption": "先準備這些：iOS 18 以上的 iPhone、Apple 晶片的 Mac、一條 USB 線、Wi-Fi，還有你自己的免費 Apple 帳號。"
+    },
+    {
+      "n": 3,
+      "seconds": 13,
+      "focus": "帳號密碼與驗證碼不要交給任何人；不要用這個鍵盤輸入密碼",
+      "caption": "請記得，Apple 帳號密碼和驗證碼不要交給任何人，包括開發者。也不要用這個鍵盤輸入密碼。"
+    },
+    {
+      "n": 4,
+      "seconds": 13,
+      "focus": "安裝 LocalDevVPN，按連線，按「允許」",
+      "caption": "第一步，在 iPhone 的 App Store 安裝 LocalDevVPN。打開後按連線，再按「允許」，看到「已連線」就可以了。"
+    },
+    {
+      "n": 5,
+      "seconds": 19,
+      "focus": "下載 iloader，Add Account，選 Stable SideStore",
+      "caption": "接著在 Mac 下載 iloader，用 USB 線接上 iPhone，在 iPhone 按「信任」。在 iloader 登入你的 Apple 帳號，確認有列出 iPhone，再安裝 Stable SideStore。"
+    },
+    {
+      "n": 6,
+      "seconds": 24,
+      "focus": "設定 > 一般 > VPN 與裝置管理；信任，選「允許並重新啟動」；設定 > 隱私權與安全性 > 開發者模式",
+      "caption": "到「設定」、「一般」、「VPN 與裝置管理」，信任你的 Apple 帳號，選「允許並重新啟動」，再輸入密碼。如果 iOS 要求開發者模式，就到「隱私權與安全性」最下方開啟。手機重新啟動後，在確認視窗選擇開啟，並輸入密碼。"
+    },
+    {
+      "n": 7,
+      "seconds": 11,
+      "focus": "用同一個 Apple 帳號登入",
+      "caption": "確認 LocalDevVPN 顯示「已連線」，打開 SideStore，用剛才同一個 Apple 帳號登入。"
+    },
+    {
+      "n": 8,
+      "seconds": 14,
+      "focus": "先完成第一次續簽；出現詢問時按 Yes 或 Refresh Now",
+      "caption": "登入後到 My Apps，按 SideStore 旁邊的「7 DAYS」完成第一次續簽。如果跳出詢問，按 Yes 或 Refresh Now。做完才能安裝其他 App。"
+    },
+    {
+      "n": 9,
+      "seconds": 9,
+      "focus": "看到 -80045，照手冊第 02 章處理",
+      "caption": "如果登入時看到錯誤 -80045，不是密碼錯，請照手冊第二章處理。"
+    },
+    {
+      "n": 10,
+      "seconds": 15,
+      "focus": "下載 IPA，核對 SHA-256，AirDrop 到 iPhone，存到「檔案」",
+      "caption": "現在到 GitHub 的 Release 頁面下載 IPA，核對 SHA-256 完全相同，再用 AirDrop 傳到 iPhone，存到「檔案」。"
+    },
+    {
+      "n": 11,
+      "seconds": 21,
+      "focus": "按「+」；選 Keep App Extensions (Register App ID for Each Extension)；不要選 Remove",
+      "caption": "開著 LocalDevVPN，在 My Apps 按左上角的加號，選這個 IPA。詢問 Extension 時，選第二個，Register App ID for Each Extension。千萬不要選 Remove，否則就沒有鍵盤了。"
+    },
+    {
+      "n": 12,
+      "seconds": 13,
+      "focus": "設定 > 一般 > 鍵盤 > 鍵盤 > 新增鍵盤",
+      "caption": "到「設定」、「一般」、「鍵盤」、「鍵盤」，按「新增鍵盤」，在第三方鍵盤選 Remote Keyboard。回到鍵盤清單，再按一下這一列。"
+    },
+    {
+      "n": 13,
+      "seconds": 11,
+      "focus": "開啟「允許完整取用」",
+      "caption": "開啟「允許完整取用」，出現警告時按「允許」。遠端打字和手寫都需要這項權限。"
+    },
+    {
+      "n": 14,
+      "seconds": 12,
+      "focus": "看完引導，設定進度 > 藍牙 > 允許藍牙",
+      "caption": "打開 Remote Keyboard，看完引導後，在「設定進度」按「藍牙」，再按「允許藍牙」和「允許」。iPhone 這邊就好了。"
+    },
+    {
+      "n": 15,
+      "seconds": 12,
+      "focus": "下載 zip，核對 SHA-256，拖進「應用程式」",
+      "caption": "換到 Mac。下載 zip，同樣核對 SHA-256，連按兩下解壓縮，把 Receiver 拖到「應用程式」。"
+    },
+    {
+      "n": 16,
+      "seconds": 26,
+      "focus": "按「完成」；隱私權與安全性 > 強制打開；再按中間的「強制打開」；藍色是「丟到垃圾桶」，不要按",
+      "caption": "這個版本沒有經過 Apple 公證，第一次打開會被擋下，這是正常的。先按「完成」，到系統設定的「隱私權與安全性」，捲到最下方按「強制打開」。系統再問一次時，要按中間的「強制打開」。藍色那顆是丟到垃圾桶，不要按。最後用 Touch ID 或密碼確認。"
+    },
+    {
+      "n": 17,
+      "seconds": 16,
+      "focus": "允許藍牙；輔助使用開啟 Remote Keyboard Receiver",
+      "caption": "系統詢問藍牙時按「允許」。再點選單列的鍵盤圖示，按「授權輔助使用」，在清單裡開啟 Remote Keyboard Receiver。"
+    },
+    {
+      "n": 18,
+      "seconds": 21,
+      "focus": "配對新 iPhone；配對 Mac；核對六位數字",
+      "caption": "最後是配對。在 Mac 面板按「配對新 iPhone」。在 iPhone 的 App 按「已配對 Mac」，再按「配對 Mac」。兩邊會顯示同一組六位數字，核對完全相同後，先在 Mac、再在 iPhone 按「確認」。"
+    },
+    {
+      "n": 19,
+      "seconds": 8,
+      "focus": "兩邊按「完成」",
+      "caption": "兩邊都確認之後，再各按一次「完成」，配對就好了。"
+    },
+    {
+      "n": 20,
+      "seconds": 17,
+      "focus": "先在 Mac 的「文字編輯」點一下；按地球鍵選 Remote Keyboard，選「遠端」",
+      "caption": "先在 Mac 打開「文字編輯」，在文件裡點一下。接著在 iPhone 的任何輸入框叫出鍵盤，按住地球鍵選 Remote Keyboard，再選「遠端」。看到綠色的「已連接」，打字就會出現在 Mac 上。"
+    },
+    {
+      "n": 21,
+      "seconds": 12,
+      "focus": "7 天內要續簽；完整手冊在 GitHub",
+      "caption": "免費帳號簽署的 App 只有 7 天有效，記得在到期前到 SideStore 續簽。遇到問題，請看 GitHub 上的使用手冊。"
+    }
+  ]
+}
