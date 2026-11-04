@@ -50,9 +50,9 @@
 | 9 | 9 | 錯誤碼 -80045，手冊第 02 章畫面 | 看到 -80045，照手冊第 02 章處理 | 如果登入時看到錯誤 -80045，不是密碼錯，請照手冊第二章處理。 |
 | 10 | 15 | Release 頁面、終端機、AirDrop | 下載 IPA，核對 SHA-256，AirDrop 到 iPhone，存到「檔案」 | 現在到 GitHub 的 Release 頁面下載 IPA，核對 SHA-256 完全相同，再用 AirDrop 傳到 iPhone，存到「檔案」。 |
 | 11 | 21 | `iphone-sidestore-myapps.png`，Extension 選單，標示第二個選項 | 按「+」；選 Keep App Extensions (Register App ID for Each Extension)；不要選 Remove | 開著 LocalDevVPN，在 My Apps 按左上角的加號，選這個 IPA。詢問 Extension 時，選第二個，Register App ID for Each Extension。千萬不要選 Remove，否則就沒有鍵盤了。 |
-| 12 | 13 | `iphone-ios-add-keyboard.png`、`iphone-ios-keyboards.png` | 設定 > 一般 > 鍵盤 > 鍵盤 > 新增鍵盤 | 到「設定」、「一般」、「鍵盤」、「鍵盤」，按「新增鍵盤」，在第三方鍵盤選 Remote Keyboard。回到鍵盤清單，再按一下這一列。 |
+| 12 | 14 | `iphone-ios-add-keyboard.png`、`iphone-ios-keyboards.png` | 設定 > 一般 > 鍵盤 > 鍵盤 > 新增鍵盤 | 到「設定」、「一般」、「鍵盤」、「鍵盤」，按「新增鍵盤」，在第三方鍵盤選 Remote Keyboard。回到鍵盤清單，再按一下這一列。 |
 | 13 | 11 | `iphone-ios-keyboard-detail.png` | 開啟「允許完整取用」 | 開啟「允許完整取用」，出現警告時按「允許」。遠端打字和手寫都需要這項權限。 |
-| 14 | 12 | App 首次引導、`iphone-rk-setup.png` | 看完引導，設定進度 > 藍牙 > 允許藍牙 | 打開 Remote Keyboard，看完引導後，在「設定進度」按「藍牙」，再按「允許藍牙」和「允許」。iPhone 這邊就好了。 |
+| 14 | 14 | App 首次引導、`iphone-rk-setup.png` | 看完引導，設定進度 > 藍牙 > 允許藍牙 | 打開 Remote Keyboard，看完引導後，在「設定進度」按「藍牙」，再按「允許藍牙」和「允許」。iPhone 這邊就好了。 |
 | 15 | 12 | Release 頁面，解壓縮，拖進「應用程式」 | 下載 zip，核對 SHA-256，拖進「應用程式」 | 換到 Mac。下載 zip，同樣核對 SHA-256，連按兩下解壓縮，把 Receiver 拖到「應用程式」。 |
 | 16 | 26 | `mac-gatekeeper-dialog.png`、`mac-settings-security.png`、`mac-gatekeeper-open-anyway.png`、`mac-gatekeeper-auth.png`，標示每個正確按鈕 | 按「完成」；隱私權與安全性 > 強制打開；再按中間的「強制打開」；藍色是「丟到垃圾桶」，不要按 | 這個版本沒有經過 Apple 公證，第一次打開會被擋下，這是正常的。先按「完成」，到系統設定的「隱私權與安全性」，捲到最下方按「強制打開」。系統再問一次時，要按中間的「強制打開」。藍色那顆是丟到垃圾桶，不要按。最後用 Touch ID 或密碼確認。 |
 | 17 | 16 | `mac-settings-bluetooth.png`、`mac-settings-accessibility.png` | 允許藍牙；輔助使用開啟 Remote Keyboard Receiver | 系統詢問藍牙時按「允許」。再點選單列的鍵盤圖示，按「授權輔助使用」，在清單裡開啟 Remote Keyboard Receiver。 |

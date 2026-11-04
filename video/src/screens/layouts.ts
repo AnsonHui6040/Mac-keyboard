@@ -134,3 +134,84 @@ export function keyRect(ch: string): Rect | undefined {
   }
   return undefined;
 }
+
+// ================================================================ scenes 10 to 15
+// iPhone rects are logical (390 x 844); Mac rects are canvas pixels.
+
+// ---------------------------------------------------------------- scenes 10 and 15: Release page, terminal, AirDrop, Finder (canvas px)
+export const REL_WIN = R(160, 128, 1600, 724);
+export const REL_ROW_H = 84;
+/** The asset rows of the Release page: the .ipa first, then the .zip. */
+export const REL_IPA = R(REL_WIN.x + 80, REL_WIN.y + 350, 1440, REL_ROW_H);
+export const REL_ZIP = R(REL_WIN.x + 80, REL_WIN.y + 350 + REL_ROW_H, 1440, REL_ROW_H);
+
+/** Terminal window; text is monospace at TERM_SIZE, so one character is 0.6 x TERM_SIZE wide (64 characters: 1229 px). */
+export const TERM_WIN = R(140, 230, 1640, 480);
+export const TERM_SIZE = 32;
+export const TERM_PITCH = 50;
+export const TERM_X = 230;
+export const TERM_ROW_CMD = TERM_WIN.y + 86;
+export const TERM_ROW_HASH = TERM_WIN.y + 136;
+export const TERM_ROW_FILE = TERM_WIN.y + 186;
+export const TERM_DIVIDER = TERM_WIN.y + 256;
+export const TERM_LABEL = TERM_WIN.y + 276;
+export const TERM_ROW_RELEASE = TERM_WIN.y + 336;
+/** Both hashes (the shasum output and the Release value): the pointer rests to the right of their ends. */
+export const TERM_HASH_BOX = R(TERM_X, TERM_WIN.y + 130, 1500, 260);
+
+export const AD_WIN = R(520, 200, 880, 520);
+/** The 我的 iPhone circle with its label. */
+export const AD_DEVICE = R(AD_WIN.x + 500, AD_WIN.y + 215, 240, 220);
+
+export const FIN_WIN = R(220, 100, 1480, 700);
+export const FIN_SIDEBAR_W = 300;
+export const FIN_APPS = R(FIN_WIN.x + 14, FIN_WIN.y + 250, 272, 52);
+export const FIN_DOWNLOADS = R(FIN_WIN.x + 14, FIN_WIN.y + 310, 272, 52);
+export const FIN_ZIP = R(FIN_WIN.x + 380, FIN_WIN.y + 110, 240, 292);
+export const FIN_APP = R(FIN_WIN.x + 680, FIN_WIN.y + 110, 240, 292);
+
+// ---------------------------------------------------------------- scene 10: save to Files (iPhone)
+export const SAVE_SHEET = R(8, 290, 374, 550);
+export const SAVE_ACTIONS = R(16, 540, 358, 288);
+export const SAVE_ROW = R(16, 612, 358, 72);
+
+// ---------------------------------------------------------------- scene 11: My Apps with a plus, file picker, App Contains Extensions
+export const PLUS = R(16, 58, 64, 64);
+export const MYAPPS2_CARD = R(16, 248, 358, 116);
+export const MYAPPS2_DAYS = R(250, 282, 108, 52);
+export const PICKER_ROWS = R(16, 236, 358, 540);
+export const PICKER_IPA = R(16, 344, 358, 108);
+
+export const EXT_CARD = R(8, 112, 374, 600);
+const EXT_HEAD = 160;
+const EXT_ROW = 88;
+/** Button i (0 to 4) of the dialog. The target is the row inset 12 px top and bottom, so the rings of neighbours stay apart. */
+export const extBtn = (i: number): Rect => R(18, EXT_CARD.y + EXT_HEAD + EXT_ROW * i + 12, 354, 64);
+export const EXT_TITLE_Y = EXT_CARD.y + 28;
+export const EXT_BODY_Y = EXT_CARD.y + 28 + 38 + 16;
+
+// ---------------------------------------------------------------- scene 12: keyboards
+export const GEN2_CARD = R(16, 386, 358, 216);
+export const GEN_KBMENU = R(16, 386, 358, 72);
+export const KBA_CARD = R(16, 150, 358, 216);
+export const KBA_ROW = R(16, 150, 358, 72);
+export const KBB_CARD = R(16, 150, 358, 216);
+export const KBB_ADD = R(16, 462, 358, 72);
+export const ADD_SUGGESTED = R(16, 212, 358, 240);
+export const ADD_THIRD = R(16, 526, 358, 72);
+export const KBL_CARD = R(16, 150, 358, 288);
+export const KBL_RK = R(16, 366, 358, 72);
+export const KBL_ADD = R(16, 540, 358, 72);
+
+// ---------------------------------------------------------------- scene 13: full access
+export const FA_ROW = R(16, 150, 358, 72);
+export const ALERT_FULL = alertLayout(3, 2, false); // 不允許 | 允許
+
+// ---------------------------------------------------------------- scene 14: the app
+export const HOME_RK = homeIcon(3, 1);
+export const GUIDE_NEXT = R(36, 736, 318, 76);
+export const MAIN_CARD = R(16, 190, 358, 216);
+export const MAIN_CARD_OPEN = R(16, 190, 358, 300);
+export const MAIN_BT = R(16, 190, 358, 72);
+export const MAIN_ALLOWBT = R(40, 274, 310, 60);
+export const ALERT_BT = alertLayout(3, 2, false); // 不允許 | 允許

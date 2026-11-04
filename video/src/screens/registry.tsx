@@ -14,6 +14,11 @@ import { SettingsFlow } from './SettingsFlow.tsx';
 import { SignIn } from './SignIn.tsx';
 import { Typing } from './Typing.tsx';
 import { VpnFlow } from './VpnFlow.tsx';
+import { AddIpa, ExtDialog } from './AddIpa.tsx';
+import { AppSetup } from './AppSetup.tsx';
+import { IpaDownload, IpaSave, IpaVerify } from './IpaFlow.tsx';
+import { FullAccess, KbAdd, KbList, KbSettings } from './KeyboardFlow.tsx';
+import { ZipFlow } from './ZipFlow.tsx';
 
 /**
  * What a screen is told each frame.
@@ -51,4 +56,15 @@ export const SCREEN_VIEWS: Record<string, (props: ScreenProps) => ReactNode> = {
   signIn: (p) => <SignIn {...p} />,
   myApps: (p) => <MyApps {...p} />,
   loginError: (p) => <LoginError {...p} />,
+  ipaDownload: (p) => <IpaDownload {...p} />,
+  ipaVerify: (p) => <IpaVerify {...p} />,
+  ipaSave: (p) => <IpaSave {...p} />,
+  addIpa: (p) => <AddIpa {...p} />,
+  extDialog: (p) => <ExtDialog {...p} />,
+  kbSettings: (p) => <KbSettings {...p} />,
+  kbAdd: () => <KbAdd />,
+  kbList: () => <KbList />,
+  fullAccess: (p) => <FullAccess {...p} />,
+  appSetup: (p) => <AppSetup {...p} />,
+  zipFlow: (p) => <ZipFlow {...p} />,
 };

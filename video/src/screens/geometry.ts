@@ -107,4 +107,16 @@ export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   signIn: { status: P(L.VPN_STATUS), sidestore: P(L.HOME_SIDESTORE), signin: P(L.SIGNIN_BUTTON) },
   myApps: { myapps: P(L.TAB_MYAPPS), days: P(L.MYAPPS_DAYS), refresh: P(L.ALERT_REFRESH.buttons[1]) },
   loginError: {},
+  // Scenes 10 to 15. Mac targets are canvas rects; iPhone targets are logical rects mapped with P.
+  ipaDownload: { ipadl: L.REL_IPA },
+  ipaVerify: { hash: L.TERM_HASH_BOX, airdrop: L.AD_DEVICE },
+  ipaSave: { save: P(L.SAVE_ROW) },
+  addIpa: { plus: P(L.PLUS), ipa: P(L.PICKER_IPA) },
+  extDialog: { keepMain: P(L.extBtn(0)), keepEach: P(L.extBtn(1)), remove: P(L.extBtn(2)), choose: P(L.extBtn(3)), cancel: P(L.extBtn(4)) },
+  kbSettings: { settings: P(L.HOME_SETTINGS), general: P(L.SET_GENERAL), kbmenu: P(L.GEN_KBMENU), kblist: P(L.KBA_ROW), add: P(L.KBB_ADD) },
+  kbAdd: { rk: P(L.ADD_THIRD) },
+  kbList: { rkrow: P(L.KBL_RK) },
+  fullAccess: { toggle: P(L.FA_ROW), allow: P(L.ALERT_FULL.buttons[1]) },
+  appSetup: { open: P(L.HOME_RK), next: P(L.GUIDE_NEXT), bt: P(L.MAIN_BT), allowbt: P(L.MAIN_ALLOWBT), allow: P(L.ALERT_BT.buttons[1]) },
+  zipFlow: { zipdl: L.REL_ZIP, hash: L.TERM_HASH_BOX, zipfile: L.FIN_ZIP, receiver: L.FIN_APP, apps: L.FIN_APPS },
 };

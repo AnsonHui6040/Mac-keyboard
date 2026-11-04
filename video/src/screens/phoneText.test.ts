@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { PHONE_MIN_TEXT } from './layouts.ts';
 
 // iPhone screens must keep readable text at 26 pt or more (24 px on the canvas). PText throws at render time; this checks the sources too.
-const FILES = ['../components/ios.tsx', './phonePages.tsx', './Typing.tsx', './VpnFlow.tsx', './SettingsFlow.tsx', './MyApps.tsx', './SignIn.tsx'];
+const FILES = ['../components/ios.tsx', './phonePages.tsx', './Typing.tsx', './VpnFlow.tsx', './SettingsFlow.tsx', './MyApps.tsx', './SignIn.tsx', './phonePages2.tsx', './IpaFlow.tsx', './AddIpa.tsx', './KeyboardFlow.tsx', './AppSetup.tsx'];
 
 test('every size literal on an iPhone screen is at least PHONE_MIN_TEXT, except the status bar glyph sizes', () => {
   for (const f of FILES) {
