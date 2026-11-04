@@ -1,0 +1,17 @@
+{
+  "name": "remote-keyboard-install-tutorial",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"scripts/**/*.test.mjs\" \"src/**/*.test.ts\"",
+    "data": "node scripts/gen-script-data.mjs",
+    "check": "kinetograph check src/index.tsx"
+  },
+  "dependencies": {
+    "kinetograph": "0.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0"
+  }
+}
