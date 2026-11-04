@@ -24,12 +24,19 @@ shasum -a 256 RemoteKeyboardReceiver-v版本號-macOS.zip
 
 <img src="images/mac-gatekeeper-dialog.png" width="280" alt="macOS 的提示視窗：Remote Keyboard Receiver.app 未開啟，Apple 無法驗證，下方有完成與移至垃圾桶兩個按鈕">
 
-3. 打開「系統設定 > 隱私權與安全性」。
+3. 打開「系統設定 > 隱私權與安全性」。部分系統語言下，這一頁的名稱顯示為「私隱與保安」。
 4. 捲到最下方的「安全性」區段。部分系統語言下，這一區的標題顯示為「保安」。
 5. 找到「已阻擋「Remote Keyboard Receiver.app」以保護你的 Mac」這一行，按右邊的「強制開啟」。macOS 27 的按鈕是「強制開啟」，較舊的 macOS 可能顯示為「仍要打開」。
-6. 依提示輸入 Mac 的密碼或使用 Touch ID。
 
 <img src="images/mac-settings-security.png" width="480" alt="系統設定的安全性區段，顯示已阻擋 Remote Keyboard Receiver.app，右側有強制開啟按鈕">
+
+6. 系統再次詢問時，按中間的「強制開啟」。**藍色的按鈕是「移至垃圾桶」，不要按。**
+
+<img src="images/mac-gatekeeper-open-anyway.png" width="280" alt="macOS 的確認視窗：要開啟 Remote Keyboard Receiver.app 嗎，由上到下有移至垃圾桶、強制開啟、完成三個按鈕">
+
+7. 依提示使用 Touch ID，或按「使用密碼…」輸入 Mac 的密碼。
+
+<img src="images/mac-gatekeeper-auth.png" width="280" alt="macOS 的驗證視窗：要求使用 Touch ID 或輸入管理員的名稱和密碼，下方有使用密碼與取消兩個按鈕">
 
 成功時，Receiver 開啟，Mac 右上方的選單列出現一個鍵盤圖示。
 
