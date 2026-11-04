@@ -6,6 +6,12 @@ export type TargetId = 'done' | 'open' | 'trash' | 'password' | 'cancel';
 
 export const center = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 
+/**
+ * Where the pointer tip rests on a target: right of the middle and above it, so the arrow stays inside the button
+ * and never covers the button label.
+ */
+export const restPoint = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width * 0.84, y: r.y + r.height * 0.3 });
+
 /** Stage height above the subtitle divider; nothing may reach below this. */
 export const STAGE_BOTTOM = 884;
 

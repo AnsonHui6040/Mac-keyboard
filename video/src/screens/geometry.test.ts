@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SCREENS, center, DIALOGS, type Rect } from './geometry.ts';
+import { SCREENS, center, restPoint, DIALOGS, type Rect } from './geometry.ts';
 
 const inside = (r: Rect, outer: Rect) =>
   r.x >= outer.x && r.y >= outer.y && r.x + r.width <= outer.x + outer.width && r.y + r.height <= outer.y + outer.height;
@@ -53,4 +53,19 @@ test('dialog screens keep their buttons inside the dialog', () => {
 
 test('center is the middle of the rect', () => {
   assert.deepEqual(center({ x: 10, y: 20, width: 100, height: 50 }), { x: 60, y: 45 });
+});
+
+test('restPoint is 84% across and 30% down the rect', () => {
+  const p = restPoint({ x: 100, y: 200, width: 500, height: 100 });
+  assert.ok(Math.abs(p.x - 520) < 1e-9);
+  assert.ok(Math.abs(p.y - 230) < 1e-9);
+});
+
+test('restPoint of every target is inside its rect and off the center', () => {
+  for (const screen of Object.values(SCREENS))
+    for (const r of Object.values(screen)) {
+      const p = restPoint(r);
+      assert.ok(p.x > r.x && p.x < r.x + r.width && p.y > r.y && p.y < r.y + r.height);
+      assert.notDeepEqual(p, center(r));
+    }
 });
