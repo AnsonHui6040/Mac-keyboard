@@ -28,9 +28,9 @@
 | D3 | 匯入 IPA，選保留全部 | 鍵盤出現在「新增鍵盤」 | PASS（匯入成功，bundle ID 加上 Team ID 後綴；Extension 選項實際名稱與舊指南不同，已更新） |
 | D4 | 配對 Mac | 配對成功，重開 App 仍在（Keychain 群組正確） | PASS（修正 Mac 配對匙儲存後，配對成功，重開 App 仍在，開發者確認可輸入文字） |
 | D5 | App 改按鍵音量，鍵盤重開 | 設定跟著改變（App Group 正確） | NOT TESTED（SideStore 版設定預設值與開發版不同，顯示 App Group 已改名；鍵盤讀取設定未實測） |
-| D6 | 下載手寫模型 | 鍵盤手寫可辨識 | NOT TESTED |
+| D6 | 下載手寫模型 | 鍵盤手寫可辨識 | PASS（2026-11-04 開發者確認手寫字送到 Mac） |
 | D7 | 手動 Refresh，再重做 D4–D6 | 全部仍然正常 | BLOCKED（同 D1） |
-| D8 | 不刪舊版安裝新版 IPA | 配對與設定保留 | BLOCKED（同 D1） |
+| D8 | 不刪舊版安裝新版 IPA | 配對與設定保留 | PASS（2026-11-04 覆蓋安裝，配對與設定保留，開發者確認可輸入文字） |
 | D9 | 只有 SideStore 和本 App 時，再裝第 3 個 App | 記錄名額行為，修正指南 | PASS（SideStore、本 App 與第 3 個 App 已佔滿；再裝第 4 個時 iOS 拒絕，訊息為無法驗證其完整性） |
 
 ## Mac App（必過）
