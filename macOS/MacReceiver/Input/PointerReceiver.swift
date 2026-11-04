@@ -35,6 +35,8 @@ final class PointerReceiver: ObservableObject {
     static let maxConsecutiveFailures = 8
     static let activityIntervalMicros: UInt64 = 1_000_000
     static let watchdogInterval: TimeInterval = 0.05
+    /// Playout is waiting and the frame source has delivered nothing for this long: it is started again.
+    static let frameStallMicros: UInt64 = 200_000
     static let osLog = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "pointer")
 
     @Published private(set) var isEnabled: Bool
@@ -66,6 +68,8 @@ final class PointerReceiver: ObservableObject {
     private var diagnostics = PointerPlayoutDiagnostics()
     private var consecutiveFailures = 0
     private var lastActivityAt: UInt64?
+    /// The later of the last frame and the moment the frame source was started.
+    private var framesAliveAt: UInt64 = 0
     private var packets = 0
     private var rejected = 0
 
@@ -179,7 +183,12 @@ final class PointerReceiver: ObservableObject {
             rejected += 1
             consecutiveFailures += 1
             log("pointer packet rejected reason=\(String(describing: error))")
-            if consecutiveFailures >= Self.maxConsecutiveFailures { closeChannel(reason: "failures") }
+            if consecutiveFailures >= Self.maxConsecutiveFailures {
+                closeChannel(reason: "failures")
+                // The phone is told only by a new grant: its status no longer matches the one it opened with, so it opens again.
+                grant = makeGrant()
+                onGrantChange?()
+            }
         case .success(let plain):
             consecutiveFailures = 0
             guard let payload = PointerPayload.decode(plain) else {
@@ -277,7 +286,15 @@ final class PointerReceiver: ObservableObject {
             }
         }
         if !playout.isIdle {
-            frames.start()
+            if !frames.isRunning {
+                frames.start()
+                framesAliveAt = now
+            } else if now >= framesAliveAt, now - framesAliveAt >= Self.frameStallMicros {
+                // The display went away mid gesture: the source still says it runs but nothing arrives.
+                frames.stop()
+                frames.start()
+                framesAliveAt = now
+            }
         } else if frames.isRunning {
             frames.stop()
         }
@@ -291,6 +308,7 @@ final class PointerReceiver: ObservableObject {
     /// One screen refresh: posts what has become due, and stops the frame source once the queue is empty.
     func frameTick(timestampMicros: UInt64, targetMicros: UInt64) {
         let now = clock()
+        framesAliveAt = now
         var due: [PointerAction] = []
         while let share = playout.take(nowMicros: now) {
             due.append(.move(dx: share.dx, dy: share.dy, dragging: share.dragging))

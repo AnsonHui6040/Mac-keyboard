@@ -269,6 +269,13 @@ final class ReceiverSecurityTests: XCTestCase {
         try rig.deliver(reveal, from: p.phone)
     }
 
+    /// Continues from an offer that has already been delivered.
+    private func runPairingUntilSASAfterOffer(_ rig: SecurityRig, _ p: inout PairingPhone) throws {
+        let accept = try XCTUnwrap(rig.newWrites().first)
+        guard case .send(let reveal) = p.pairing.receive(accept) else { return XCTFail("phone did not reveal") }
+        try rig.deliver(reveal, from: p.phone)
+    }
+
     func testPairOfferIgnoredOutsidePairingWindow() throws {
         let rig = SecurityRig(pairKey: key)
         let p = PairingPhone()
@@ -550,6 +557,47 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertEqual(rig.security.lastResult, .failed)
         rig.security.confirmPairing()
         XCTAssertEqual(rig.store.saves, 0)
+    }
+
+    func testAuthFailureOnANonPairingConnectionInsideTheWindowDoesNotSkipThePeripheral() {
+        let rig = SecurityRig(pairKey: key)
+        rig.security.openPairingWindow()
+        rig.connect()
+        for frame in (try? FrameCodec.split(Data("not json".utf8), messageId: 1, maxFrameBytes: 182)) ?? [] {
+            rig.central.receive(eventData: frame)
+        }
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertEqual(rig.security.phase, .waiting, "the window stays open")
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "the same iPhone can still pair inside the window")
+    }
+
+    func testSilentPeripheralIsDroppedInsideTheWaitingWindowAndMayTryAgain() {
+        let rig = SecurityRig(pairKey: nil)
+        openWindowAndConnect(rig)
+        rig.security.handshakeTimerFired()
+        XCTAssertEqual(rig.cancels, [rig.peripheral], "a peripheral that never offers does not hold the only connection")
+        XCTAssertEqual(rig.security.phase, .waiting, "the window stays open")
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "and is not skipped")
+    }
+
+    func testHandshakeTimerLeavesAnAttemptInProgressAlone() throws {
+        let rig = SecurityRig(pairKey: nil)
+        var p = PairingPhone()
+        openWindowAndConnect(rig)
+        try rig.deliver(p.pairing.offer, from: p.phone)
+        rig.security.handshakeTimerFired()
+        XCTAssertTrue(rig.cancels.isEmpty, "an offer was made: the window's own deadline bounds it")
+        try runPairingUntilSASAfterOffer(rig, &p)
+        rig.security.handshakeTimerFired()
+        XCTAssertTrue(rig.cancels.isEmpty, "confirming")
+        rig.security.confirmPairing()
+        rig.security.handshakeTimerFired()
+        XCTAssertTrue(rig.cancels.isEmpty, "confirmed")
+        XCTAssertEqual(rig.security.phase, .confirmed)
     }
 
     func testLinkLostWhileOnlyWaitingKeepsTheWindowOpen() throws {

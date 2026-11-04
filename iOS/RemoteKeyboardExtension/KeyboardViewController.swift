@@ -193,8 +193,13 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidDisappear(animated)
         isOnScreen = false
         // Before the peripheral is let go: a held button is released and the Mac is told while the link is still there.
-        trackpad.leave()
-        KeyFeedback.deactivate()
+        // A stale controller's late disappear touches nothing shared: not the peripheral's channel, not the key feedback.
+        if peripheral.isOwner(lifecycle.token) {
+            trackpad.leave()
+            KeyFeedback.deactivate()
+        } else {
+            trackpad.abandon()
+        }
         #if DEBUG
         dictationDisappeared()
         #endif
@@ -233,6 +238,8 @@ final class KeyboardViewController: UIInputViewController {
             onControl: { [weak self] message in self?.received(message) },
             onNote: { [weak self] text in self?.showNote(text) }
         )
+        // A channel the previous controller left open is closed; this controller's page opens its own when entered.
+        if !trackpad.isActive { peripheral.closePointer() }
     }
 
     /// If a newer controller claimed the peripheral and then disappeared while this one stayed on screen, nobody owns
@@ -957,6 +964,7 @@ final class KeyboardViewController: UIInputViewController {
         case .idle, .ready: nil
         case .importing: "正在匯入手寫模型…"
         case .missing: "請先在 App 下載手寫模型"
+        case .importFailed: "手寫模型匯入失敗，請到 App 重新下載"
         }
     }
 

@@ -20,7 +20,7 @@
 | Mac | 藍牙 | 接收 iPhone 傳來的資料 |
 | Mac | 輔助使用 | 把文字輸入到目前的欄位、判斷目前是否為密碼欄、控制游標 |
 
-配對金鑰存放在兩邊裝置的鑰匙圈，不會傳給開發者。
+配對金鑰不會傳給開發者。iPhone 上的金鑰存放在鑰匙圈，不會隨備份搬到另一部 iPhone。Mac 上的金鑰存放在 `~/Library/Application Support/RemoteKeyboardReceiver/pair-key`，只有你的 macOS 使用者帳號能讀取；以同一個帳號執行的其他程式也讀得到這個檔案，所以不要在 Mac 上執行來源不明的程式。
 
 ## 聽寫
 

@@ -189,7 +189,7 @@
 - 10b 鍵盤一直在畫面上：鍵盤在畫面上且已連線；在 Mac 按「停止接收」。鍵盤狀態列應離開 `Mac → ...`（變成 `BLE: publishing` 或 `BLE: advertising`），不是一直停在已連線。等 5 秒後按「開始接收」，鍵盤不收起、不切換輸入法。
 - 10c 結束 Mac App：鍵盤在畫面上且已連線；在 Mac 選單列面板按「結束」。確認鍵盤狀態列離開 `Mac → ...`。等 5 秒後重新開啟 MacReceiver，按「開始接收」，鍵盤不收起。
 - 10d 閒置逾時與解除配對：在 Mac 終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 MacReceiver，按「開始接收」。鍵盤保持連線但不打字，等約 60 秒閒置逾時；鍵盤狀態列應離開 `Mac → ...`。再按「開始接收」，確認鍵盤自動回到 `Mac → ...`。接著在 Mac 的配對視窗（pairing sheet）按「解除配對」。這時 iPhone 仍保有金鑰，所以鍵盤不會顯示「尚未配對」：狀態列先離開 `Mac → ...`，短暫顯示「配對驗證失敗」，之後鍵盤重新廣播；Mac 已沒有配對，會拒絕這支 iPhone 並在這一次接收時段內略過它，因此在重新配對之前不會再連上。測完執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds`，重開 MacReceiver，並重新配對（步驟 1）。
-- 10e 強制結束 Mac App（沒有再見訊息，只測鍵盤端探測）：鍵盤在畫面上且已連線；在 Mac 終端機執行 `killall -KILL MacReceiver`。從 `/private/tmp/claude-501/receiver-run/MacReceiver.app` 重新開啟 Receiver，按「開始接收」。收起鍵盤，再在 iPhone 備忘錄點一下輸入欄位叫出鍵盤，不使用地球鍵。
+- 10e 強制結束 Mac App（沒有再見訊息，只測鍵盤端探測）：鍵盤在畫面上且已連線；在 Mac 終端機執行 `killall -KILL MacReceiver`。從 `<暫存資料夾>/receiver-run/MacReceiver.app` 重新開啟 Receiver，按「開始接收」。收起鍵盤，再在 iPhone 備忘錄點一下輸入欄位叫出鍵盤，不使用地球鍵。
 
 | 項目 | 預期 | 結果 |
 |---|---|---|

@@ -4,7 +4,7 @@
 
 通過標準：Notes → TextEdit、Safari → TextEdit 各 20/20；錯誤焦點 0 次。失敗即停止 T10–T12 的完整 UI，改依 D8 驗證 LAN 傳輸。
 
-前置條件：iPhone 已安裝最新的 Remote Keyboard，並已開啟「允許完整取用」；Mac 執行最新的 MacReceiver（由 `/private/tmp/claude-501/receiver-run/MacReceiver.app` 副本啟動），已允許藍牙與輔助使用；TextEdit 開一份新文件；Mac 輸入法為 ABC（注音另測）。
+前置條件：iPhone 已安裝最新的 Remote Keyboard，並已開啟「允許完整取用」；Mac 執行最新的 MacReceiver（由 `<暫存資料夾>/receiver-run/MacReceiver.app` 副本啟動），已允許藍牙與輔助使用；TextEdit 開一份新文件；Mac 輸入法為 ABC（注音另測）。
 
 狀態對照：
 

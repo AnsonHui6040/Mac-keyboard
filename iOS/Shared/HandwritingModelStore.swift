@@ -163,6 +163,13 @@ enum HandwritingModelStore {
 
     // MARK: Keyboard extension
 
+    /// The containing app's id: the extension sits in `<App>.app/PlugIns/<name>.appex`. Falls back to stripping `.keyboard`.
+    private static func hostBundleIdentifier(own: String) -> String {
+        let app = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
+        if let id = Bundle(url: app)?.bundleIdentifier { return id }
+        return own.hasSuffix(".keyboard") ? String(own.dropLast(".keyboard".count)) : own
+    }
+
     /// Copies the App Group copy into a staging directory beside this process's ML Kit directory, then swaps it in
     /// with one step. Honours task cancellation (the staging directory is removed) and refuses the copy when the
     /// group copy changed while it was being read.
@@ -171,7 +178,7 @@ enum HandwritingModelStore {
         let manager = FileManager.default
         let start = Date()
         let own = Bundle.main.bundleIdentifier ?? ""
-        let host = own.hasSuffix(".keyboard") ? String(own.dropLast(".keyboard".count)) : own
+        let host = hostBundleIdentifier(own: own)
         let destination = localDirectory
         let parent = destination.deletingLastPathComponent()
         try manager.createDirectory(at: parent, withIntermediateDirectories: true)

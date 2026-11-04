@@ -22,7 +22,7 @@
 - 每個 Task 結束必須全綠：`swift test --package-path Packages/RemoteKeyboardCore`、`MacReceiverTests`、iOS 模擬器 build、真機 build-for-testing、Mac build；並重跑 `HitAreaUITests`（真機）。
 - 建置：改 `project.yml` 後 `xcodegen generate` 再 `LANG=en_US.UTF-8 pod install`；build 用 `-workspace RemoteKeyboard.xcworkspace`；不提交 `*.xcodeproj`、`*.xcworkspace`、`Pods/`。
 - 實機驗收標 TBD，使用者親手測完才算 PASS；介面文字用台灣繁體中文。
-- 實機：iPhone 17 Pro，UDID `00008150-000C65DA26C0401C`；模擬器沒有 CoreBluetooth。
+- 實機：iPhone 17 Pro，UDID `<你的 iPhone UDID>`；模擬器沒有 CoreBluetooth。
 
 ## 執行規則
 

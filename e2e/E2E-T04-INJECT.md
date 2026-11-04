@@ -4,7 +4,7 @@
 
 通過標準：5 組字串在 TextEdit 完全一致；注音狀態下 `香港` 20/20 正確；非可編輯焦點 0 誤注入。若失敗：改測 AXValue 寫入作對照；無法可靠注入時停用注入，不貼到其他欄位。
 
-前置條件：Mac 執行最新的 MacReceiver（由 `/private/tmp/claude-501/receiver-run/MacReceiver.app` 副本啟動）；已在 系統設定 › 隱私權與安全性 › 輔助使用 允許 Remote Keyboard Receiver；TextEdit 已開一份新文件。本 Task 不需要 iPhone。
+前置條件：Mac 執行最新的 MacReceiver（由 `<暫存資料夾>/receiver-run/MacReceiver.app` 副本啟動）；已在 系統設定 › 隱私權與安全性 › 輔助使用 允許 Remote Keyboard Receiver；TextEdit 已開一份新文件。本 Task 不需要 iPhone。
 
 選單對照（Mac 選單列鍵盤圖示）：
 

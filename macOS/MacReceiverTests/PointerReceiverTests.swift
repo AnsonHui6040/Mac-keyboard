@@ -367,6 +367,21 @@ final class PointerReceiverTests: XCTestCase {
         XCTAssertFalse(rig.receiver.isOpen)
     }
 
+    func testEightFailuresTellThePhoneWithANewGrantSoItOpensAgain() {
+        let rig = PointerRig()
+        rig.openChannel()
+        let old = rig.receiver.grant
+        let changes = rig.grantChanges
+        let garbage = Data([0x03]) + Data(repeating: 9, count: 40)
+        for _ in 0..<8 { rig.receiver.handle(garbage) }
+        XCTAssertFalse(rig.receiver.isOpen)
+        XCTAssertNotNil(rig.receiver.grant)
+        XCTAssertNotEqual(rig.receiver.grant, old, "the status the phone gets no longer matches the grant it opened with")
+        XCTAssertEqual(rig.grantChanges, changes + 1, "and the status is sent")
+        XCTAssertEqual(rig.receiver.handleOpen(grant: old ?? 0), .notAuthorized)
+        XCTAssertEqual(rig.receiver.handleOpen(grant: rig.receiver.grant ?? 0), .posted, "the new grant opens again")
+    }
+
     // MARK: Playout
 
     func testAMoveIsSpreadOverTheScreenRefreshesAndAddsUpToTheWholeMove() {
@@ -507,6 +522,33 @@ final class PointerReceiverTests: XCTestCase {
         rig.send(rig.move(dx: 160))
         XCTAssertTrue(rig.frames.isRunning)
         XCTAssertEqual(rig.frames.starts, 2)
+    }
+
+    func testAFrameSourceThatStopsFiringIsStartedAgain() {
+        let rig = PointerRig()
+        rig.openChannel()
+        rig.send(rig.move(dx: 160))
+        XCTAssertEqual(rig.frames.starts, 1)
+        rig.now += 250_000
+        rig.send(rig.move(dx: 160))
+        XCTAssertEqual(rig.frames.stops, 1, "no frame for 250 ms while moves wait: the source is restarted")
+        XCTAssertEqual(rig.frames.starts, 2)
+        XCTAssertTrue(rig.frames.isRunning)
+        rig.now += 50_000
+        rig.send(rig.move(dx: 160))
+        XCTAssertEqual(rig.frames.starts, 2, "the restart counts as a start: 50 ms later is not a stall")
+    }
+
+    func testAHealthyStreamOfFramesNeverRestartsTheFrameSource() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<40 {
+            rig.send(rig.move(dx: 160))
+            rig.frame(after: 8_000)
+        }
+        XCTAssertEqual(rig.frames.starts, 1)
+        XCTAssertEqual(rig.frames.stops, 0)
+        XCTAssertTrue(rig.frames.isRunning)
     }
 
     func testScrollPacketsWithAnIdlePlayoutDoNotTouchTheFrameSource() {

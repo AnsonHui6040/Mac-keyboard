@@ -20,6 +20,8 @@ final class ChineseInputCoordinator {
         case ready
         /// No model in the keyboard and none to import: the user has to download it in the app.
         case missing
+        /// The model in the App Group could not be copied or ML Kit refused the copy: it has to be downloaded again in the app.
+        case importFailed
     }
 
     let session = HandwritingSession()
@@ -63,6 +65,7 @@ final class ChineseInputCoordinator {
             switch outcome {
             case .ready: self.becomeReady()
             case .missing, .cancelled: self.setStatus(.missing)
+            case .importFailed: self.setStatus(.importFailed)
             }
         }
     }

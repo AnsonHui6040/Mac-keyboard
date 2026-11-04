@@ -93,6 +93,8 @@ enum KeyRollover {
 
     static func register(_ key: KeyButton) -> Int {
         nextID += 1
+        // Keys that were deallocated (a rebuilt layout) leave an empty entry behind; clear them out once the table is large.
+        if keys.count > 256 { keys = keys.filter { $0.value.key != nil } }
         keys[nextID] = Weak(key)
         return nextID
     }
