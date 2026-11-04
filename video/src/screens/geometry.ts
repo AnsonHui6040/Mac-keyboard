@@ -1,8 +1,8 @@
 /** Canvas-space geometry of the four scene 16 screens. Pure numbers; the screens draw from these. */
 
 export type Rect = { x: number; y: number; width: number; height: number };
-export type ScreenId = 'dialogBlocked' | 'settingsSecurity' | 'dialogConfirm' | 'auth';
-export type TargetId = 'done' | 'open' | 'trash' | 'password' | 'cancel';
+export type ScreenId = string;
+export type TargetId = string;
 
 export const center = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 
@@ -66,9 +66,10 @@ export const DIALOGS: Record<ScreenId, Rect> = {
   auth: AUTH,
 };
 
-export const SCREENS = {
+/** Button rects by screen id, then by target id. New scenes add their screens here; both keys are free strings. */
+export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   dialogBlocked: { done: blockedBtn(0), trash: blockedBtn(1) },
   settingsSecurity: { open: SETTINGS_OPEN },
   dialogConfirm: { trash: confirmBtn(502), open: confirmBtn(596), done: confirmBtn(690) },
   auth: { password: authBtn(0), cancel: authBtn(1) },
-} satisfies Record<ScreenId, Partial<Record<TargetId, Rect>>>;
+};
