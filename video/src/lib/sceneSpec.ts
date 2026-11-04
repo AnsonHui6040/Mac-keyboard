@@ -4,6 +4,10 @@ import { beatTimeline, splitBeats } from './captions.ts';
 import type { PointerCue } from './pointer.ts';
 
 export type Device = 'mac' | 'iphone';
+/**
+ * One pointer move to a target, optionally followed by a press. A drag has no pointer model of its own: it is a
+ * sequence of steps without `press`, and the screen draws the dragged item at the `pointer` position it is given.
+ */
 export type Step = { target: string; press?: boolean };
 export type Label = { target: string; kind: 'good' | 'bad'; head?: string };
 export type BeatSpec = { screen: string; device?: Device; steps?: Step[]; labels?: Label[]; minSeconds?: number };
@@ -35,16 +39,25 @@ export const DEFAULT_HEAD = { good: '按這個', bad: '不要按' } as const;
 
 const stepFrames = (s: Step): number => (s.press ? PRESS_STEP_FRAMES : PLAIN_STEP_FRAMES);
 
-/** Smallest beat length that fits its steps spaced evenly: every slot must hold the slowest step. */
-export const beatStepFrames = (steps: Step[] | undefined): number =>
-  steps && steps.length > 0 ? steps.length * Math.max(...steps.map(stepFrames)) : 0;
+/** The pointer's first step in a run starts one frame late (the entry cue takes the first frame), so a press there needs one more frame. */
+export const ENTRY_CUE_FRAMES = 1;
+
+/**
+ * Smallest beat length that fits its steps spaced evenly: every slot must hold the slowest step. `startsRun` is true
+ * when this beat holds the first step of a pointer run; a press there needs 42 frames, not 41.
+ */
+export const beatStepFrames = (steps: Step[] | undefined, startsRun = false): number => {
+  if (!steps || steps.length === 0) return 0;
+  const first = stepFrames(steps[0]) + (startsRun && steps[0].press ? ENTRY_CUE_FRAMES : 0);
+  return steps.length * Math.max(first, ...steps.slice(1).map(stepFrames));
+};
 
 const hasTarget = (screen: string, target: string): boolean =>
   Object.hasOwn(SCREENS, screen) && Object.hasOwn(SCREENS[screen], target);
 
 /**
  * Compile a scene against its caption and length. Throws, naming the scene, when the beat count differs from the
- * subtitle beats, a target is missing from its screen, or the beats (including the frames their steps need) do not fit.
+ * subtitle beats, a beat has steps but no device, a screen or target is unknown, or the beats (including the frames their steps need) do not fit.
  */
 export function compileScene(spec: SceneSpec, caption: string, seconds: number, fps: number): CompiledScene {
   const where = `scene ${spec.n}`;
@@ -53,13 +66,28 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
 
   spec.beats.forEach((b, i) => {
     if (!Object.hasOwn(SCREENS, b.screen)) throw new Error(`${where}: beat ${i} uses unknown screen ${b.screen}`);
+    if (b.steps && b.steps.length > 0 && !b.device) throw new Error(`${where}: beat ${i} has steps but no device`);
     for (const t of [...(b.steps ?? []), ...(b.labels ?? [])]) {
       if (!hasTarget(b.screen, t.target)) throw new Error(`${where}: beat ${i} has no ${t.target} on ${b.screen}`);
     }
   });
 
-  const minSeconds = spec.beats.map((b) => {
-    const need = beatStepFrames(b.steps) / fps;
+  // Which beats hold the first step of a pointer run (consecutive beats on one device).
+  const startsRun: boolean[] = [];
+  let runDevice: Device | undefined;
+  let runHasStep = false;
+  spec.beats.forEach((b, i) => {
+    if (b.device !== runDevice) {
+      runDevice = b.device;
+      runHasStep = false;
+    }
+    const hasSteps = !!b.device && (b.steps?.length ?? 0) > 0;
+    startsRun[i] = hasSteps && !runHasStep;
+    if (hasSteps) runHasStep = true;
+  });
+
+  const minSeconds = spec.beats.map((b, i) => {
+    const need = beatStepFrames(b.steps, startsRun[i]) / fps;
     if (need === 0) return b.minSeconds;
     return Math.max(need, b.minSeconds ?? 0);
   });

@@ -4,6 +4,8 @@ export type Rect = { x: number; y: number; width: number; height: number };
 export type ScreenId = string;
 export type TargetId = string;
 
+export { PHONE_LOGICAL, PHONE_ORIGIN, PHONE_ORIGIN_RIGHT, PHONE_SCALE, phoneRect } from './phone.ts';
+
 export const center = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 
 /**

@@ -26,8 +26,9 @@ const compile = (spec: SceneSpec): CompiledScene => {
 const HIDDEN: PointerState = { x: 0, y: 0, visible: false, press: 0 };
 
 /** A beat's screen with the callouts it carries. `opacity` is the cross fade factor. */
-const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity }: { spec: SceneSpec; index: number; frame: number; localFrame: number; fps: number; from: (i: number) => number; opacity: number }) => {
+const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity, pointer }: { spec: SceneSpec; index: number; frame: number; localFrame: number; fps: number; from: (i: number) => number; opacity: number; pointer: PointerState }) => {
   const b = spec.beats[index];
+  const prev = index > 0 && spec.beats[index - 1].screen === b.screen ? spec.beats[index - 1].device : undefined;
   const rise = (label: Label): number => {
     const start = from(labelRunStart(spec, index, label));
     const s = spring({ frame: frame - start, fps, config: { damping: 30, stiffness: 140 } });
@@ -35,7 +36,7 @@ const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity }: { s
   };
   return (
     <Layer id={`beat-${index}`} opacity={opacity}>
-      {SCREEN_VIEWS[b.screen]({ active: b.device, frame, localFrame })}
+      {SCREEN_VIEWS[b.screen]({ active: b.device, prevActive: prev, frame, localFrame, beatIndex: index, beatFrame: frame - from(index), pointer })}
       {b.labels?.map((l) => (
         <Layer key={`${l.kind}-${l.target}`} opacity={rise(l)}>
           <Callout id={`callout-${l.target}`} targetRect={SCREENS[b.screen][l.target]}
@@ -77,8 +78,8 @@ export const SceneRunner = ({ spec }: { spec: SceneSpec }) => {
     <AbsoluteFill style={{ backgroundColor: theme.stage }}>
       <Layer id="stage">
         {device && <DeviceTag label={DEVICE_LABEL[device]} />}
-        {outgoing > 0 && <BeatContent spec={spec} index={i - 1} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={outgoing} />}
-        {incoming > 0 && <BeatContent spec={spec} index={i} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={incoming} />}
+        {outgoing > 0 && <BeatContent spec={spec} index={i - 1} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={outgoing} pointer={state} />}
+        {incoming > 0 && <BeatContent spec={spec} index={i} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={incoming} pointer={state} />}
         <Layer id="pointer-fade" opacity={fadeIn * fadeOut}>
           {pointerDevice === 'iphone' ? <TapDot state={state} /> : <MacCursor state={state} />}
         </Layer>

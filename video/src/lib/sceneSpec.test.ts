@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { SCREENS, restPoint, type Rect } from '../screens/geometry.ts';
 import { SCENES, FPS, compileRegistered, sceneEntry } from '../data/scenes/index.ts';
 import { scene16 } from '../data/scenes/scene16.ts';
@@ -170,4 +171,41 @@ test('registered scenes: numbers are unique, each is in the script, each compile
     assert.equal(c.timeline.length, spec.beats.length);
     assert.equal(c.timeline[c.timeline.length - 1].to, sceneEntry(spec.n).seconds * FPS);
   }
+});
+
+test('a beat with steps but no device throws, naming the scene', () => {
+  assert.throws(() => compileScene({ n: 83, beats: [{ screen: 'dialogBlocked', steps: [{ target: 'done' }] }] }, A, 5, 30), /83.*no device/);
+  // an empty steps list and a beat without steps are fine without a device
+  compileScene({ n: 83, beats: [{ screen: 'dialogBlocked', steps: [] }] }, A, 5, 30);
+});
+
+test('every screen in SCREENS has a view in registry.tsx and the other way round (static check: node cannot import .tsx)', () => {
+  const src = readFileSync(new URL('../screens/registry.tsx', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export const SCREEN_VIEWS'));
+  const keys = [...body.matchAll(/^ {2}(\w+):/gm)].map((m) => m[1]);
+  assert.deepEqual([...keys].sort(), Object.keys(SCREENS).sort());
+  // compileScene already throws for a screen that is not in SCREENS, and so for one with no view
+  assert.throws(() => compileScene({ n: 82, beats: [{ screen: 'noView' }] }, A, 5, 30), /82.*noView/);
+});
+
+test('the first press step of a run needs 42 frames (the entry cue takes the first frame); later steps and runs need 41', () => {
+  const two = (n: number, device: 'mac' | 'iphone' = 'mac'): BeatSpec => ({ screen: 'dialogBlocked', device, steps: [{ target: 'done', press: true }, { target: 'trash', press: true }] });
+  // first beat of a run: 2 x 42 = 84 frames; 82 frames (2.7333 s) throws, 84 is enough
+  assert.throws(() => compileScene({ n: 81, beats: [two(0)] }, A, 82 / 30, 30), /81/);
+  const c = compileScene({ n: 81, beats: [two(0)] }, A, 84 / 30, 30);
+  const { from, to } = c.timeline[0];
+  assert.equal(to - from, 84);
+  // the press of step 0 peaks inside its slot and is nearly done on the slot's last frame (the pulse ends at 0 on the next step's first frame)
+  let peak = 0;
+  for (let f = from; f < from + 42; f++) peak = Math.max(peak, pointerAt(f, c.cues, 30).press);
+  assert.equal(peak, 1);
+  assert.ok(pointerAt(from + 41, c.cues, 30).press <= 0.25);
+  assert.equal(pointerAt(from + 42, c.cues, 30).press, 0);
+  // a later beat of the same run needs only 2 x 41 = 82: 75 (first beat reading time) + 82 = 157 frames fit, 156 do not
+  const later = [blocked({ steps: [{ target: 'done' }] }), two(1)];
+  compileScene({ n: 80, beats: later }, A + B, 157 / 30, 30);
+  assert.throws(() => compileScene({ n: 80, beats: later }, A + B, 156 / 30, 30), /80/);
+  // a beat on a new run (device change) pays the extra frame again
+  const switched = compileScene({ n: 79, beats: [blocked({ steps: [{ target: 'done' }] }), two(0, 'iphone')] }, A + B, 6, 30);
+  assert.ok(switched.timeline[1].to - switched.timeline[1].from >= 84);
 });
