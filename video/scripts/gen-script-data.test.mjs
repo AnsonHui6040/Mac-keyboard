@@ -19,6 +19,12 @@ test('parses the real script into 21 scenes totalling 310 seconds', () => {
   assert.ok(scenes[15].caption.includes('丟到垃圾桶'));
 });
 
+test('script.json is up to date with the real script (run npm run data after editing the script)', () => {
+  const generated = parseScript(readFileSync(scriptPath, 'utf8'));
+  const committed = JSON.parse(readFileSync(new URL('../src/data/script.json', import.meta.url), 'utf8'));
+  assert.deepEqual(committed, generated);
+});
+
 test('a row with a missing field throws an error naming the scene number', () => {
   const md = [
     '## 場景',

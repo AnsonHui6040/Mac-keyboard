@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { splitBeats } from '../lib/captions.ts';
 import { pointerAt } from '../lib/pointer.ts';
 import { SCREENS, restPoint, type Rect } from '../screens/geometry.ts';
-import { SCENE16_BEATS, SCENE16_FPS, SCENE16_FRAMES, ENTRY_OFFSET, scene16Cues, scene16Timeline, targetRect } from './scene16.ts';
+import { SCENE16_BEATS, SCENE16_FPS, SCENE16_FRAMES, SCENE16_SECONDS, ENTRY_OFFSET, scene16Cues, scene16Timeline, targetRect } from './scene16.ts';
 
-const script = JSON.parse(readFileSync(new URL('./script.json', import.meta.url), 'utf8')) as { scenes: { n: number; caption: string }[] };
+const script = JSON.parse(readFileSync(new URL('./script.json', import.meta.url), 'utf8')) as { scenes: { n: number; seconds: number; caption: string }[] };
 const caption = (script.scenes.find((s) => s.n === 16) as { caption: string }).caption;
 const beats = splitBeats(caption);
 const timeline = scene16Timeline(beats);
@@ -34,10 +34,12 @@ test('every target exists on its beat screen', () => {
   for (const b of SCENE16_BEATS) if (b.target) assert.ok(targetRect(b.screen, b.target), `${b.screen}/${b.target}`);
 });
 
-test('timeline covers 780 frames and beat 5 lasts at least 4 s', () => {
-  assert.equal(SCENE16_FRAMES, 780);
+test('frame count comes from the script entry (seconds x fps); the timeline covers it and beat 5 lasts at least 4 s', () => {
+  const entry = script.scenes.find((s) => s.n === 16) as unknown as { seconds: number };
+  assert.equal(SCENE16_SECONDS, entry.seconds);
+  assert.equal(SCENE16_FRAMES, entry.seconds * SCENE16_FPS);
   assert.equal(timeline[0].from, 0);
-  assert.equal(timeline[timeline.length - 1].to, 780);
+  assert.equal(timeline[timeline.length - 1].to, SCENE16_FRAMES);
   assert.ok(timeline[5].to - timeline[5].from >= 4 * SCENE16_FPS);
 });
 

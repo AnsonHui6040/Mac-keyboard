@@ -7,8 +7,10 @@ export type TargetId = 'done' | 'open' | 'trash' | 'password' | 'cancel';
 export const center = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
 
 /**
- * Where the pointer tip rests on a target: right of the middle and above it, so the arrow stays inside the button
- * and never covers the button label.
+ * Where the pointer tip rests on a target: 84% across and 30% down the rect, right of the label
+ * and near the top. The tip is always inside the rect. The arrow (about 48 px tall) hangs below
+ * the tip, so it stays inside the rect only when the rect is at least about 70 px tall; on a
+ * shorter button (the 64 px Settings button) its lower part sticks out below the button.
  */
 export const restPoint = (r: Rect): { x: number; y: number } => ({ x: r.x + r.width * 0.84, y: r.y + r.height * 0.3 });
 

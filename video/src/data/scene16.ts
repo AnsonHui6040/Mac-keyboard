@@ -1,5 +1,6 @@
 /** Scene 16 plan: which screen, pointer target and callouts each subtitle beat has, and the pointer cues derived from them. */
 import { beatTimeline } from '../lib/captions.ts';
+import script from './script.json' with { type: 'json' };
 import type { PointerCue } from '../lib/pointer.ts';
 import { SCREENS, restPoint, type Rect, type ScreenId, type TargetId } from '../screens/geometry.ts';
 
@@ -12,7 +13,12 @@ export type Scene16Beat = {
 };
 
 export const SCENE16_FPS = 30;
-export const SCENE16_FRAMES = 780;
+const entry = script.scenes.find((sc) => sc.n === 16);
+if (!entry) throw new Error('script.json has no scene 16');
+/** Scene 16 length in seconds, taken from the script. */
+export const SCENE16_SECONDS: number = entry.seconds;
+/** Scene 16 length in frames: seconds times fps, derived from the script. */
+export const SCENE16_FRAMES = SCENE16_SECONDS * SCENE16_FPS;
 /** Frames of the cross fade when the screen changes at the start of a beat. */
 export const FADE_FRAMES = 8;
 /** The pointer starts this many px below its first target and travels in. */

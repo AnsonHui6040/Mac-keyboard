@@ -3,7 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { splitBeats } from '../src/lib/captions.ts';
-import { SCENE16_BEATS, scene16Timeline, targetRect } from '../src/data/scene16.ts';
+import { SCENE16_BEATS, SCENE16_FPS, SCENE16_FRAMES, SCENE16_SECONDS, scene16Timeline, targetRect } from '../src/data/scene16.ts';
 import { SCREENS } from '../src/screens/geometry.ts';
 
 const TOL = 1; // px
@@ -97,9 +97,11 @@ if (!existsSync(mp4)) {
   const audio = probe.streams.filter((s) => s.codec_type === 'audio');
   check('MP4 has no audio stream', audio.length === 0, `${audio.length} audio streams`);
   check('MP4 is 1920x1080', video[0]?.width === 1920 && video[0]?.height === 1080, `${video[0]?.width}x${video[0]?.height}`);
-  check('MP4 is 30 fps', video[0]?.r_frame_rate === '30/1', `r_frame_rate ${video[0]?.r_frame_rate}`);
+  check(`MP4 is ${SCENE16_FPS} fps`, video[0]?.r_frame_rate === `${SCENE16_FPS}/1`, `r_frame_rate ${video[0]?.r_frame_rate}`);
   const dur = Number(probe.format.duration);
-  check('MP4 lasts 26 s', Math.abs(dur - 26) <= 0.05, `format duration ${dur}`);
+  check(`MP4 lasts ${SCENE16_SECONDS} s (script entry for scene 16)`, Math.abs(dur - SCENE16_SECONDS) <= 0.05, `format duration ${dur}`);
+  const frames = Number(video[0]?.nb_frames);
+  check(`MP4 has ${SCENE16_FRAMES} frames`, frames === SCENE16_FRAMES, `nb_frames ${video[0]?.nb_frames}`);
 }
 
 console.log(results.join('\n'));
