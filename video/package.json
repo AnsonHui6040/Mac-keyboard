@@ -9,6 +9,7 @@
     "check": "kinetograph check src/index.tsx"
   },
   "dependencies": {
+    "@kinetographdev/audio": "0.3.0",
     "kinetograph": "0.3.0"
   },
   "devDependencies": {

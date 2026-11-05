@@ -3,6 +3,7 @@ import { FILM_FRAMES, FPS, HEIGHT, SCENES, WIDTH, sceneFrames, sceneId } from '.
 import { openingFade } from './lib/fade.ts';
 import { SceneRunner } from './scenes/SceneRunner.tsx';
 import { theme } from './theme.ts';
+import './audio/register.ts';
 
 registerFont({ family: theme.font, weight: 400, path: staticFile('fonts/NotoSansTC-Regular.ttf') });
 registerFont({ family: theme.font, weight: 500, path: staticFile('fonts/NotoSansTC-Medium.ttf') });

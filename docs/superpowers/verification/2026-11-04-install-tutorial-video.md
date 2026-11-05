@@ -1,8 +1,8 @@
 # 安裝教學影片 全片驗收報告
 
 日期：2026-11-05
-範圍：全片 21 場，335 秒、10050 幀、1920×1080、30 fps、無音軌。
-分支：`video-v2`。成品：`video/out/renders/Main.mp4`（6,460,146 位元組，`out/` 已列入 `.gitignore`，不提交）。
+範圍：全片 21 場，335 秒、10050 幀、1920×1080、30 fps、AAC 立體聲音軌（原創合成的音樂與音效）。
+分支：`video-v2`；音樂與音效另在 `video-audio` 分支加入。成品：`video/out/renders/Main.mp4`（15,024,081 位元組，`out/` 已列入 `.gitignore`，不提交）。
 腳本：`docs/video/install-tutorial-script.md`，長度寫為「約 5 分 35 秒」，與 335 秒一致。
 本輪（最後修正輪）依整片審查改了第 5、10、11、15、17、18、21 場的畫面與第 5、10、11、15、17 場的字幕，第 5、10、11、15 場的秒數各加 5、5、4、8 秒；下文數字都是改完後重跑的結果。SHA-256 與檔名是 v0.1.0-b2 Release 頁面上的真實公開值，不是虛構；影片綁定這一版，下一版 Release 出來後就過時（見第三節與設計文件「虛構內容與真實的公開值」）。
 
@@ -35,8 +35,8 @@
 | `npx kinetograph check src/index.tsx` | no type errors |
 | `npx kinetograph lint src/index.tsx --comp Main --frames 150,495,885,1275,1830,2550,3075,3450,3795,4230,4905,5490,5865,6240,6750,7440,8070,8625,9060,9435,9870`（每場中間一幀，共 21 幀） | 0 errors，7 warnings（見下） |
 | `npx kinetograph doctor src/index.tsx --comp Main` | 10050 幀中 9557 幀 clean；493 幀有 1 項提示（見下） |
-| `npx kinetograph render src/index.tsx --comp Main --concurrency 4` | 已產生 `out/renders/Main.mp4`，共 15 秒（10050 幀，其中 6624 幀與前一幀相同、不重畫）；h264、yuv420p、無音訊 |
-| `ffprobe out/renders/Main.mp4` | h264、1920×1080、30/1 fps、10050 幀、長度 335.000 秒、6,460,146 位元組、只有一條視訊流（無音軌） |
+| `npx kinetograph render src/index.tsx --comp Main --concurrency 4` | 已產生 `out/renders/Main.mp4`，共 15 秒（10050 幀，其中 6624 幀與前一幀相同、不重畫）；h264、yuv420p、有 AAC 音軌 |
+| `ffprobe out/renders/Main.mp4` | h264、1920×1080、30/1 fps、10050 幀、長度 335.000 秒；加入音樂與音效後為 15,024,081 位元組，視訊流與加入前逐位元組相同，另有一條 AAC 立體聲音軌（見第六節） |
 
 lint 的 7 個 warning：
 
@@ -53,7 +53,7 @@ doctor 的 493 幀提示：`div font-family: monospace`，幀 4072–4389（第 
 
 ### 3. `node scripts/verify-scenes.mjs`
 
-以 `kinetograph inspect --json` 在每拍結束前第 5 幀檢查場景圖，再以 `ffprobe` 檢查 `Main.mp4`。共 161 項，全部通過（輸出 `all 161 checks passed`），結束碼 0。第一次執行曾有 4 項失敗，已修正：第 5 場 `btn-open` 與 `btn-code` 的 bounds 比目標大 2 至 3 px（圖示與描邊超出），第 5 場第 3 拍結束時 `btn-signin` 已被驗證碼面板取代（改為驗證碼面板在下一拍才出現），第 10 場第 2 拍的終端機沒有 `btn-hash`。
+以 `kinetograph inspect --json` 在每拍結束前第 5 幀檢查場景圖，再以 `ffprobe` 檢查 `Main.mp4`。加入音軌後共 162 項，全部通過（輸出 `all 162 checks passed`；「無音軌」改為「一條 AAC 音軌且長度 335 秒」兩項），結束碼 0。第一次執行曾有 4 項失敗，已修正：第 5 場 `btn-open` 與 `btn-code` 的 bounds 比目標大 2 至 3 px（圖示與描邊超出），第 5 場第 3 拍結束時 `btn-signin` 已被驗證碼面板取代（改為驗證碼面板在下一拍才出現），第 10 場第 2 拍的終端機沒有 `btn-hash`。
 
 | 檢查 | 內容 |
 |---|---|
@@ -61,7 +61,7 @@ doctor 的 493 幀提示：`div font-family: monospace`，幀 4072–4389（第 
 | 標示 | 有標示的拍，標示線中心 y 等於按鈕中心 y；沒有標示的拍，不存在標示線 |
 | 隱藏指向 | 沒有步驟、也不在指向區間內的拍，指向透明度為 0；`hidePointer` 拍（第 13 場第 1 拍、第 14 場第 2 拍）在拍末透明度為 0 |
 | 配對碼 | 第 18 場第 3、4 拍：Mac 面板與 iPhone 頁面都顯示 `482915` |
-| MP4 | 音軌 0 條、1920×1080、`r_frame_rate` 30/1、長度 335 秒、10050 幀 |
+| MP4 | AAC 音軌 1 條且長度 335 秒、1920×1080、`r_frame_rate` 30/1、長度 335 秒、10050 幀 |
 
 不帶場號執行時，MP4 檢查對象是 `Main.mp4`；帶場號時，檢查該場各自的 `SceneNN.mp4`。
 
@@ -210,6 +210,7 @@ doctor 的 493 幀提示：`div font-family: monospace`，幀 4072–4389（第 
 | 編號 | 項目 | 狀態 |
 |---|---|---|
 | U1 | 靜音播放整片，是否能看懂每一步該按哪一顆 | TBD |
+| U17 | 開聲音看全片：背景音樂與介面音效聽起來是否舒服、有沒有干擾閱讀字幕、音效大小是否剛好（按下、打字、標示、連線成功）。數字只能證明響度、落點與無削波，好不好聽只有使用者能判斷 | TBD |
 | U2 | 有沒有 AI 味或套版感（畫面、標示框、游標、字幕、場與場之間的淡入） | TBD |
 | U3 | 在台灣繁體中文的 Mac 與 iPhone 上，逐一對照畫面中的按鈕與標題字串（見第三節） | TBD |
 | U4 | 手機寬度（約 844 px）播放時，字幕與按鈕是否清楚 | TBD |
@@ -295,3 +296,76 @@ doctor 的 493 幀提示：`div font-family: monospace`，幀 4072–4389（第 
 - 第 20 場第 2 拍 f291 光圈壓住清單標籤。
 - `doctor --strict` 與 `render --strict` 會在第 10、15 場的等寬字型（共 493 幀）失敗。要消除，需在 `public/fonts` 放一個註冊過的等寬字型檔。
 - 全片以 `Series` 渲染時，每場第一拍的字幕在最初幾幀因淡入較暗（見第一節第 6 項）。
+
+## 六、聲音（音樂與音效，2026-11-05 加入，分支 `video-audio`）
+
+全部由 Web Audio 在程式裡合成：沒有取樣檔、沒有 `@remotion/sfx`、沒有下載。模組：`src/audio/events.ts`（事件，來自同一份編譯後場景資料）、`music.ts`（樂譜資料與排程）、`synth.ts`（各音效）、`register.ts`（`onFrame` 註冊，由 `src/index.tsx` 匯入）。
+
+### 自動驗證
+
+| 項目 | 結果 |
+|---|---|
+| `npm test` | 154 項全過（新增 28 項：事件 14、音樂 10、原始碼規則 4）；每個按下步驟剛好一個 click 或 tap，第 16 場在幀 261、401 加上全片位移 7050；第 11、16 場各一個 good 與一個 bad，順序正確；按鍵數等於字元數；兩次呼叫輸出相同；`src/audio` 沒有 `Math.random` 與真實時間；樂譜涵蓋全片且不超出 |
+| `npx kinetograph check src/index.tsx` | no type errors |
+| `kinetograph audio analyze src/index.tsx --comp Main` | 整體響度 -20.1 LUFS、true peak -1.6 dBTP、削波 0、沒有 0.5 秒以上低於 -60 dBFS 的靜音 |
+| 渲染 | `npx kinetograph render src/index.tsx --comp Main --concurrency 4`：15,024,081 位元組，AAC LC 48 kHz 立體聲約 199 kbps，音訊長度 335.000 秒 |
+| `node scripts/verify-scenes.mjs` | 162 項全過，含「一條 AAC 音軌」與「音軌長度 335 秒」 |
+| 畫面未變 | 新舊 `Main.mp4`（含 2026-11-05 降低音樂音量後重新渲染）的視訊流 `-c copy` MD5 同為 `46f60609d5df92f01e3d19ff61b448b0`；解碼後 MD5 同為 `4365eb2905b46a6531b708c17583cd4c`；Scene16 的視訊流在加音訊前後相同（`8c3f59a7ea84c80f4f8d1e00cdc0b6fd`）；Scene16 幀 265、Main 幀 150、7315、9300 的 PNG 在加音訊前後 `cmp` 完全相同 |
+
+### 事件與音量
+
+| 種類 | 數量 | 單獨渲染的峰值 |
+|---|---|---|
+| click（Mac 按下） | 20 | -3.6 dBFS |
+| tap（iPhone 按下） | 47 | -4.0 dBFS |
+| key（打字） | 158（第 1 場、第 10 場與第 15 場終端機指令、第 20 場） | -16.0 dBFS |
+| good / bad | 各 2（第 11、16 場各一） | -3.8 / -3.8 dBFS |
+| success | 2（第 20 場，已連接與句子打完相隔 109 幀，超過 3 秒） | -3.7 dBFS |
+
+音樂單獨渲染：-20.36 LUFS、峰值 -13.7 dBFS（2026-11-05 調整：音樂匯流排降低約 4 dB，原為 -16.35 LUFS、峰值 -9.7 dBFS）。除按鍵外，音效峰值比音樂峰值高 9.7 至 10.1 dB（click 10.1、tap 9.7、good 9.9、bad 9.9、success 10.0），達到「至少 9 dB」；按鍵刻意更輕，比音樂峰值低約 2 dB。音樂匯流排保留快速壓縮（只壓 pad 疊加出來的峰值，壓縮後峰值比響度高約 6.7 dB，未壓縮約 11 dB，後者在 -20 LUFS 時峰值會高出約 4 dB，音效就難以高出音樂峰值 9 dB），主輸出的限幅器已移除（音樂峰值 -13.7 dBFS、最響音效 -3.6 dBFS，疊加後整體 true peak 為 -1.6 dBTP，低於 -1 dB，削波 0）。bad 的音量由峰值 -4.6 提高到 -3.8 dBFS，原本只比音樂峰值高 9.1 dB。
+
+### 落點量測（`node scripts/verify-audio.mjs`，從 MP4 用 ffmpeg 抽音訊）
+
+click 以 1500 Hz 高通，比較按下幀起 80 ms 與之前 300 ms 的能量；tap 以 150 Hz 高通，比較起 60 ms 的峰值與之前 300 ms 的峰值（tap 在 pad 的頻帶內，能量差較小）。音樂降低 4 dB 後，click 與 tap 的比值都相應增加；8 個 tap 的峰值差為 9.9 至 12.5 dB，8 個 click 的峰值差為 17.6 至 35.3 dB。onset 是從幀起算第一個超過前 300 ms 峰值 1.25 倍的 1 ms 區塊。控制組取離任何事件至少 2 秒的幀。
+
+```
+what            frame     sec  300ms before dB  80ms after dB  rms gain  peak gain    onset
+click            1504   50.13            -46.8          -21.9      24.9       35.3     0 ms  PASS
+click            1864   62.13            -46.5          -21.8      24.7       32.0     0 ms  PASS
+click            3964  132.13            -45.2          -21.8      23.3       27.6     0 ms  PASS
+click            6563  218.77            -44.0          -21.9      22.1       31.9     0 ms  PASS
+click            6953  231.77            -42.4          -22.0      20.4       23.0     0 ms  PASS
+click            7311  243.70            -43.7          -21.8      21.9       29.5     0 ms  PASS
+click            7864  262.13            -44.1          -21.8      22.2       30.9     0 ms  PASS
+click            8074  269.13            -41.7          -22.3      19.4       17.6     0 ms  PASS
+click control    2084   69.47            -47.5          -47.5       0.0       -0.1     none  PASS
+click control    5075  169.17            -47.4          -47.5      -0.1       -1.2     none  PASS
+click control    7069  235.63            -44.2          -43.8       0.4        0.1     none  PASS
+tap              1114   37.13            -20.4          -15.6       4.8       10.5     1 ms  PASS
+tap              2272   75.73            -20.0          -15.6       4.4        9.9     1 ms  PASS
+tap              2565   85.50            -20.3          -15.6       4.7       10.3     0 ms  PASS
+tap              3274  109.13            -19.9          -15.4       4.6       10.7     1 ms  PASS
+tap              4668  155.60            -21.3          -15.6       5.8       11.5     1 ms  PASS
+tap              5445  181.50            -21.4          -15.4       6.0       12.5     1 ms  PASS
+tap              5831  194.37            -20.9          -16.0       4.9       11.1     1 ms  PASS
+tap              6231  207.70            -21.6          -16.0       5.5       11.1     1 ms  PASS
+tap control      2084   69.47            -20.6          -20.7      -0.1       -0.7     none  PASS
+tap control      5075  169.17            -24.2          -24.1       0.0       -0.4     none  PASS
+tap control      7069  235.63            -20.9          -20.4       0.4       -1.2     none  PASS
+
+all 22 checks passed
+```
+
+主輸出的限幅器移除後沒有預讀延遲，原本為了補償它而提早 6 ms 的排程（`LIMITER_DELAY`）一併拿掉；click 的 onset 為 0 ms，tap 為 0 至 1 ms。波形圖：`video/out/sheets/film-audio.png`（`out/` 不入 git）；第 11、16 場標示期間的音樂降低與第 20 場結尾的兩次成功音在圖上可見。
+
+### 設計決定與限制
+
+1. 單獨渲染的場景（`--comp Scene16` 等）有一條無聲的 AAC 音軌，畫面與先前逐位元組相同。原因：`onFrame` 的登錄是全域的，不知道目前渲染哪個 composition，而事件用全片幀號，Scene16 會誤播第 1 場的按鍵。所以 `register.ts` 只在音訊 context 長度達全片時發聲，即只有 Main 有聲。
+2. 第 1 場的打字常數（`TYPE_START`、`TYPE_PITCH`、字串）在 `Typing.tsx`，node 無法匯入（含 JSX）。依「畫面程式不動」的規定複製到 `events.ts`；`events.test.ts` 讀 `Typing.tsx` 原始碼，兩者不同就失敗。若允許，改成像 `typing20.ts` 那樣抽出純 `.ts` 檔，可以完全消除複本。
+3. 連按兩下（第 15 場）只算一個 click，依「每個按下步驟一個音效」。
+4. 第 10、15 場終端機每幀打兩個字元，兩個按鍵音在該幀內平均錯開。
+5. 專案沒有把 `@kinetographdev/audio` 寫進 `package.json`；它是 `kinetograph` 的相依套件，目前由 node_modules 提升而可解析。
+
+### 使用者驗證（TBD）
+
+音樂與音效好不好聽、大小是否剛好、有沒有干擾閱讀，我沒有聽，也無法聽；上面的數字只證明響度、落點與無削波。見第二節 U17。

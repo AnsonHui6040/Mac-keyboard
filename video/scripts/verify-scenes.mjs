@@ -49,10 +49,12 @@ const checkMp4 = (comp, seconds, frames, what) => {
     check(`${comp} MP4 exists`, false, mp4);
     return;
   }
-  const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate,nb_frames,duration:format=duration', '-of', 'json', mp4], { encoding: 'utf8' }));
+  const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,duration:format=duration', '-of', 'json', mp4], { encoding: 'utf8' }));
   const video = probe.streams.filter((s) => s.codec_type === 'video');
   const audio = probe.streams.filter((s) => s.codec_type === 'audio');
-  check(`${comp} MP4 has no audio stream`, audio.length === 0, `${audio.length} audio streams`);
+  // One AAC stream of the same length as the picture. Only Main carries the music and effects; a scene's own composition has a silent track (src/audio/register.ts).
+  check(`${comp} MP4 has one AAC audio stream`, audio.length === 1 && audio[0].codec_name === 'aac', `${audio.length} audio streams${audio[0] ? `, ${audio[0].codec_name}` : ''}`);
+  check(`${comp} MP4 audio lasts ${seconds} s`, audio.length === 1 && Math.abs(Number(audio[0].duration) - seconds) <= 0.05, `audio duration ${audio[0]?.duration}`);
   check(`${comp} MP4 is 1920x1080`, video[0]?.width === 1920 && video[0]?.height === 1080, `${video[0]?.width}x${video[0]?.height}`);
   check(`${comp} MP4 is ${FPS} fps`, video[0]?.r_frame_rate === `${FPS}/1`, `r_frame_rate ${video[0]?.r_frame_rate}`);
   const dur = Number(probe.format.duration);
