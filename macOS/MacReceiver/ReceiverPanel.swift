@@ -22,6 +22,9 @@ struct ReceiverPanel: View {
     /// Set to true to bring back the 「測試插入」 and 「除錯」 sections.
     private static let showsDeveloperTools = false
 
+    /// Read once: `BuildStamp` reads the disk, and `body` runs on every change.
+    private static let buildStamp = BuildStamp.current()
+
     @Environment(\.openWindow) private var openWindow
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
@@ -136,7 +139,7 @@ struct ReceiverPanel: View {
                     NSApplication.shared.activate(ignoringOtherApps: true)
                     openWindow(id: MacTutorialWindow.id)
                 }
-                Text("版本：\(BuildStamp.current())")
+                Text("版本：\(Self.buildStamp)")
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -148,6 +151,9 @@ struct ReceiverPanel: View {
         .controlSize(.small)
         .padding(12)
         .frame(width: Self.width, alignment: .leading)
+        // The countdown only needs its one-second tick while someone can see it.
+        .onAppear { central.setPanelVisible(true) }
+        .onDisappear { central.setPanelVisible(false) }
     }
 
     /// Red warnings first: missing Accessibility, the Bluetooth reason, a failed input source restore.

@@ -52,6 +52,49 @@ enum FocusFixtures {
 
 @MainActor
 final class FocusMonitorTests: XCTestCase {
+    func testPollIntervalIsFastOnlyWhileALinkIsActive() {
+        XCTAssertEqual(FocusMonitor.pollInterval(linkActive: true), 0.25)
+        XCTAssertEqual(FocusMonitor.pollInterval(linkActive: false), 2.0)
+    }
+
+    func testSetLinkActiveReschedulesOnlyWhenTheIntervalChanges() {
+        let monitor = FocusMonitor(reader: ScriptedFocusReader([FocusFixtures.elementA]), environment: FocusFixtures.environment())
+        monitor.start()
+        defer { monitor.stop() }
+        XCTAssertEqual(monitor.scheduledPollInterval, 2.0)
+        let idleTimer = monitor.scheduledTimerForTesting
+        monitor.setLinkActive(false)
+        XCTAssertTrue(monitor.scheduledTimerForTesting === idleTimer, "unchanged: same timer")
+        monitor.setLinkActive(true)
+        XCTAssertEqual(monitor.scheduledPollInterval, 0.25)
+        let fastTimer = monitor.scheduledTimerForTesting
+        monitor.setLinkActive(true)
+        XCTAssertTrue(monitor.scheduledTimerForTesting === fastTimer, "unchanged: same timer")
+        monitor.setLinkActive(false)
+        XCTAssertEqual(monitor.scheduledPollInterval, 2.0)
+    }
+
+    func testBecomingActiveReadsAtOnce() async {
+        let reader = ScriptedFocusReader([FocusFixtures.elementA])
+        let monitor = FocusMonitor(reader: reader, environment: FocusFixtures.environment())
+        monitor.start()
+        defer { monitor.stop() }
+        for _ in 0..<100 where reader.readCount < 1 { try? await Task.sleep(for: .milliseconds(10)) }
+        let before = reader.readCount
+        monitor.setLinkActive(true)
+        for _ in 0..<100 where reader.readCount <= before { try? await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertGreaterThan(reader.readCount, before, "the first status after connecting is fresh")
+    }
+
+    func testSetLinkActiveBeforeStartOnlyRemembersTheState() {
+        let reader = ScriptedFocusReader([FocusFixtures.elementA])
+        let monitor = FocusMonitor(reader: reader, environment: FocusFixtures.environment())
+        monitor.setLinkActive(true)
+        XCTAssertTrue(monitor.isLinkActive)
+        XCTAssertNil(monitor.scheduledPollInterval)
+        XCTAssertEqual(reader.readCount, 0)
+    }
+
     func testSlowAXReadDoesNotBlockMainThread() async {
         let reader = ScriptedFocusReader([FocusFixtures.elementA], delay: 2)
         let monitor = FocusMonitor(reader: reader, environment: FocusFixtures.environment())

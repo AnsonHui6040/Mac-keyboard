@@ -275,6 +275,16 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         XCTAssertEqual(r.poster.batches, 0)
     }
 
+    func testFocusPollingFollowsTheAuthenticatedLink() throws {
+        let r = rig()
+        XCTAssertFalse(r.focus.isLinkActive)
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        XCTAssertTrue(r.focus.isLinkActive, "authenticated: fast polling")
+        r.central.handleLink(.disconnected(r.peripheral))
+        XCTAssertFalse(r.focus.isLinkActive, "link lost: slow polling")
+    }
+
     func testLinkLossDropsQueuedEventsButKeepsTheDeduplicator() async throws {
         let r = rig()
         r.focus.onChange?(Self.editable(epoch: 3))

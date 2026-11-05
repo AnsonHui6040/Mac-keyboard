@@ -81,7 +81,16 @@ final class ReceiverCoordinator: ObservableObject {
     func start() {
         focus.onChange = { [weak self] snapshot in self?.focusChanged(snapshot) }
         // The first status goes out only after the phone proved the pair key, and then sealed.
-        security.onAuthenticated = { [weak self] in self?.sendStatus() }
+        security.onAuthenticated = { [weak self] in
+            self?.focus.setLinkActive(true)
+            self?.sendStatus()
+        }
+        // Without an authenticated iPhone nothing can be typed, so focus is polled slowly.
+        security.onLinkLost = { [pipeline, weak self] in
+            self?.focus.setLinkActive(false)
+            // Queued keys of a lost link are dropped; what the pipeline has already processed stays remembered.
+            pipeline?.discardQueued()
+        }
         if let pointer {
             security.observeChannelSet { [weak pointer] channels in
                 if let channels { pointer?.attach(channels) } else { pointer?.detach() }
@@ -97,8 +106,6 @@ final class ReceiverCoordinator: ObservableObject {
                 pipeline.submit(event)
             }
             security.onMalformed = { [pipeline] in pipeline.submitMalformed() }
-            // Queued keys of a lost link are dropped; what the pipeline has already processed stays remembered.
-            security.onLinkLost = { [pipeline] in pipeline.discardQueued() }
         }
     }
 
