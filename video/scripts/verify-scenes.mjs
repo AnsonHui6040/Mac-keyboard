@@ -1,9 +1,10 @@
 // Verifies registered scenes from the scene graph (kinetograph inspect) and the rendered MP4 (ffprobe).
 // Run after `kinetograph render`: node scripts/verify-scenes.mjs [scene numbers...] [--no-mp4]
-// Without numbers it checks every registered scene. Checks the frame 5 before the end of every beat.
+// Without numbers it checks every registered scene and, instead of one MP4 per scene, out/renders/Main.mp4 (the whole film).
+// With numbers it checks those scenes and their own out/renders/SceneNN.mp4. Checks the frame 5 before the end of every beat.
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { FPS, SCENES, compileRegistered, sceneEntry, sceneFrames, sceneId } from '../src/data/scenes/index.ts';
+import { FILM_FRAMES, FPS, SCENES, compileRegistered, sceneEntry, sceneFrames, sceneId } from '../src/data/scenes/index.ts';
 import { SCREENS } from '../src/screens/geometry.ts';
 
 const TOL = 1; // px
@@ -13,6 +14,7 @@ const MIN_BOX_HEIGHT = 70; // a Mac arrow (about 48 px tall) fits inside a butto
 const args = process.argv.slice(2);
 const wantMp4 = !args.includes('--no-mp4');
 const wanted = args.filter((a) => a !== '--no-mp4').map(Number);
+const wholeFilm = wanted.length === 0;
 const specs = wanted.length === 0 ? SCENES : wanted.map((n) => {
   const spec = SCENES.find((s) => s.n === n);
   if (!spec) throw new Error(`scene ${n} is not registered`);
@@ -40,6 +42,23 @@ const find = (layers, id) => {
 const cy = (b) => b.y + b.height / 2;
 const within = (p, b) => p.x >= b.x && p.x <= b.x + b.width && p.y >= b.y && p.y <= b.y + b.height;
 const fmt = (n) => Number(n).toFixed(1);
+
+const checkMp4 = (comp, seconds, frames, what) => {
+  const mp4 = new URL(`../out/renders/${comp}.mp4`, import.meta.url).pathname;
+  if (!existsSync(mp4)) {
+    check(`${comp} MP4 exists`, false, mp4);
+    return;
+  }
+  const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate,nb_frames,duration:format=duration', '-of', 'json', mp4], { encoding: 'utf8' }));
+  const video = probe.streams.filter((s) => s.codec_type === 'video');
+  const audio = probe.streams.filter((s) => s.codec_type === 'audio');
+  check(`${comp} MP4 has no audio stream`, audio.length === 0, `${audio.length} audio streams`);
+  check(`${comp} MP4 is 1920x1080`, video[0]?.width === 1920 && video[0]?.height === 1080, `${video[0]?.width}x${video[0]?.height}`);
+  check(`${comp} MP4 is ${FPS} fps`, video[0]?.r_frame_rate === `${FPS}/1`, `r_frame_rate ${video[0]?.r_frame_rate}`);
+  const dur = Number(probe.format.duration);
+  check(`${comp} MP4 lasts ${seconds} s (script seconds of ${what})`, Math.abs(dur - seconds) <= 0.05, `format duration ${dur}`);
+  check(`${comp} MP4 has ${frames} frames`, Number(video[0]?.nb_frames) === frames, `nb_frames ${video[0]?.nb_frames}`);
+};
 
 for (const spec of specs) {
   const comp = sceneId(spec.n);
@@ -122,23 +141,12 @@ for (const spec of specs) {
     }
   }
 
-  if (wantMp4) {
-    const mp4 = new URL(`../out/renders/${comp}.mp4`, import.meta.url).pathname;
-    if (!existsSync(mp4)) {
-      check(`${comp} MP4 exists`, false, mp4);
-    } else {
-      const probe = JSON.parse(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,width,height,r_frame_rate,nb_frames,duration:format=duration', '-of', 'json', mp4], { encoding: 'utf8' }));
-      const video = probe.streams.filter((s) => s.codec_type === 'video');
-      const audio = probe.streams.filter((s) => s.codec_type === 'audio');
-      check(`${comp} MP4 has no audio stream`, audio.length === 0, `${audio.length} audio streams`);
-      check(`${comp} MP4 is 1920x1080`, video[0]?.width === 1920 && video[0]?.height === 1080, `${video[0]?.width}x${video[0]?.height}`);
-      check(`${comp} MP4 is ${FPS} fps`, video[0]?.r_frame_rate === `${FPS}/1`, `r_frame_rate ${video[0]?.r_frame_rate}`);
-      const dur = Number(probe.format.duration);
-      check(`${comp} MP4 lasts ${seconds} s (script entry for scene ${spec.n})`, Math.abs(dur - seconds) <= 0.05, `format duration ${dur}`);
-      const frames = Number(video[0]?.nb_frames);
-      check(`${comp} MP4 has ${sceneFrames(spec.n)} frames`, frames === sceneFrames(spec.n), `nb_frames ${video[0]?.nb_frames}`);
-    }
-  }
+  if (wantMp4 && !wholeFilm) checkMp4(comp, seconds, sceneFrames(spec.n), `scene ${spec.n}`);
+}
+
+if (wantMp4 && wholeFilm) {
+  const total = SCENES.reduce((sum, spec) => sum + sceneEntry(spec.n).seconds, 0);
+  checkMp4('Main', total, FILM_FRAMES, 'all scenes');
 }
 
 console.log(results.join('\n'));

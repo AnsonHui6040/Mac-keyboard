@@ -37,6 +37,9 @@ export const sceneEntry = (n: number): { n: number; seconds: number; caption: st
 
 export const sceneFrames = (n: number): number => sceneEntry(n).seconds * FPS;
 
+/** Frames of the whole film: the scenes back to back, with nothing between them. */
+export const FILM_FRAMES: number = SCENES.reduce((sum, s) => sum + sceneFrames(s.n), 0);
+
 export const compileRegistered = (spec: SceneSpec): CompiledScene => {
   const entry = sceneEntry(spec.n);
   return compileScene(spec, entry.caption, entry.seconds, FPS);

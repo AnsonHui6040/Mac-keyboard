@@ -6,7 +6,7 @@
 |---|---|
 | 目的 | 帶沒有程式背景的測試者，由零開始裝好 Remote Keyboard 並打出第一個字 |
 | 版本 | v0.1.0 build 2，下載頁：https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-b2 |
-| 長度 | 約 5 分 10 秒，分 21 個場景 |
+| 長度 | 約 5 分 13 秒，分 21 個場景 |
 | 語言 | 字幕用台灣繁體中文 |
 | 內容依據 | `docs/manual/01` 至 `05` 章；內容有出入時，以手冊為準 |
 | 畫面 | 全部重繪成向量介面。`docs/manual/images/` 的截圖只作參考，不直接放入影片 |
