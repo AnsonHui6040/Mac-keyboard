@@ -20,10 +20,11 @@ const AddressBar = ({ rect, address }: { rect: Box; address: string }) => {
 /**
  * A macOS window: rounded dark panel with traffic lights and a centered title. Children are drawn in canvas coordinates.
  * A browser window passes `address` instead of a title: the title bar then shows the address field.
+ * `shadow` (default true) draws the drop shadow; the product intro turns it off because it bands on its dark desktop.
  */
-export const MacWindow = ({ rect, title, address, children, fill = theme.dialog.fill }: { rect: Box; title: string; address?: string; children?: ReactNode; fill?: string }) => (
+export const MacWindow = ({ rect, title, address, children, fill = theme.dialog.fill, shadow = true }: { rect: Box; title: string; address?: string; children?: ReactNode; fill?: string; shadow?: boolean }) => (
   <Layer id="mac-window">
-    <Layer id="window-frame" effects={[dropShadow({ y: 18, blur: 54, color: theme.dialog.shadow })]}>
+    <Layer id="window-frame" effects={shadow ? [dropShadow({ y: 18, blur: 54, color: theme.dialog.shadow })] : []}>
       <Rect x={rect.x} y={rect.y} width={rect.width} height={rect.height} radius={26} fill={fill} stroke={{ color: theme.dialog.edge, width: 2 }} />
     </Layer>
     <Rect x={rect.x + 2} y={rect.y + TITLEBAR_H} width={rect.width - 4} height={2} fill={theme.hairline} />

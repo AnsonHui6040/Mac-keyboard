@@ -4,6 +4,9 @@ import { openingFade } from './lib/fade.ts';
 import { SceneRunner } from './scenes/SceneRunner.tsx';
 import { theme } from './theme.ts';
 import './audio/register.ts';
+import './intro/register.ts';
+import { ProductIntro } from './intro/Intro.tsx';
+import { FPS as INTRO_FPS, FRAMES as INTRO_FRAMES } from './intro/timeline.ts';
 
 registerFont({ family: theme.font, weight: 400, path: staticFile('fonts/NotoSansTC-Regular.ttf') });
 registerFont({ family: theme.font, weight: 500, path: staticFile('fonts/NotoSansTC-Medium.ttf') });
@@ -38,6 +41,7 @@ const Film = () => (
 registerRoot(() => (
   <>
     <Composition id="Main" component={Film} durationInFrames={FILM_FRAMES} fps={FPS} width={WIDTH} height={HEIGHT} />
+    <Composition id="ProductIntro" component={ProductIntro} durationInFrames={INTRO_FRAMES} fps={INTRO_FPS} width={WIDTH} height={HEIGHT} />
     {scenes.map(({ spec, Component }) => (
       <Composition key={spec.n} id={sceneId(spec.n)} component={Component} durationInFrames={sceneFrames(spec.n)} fps={FPS} width={WIDTH} height={HEIGHT} />
     ))}
