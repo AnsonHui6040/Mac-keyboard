@@ -1,6 +1,7 @@
 /** The finger rings. A ring is a white circle; it shrinks and sends out a second ring while it presses, and fills in when it carries something. */
 import { Ellipse, Layer } from '@kinetographdev/core';
 import { fingerAt } from './state.ts';
+import { CAM21 } from './project.ts';
 import { trackAt } from './trackpad.ts';
 
 const NONE = '#00000000';
@@ -14,7 +15,7 @@ export const Ring = ({ x, y, press, solid = 0, opacity = 1, size, line }: { x: n
 
 /** The rings on the phone at a frame, local phone coordinates: the keyboard finger, or the pad fingers of shot 21. */
 export const PhoneRings = ({ f, size = 60, line = 5, dy = 0 }: { f: number; size?: number; line?: number; dy?: number }) => {
-  const t = f >= 849 && f < 1230 ? trackAt(f) : null;
+  const t = f >= CAM21.at[0] && f < CAM21.at[1] ? trackAt(f) : null;
   const k = fingerAt(f);
   return (
     <Layer>

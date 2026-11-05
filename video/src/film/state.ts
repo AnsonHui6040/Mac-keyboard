@@ -2,7 +2,7 @@
  * What the phone and the Mac look like at a frame, worked out from the press table (events.ts) and the trackpad (trackpad.ts).
  * Pure: no JSX, node can import it.
  */
-import { QUICK_BAR, quickCenter, quickScrollFor } from '../intro/layout.ts';
+import { QUICK_BAR, quickScrollFor } from '../intro/layout.ts';
 import { STROKES, partialStroke, strokePoint } from '../intro/ink.ts';
 import { CHAPTER_START, CONNECT_AT, CUTS, HW_CANDIDATES_AT, INK, LOGIN, MAC_DELAY, PAD_AT, PRESSES, SWIPES, actFrame, chapterOf, macDelayOf, type Chapter, type Fx, type Press } from './events.ts';
 import { centerOf, draftRect, hwCandidateRect, keyRect, kbTop, quickCandidateRect, toggleRect, type KbName, type R } from './layout.ts';

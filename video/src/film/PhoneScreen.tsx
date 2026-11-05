@@ -23,7 +23,6 @@ const BLUE = '#0a84ff';
 const GREEN = '#30d158';
 const RED = '#ff453a';
 const GREY = '#8e8e93';
-const LETTERS = 'qwertyuiopasdfghjklzxcvbnm'.split('');
 const BOTTOM_RADIUS = 110;
 /** Where the tallest page starts: a page drawn at y 109 and below. */
 export const PHONE_TOP = PHONE.bottom - 755;
@@ -76,7 +75,6 @@ const Toolbar = ({ kb, s, f }: { kb: KbName; s: PhoneState; f: number }) => {
   const y = KB[kb].toolbarY;
   const pad = kb === 'trackpad';
   const live = s.kb !== 'draft' && s.kb !== 'handwriting' && s.kb !== 'quick';
-  const blocked = s.status === 'blocked';
   const since = clamp01((f - s.statusSince + 1) / 8);
   const dim = s.status === 'none' ? 0.4 : 1;
   return (

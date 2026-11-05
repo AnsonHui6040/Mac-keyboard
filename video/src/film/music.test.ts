@@ -64,13 +64,17 @@ test('from 29 to 41 s every tap and click dips the music 2 to 3 dB and it is bac
   assert.equal(DUCK_FRAMES, 6);
   const taps = soundEvents().filter((e) => (e.kind === 'tap' || e.kind === 'click') && e.frame >= sec(29) && e.frame < sec(41));
   assert.ok(taps.length >= 7, `${taps.length}`);
-  for (const e of taps) {
-    const rest = musicGain(e.frame + DUCK_FRAMES + 1);
-    assert.ok(Math.abs(db(musicGain(e.frame - 1), musicGain(e.frame + 40)) ) < 5);
-    const dip = -db(musicGain(e.frame), musicGain(e.frame + 8) || rest);
-    assert.ok(dip >= 2 && dip <= 3, `dip ${dip} at ${e.frame}`);
-    assert.ok(musicGain(e.frame + 1) > musicGain(e.frame), 'recovering');
-    assert.ok(Math.abs(musicGain(e.frame + DUCK_FRAMES) - musicGain(e.frame + DUCK_FRAMES + 8)) < 1e-9 || taps.some((o) => o.frame > e.frame && o.frame <= e.frame + DUCK_FRAMES + 8), `back at ${e.frame}`);
+  // A tap with no other tap inside its window (from DUCK_FRAMES before to DUCK_FRAMES + 8 after) shows the whole dip and the return.
+  const alone = taps.filter((e) => taps.every((o) => o === e || o.frame < e.frame - DUCK_FRAMES - 1 || o.frame > e.frame + DUCK_FRAMES + 8));
+  assert.ok(alone.length >= 3, `${alone.length} lone taps`);
+  for (const e of taps) assert.ok(musicGain(e.frame + 1) > musicGain(e.frame), `recovering at ${e.frame}`);
+  for (const e of alone) {
+    const back = musicGain(e.frame + DUCK_FRAMES);
+    const dip = -db(musicGain(e.frame), back);
+    assert.ok(dip >= 2 - 1e-9 && dip <= 3 + 1e-9, `dip ${dip} at ${e.frame}`);
+    assert.ok(musicGain(e.frame + DUCK_FRAMES - 1) < back, `not yet back after ${DUCK_FRAMES - 1} frames at ${e.frame}`);
+    assert.ok(Math.abs(back - musicGain(e.frame + DUCK_FRAMES + 8)) < 1e-9, `back after ${DUCK_FRAMES} frames at ${e.frame}`);
+    assert.ok(Math.abs(db(musicGain(e.frame - 1), back)) < 1e-9, `the level before the tap is the level after it at ${e.frame}`);
   }
   // 24 to 29 s: the same sounds play, the music is not dipped by them
   for (const e of soundEvents().filter((x) => x.frame >= sec(16) + 14 && x.frame < sec(29) && !(x.frame >= sec(18.1) && x.frame < sec(21.7)))) {

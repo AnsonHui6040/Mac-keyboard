@@ -47,7 +47,7 @@ export const filmInk = (m: Mixer, t: number): void => tap(scaled(m, LEVEL.ink), 
 export const filmClick = (m: Mixer, t: number): void => click(scaled(m, LEVEL.click), t);
 export const filmBad = (m: Mixer, t: number): void => bad(scaled(m, LEVEL.bad), t);
 
-/** 按這個: C#5 then G#5 (the shared one is D5 then A5). */
+/** C#5 then G#5 (the shared chime is D5 then A5). */
 export const filmGood = (m: Mixer, t: number): void => {
   const s = scaled(m, LEVEL.good);
   bell(s, t, 554.37, 0.53, 0.55, 3600);

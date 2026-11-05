@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { KB } from '../intro/layout.ts';
+import { PHONE } from './layout.ts';
 import { CONNECT_AT, HW_CANDIDATES_AT, INK, LOGIN, PRESSES } from './events.ts';
 import { QUICK_CANDIDATES, QUICK_SCROLL_TOTAL, fingerAt, macAt, macTextAt, phoneAt, pressRect } from './state.ts';
 
@@ -173,6 +174,25 @@ test('the finger rests on the thing it presses at the moment of the press', () =
     assert.ok(f.visible && f.press > 0, `${p.label} at ${p.t}`);
     const r = pressRect(p);
     assert.ok(f.x >= r.x && f.x <= r.x + r.w && f.y >= r.y && f.y <= r.y + r.h, `${p.label} at ${p.t}: finger ${f.x.toFixed(0)},${f.y.toFixed(0)} not in ${JSON.stringify(r)}`);
+  }
+});
+
+test('the finger lands on the key centers of the real keyboard screenshots, with the page bottom aligned to the phone bottom', () => {
+  // x, y are worked out by hand from intro/layout.ts KB: key center plus the page offset 864 minus the page height (594, 648, 739).
+  const want = [
+    { kb: 'connected', key: 'h', x: 432, y: 492 },
+    { kb: 'connected', key: 'shift', x: 51.5, y: 589 },
+    { kb: 'draft', key: 'send', x: 655, y: 318 },
+    { kb: 'quick', key: 'send', x: 655, y: 254 },
+  ] as const;
+  for (const w of want) {
+    const k = KB[w.kb].keys[w.key];
+    assert.equal(k.x + k.w / 2, w.x, `${w.kb} ${w.key} x`);
+    assert.equal(PHONE.bottom - KB[w.kb].h + k.y + k.h / 2, w.y, `${w.kb} ${w.key} y`);
+    const press = PRESSES.find((p) => p.kb === w.kb && p.key === w.key);
+    assert.ok(press, `a press of ${w.kb} ${w.key}`);
+    const f = fingerAt(press.t);
+    assert.ok(Math.abs(f.x - w.x) < 1 && Math.abs(f.y - w.y) < 1, `${w.kb} ${w.key} at ${press.t}: finger ${f.x.toFixed(1)},${f.y.toFixed(1)}`);
   }
 });
 

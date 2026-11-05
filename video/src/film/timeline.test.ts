@@ -71,6 +71,30 @@ test('no title or card holds a banned string, a comma, a middle dot or an arrow'
   for (const text of copy) assert.ok(!/[,，·→←↑↓➜]/.test(text), text);
 });
 
+// On-screen strings of the other files: quoted literals and JSX text, comments removed. Imports and keys of the code are not screen text.
+const screenStrings = (file: string): string[] => {
+  const src = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+  const quoted = [...src.matchAll(/(?<!from\s)'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g)].map((m) => m[1] ?? m[2] ?? m[3]);
+  const jsx = file.endsWith('.tsx') ? [...src.matchAll(/>([^<>{}=;]+)</g)].map((m) => m[1].trim()) : [];
+  return [...quoted, ...jsx].filter((t) => t.length > 0);
+};
+// A comma between arguments is code, so ',' and '，' are checked in strings that hold Chinese only; the other entries are checked everywhere.
+const hasBanned = (text: string, bad: string): boolean => text.includes(bad) && !((bad === ',' || bad === '，') && !/[\u3400-\u9fff]/.test(text));
+
+test('no on-screen string of the screens, the state, the events or the layout holds a banned string, a middle dot or an arrow', () => {
+  let checked = 0;
+  for (const file of ['PhoneScreen.tsx', 'MacScreen.tsx', 'state.ts', 'events.ts', 'layout.ts']) {
+    for (const text of screenStrings(file)) {
+      checked++;
+      for (const bad of FORBIDDEN) assert.ok(!hasBanned(text, bad), `${file}: "${text}" has "${bad}"`);
+      assert.ok(!/[·→←↑↓➜]/.test(text), `${file}: "${text}"`);
+    }
+  }
+  assert.ok(checked > 100, `only ${checked} strings were read`);
+  assert.ok(screenStrings('PhoneScreen.tsx').includes('密碼不能輸入'), 'the scan reads the strings of the screens');
+  assert.ok(hasBanned('a，b中', '，') && !hasBanned('f(a, b)', ',') && hasBanned('中, 文', ','));
+});
+
 test('the end card is the storyboard table: seven lines, two layers at 54.0 and 56.0, with the sizes', () => {
   const table = doc.slice(doc.indexOf('## 第 31 鏡字卡'));
   const lines = table.split('\n').filter((l) => /^\| \d+\.\d \| /.test(l)).map((l) => {

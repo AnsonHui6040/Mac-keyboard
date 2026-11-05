@@ -4,18 +4,16 @@
  * inertia, so it stops when they stop. Frames come from PAD_AT in events.ts. Pure: node can import it.
  */
 import { PAD_AT } from './events.ts';
-import { CURSOR_START, FOLDER_WIN, ICON, MAC, MENU, MENU_OPEN_TIP, PAD } from './layout.ts';
+import { CURSOR_START, FOLDER_WIN, ICON, MAC, MENU, MENU_OPEN_TIP } from './layout.ts';
 
 export const GAIN = 1.5;
 export const SCROLL_GAIN = 1;
 /** Radius of the press ring (the largest thing a finger draws). The ring itself is 106 wide: 64 px in the frame at the size of shot 21. */
 export const RING = 70;
-export const RING_DIAMETER = 106;
 /** The second finger sits this far to the right of the first. */
 export const FINGER_GAP = 200;
 
 type P = { x: number; y: number };
-const sub = (a: P, b: P): P => ({ x: a.x - b.x, y: a.y - b.y });
 /** The finger position that puts the cursor at `cursor`, given where the finger was and the cursor was. */
 const fin = (f: P, from: P, to: P): P => ({ x: f.x + (to.x - from.x) / GAIN, y: f.y + (to.y - from.y) / GAIN });
 

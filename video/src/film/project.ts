@@ -108,7 +108,7 @@ export const cam30 = (frame: number): Cam => {
 };
 
 // --- shot 1: the phone turns from the side to face the camera and the camera comes in; the Mac is a bright blur far behind ---
-export const HERO = { frames: 90, yaw: [-68, -24] as const };
+export const HERO = { frames: 90, yaw: [-68, -13.5] as const };
 const settleCurve = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return 1 - (1 + 5 * t) * Math.exp(-5 * t); };
 export const heroStage = (frame: number): Stage => ({ ...STAGE, phonePos: [-0.9, 0.02, 0], phoneRot: [0, lerp(HERO.yaw[0], HERO.yaw[1], settleCurve(frame / 75)) + frame * 0.03, 0] });
 export const heroCam = (frame: number): Cam => ({ fov: 24, position: [0.3 - frame * 0.001, 0.98, 5.4 - frame * 0.011], target: [0.3, 0.72, 0] });

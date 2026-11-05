@@ -117,6 +117,6 @@ test('the sound registration plays only into a context exactly 60 s long; no oth
   assert.notEqual(FILM_FRAMES, FRAMES);
 });
 
-test('the sound registration file exists and the quick table is where the candidate test reads it', () => {
+test('quick-table.txt, which the candidate test in state.test.ts reads, exists and is longer than 1000 characters', () => {
   assert.ok(readFileSync(new URL('../../../iOS/RemoteKeyboardExtension/Resources/quick-table.txt', import.meta.url), 'utf8').length > 1000);
 });

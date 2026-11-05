@@ -2,7 +2,8 @@
  * Registers the film's sound: one onFrame call per frame that has events, at ProductFilm frames. The effects registry is global
  * (every composition's render runs every callback), so a callback plays only into a context exactly 60 s long. No other
  * composition of the project is 1800 frames (events.test.ts checks), so the install film and ProductIntro never get these sounds.
- * The music is not here: Film.tsx plays it with <Audio>.
+ * The music is not here: Film.tsx plays it with <Audio>. A `--range` render of ProductFilm therefore has music but no sound
+ * effects, because the guard needs a context of the whole film (the same limit intro/register.ts documents).
  */
 import { onFrame } from '@kinetographdev/audio';
 import { mixer, type Mixer } from '../audio/synth.ts';

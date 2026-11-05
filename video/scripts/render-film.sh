@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # Renders ProductFilm, then masters its sound: the video stream is copied, the audio gets a gain and a limiter until the
-# final file measures about -14 LUFS (+-1) and at most -1.0 dBTP with ebur128. Run from anywhere: it works in video/.
+# final file measures within 0.4 LU of -14 LUFS and at most -1.0 dBTP with ebur128. Run from anywhere: it works in video/.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+for f in public/audio/Clean_Geometry.mp3 public/audio/Soft_Geometry.mp3; do
+  [ -f "$f" ] || { echo "missing $f: the film's music needs it" >&2; exit 1; }
+done
+
 RAW=out/renders/product-film-raw.mp4
 OUT=out/renders/product-film.mp4
+TMP=out/renders/product-film-pass.mp4
 TARGET=${TARGET_LUFS:--14}
 TOL=0.4
 CEIL=-1.0
+FRAMES=1800
 mkdir -p out/renders
+trap 'rm -f "$TMP"' EXIT
+rm -f "$RAW" "$OUT" "$TMP"
 
 npx kinetograph render src/index.tsx --comp ProductFilm -o "$RAW" --concurrency 4
 
@@ -20,20 +28,40 @@ measure() {
 }
 db_to_lin() { awk -v d="$1" 'BEGIN { printf "%.5f", 10 ^ (d / 20) }'; }
 
-read -r raw_i raw_tp <<<"$(measure "$RAW")"
+read -r raw_i raw_tp <<<"$(measure "$RAW")" || true
+if [ -z "${raw_i:-}" ] || [ -z "${raw_tp:-}" ]; then
+  echo "could not measure the loudness of $RAW" >&2
+  exit 1
+fi
 echo "raw:   $raw_i LUFS, true peak $raw_tp dBTP"
+
+# the mastered file must be the whole film with its sound
+verify() {
+  local v a
+  v=$(ffprobe -v error -select_streams v:0 -count_frames -show_entries stream=nb_read_frames -of csv=p=0 "$1" || true)
+  a=$(ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "$1" || true)
+  if [ "$v" != "$FRAMES" ] || [ -z "$a" ]; then
+    echo "$1 has ${v:-no} video frames and ${a:-no} audio stream; expected $FRAMES frames and audio" >&2
+    return 1
+  fi
+}
 
 gain=$(awk -v t="$TARGET" -v i="$raw_i" 'BEGIN { print t - i }')
 limit_db=-1.6
 for pass in 1 2 3 4 5 6 7 8; do
   ffmpeg -hide_banner -loglevel error -y -i "$RAW" -c:v copy \
     -af "volume=${gain}dB,alimiter=limit=$(db_to_lin "$limit_db"):attack=3:release=60:level=0" \
-    -c:a aac -b:a 320k -movflags +faststart "$OUT"
-  read -r i tp <<<"$(measure "$OUT")"
+    -c:a aac -b:a 320k -movflags +faststart "$TMP"
+  read -r i tp <<<"$(measure "$TMP")"
   echo "pass $pass: gain ${gain} dB, limit ${limit_db} dB -> $i LUFS, true peak $tp dBTP"
   ok_i=$(awk -v i="$i" -v t="$TARGET" -v tol="$TOL" 'BEGIN { d = i - t; print (d < tol && d > -tol) ? 1 : 0 }')
   ok_tp=$(awk -v p="$tp" -v c="$CEIL" 'BEGIN { print (p <= c) ? 1 : 0 }')
-  if [ "$ok_i" = 1 ] && [ "$ok_tp" = 1 ]; then echo "mastered: $OUT"; exit 0; fi
+  if [ "$ok_i" = 1 ] && [ "$ok_tp" = 1 ]; then
+    mv "$TMP" "$OUT"
+    verify "$OUT" || { rm -f "$OUT"; exit 1; }
+    echo "mastered: $OUT ($i LUFS, true peak $tp dBTP, $FRAMES frames, with audio)"
+    exit 0
+  fi
   if [ "$ok_tp" = 0 ]; then limit_db=$(awk -v l="$limit_db" -v p="$tp" -v c="$CEIL" 'BEGIN { print l - (p - c) - 0.1 }'); fi
   gain=$(awk -v g="$gain" -v i="$i" -v t="$TARGET" 'BEGIN { print g + (t - i) }')
 done

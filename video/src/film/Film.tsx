@@ -5,7 +5,7 @@ import { theme } from '../theme.ts';
 import { Headline, arrival } from './Headline.tsx';
 import { CloseShot } from './shots.tsx';
 import { Hero, SCREEN_DARK, StageShot } from './Stage.tsx';
-import { STAGE, cam21, cam30 } from './project.ts';
+import { CAM21, STAGE, cam21, cam30 } from './project.ts';
 import { END_CARD, CARD_X, TITLES, shotAt } from './timeline.ts';
 
 registerFont({ family: theme.font, weight: 400, path: staticFile('fonts/NotoSansTC-Regular.ttf') });
@@ -35,7 +35,7 @@ export const Film = () => {
         {shot.kind === 'phone' || (shot.kind === 'mac') ? <CloseShot id={shot.id} f={f} /> : null}
         {shot.kind === 'hero' && <Hero f={f} />}
         {shot.kind === 'stage' && shot.id !== '30' && <StageShot f={f} cam={cam21(f)} stage={STAGE} />}
-        {shot.kind === 'stage' && shot.id !== '30' && <Rect id="vignette" width={1920} height={1080} opacity={0.6 * Math.min(1, (f - 849) / 381)} fill={radialGradient([[0, '#00000000'], [0.5, '#00000000'], [1, '#000000e0']], { cx: 0.5, cy: 0.5, r: 0.8 })} />}
+        {shot.kind === 'stage' && shot.id !== '30' && <Rect id="vignette" width={1920} height={1080} opacity={0.6 * Math.min(1, (f - CAM21.at[0]) / (CAM21.at[1] - CAM21.at[0]))} fill={radialGradient([[0, '#00000000'], [0.5, '#00000000'], [1, '#000000e0']], { cx: 0.5, cy: 0.5, r: 0.8 })} />}
         {shot.id === '30' && <StageShot f={f} cam={cam30(f)} stage={STAGE} sink={false} phoneBg={SCREEN_DARK} />}
         {shot.kind === 'card' && <EndCard f={f} />}
         {scrim > 0 && <Rect id="scrim" width={1920} height={SCRIM_H} opacity={0.85 * scrim} fill={linearGradient(['#000000ff', '#000000b8', '#00000050', '#00000000'], { angle: 180 })} />}
