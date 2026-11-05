@@ -9,9 +9,9 @@
 
 | 項目 | 指令 | 結果 |
 |---|---|---|
-| 單元測試 | `npm test` | 175 項，175 通過，0 失敗 |
+| 單元測試 | `npm test` | 176 項，176 通過，0 失敗 |
 | 型別 | `kinetograph check src/index.tsx` | no type errors |
-| Lint | `kinetograph lint src/index.tsx --comp ProductIntro`，21 個 frame | 0 errors，1 warning |
+| Lint | `kinetograph lint src/index.tsx --comp ProductIntro`，28 個 frame | 0 errors，1 warning |
 | 不支援內容 | `kinetograph doctor src/index.tsx --comp ProductIntro` | 1830 幀全部 clean |
 | 影片規格 | `ffprobe` | H.264、1920×1080、30/1、1830 幀、61.000 秒 |
 | 音軌規格 | `ffprobe` | 一條 AAC，61.000 秒 |
@@ -34,7 +34,7 @@ Lint 的 warning 在第 1210 幀：右鍵選單的文字框和資料夾標籤重
 
 ## 二、畫面檢查（已完成）
 
-從 MP4 抽 48 幀，逐張檢查文字、裁切與個人資料，涵蓋全部 16 段字幕。
+修正前後各從 MP4 抽幀（48 幀與 29 幀），逐張檢查文字、裁切與個人資料，涵蓋全部 16 段字幕。
 
 | 檢查項目 | 結果 |
 |---|---|

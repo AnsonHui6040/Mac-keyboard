@@ -217,7 +217,6 @@ export const keyRect = (kb: KbName, key: string): R => {
   return toCanvas(kb, r);
 };
 export const centerOf = (r: R): { x: number; y: number } => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
-export const keyCenter = (kb: KbName, key: string): { x: number; y: number } => centerOf(keyRect(kb, key));
 
 /** The 即時 / 草稿 switch: its 草稿 half (image coordinates), and the 即時 half. */
 export const modeToggle = (kb: KbName, side: 'live' | 'draft'): R => ({ x: side === 'draft' ? 646 : 582, y: KB[kb].toolbarY + 2, w: 60, h: 45 });

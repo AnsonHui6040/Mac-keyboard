@@ -3,6 +3,8 @@ import { LOGIN } from './script.ts';
 import { LOGIN_FIELDS } from './layout.ts';
 
 export const LOGIN_START = { x: 770, y: 700 };
+/** The pointer is drawn from this frame (it fades in over 4 frames). */
+export const LOGIN_CURSOR_SHOWN = LOGIN.cursorFrom - 6;
 export const LOGIN_TARGET = { x: LOGIN_FIELDS.password.x + 300, y: LOGIN_FIELDS.password.y + 32 };
 const smooth = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
 
@@ -13,7 +15,7 @@ export const loginCursorAt = (frame: number): { x: number; y: number; visible: b
   return {
     x: LOGIN_START.x + (LOGIN_TARGET.x - LOGIN_START.x) * u,
     y: LOGIN_START.y + (LOGIN_TARGET.y - LOGIN_START.y) * u,
-    visible: frame >= LOGIN.cursorFrom - 6,
+    visible: frame >= LOGIN_CURSOR_SHOWN,
     press,
   };
 };

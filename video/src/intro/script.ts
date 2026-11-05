@@ -98,7 +98,7 @@ export const CUTS: readonly { t: number; fx: Fx }[] = [
 ];
 
 export const chapterOf = (frame: number): Chapter => layerAt(frame).chapter;
-const chapterOfPress = (t: number): Chapter => {
+export const chapterOfPress = (t: number): Chapter => {
   let c: Chapter = 0;
   for (let i = 1; i < CHAPTER_START.length; i++) if (t >= CHAPTER_START[i]) c = i as Chapter;
   return c;
@@ -127,7 +127,8 @@ const apply = (s: S, fx: Fx): { s: S; add: string } => {
 };
 
 type Item = { t: number; fx: Fx; press?: Press };
-const ITEMS: Item[] = [...PRESSES.map((p) => ({ t: p.t, fx: p.fx, press: p })), ...CUTS.map((c) => ({ t: c.t, fx: c.fx }))].sort((a, b) => a.t - b.t);
+/** Most keys act when they go down; the 觸控板 key acts when the finger lets go, so its press is seen on the keyboard it belongs to. */
+const ITEMS: Item[] = [...PRESSES.map((p) => ({ t: p.fx.k === 'pad' ? p.t + p.hold : p.t, fx: p.fx, press: p })), ...CUTS.map((c) => ({ t: c.t, fx: c.fx }))].sort((a, b) => a.t - b.t);
 
 export type MacOp = { frame: number; press: Press; add: string; chapter: Chapter };
 let opsCache: MacOp[] | null = null;
@@ -264,7 +265,7 @@ export const fingerAt = (frame: number): Finger => {
   if (i < 0) return { ...segs[0].a, visible: true, press: 0, opacity };
   const s = segs[i];
   if (frame < s.t1) {
-    const u = (frame - s.t0) / Math.max(1, s.t1 - s.t0 - (s.path ? 0 : 0));
+    const u = (frame - s.t0) / Math.max(1, s.t1 - s.t0);
     const pos = s.path ? s.path(Math.min(1, u)) : s.a;
     return { ...pos, visible: true, press: 1, opacity };
   }
@@ -276,5 +277,3 @@ export const fingerAt = (frame: number): Finger => {
   return { x: lerp(end.x, next.a.x, u), y: lerp(end.y, next.a.y, u), visible: true, press: 0, opacity };
 };
 
-// --- other timings of the picture ---
-export const caretOn = (frame: number, changedAt: number): boolean => (frame - changedAt < 12 ? true : Math.floor(frame / 15) % 2 === 0);

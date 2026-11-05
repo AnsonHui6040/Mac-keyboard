@@ -4,9 +4,9 @@ import { MacCursor } from '../components/MacCursor.tsx';
 import { Skel } from '../components/ios.tsx';
 import { theme } from '../theme.ts';
 import { DESKTOP, DISPLAY, LOGIN_FIELDS, LOGIN_WIN, MENU, TEXTEDIT, TITLEBAR } from './layout.ts';
-import { lastMacChange, macTextAt } from './script.ts';
-import { trackpadState } from './trackpad.ts';
-import { loginCursorAt, loginFocused } from './login.ts';
+import { LOGIN, lastMacChange, macTextAt } from './script.ts';
+import { CURSOR_FROM, WIN_SCALE_FROM, WIN_SCALE_TO, trackpadState } from './trackpad.ts';
+import { LOGIN_CURSOR_SHOWN, loginCursorAt, loginFocused } from './login.ts';
 import { roundedRectPath } from './shapes.ts';
 import type { Chapter } from './timeline.ts';
 
@@ -16,6 +16,8 @@ const MENU_FILL = '#1b1c20';
 const DOC_FILL = '#1e1f23';
 const CARET = '#2f7bf6';
 const LINE = 1.45;
+/** The typed lines of scenes 1 to 4 are under 600 px wide; a narrower text box keeps them clear of the desktop icons beside the window. */
+const DOC_TEXT_WIDTH = 700;
 const SCREEN = { x: DISPLAY.x + DISPLAY.inset, y: DISPLAY.y + DISPLAY.inset, w: DISPLAY.w - 2 * DISPLAY.inset, h: DISPLAY.h - 2 * DISPLAY.inset };
 
 export const MENU_FIRST = { textedit: ['文字編輯', '檔案', '編輯', '格式', '顯示方式', '視窗', '輔助說明'], login: ['登入', '檔案', '編輯', '視窗'] } as const;
@@ -48,7 +50,7 @@ export const Display = ({ menu, children }: { menu: readonly string[]; children:
 );
 
 // --- the TextEdit document ---
-const DocLines = ({ text, size, weight, x, y, caret, color = theme.ink }: { text: string; size: number; weight: 400 | 500 | 700; x: number; y: number; caret: boolean; color?: string }) => {
+const DocLines = ({ text, size, weight, x, y, caret, width, color = theme.ink }: { text: string; size: number; weight: 400 | 500 | 700; x: number; y: number; caret: boolean; width: number; color?: string }) => {
   const lines = text.split('\n');
   return (
     <Layer>
@@ -57,7 +59,7 @@ const DocLines = ({ text, size, weight, x, y, caret, color = theme.ink }: { text
         const shown = last ? l + '|' : l;
         if (shown === '') return null;
         return (
-          <Text key={i} font={theme.font} weight={weight} size={size} color={color} x={x} y={y + i * size * LINE} maxWidth={TEXTEDIT.w - 112}
+          <Text key={i} font={theme.font} weight={weight} size={size} color={color} x={x} y={y + i * size * LINE} maxWidth={width}
             chars={(_c: string, k: number) => (last && k === l.length ? { color: caret ? CARET : NONE } : null)}>{shown}</Text>
         );
       })}
@@ -121,7 +123,7 @@ export const Chapter0 = ({ at }: { at: number }) => {
   const text = macTextAt(at, 0);
   const changed = lastMacChange(at, 0);
   const caret = at - changed < 12 || Math.floor(at / 15) % 2 === 0;
-  const barsIn = Math.max(0, Math.min(1, (at - 912) / 24));
+  const barsIn = Math.max(0, Math.min(1, (at - WIN_SCALE_FROM) / (WIN_SCALE_TO - WIN_SCALE_FROM)));
   return (
     <Display menu={MENU_FIRST.textedit}>
       {at >= 900 && (
@@ -131,14 +133,14 @@ export const Chapter0 = ({ at }: { at: number }) => {
         </Layer>
       )}
       <TextWindow scale={t.winScale} scrollY={t.scrollY}>
-        <DocLines text={text} size={56} weight={500} x={56} y={96} caret={caret} />
+        <DocLines text={text} size={56} weight={500} x={56} y={96} caret={caret} width={DOC_TEXT_WIDTH} />
         <Layer opacity={barsIn}>
           {Array.from({ length: 10 }, (_, i) => <Skel key={i} x={56} y={596 + i * 46} w={[640, 520, 700, 460, 610, 380, 680, 540, 590, 420][i]} tone="#4b4c52" />)}
         </Layer>
       </TextWindow>
       {t.menuOpen && <ContextMenu x={t.menuPos.x} y={t.menuPos.y} />}
       {t.cursorVisible && (
-        <Layer id="cursor-fade" opacity={Math.min(1, (at - 949) / 4)}>
+        <Layer id="cursor-fade" opacity={Math.min(1, (at - CURSOR_FROM + 1) / 4)}>
           <MacCursor id="cursor" state={{ x: t.cursor.x, y: t.cursor.y, visible: true, press: t.cursorPress }} />
         </Layer>
       )}
@@ -166,12 +168,12 @@ export const Chapter1 = ({ at }: { at: number }) => {
         <Text font={theme.font} weight={500} size={28} color={theme.muted} x={F.account.x} y={F.account.y - 52} maxWidth={300}>帳號</Text>
         <Field r={F.account} focused={false} caretOn={false}><Skel x={F.account.x + 24} y={F.account.y + 24} w={230} /></Field>
         <Text font={theme.font} weight={500} size={28} color={theme.muted} x={F.password.x} y={F.password.y - 52} maxWidth={300}>密碼</Text>
-        <Field r={F.password} focused={focused} caretOn={Math.floor((at - 1358) / 15) % 2 === 0} />
+        <Field r={F.password} focused={focused} caretOn={Math.floor((at - LOGIN.click) / 15) % 2 === 0} />
         <Rect x={F.button.x} y={F.button.y} width={F.button.w} height={F.button.h} radius={14} fill={theme.blue} />
         <Text font={theme.font} weight={500} size={30} color="#ffffff" x={F.button.x} y={F.button.y + (F.button.h - 30 * LINE) / 2} maxWidth={F.button.w} align="center">登入</Text>
       </MacWindow>
       {cur.visible && (
-        <Layer id="cursor-fade" opacity={Math.min(1, (at - 1333) / 4)}>
+        <Layer id="cursor-fade" opacity={Math.min(1, (at - LOGIN_CURSOR_SHOWN + 1) / 4)}>
           <MacCursor id="cursor" state={{ x: cur.x, y: cur.y, visible: true, press: cur.press }} />
         </Layer>
       )}
@@ -180,13 +182,15 @@ export const Chapter1 = ({ at }: { at: number }) => {
 };
 
 // --- chapter 2: scene 6, the product name and where to get it ---
+/** The version and the two links fade in at SHOW_AT; the caret stops blinking at TYPING_ENDS so the last frames stand still. */
 const SHOW_AT = 1615;
+const TYPING_ENDS = 1640;
 const SHOW_FRAMES = 12;
 export const PRODUCT_CAPTION_LAYOUT = { pill: { x: 56, y: 262, w: 330, h: 72 }, rows: [{ label: '下載', url: 'github.com/AnsonHui6040/Mac-keyboard', y: 396 }, { label: '安裝教學', url: 'youtu.be/dGhEuzRpAEg', y: 540 }] } as const;
 
 export const Chapter2 = ({ at }: { at: number }) => {
   const text = macTextAt(at, 2);
-  const typing = at < 1640;
+  const typing = at < TYPING_ENDS;
   const caret = typing && (at - lastMacChange(at, 2) < 12 || Math.floor(at / 15) % 2 === 0);
   const u = Math.max(0, Math.min(1, (at - SHOW_AT) / SHOW_FRAMES));
   const e = u * u * (3 - 2 * u);
@@ -194,7 +198,7 @@ export const Chapter2 = ({ at }: { at: number }) => {
   return (
     <Display menu={MENU_FIRST.textedit}>
       <TextWindow scale={1}>
-        <DocLines text={text} size={96} weight={700} x={56} y={96} caret={caret} />
+        <DocLines text={text} size={96} weight={700} x={56} y={96} caret={caret} width={TEXTEDIT.w - 112} />
         <Layer id="product-info" opacity={e} y={(1 - e) * 14}>
           <Rect x={L.pill.x} y={L.pill.y} width={L.pill.w} height={L.pill.h} radius={L.pill.h / 2} fill={NONE} stroke={{ color: '#febc2e', width: 3 }} />
           <Text font={theme.font} weight={700} size={40} color="#febc2e" x={L.pill.x} y={L.pill.y + (L.pill.h - 40 * LINE) / 2} maxWidth={L.pill.w} align="center">v0.1.0 Alpha</Text>

@@ -2,6 +2,8 @@
  * Registers the product intro's sound: one onFrame call per frame that has events, at ProductIntro frames. The effects registry is
  * global (every composition's render runs every callback), so a callback plays only into a context exactly as long as ProductIntro.
  * The install film's own register.ts plays only into a context as long as Main, which is longer than ProductIntro, so the two never mix.
+ * The test is the context length, so a render of only part of ProductIntro (`--range`) has no sound; and a render of Main limited to exactly
+ * 1830 frames has a context of the same length and would play this sound.
  */
 import { onFrame } from '@kinetographdev/audio';
 import { FPS, FRAMES } from './timeline.ts';

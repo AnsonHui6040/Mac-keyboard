@@ -6,9 +6,10 @@ import { sceneFrames } from '../data/scenes/index.ts';
 import { SCENES as FILM_SCENES } from '../data/scenes/index.ts';
 import { CHANGE_FRAMES, CHAPTER_START, FORBIDDEN, FPS, FRAMES, SCENES, SCREEN_TEXT, captionAt, captionLength, layerAt } from './timeline.ts';
 import { DISPLAY, KB, MENU, PHONE, keyRect, kbTop } from './layout.ts';
-import { MAC_DELAY, PRESSES, TYPED_DEMO, fingerAt, macOps, macTextAt, phoneAt, pressRect } from './script.ts';
-import { FINGER_GAP, GAIN, MENU_OFFSET, PAD, RING_RADIUS, TRACKPAD_EVENTS, trackpadState } from './trackpad.ts';
+import { MAC_DELAY, PAD_AT, PRESSES, TYPED_DEMO, fingerAt, macOps, macTextAt, phoneAt, pressRect } from './script.ts';
+import { FINGERS_FROM, FINGER_GAP, GAIN, MENU_OFFSET, PAD, RING_RADIUS, TRACKPAD_EVENTS, trackpadState } from './trackpad.ts';
 import { isIntroContext, soundEvents } from './sounds.ts';
+import { fingerSource } from './fingers.ts';
 import { HW_CANDIDATE_DELAY, STROKES, strokeSchedule } from './ink.ts';
 
 // --- the script table is the only source for times and captions ---
@@ -159,12 +160,30 @@ test('the sound registration plays only into a context exactly as long as Produc
 
 test('the finger rests on the key it presses at the moment of the press', () => {
   for (const p of PRESSES) {
-    if (p.t >= 900 && p.t < 1320) continue;
     const f = fingerAt(p.t);
     assert.ok(f.visible && f.press > 0, `${p.label} at ${p.t}`);
     const r = pressRect(p);
     assert.ok(f.x >= r.x && f.x <= r.x + r.w && f.y >= r.y && f.y <= r.y + r.h, `${p.label} at ${p.t}: finger ${f.x},${f.y}`);
   }
+});
+
+test('the press on 觸控板 is drawn: the phone finger stays until the pad fingers take over, never both, never none in between', () => {
+  const press = PRESSES.find((p) => p.t === PAD_AT)!;
+  assert.equal(press.key, 'trackpadBtn');
+  for (let f = 900; f < FINGERS_FROM; f++) assert.equal(fingerSource(f, 0), 'phone', `frame ${f}`);
+  assert.equal(fingerSource(FINGERS_FROM, 0), 'pad');
+  const at = fingerAt(PAD_AT);
+  assert.ok(at.visible && at.press > 0 && at.opacity > 0.9);
+  assert.ok(fingerAt(899).visible && fingerAt(900).visible, 'the finger does not vanish at 900');
+  assert.ok(!fingerAt(FINGERS_FROM).visible, 'the phone finger is gone before the pad fingers appear');
+  for (let f = 900; f < 1320; f++) {
+    const phone = fingerSource(f, 0) === 'phone' && fingerAt(f).visible;
+    const pad = fingerSource(f, 0) === 'pad' && trackpadState(f).fingers.length > 0;
+    assert.ok(!(phone && pad), `frame ${f}: two finger sets`);
+  }
+  const hold = press.hold;
+  assert.equal(phoneAt(PAD_AT + hold - 1).kb, 'quick', 'the key is seen pressed on the old keyboard');
+  assert.equal(phoneAt(PAD_AT + hold).kb, 'trackpad', 'the picture cuts when the finger lets go');
 });
 
 // --- handwriting ---
@@ -193,8 +212,6 @@ test('the Mac cursor moves exactly gain times the finger, one frame later', () =
     const a = trackpadState(f - 2);
     const b = trackpadState(f - 1);
     const c = trackpadState(f);
-    const p = trackpadState(f - 1);
-    void p;
     if (!a.fingers[0] || !b.fingers[0] || !a.fingers[0].down || !b.fingers[0].down) {
       // no finger down in the previous two frames: the cursor must stand still unless a drag or scroll is being undone
       assert.ok(Math.abs(c.cursor.x - b.cursor.x) < 1e-9 && Math.abs(c.cursor.y - b.cursor.y) < 1e-9, `frame ${f} moved without a finger`);

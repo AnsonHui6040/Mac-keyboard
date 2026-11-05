@@ -4,7 +4,8 @@ import { TapDot } from '../components/TapDot.tsx';
 import { theme } from '../theme.ts';
 import { COLORS, HW_CAND, KB, KEY_LABEL, PHONE, QUICK_BAR, QUICK_ROOT, draftField, kbTop, quickCenter, type KbName, type R } from './layout.ts';
 import { INK_WIDTH, STROKES, partialStroke, strokeSchedule } from './ink.ts';
-import { PRESSES, fingerAt, phoneAt, type Press, type PhoneState } from './script.ts';
+import { PRESSES, chapterOfPress, fingerAt, phoneAt, type Press, type PhoneState } from './script.ts';
+import { fingerSource } from './fingers.ts';
 import { trackpadState } from './trackpad.ts';
 import { panelPath, polyline, rectPath, roundedRectPath } from './shapes.ts';
 import type { Chapter } from './timeline.ts';
@@ -53,6 +54,14 @@ const Pressed = ({ kb, press }: { kb: KbName; press: Press }) => {
             <Text font={theme.font} weight={500} size={20} color="#ffffffcc" x={r.x + r.w - 26} y={r.y + 6} maxWidth={20} align="center">{press.key.toUpperCase()}</Text>
           </Layer>
         ) : <Glyph r={r} text={ch} size={46} />}
+      </Layer>
+    );
+  }
+  if (fx.k === 'pad') {
+    return (
+      <Layer>
+        <Rect x={r.x} y={r.y} width={r.w} height={r.h} radius={11} fill={COLORS.letter} />
+        <Glyph r={r} text="觸控板" size={28} />
       </Layer>
     );
   }
@@ -167,7 +176,7 @@ const Underlay = () => {
 const Keyboard = ({ at, chapter, state }: { at: number; chapter: Chapter; state: PhoneState }) => {
   const kb = state.kb;
   const info = KB[kb];
-  const down = PRESSES.find((p) => at >= p.t && at < p.t + p.hold && (p.t >= 1320 ? (p.t >= 1530 ? 2 : 1) : 0) === chapter);
+  const down = PRESSES.find((p) => at >= p.t && at < p.t + p.hold && chapterOfPress(p.t) === chapter);
   const hasDraft = info.rowY !== null;
   return (
     <>
@@ -188,7 +197,7 @@ const Keyboard = ({ at, chapter, state }: { at: number; chapter: Chapter; state:
 export const Phone = ({ at, chapter }: { at: number; chapter: Chapter }) => {
   const state = phoneAt(at, chapter);
   const showBox = kbTop(state.kb) >= 216;
-  const onPad = chapter === 0 && at >= 900 && at < 1320;
+  const onPad = fingerSource(at, chapter) === 'pad';
   const track = onPad ? trackpadState(at) : null;
   const finger = onPad ? null : fingerAt(at);
   return (

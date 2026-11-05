@@ -44,6 +44,9 @@ const SEGS: Seg[] = [
   { t0: 1304, t1: 1308, a: S1, b: S1, ease: false, two: SECOND.scroll },
 ];
 
+/** The cursor fades in over 4 frames from CURSOR_FROM and is there until CURSOR_TO; the pad fingers show from FINGERS_FROM. */
+export const CURSOR_FROM = 950;
+export const CURSOR_TO = 1320;
 export const FINGERS_FROM = 952;
 export const FINGERS_TO = 1316;
 const GLIDE = 8;
@@ -159,7 +162,7 @@ export const trackpadState = (frame: number): TrackState => {
     fingers,
     fingerOpacity,
     cursor,
-    cursorVisible: frame >= 950 && frame < 1320,
+    cursorVisible: frame >= CURSOR_FROM && frame < CURSOR_TO,
     cursorPress,
     fileSelected: frame >= select,
     filePos: fileLifted ? cursor : frame >= drop ? cursorAt(drop) : { ...FILE },
