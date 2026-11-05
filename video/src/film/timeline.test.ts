@@ -14,8 +14,8 @@ const rows = doc.split('\n').filter((l) => /^\| (\d+(?:[a-f]|–\d+)?) \| \d+\.\
 
 test('the shots are the storyboard rows, in order, in frames = seconds times 30', () => {
   assert.equal(FPS, 30);
-  assert.equal(FRAMES, 1800);
-  const real = rows.filter((r) => r.id !== '24–27');
+  assert.equal(FRAMES, 1515);
+  const real = rows;
   const byId = new Map(SHOTS.map((s) => [s.id, s]));
   for (const r of real) {
     const s = byId.get(r.id)!;
@@ -28,16 +28,9 @@ test('the shots are the storyboard rows, in order, in frames = seconds times 30'
   assert.deepEqual(ids.filter((i) => order.includes(i)), order);
 });
 
-test('shots 24 to 27 split the 43.2 to 45.4 stretch into four, phone and Mac alternating, starting with the phone', () => {
-  const four = ['24', '25', '26', '27'].map((id) => SHOTS.find((s) => s.id === id)!);
-  assert.equal(four[0].from, 1296);
-  assert.equal(four[3].to, 1362);
-  assert.deepEqual(four.map((s) => s.kind), ['phone', 'mac', 'phone', 'mac']);
-});
-
-test('the shots cover 0 to 1800 without a gap or an overlap, and every frame has exactly one shot', () => {
+test('the shots cover 0 to 1515 without a gap or an overlap, and every frame has exactly one shot', () => {
   assert.equal(SHOTS[0].from, 0);
-  assert.equal(SHOTS[SHOTS.length - 1].to, 1800);
+  assert.equal(SHOTS[SHOTS.length - 1].to, 1515);
   for (let i = 1; i < SHOTS.length; i++) assert.equal(SHOTS[i].from, SHOTS[i - 1].to, SHOTS[i].id);
   for (const s of SHOTS) assert.ok(s.to > s.from, s.id);
   for (let f = 0; f < FRAMES; f++) assert.ok(shotAt(f).from <= f && f < shotAt(f).to);
@@ -51,7 +44,7 @@ test('every title is at most 7 characters a second, at least 76 px, and starts a
     assert.ok(t.size >= 76, `${t.text}: size ${t.size}`);
     assert.ok(t.from >= 0 && t.to <= FRAMES);
   }
-  assert.equal(captionLength('部分終端機與遠端桌面偵測不到'), 14);
+  assert.equal(captionLength('用 iPhone 打字到 Mac'), 6);
 });
 
 test('the titles are the storyboard titles with the storyboard seconds', () => {
@@ -59,7 +52,6 @@ test('the titles are the storyboard titles with the storyboard seconds', () => {
     ['人不在 Mac 前卻要打字', 0.6, 2.8], ['用 iPhone 打字到 Mac', 4.0, 6.4], ['即時模式每按一個鍵就送出', 6.4, 9.0],
     ['草稿模式先改好再傳送', 10.2, 13.2], ['中文可以用手寫', 17.7, 20.5], ['也可以在 App 改用速成', 24.1, 26.8],
     ['一指移動游標', 29.0, 31.2], ['輕點就是點按', 31.2, 32.8], ['按住再拖曳', 32.8, 35.4], ['兩指輕點是右鍵', 35.4, 37.7], ['兩指滑動來捲動', 37.7, 41.0],
-    ['系統標示的密碼欄不會輸入文字', 42.2, 45.4], ['部分終端機與遠端桌面偵測不到', 45.4, 48.3], ['請不要用這個鍵盤輸入密碼', 48.3, 50.5],
   ];
   assert.deepEqual(TITLES.map((t) => [t.text, t.from, t.to]), want.map(([a, b, c]) => [a, Math.round(b * FPS), Math.round(c * FPS)]));
   for (const [text] of want) assert.ok(doc.includes(text), text);
@@ -91,11 +83,26 @@ test('no on-screen string of the screens, the state, the events or the layout ho
     }
   }
   assert.ok(checked > 100, `only ${checked} strings were read`);
-  assert.ok(screenStrings('PhoneScreen.tsx').includes('密碼不能輸入'), 'the scan reads the strings of the screens');
+  assert.ok(screenStrings('PhoneScreen.tsx').includes('空白'), 'the scan reads the strings of the screens');
   assert.ok(hasBanned('a，b中', '，') && !hasBanned('f(a, b)', ',') && hasBanned('中, 文', ','));
 });
 
-test('the end card is the storyboard table: seven lines, two layers at 54.0 and 56.0, with the sizes', () => {
+test('no on-screen string anywhere in the film mentions a password', () => {
+  const copy = [...TITLES.map((t) => t.text), ...END_CARD.map((c) => c.text)];
+  for (const file of ['PhoneScreen.tsx', 'MacScreen.tsx', 'state.ts', 'events.ts', 'layout.ts', 'Film.tsx', 'Stage.tsx', 'Headline.tsx', 'Fingers.tsx', 'timeline.ts', 'shots.tsx', 'cameras.ts']) copy.push(...screenStrings(file).filter((t) => !FORBIDDEN.includes(t)));
+  assert.ok(copy.length > 100);
+  for (const text of copy) assert.ok(!text.includes('密碼'), `"${text}"`);
+});
+
+test('shots 30 and 31 run 41.0 to 44.5 and 44.5 to 50.5, and the film is 50.5 s', () => {
+  const s30 = SHOTS.find((s) => s.id === '30')!;
+  const s31 = SHOTS.find((s) => s.id === '31')!;
+  assert.deepEqual([s30.from, s30.to, s31.from, s31.to], [1230, 1335, 1335, 1515]);
+  assert.equal(SHOTS.find((s) => s.id === '21f')!.to, s30.from, 'the cut from 21f to shot 30 is direct');
+  assert.ok(!SHOTS.some((s) => Number(s.id) >= 22 && Number(s.id) <= 29), 'shots 22 to 29 are gone');
+});
+
+test('the end card is the storyboard table: seven lines, two layers at 44.5 and 46.5, with the sizes', () => {
   const table = doc.slice(doc.indexOf('## 第 31 鏡字卡'));
   const lines = table.split('\n').filter((l) => /^\| \d+\.\d \| /.test(l)).map((l) => {
     const c = l.split('|').map((s) => s.trim());
@@ -103,7 +110,7 @@ test('the end card is the storyboard table: seven lines, two layers at 54.0 and 
   });
   assert.equal(lines.length, 7);
   assert.deepEqual(END_CARD.map((c) => ({ at: c.at, text: c.text, size: c.size })), lines);
-  assert.deepEqual([...new Set(END_CARD.map((c) => c.at))], [1620, 1680]);
+  assert.deepEqual([...new Set(END_CARD.map((c) => c.at))], [1335, 1395]);
 });
 
 test('titles never overlap each other in time', () => {

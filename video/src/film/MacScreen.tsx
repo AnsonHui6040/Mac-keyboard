@@ -1,13 +1,11 @@
 /**
- * The Mac screen, 1280 by 800, drawn live: the desktop with a document, the file and the folder of shot 21, the login window, the
- * remote desktop window. Colours are the product's only (no red, yellow or blue on the Mac side), the window buttons are grey.
+ * The Mac screen, 1280 by 800, drawn live: the desktop with a document, the file and the folder of shot 21. Colours are the product's only (no red, yellow or blue on the Mac side), the window buttons are grey.
  */
 import { Ellipse, Layer, Path, Rect, Text, dropShadow } from '@kinetographdev/core';
 import { theme } from '../theme.ts';
 import { roundedRectPath } from '../intro/shapes.ts';
-import { CURSOR, DOC, FOLDER_ITEMS, FOLDER_WIN, ICON, LOGIN_FIELDS, LOGIN_WIN, MAC, MENU, REMOTE_FIELD, REMOTE_WIN } from './layout.ts';
+import { CURSOR, DOC, DOC_BIG, FOLDER_ITEMS, FOLDER_WIN, ICON, MAC, MENU } from './layout.ts';
 import { macAt, type MacState } from './state.ts';
-import { textWidth } from './metrics.ts';
 
 const NONE = '#00000000';
 const LINE = 1.45;
@@ -19,10 +17,9 @@ const PAPER = '#1e1f23';
 const EDGE = '#4a4b50';
 const SOFT = '#ffffff24';
 const ARROW = 'M0 0 L0 29 L7 22.5 L12 34 L17.5 31.5 L12.5 20.5 L22 20.5 Z';
-const DOC_BIG = 72;
 const ease = (u: number): number => (u <= 0 ? 0 : u >= 1 ? 1 : 1 - (1 - u) ** 3);
 
-const MENUS = { doc: ['文字編輯', '檔案', '編輯', '格式', '顯示方式', '視窗', '輔助說明'], login: ['登入', '檔案', '編輯', '視窗'], remote: ['遠端桌面', '檔案', '編輯', '視窗'] } as const;
+const MENU_ITEMS = ['文字編輯', '檔案', '編輯', '格式', '顯示方式', '視窗', '輔助說明'] as const;
 
 const MenuBar = ({ items }: { items: readonly string[] }) => {
   let x = 28;
@@ -151,79 +148,21 @@ const FolderWindow = ({ u, scrollY }: { u: number; scrollY: number }) => {
   );
 };
 
-// --- the login window and the remote desktop window ---
-const Field = ({ r, focused, caretOn, children }: { r: { x: number; y: number; w: number; h: number }; focused: boolean; caretOn: boolean; children?: React.ReactNode }) => (
-  <Layer>
-    <Rect x={r.x} y={r.y} width={r.w} height={r.h} radius={14} fill="#17181b" stroke={{ color: focused ? '#e6e7ea' : EDGE, width: focused ? 4 : 2 }} />
-    {children}
-    {focused && <Rect x={r.x + 22} y={r.y + 14} width={3} height={r.h - 28} fill={caretOn ? INK : NONE} />}
-  </Layer>
-);
-const Skel = ({ x, y, w }: { x: number; y: number; w: number }) => <Rect x={x} y={y} width={w} height={16} radius={8} fill="#4b4c52" />;
-
-const LoginWindow = ({ m, f }: { m: MacState; f: number }) => {
-  const F = LOGIN_FIELDS;
-  return (
-    <Layer>
-      <Window x={LOGIN_WIN.x} y={LOGIN_WIN.y} w={LOGIN_WIN.w} h={LOGIN_WIN.h} title="登入" />
-      <Text font={theme.font} weight={500} size={26} color={MUTED} x={F.account.x} y={F.account.y - 46} maxWidth={300}>帳號</Text>
-      <Field r={F.account} focused={false} caretOn={false}><Skel x={F.account.x + 24} y={F.account.y + 24} w={230} /></Field>
-      <Text font={theme.font} weight={500} size={26} color={MUTED} x={F.password.x} y={F.password.y - 46} maxWidth={300}>密碼</Text>
-      <Field r={F.password} focused={m.loginFocused} caretOn={Math.floor(f / 15) % 2 === 0} />
-      <Rect x={F.button.x} y={F.button.y} width={F.button.w} height={F.button.h} radius={14} fill="#4a4b50" />
-      <Text font={theme.font} weight={500} size={28} color="#ffffff" x={F.button.x} y={F.button.y + (F.button.h - 28 * LINE) / 2} maxWidth={F.button.w} align="center">登入</Text>
-    </Layer>
-  );
-};
-
-const RemoteWindow = ({ m, f }: { m: MacState; f: number }) => {
-  const R = REMOTE_WIN;
-  const F = REMOTE_FIELD;
-  const blink = Math.floor(f / 15) % 2 === 0;
-  const dotsW = m.dots * 46;
-  return (
-    <Layer>
-      <Window x={R.x} y={R.y} w={R.w} h={R.h} bar={R.bar} title="遠端桌面" />
-      <Rect x={R.x + 20} y={R.y + R.bar + 18} width={R.w - 40} height={R.h - R.bar - 38} radius={14} fill="#15161a" />
-      <Rect x={R.x + 200} y={R.y + R.bar + 78} width={R.w - 400} height={R.h - R.bar - 158} radius={18} fill="#202125" stroke={{ color: '#34363b', width: 2 }} />
-      <Text font={theme.font} weight={500} size={26} color={MUTED} x={F.x} y={F.y - 54} maxWidth={300}>密碼</Text>
-      <Field r={F} focused caretOn={false}>
-        {Array.from({ length: m.dots }, (_, i) => <Ellipse key={i} x={F.x + 30 + i * 46} y={F.y + F.h / 2 - 12} width={24} height={24} fill="#ffffff" />)}
-        <Rect x={F.x + 32 + dotsW - 8 * (m.dots > 0 ? 0 : 1)} y={F.y + 16} width={3} height={F.h - 32} fill={blink ? INK : NONE} />
-      </Field>
-    </Layer>
-  );
-};
-
 /** The Mac at a frame. */
 /** `stage` is true in the 3D shots, where the pointer is drawn larger so it is at least 44 px on the frame. */
 export const MacScreen = ({ f, stage = false }: { f: number; stage?: boolean }) => {
   const m = macAt(f);
   const t = m.track;
-  const menu = m.screen === 'login' ? MENUS.login : m.screen === 'remote' ? MENUS.remote : MENUS.doc;
   return (
     <Layer>
       <Rect width={MAC.w} height={MAC.h} fill="#24262b" />
-      {(m.screen === 'doc' || m.screen === 'doc2') && (
-        <Layer>
-          <DocWindow m={m} big={m.screen === 'doc2'} />
-          {m.screen === 'doc' && <FileIcon x={t ? t.filePos.x : ICON.file.x} y={t ? t.filePos.y : ICON.file.y} selected={!!t && (t.fileSelected || t.fileLifted)} lifted={!!t && t.fileLifted} shrink={t ? t.fileDrop : 0} />}
-          <FolderIcon x={ICON.folder.x} y={ICON.folder.y} />
-          {t && t.folderU > 0 && <FolderWindow u={t.folderU} scrollY={t.scrollY} />}
-          {t && t.menuOpen && <ContextMenu x={t.menuPos.x} y={t.menuPos.y} hover={t.menuHover} />}
-        </Layer>
-      )}
-      {m.screen === 'login' && <LoginWindow m={m} f={f} />}
-      {m.screen === 'remote' && <RemoteWindow m={m} f={f} />}
-      <MenuBar items={menu} />
+      <DocWindow m={m} big={m.screen === 'doc2'} />
+      {m.screen === 'doc' && <FileIcon x={t ? t.filePos.x : ICON.file.x} y={t ? t.filePos.y : ICON.file.y} selected={!!t && (t.fileSelected || t.fileLifted)} lifted={!!t && t.fileLifted} shrink={t ? t.fileDrop : 0} />}
+      <FolderIcon x={ICON.folder.x} y={ICON.folder.y} />
+      {t && t.folderU > 0 && <FolderWindow u={t.folderU} scrollY={t.scrollY} />}
+      {t && t.menuOpen && <ContextMenu x={t.menuPos.x} y={t.menuPos.y} hover={t.menuHover} />}
+      <MenuBar items={MENU_ITEMS} />
       {m.cursor && m.cursor.opacity > 0 && <Cursor x={m.cursor.x} y={m.cursor.y} opacity={m.cursor.opacity} press={m.cursor.press} scale={stage ? CURSOR.stage : CURSOR.close} />}
     </Layer>
   );
-};
-
-/** x and y of the caret of the last line of the document, on the Mac screen (for the camera). */
-export const caretAt = (lines: string[], big = false): { x: number; y: number } => {
-  const size = big ? DOC_BIG : DOC.size;
-  const i = lines.length - 1;
-  return { x: DOC.textX + textWidth(lines[i], size, big ? 700 : 500), y: (big ? DOC.textY - 4 : DOC.textY) + i * size * LINE + (size * LINE) / 2 };
 };

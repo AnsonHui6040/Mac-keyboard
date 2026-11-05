@@ -1,7 +1,8 @@
 /**
  * The music: three stretches of two files (the files are not committed, public/audio is ignored), each one hard cut by the edit.
- * The beat grid of Clean Geometry sits at 0.058 s + n * 0.5 s, the film's bars start at 3.0 s, so source second = film second - 6.942;
- * the second stretch is moved by a further 6 s so that the lift of the source at 16.058 s falls on 29.0 s. Pure: node can import it.
+ * Clean Geometry is audible from its first 0.1 s, so the film opens with it: film second 0.0 plays source 0.058 s, the first beat of
+ * its grid (0.058 s + n * 0.5 s). The second stretch is moved by 12.942 s so that the lift of the source at 16.058 s falls on 29.0 s.
+ * Soft Geometry plays its tail from 41.5 s (source second = film second + 13.5). Pure: node can import it.
  */
 import { soundEvents } from './events.ts';
 import { FPS } from './timeline.ts';
@@ -15,9 +16,9 @@ const seg = (id: string, file: string, from: number, to: number, shift: number, 
 /** Overall level of the music, set by measuring the render. */
 export const MUSIC_TRIM = 1.1;
 export const MUSIC: readonly MusicSegment[] = [
-  seg('clean-a', 'audio/Clean_Geometry.mp3', 7.0, 12.2, 6.942, 0.62 * MUSIC_TRIM),
+  seg('clean-a', 'audio/Clean_Geometry.mp3', 0, 12.2, -0.058, 0.5 * MUSIC_TRIM),
   seg('clean-b', 'audio/Clean_Geometry.mp3', 16.0, 41.0, 12.942, 0.5 * MUSIC_TRIM),
-  seg('soft', 'audio/Soft_Geometry.mp3', 51.0, 59.0, -4, 0.7 * MUSIC_TRIM),
+  seg('soft', 'audio/Soft_Geometry.mp3', 41.5, 49.5, -13.5, 0.45 * MUSIC_TRIM),
 ];
 export const trimFrames = (id: string): number => MUSIC.find((m) => m.id === id)!.trimBefore;
 

@@ -4,11 +4,11 @@ import { readFileSync } from 'node:fs';
 import { FILM_FRAMES, SCENES as INSTALL_SCENES, sceneFrames } from '../data/scenes/index.ts';
 import { FRAMES as INTRO_FRAMES } from '../intro/timeline.ts';
 import { FRAMES, SHOTS, shotAt } from './timeline.ts';
-import { CHAPTER_START, HW_CANDIDATES_AT, INK, LOGIN, MAC_DELAY, MAC_DELAY_EXCEPTION, PRESSES, SWIPES, chapterOf, isFilmContext, soundEvents, type SoundKind } from './events.ts';
+import { CHAPTER_START, HW_CANDIDATES_AT, INK, MAC_DELAY, MAC_DELAY_EXCEPTION, PRESSES, SWIPES, chapterOf, isFilmContext, soundEvents, type SoundKind } from './events.ts';
 import { macOps } from './state.ts';
 
 test('every press is at a whole frame inside its chapter, sorted, and a chapter starts where the table says', () => {
-  assert.deepEqual([...CHAPTER_START], [0, 1230, 1362, 1515]);
+  assert.deepEqual([...CHAPTER_START], [0, 1230]);
   for (let i = 0; i < PRESSES.length; i++) {
     const p = PRESSES[i];
     assert.ok(Number.isInteger(p.t) && p.t >= 0 && p.t + p.hold <= FRAMES, `${p.label} at ${p.t}`);
@@ -44,29 +44,28 @@ test('each typed key has a sound at its own frame; letters make key, function ke
   const ev = soundEvents();
   for (const p of PRESSES) assert.ok(ev.some((e) => e.frame === p.t && e.kind === p.snd), `${p.label} at ${p.t}`);
   for (const p of PRESSES) {
-    const letter = p.fx.k === 'char' || p.fx.k === 'code' || p.fx.k === 'blockedkey' || p.fx.k === 'remotekey';
+    const letter = p.fx.k === 'char' || p.fx.k === 'code';
     assert.equal(p.snd, letter ? 'key' : 'tap', `${p.label} at ${p.t}`);
   }
 });
 
-test('good sounds the frame the sentence lands, which is the first frame of the Mac shot; bad, click and success are where the plan says', () => {
+test('good sounds the frame the sentence lands, which is the first frame of the Mac shot; success is where the plan says', () => {
   const ev = soundEvents();
   const good = ev.filter((e) => e.kind === 'good').map((e) => e.frame);
   assert.deepEqual(good, [480, 693, 807]);
   for (const g of good) assert.equal(shotAt(g).from, g, 'the cut and the landing are the same frame');
   const sends = PRESSES.filter((p) => p.fx.k === 'send' && p.chapter === 0);
   assert.deepEqual(sends.map((s) => s.t + MAC_DELAY), good);
-  assert.deepEqual(ev.filter((e) => e.kind === 'bad').map((e) => e.frame), [LOGIN.blocked]);
-  const last = PRESSES.filter((p) => p.chapter === 3).pop()!;
+  assert.ok(!ev.some((e) => (e.kind as string) === 'bad'), 'there is no error sound any more');
+  const last = PRESSES.filter((p) => p.chapter === 1).pop()!;
   assert.deepEqual(ev.filter((e) => e.kind === 'success').map((e) => e.frame), [last.t + MAC_DELAY]);
-  assert.equal(last.t + MAC_DELAY, 1590, 'success at 53.0 s');
+  assert.equal(last.t + MAC_DELAY, 1305, 'success at 43.5 s');
 });
 
 const ALLOWED: Record<string, SoundKind[]> = {
   '1': [], '2': ['tap', 'key'], '3': [], '4': ['key'], '5': [], '6': ['key'], '7': ['key', 'tap'], '8': ['tap'], '9': ['key', 'tap'], '10': [],
   '11': ['tap', 'key'], '12': ['tap'], '13': ['good'], '14': ['tap'], '15': ['ink'], '16': ['tap'], '17': ['good'], '18': ['key', 'tap'], '19': ['good'], '20': ['tap'],
-  '21a': [], '21b': [], '21c': ['tap', 'click'], '21d': ['click'], '21e': ['tap', 'click'], '21f': [], '22': ['click'], '23': ['bad'],
-  '24': ['key'], '25': [], '26': ['key'], '27': [], '28': ['key'], '29': [], '30': ['key', 'tap', 'success'], '31': [],
+  '21a': [], '21b': [], '21c': ['tap', 'click'], '21d': ['click'], '21e': ['tap', 'click'], '21f': [], '30': ['key', 'tap', 'success'], '31': [],
 };
 test('every sound falls in a shot whose sound column allows its kind; the silent shots are silent', () => {
   for (const e of soundEvents()) assert.ok(ALLOWED[shotAt(e.frame).id].includes(e.kind), `${e.kind} at ${e.frame} in shot ${shotAt(e.frame).id}`);
@@ -107,9 +106,12 @@ test('quick: swipes follow the two roots and come before the second pick; the th
   assert.ok(pick.t > SWIPES[2].to + 2);
 });
 
-test('the sound registration plays only into a context exactly 60 s long; no other composition of the project is 1800 frames', () => {
-  assert.ok(isFilmContext(1800 * 48000 / 30, 48000));
-  assert.ok(isFilmContext(1800 * 48000 / 30 + 1, 48000));
+test('the sound registration plays only into a context exactly 50.5 s long; no other composition of the project is 1515 frames', () => {
+  assert.equal(FRAMES, 1515);
+  assert.ok(isFilmContext(1515 * 48000 / 30, 48000));
+  assert.ok(isFilmContext(1515 * 48000 / 30 + 1, 48000));
+  assert.ok(!isFilmContext(1514 * 48000 / 30, 48000));
+  assert.ok(!isFilmContext(1800 * 48000 / 30, 48000));
   assert.ok(!isFilmContext(INTRO_FRAMES * 48000 / 30, 48000));
   assert.ok(!isFilmContext(FILM_FRAMES * 48000 / 30, 48000));
   for (const s of INSTALL_SCENES) assert.notEqual(sceneFrames(s.n), FRAMES, `Scene${s.n}`);

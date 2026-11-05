@@ -9,7 +9,7 @@ import { MacScreen } from './MacScreen.tsx';
 import { PhoneScreen } from './PhoneScreen.tsx';
 import { PhoneRings } from './Fingers.tsx';
 import { phoneAt } from './state.ts';
-import { LID_POS, LID_ROT, MAC_PLANE, PHONE_SCREEN_POS, PIN_BOX, heroCam, heroStage, macPin, phonePin, type Cam, type Corners, type Stage } from './project.ts';
+import { HERO, LID_POS, LID_ROT, MAC_PLANE, PHONE_SCREEN_POS, PIN_BOX, heroCam, heroStage, macPin, phonePin, type Cam, type Corners, type Stage } from './project.ts';
 
 /** The screen above the keyboard in shots 1 and 30: a very dark grey, so the phone does not look switched off. */
 export const SCREEN_DARK = '#161618';
@@ -113,7 +113,7 @@ export const Hero = ({ f }: { f: number }) => {
     <Layer id="hero">
       <Layer id="far-mac" opacity={0.7} effects={[blur(34)]}>
         <Scene id="far-mac-body" cam={cam}>
-          <Group3D position={[4.0, 0, -10]} rotation={[0, -22, 0]}><LaptopBody screen="#e4e8f2" /></Group3D>
+          <Group3D position={HERO.farMac.pos} rotation={HERO.farMac.rot}><LaptopBody screen="#e4e8f2" /></Group3D>
         </Scene>
       </Layer>
       <Layer id="hero-reflection" opacity={0.12} effects={[blur(6)]}>

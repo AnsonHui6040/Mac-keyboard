@@ -7,6 +7,8 @@ import { HW_CAND, KB, QUICK_BAR, draftField, modeToggle, quickCenter, type KbNam
 
 export type { KbName, R };
 export const PHONE = { w: 720, bottom: 864 } as const;
+/** Where the tallest page starts: a page drawn at y 109 and below. */
+export const PHONE_TOP = PHONE.bottom - 755;
 export const kbTop = (kb: KbName): number => PHONE.bottom - KB[kb].h;
 /** A rectangle of a screenshot (image pixels) on the phone. */
 export const onPhone = (kb: KbName, r: R): R => ({ x: r.x, y: kbTop(kb) + r.y, w: r.w, h: r.h });
@@ -26,6 +28,9 @@ export const PAD: R = onPhone('trackpad', KB.trackpad.keys.pad);
 
 // --- the Mac screen ---
 export const MAC = { w: 1280, h: 800, menuH: 40 } as const;
+/** Type size of the large document of shot 30, and the line height of both, as a multiple of the size. */
+export const DOC_BIG = 72;
+export const DOC_LINE = 1.45;
 export const DOC = { x: 40, y: 72, w: 840, h: 690, bar: 56, textX: 96, textY: 168, size: 52, pitch: 52 * 1.45 } as const;
 /** Desktop icons, centers. The file is dropped into the folder. */
 export const ICON = { file: { x: 980, y: 200 }, folder: { x: 980, y: 500 } } as const;
@@ -37,7 +42,3 @@ export const MENU = { w: 250, h: 232, offset: { x: 14, y: 8 }, itemH: 54, pad: 8
 export const MENU_OPEN_TIP = { x: 96, y: MENU.pad + MENU.itemH / 2 } as const;
 export const FOLDER_WIN = { x: 400, y: 110, w: 760, h: 600, bar: 56, row: 84, pad: 18 } as const;
 export const FOLDER_ITEMS = ['行程', '住宿', '交通', '地圖', '美食', '景點', '預算', '票券', '備忘', '照片', '清單', '證件', '購物', '天氣'] as const;
-export const LOGIN_WIN = { x: 280, y: 150, w: 720, h: 480 } as const;
-export const LOGIN_FIELDS = { account: { x: 340, y: 262, w: 600, h: 64 }, password: { x: 340, y: 380, w: 600, h: 64 }, button: { x: 340, y: 486, w: 600, h: 68 } } as const;
-export const REMOTE_WIN = { x: 120, y: 80, w: 1040, h: 640, bar: 56 } as const;
-export const REMOTE_FIELD = { x: 400, y: 392, w: 480, h: 72 } as const;

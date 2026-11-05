@@ -7,14 +7,22 @@ import { soundEvents } from './events.ts';
 const sec = (s: number) => Math.round(s * FPS);
 const db = (a: number, b: number) => 20 * Math.log10(a / b);
 
-test('the music plays in three places: 7.0 to 12.2, 16.0 to 41.0 and 51.0 to 59.0, and is silent everywhere else', () => {
-  assert.deepEqual(MUSIC.map((m) => [m.from, m.to]), [[sec(7), sec(12.2)], [sec(16), sec(41)], [sec(51), sec(59)]]);
+test('the music plays in three places: 0.0 to 12.2, 16.0 to 41.0 and 41.5 to 49.5, and is silent everywhere else', () => {
+  assert.deepEqual(MUSIC.map((m) => [m.from, m.to]), [[0, sec(12.2)], [sec(16), sec(41)], [sec(41.5), sec(49.5)]]);
   for (let f = 0; f < FRAMES; f++) {
     const inside = MUSIC.some((m) => f >= m.from && f < m.to);
     if (!inside) assert.equal(musicGain(f), 0, `frame ${f}`);
     else assert.ok(musicGain(f) > 0, `frame ${f}`);
   }
-  for (const [a, b] of [[0, 7], [12.2, 16], [41, 51], [59, 60]]) for (let f = sec(a); f < sec(b); f++) assert.equal(musicGain(f), 0, `silent ${f}`);
+  for (const [a, b] of [[12.2, 16], [41, 41.5], [49.5, 50.5]]) for (let f = sec(a); f < sec(b); f++) assert.equal(musicGain(f), 0, `silent ${f}`);
+});
+
+test('the music is there from the first frame, and is audible well inside the first second', () => {
+  assert.ok(musicGain(0) > 0);
+  assert.ok(musicGain(1) > 0.5 * musicGain(30));
+  for (let f = 0; f < 30; f++) assert.ok(musicGain(f) > 0, `frame ${f}`);
+  assert.equal(musicSource(0).file, 'audio/Clean_Geometry.mp3');
+  assert.ok(Math.abs(musicSource(0).seconds - 0.058) < 1e-9, 'the file plays from its first 0.1 s');
 });
 
 test('each segment fades in and out over one frame, so a hard stop never clicks', () => {
@@ -27,16 +35,17 @@ test('each segment fades in and out over one frame, so a hard stop never clicks'
   }
 });
 
-test('the source time of the film second: Clean Geometry 0.058 at 7.0, 3.058 at 16.0 and 16.058 at 29.0; Soft Geometry 55.0 at 51.0', () => {
+test('the source time of the film second: Clean Geometry 0.058 at 0.0, 3.058 at 16.0 and 16.058 at 29.0; Soft Geometry 55.0 at 41.5', () => {
   const at = (t: number) => musicSource(Math.round(t * FPS));
-  assert.equal(at(7.0).file, 'audio/Clean_Geometry.mp3');
-  assert.ok(Math.abs(at(7.0).seconds - 0.058) < 1e-9);
+  assert.equal(at(0).file, 'audio/Clean_Geometry.mp3');
+  assert.ok(Math.abs(at(0).seconds - 0.058) < 1e-9);
+  assert.ok(Math.abs(at(12.1).seconds - 12.158) < 1e-9);
   assert.ok(Math.abs(at(16.0).seconds - 3.058) < 1e-9);
   assert.ok(Math.abs(at(29.0).seconds - 16.058) < 1e-9, 'the lift of the source lands on 29.0 s');
   assert.ok(Math.abs(at(40.9).seconds - (40.9 - 12.942)) < 1e-9);
-  assert.equal(at(51.0).file, 'audio/Soft_Geometry.mp3');
-  assert.ok(Math.abs(at(51.0).seconds - 55.0) < 1e-9);
-  assert.ok(Math.abs(at(58.9).seconds - 62.9) < 1e-9);
+  assert.equal(at(41.5).file, 'audio/Soft_Geometry.mp3');
+  assert.ok(Math.abs(at(41.5).seconds - 55.0) < 1e-9, 'the same tail of the file as before the cut');
+  assert.ok(Math.abs(at(49.4).seconds - 62.9) < 1e-9);
   assert.equal(musicSource(sec(20)).file, 'audio/Clean_Geometry.mp3');
 });
 

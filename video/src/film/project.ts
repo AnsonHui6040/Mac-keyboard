@@ -99,7 +99,7 @@ const between = (a: Cam, b: Cam, u: number): Cam => ({ fov: lerp(a.fov, b.fov, u
 export const cam21 = (frame: number): Cam => between(CAM21.from, CAM21.to, (frame - CAM21.at[0]) / (CAM21.at[1] - 1 - CAM21.at[0]));
 
 // --- shot 30: the only pull back of the film. The camera moves away along the shot 21 axis and rises, so the laptop deck is a surface with keys ---
-export const CAM30 = { dolly: [1.1, 1.45] as const, height: [1.25, 1.75] as const, aimY: 0.9, at: [1515, 1620] as const };
+export const CAM30 = { dolly: [1.1, 1.45] as const, height: [1.25, 1.75] as const, aimY: 0.9, at: [1230, 1335] as const };
 export const cam30 = (frame: number): Cam => {
   const e = CAM21.to;
   const u = (frame - CAM30.at[0]) / (CAM30.at[1] - 1 - CAM30.at[0]);
@@ -108,7 +108,14 @@ export const cam30 = (frame: number): Cam => {
 };
 
 // --- shot 1: the phone turns from the side to face the camera and the camera comes in; the Mac is a bright blur far behind ---
-export const HERO = { frames: 90, yaw: [-68, -13.5] as const };
-const settleCurve = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return 1 - (1 + 5 * t) * Math.exp(-5 * t); };
-export const heroStage = (frame: number): Stage => ({ ...STAGE, phonePos: [-0.9, 0.02, 0], phoneRot: [0, lerp(HERO.yaw[0], HERO.yaw[1], settleCurve(frame / 75)) + frame * 0.03, 0] });
-export const heroCam = (frame: number): Cam => ({ fov: 24, position: [0.3 - frame * 0.001, 0.98, 5.4 - frame * 0.011], target: [0.3, 0.72, 0] });
+/** The yaw lands on exactly 0 at frame `settle` and stays there. The camera looks along -z at the height of the phone's middle. */
+export const HERO = { frames: 90, settle: 70, yaw: [-68, 0] as const, phonePos: [-0.9, 0.02, 0] as V3, aim: [0.3, 0.02 + PHONE_SCREEN_POS[1]] as const, farMac: { pos: [4.0, 0.7, -10] as V3, rot: [0, -22, 0] as V3 } };
+const SETTLE_K = 6;
+/** The critically damped arrival of Headline.tsx, scaled so that it ends on exactly 1. */
+const landing = (u: number): number => {
+  const t = Math.min(1, Math.max(0, u));
+  const at = (x: number): number => 1 - (1 + SETTLE_K * x) * Math.exp(-SETTLE_K * x);
+  return t >= 1 ? 1 : at(t) / at(1);
+};
+export const heroStage = (frame: number): Stage => ({ ...STAGE, phonePos: HERO.phonePos, phoneRot: [0, lerp(HERO.yaw[0], HERO.yaw[1], landing(frame / HERO.settle)), 0] });
+export const heroCam = (frame: number): Cam => ({ fov: 24, position: [HERO.aim[0], HERO.aim[1], 5.4 - frame * 0.011], target: [HERO.aim[0], HERO.aim[1], 0] });
