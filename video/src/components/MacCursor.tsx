@@ -10,8 +10,8 @@ export const MacPressRing = ({ press }: { press: number }) => (
 );
 
 /** macOS arrow pointer: tip at (x, y). Shrinks and shows a ring while `press` is above 0. */
-export const MacCursor = ({ state }: { state: PointerState }) => (
-  <Layer id="pointer" x={state.x} y={state.y} opacity={state.visible ? 1 : 0}>
+export const MacCursor = ({ state, id = 'pointer' }: { state: PointerState; id?: string }) => (
+  <Layer id={id} x={state.x} y={state.y} opacity={state.visible ? 1 : 0}>
     <MacPressRing press={state.press} />
     <Layer scale={SCALE * (1 - 0.1 * state.press)}>
       <Path d={ARROW} fill="#111111" stroke={{ color: '#ffffff', width: 2.2 }} />
