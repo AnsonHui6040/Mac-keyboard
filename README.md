@@ -1,5 +1,7 @@
 # Remote Keyboard
 
+中文 | [English](README.en.md)
+
 https://github.com/user-attachments/assets/858cf045-bf5e-4028-a40e-83fda9a21d46
 
 Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 Remote Keyboard 鍵盤，打的字會經藍牙加密傳到 Mac，直接輸入到 Mac 目前游標所在的文字欄位。鍵盤另有觸控板模式，可以用 iPhone 移動 Mac 的游標、點按與捲動。
