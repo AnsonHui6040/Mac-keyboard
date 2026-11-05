@@ -1,5 +1,7 @@
 # ProductFilm 實作計畫
 
+> 本檔是 60 秒初版的計畫，已被取代。2026-11-06 看片後刪除密碼段、改為 50.5 秒、重排音樂與鏡位，現況以分鏡稿與驗收報告為準。
+
 依據：`docs/video/product-film-storyboard.md`（已批准，內容不可改）。驗收結果：`docs/superpowers/verification/2026-11-06-product-film-video.md`。
 
 新 composition `ProductFilm`：1920×1080、30 fps、1800 frames。程式全部放 `video/src/film/`。`ProductIntro`、`Main`、`Scene01–21` 的畫面與聲音不可改變。

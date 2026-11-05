@@ -1,7 +1,7 @@
 /**
  * The music: three stretches of two files (the files are not committed, public/audio is ignored), each one hard cut by the edit.
  * Clean Geometry is audible from its first 0.1 s, so the film opens with it: film second 0.0 plays source 0.058 s, the first beat of
- * its grid (0.058 s + n * 0.5 s). The second stretch is moved by 13 s so that the lift of the source at 16.058 s falls on 29.0 s.
+ * its grid (0.058 s + n * 0.5 s). The second stretch is moved by 12.942 s so that the lift of the source at 16.058 s falls on 29.0 s.
  * Soft Geometry plays its tail from 41.5 s (source second = film second + 13.5). Pure: node can import it.
  */
 import { soundEvents } from './events.ts';
