@@ -106,9 +106,9 @@
 
 虛構的只有這些：帳號 `your.name@example.com`；裝置名「我的 iPhone」、「我的 Mac」；配對碼固定用 `482915`；第 5 場 iloader 驗證碼面板的六位數字（`607143`，與配對碼不同）；終端機路徑 `~/Downloads`；第 20 場 Receiver 面板「目前欄位」顯示「文字編輯（可輸入）」。
 
-下列是真實的公開值，不是虛構：檔名與 SHA-256 都是 v0.1.0-b2 Release 頁面上的值（`https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-b2`），測試者要拿自己的下載結果與它比對。終端機顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.1.0-unsigned.ipa`）為 `e66d8a72cf6d7f3533e5ce22afdb8f78154f94c9aecfac62b0463444e966753f`，zip（`RemoteKeyboardReceiver-v0.1.0-macOS.zip`）為 `f9b5f22650539eab6def4bdcae8247763ff13d6325946f22d413fe3b5c40854a`。瀏覽器網址列的 `sidestore.io`、Release 頁面網址與第 21 場的 `github.com/AnsonHui6040/Mac-keyboard` 也是真實的公開網址。
+下列是真實的公開值，不是虛構：檔名與 SHA-256 都是 v0.1.0-alpha.1 Release 頁面上的值（`https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-alpha.1`），測試者要拿自己的下載結果與它比對。終端機顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.1.0-unsigned.ipa`）為 `d4b5531ca5d971cef89f8488e020421bff3d224d3f00faed38ce1ca08b1558db`，zip（`RemoteKeyboardReceiver-v0.1.0-macOS.zip`）為 `21dd6a41f0b72b4370378c9dbcd29f2d2172c24b0232713e358b0a5e129c6ec9`。瀏覽器網址列的 `sidestore.io`、Release 頁面網址與第 21 場的 `github.com/AnsonHui6040/Mac-keyboard` 也是真實的公開網址。
 
-這支影片綁定 v0.1.0-b2：下一版 Release 的檔名或 SHA-256 一變，影片裡的值就過時，必須重做第 10、15 場的終端機畫面與網址列。
+這支影片綁定 v0.1.0-alpha.1：下一版 Release 的檔名或 SHA-256 一變，影片裡的值就過時，必須重做第 10、15 場的終端機畫面與網址列。
 
 ## 動態
 

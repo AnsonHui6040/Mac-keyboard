@@ -50,7 +50,7 @@ test('scene 15: the hash is on screen for at least 4 s on the terminal page, whi
 });
 
 test('the address bars: Release page, iloader download page, and the terminal title are the ones of the brief', () => {
-  assert.equal(RELEASE_URL, 'github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-b2');
+  assert.equal(RELEASE_URL, 'github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-alpha.1');
   assert.equal(SIDESTORE_URL, 'sidestore.io');
   const mac = readFileSync(new URL('../screens/macPages.tsx', import.meta.url), 'utf8');
   assert.match(mac, /title="github\.com" address=\{RELEASE_URL\}/);

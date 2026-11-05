@@ -28,3 +28,7 @@ test('src/audio is all synthesis: no sample files, no @remotion/sfx, no staticFi
 test('the only module that registers onFrame is register.ts', () => {
   for (const f of sources) assert.equal(/\bonFrame\(/.test(code(f)), f === 'register.ts', f);
 });
+
+test('the film has no music: register.ts schedules sound effects only', () => {
+  assert.doesNotMatch(code('register.ts'), /scheduleChord|chordFrame|CHORD_COUNT/);
+});
