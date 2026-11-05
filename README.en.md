@@ -6,7 +6,7 @@ Remote Keyboard turns your iPhone into a Bluetooth keyboard for your Mac. Switch
 
 This is v0.1.0 Alpha. It is installed with SideStore, and it is not an App Store release.
 
-The app, the user manual and the install tutorial video are in Traditional Chinese. If this translation and the Chinese README differ, the Chinese README applies.
+The app and the install tutorial video are in Traditional Chinese. The user manual's installation chapters are translated into English. If this translation and the Chinese README differ, the Chinese README applies.
 
 ## Features
 
@@ -44,21 +44,21 @@ The [Remote Keyboard install tutorial](https://youtu.be/dGhEuzRpAEg) (about 5 an
 
 ## User manual
 
-On a first install, read the chapters in order. All chapters are in Traditional Chinese.
+On a first install, read the chapters in order. Chapters 06, 07 and 08 are in Traditional Chinese only; the others are in English, with the original Chinese screenshots.
 
 | Chapter | Contents |
 |---|---|
-| [Manual home](docs/manual/README.md) | List of chapters and suggested reading order |
-| [01 Before you start](docs/manual/01-before-you-start.md) | What to prepare, the limits of a free account, safety rules, the overall process |
-| [02 Install SideStore](docs/manual/02-install-sidestore.md) | LocalDevVPN, iloader, trusting the developer, Developer Mode, signing in and the first refresh |
-| [03 Install the iPhone app](docs/manual/03-install-iphone-app.md) | Verifying and importing the IPA, adding the keyboard, allowing Full Access and Bluetooth |
-| [04 Install Mac Receiver](docs/manual/04-install-mac-receiver.md) | Download, unzip, first launch, Bluetooth and Accessibility permissions, the menu bar panel |
-| [05 Pairing](docs/manual/05-pairing.md) | Pairing the iPhone and the Mac with a six-digit pairing code |
-| [06 Using the keyboard](docs/manual/06-using-the-keyboard.md) | Local and remote, live and draft, handwriting, Quick, the keyboard's status line, how passwords are handled |
-| [07 Trackpad](docs/manual/07-trackpad.md) | Trackpad gestures and settings |
-| [08 App settings](docs/manual/08-app-settings.md) | Main screen, keyboard feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices |
-| [09 Refresh and update](docs/manual/09-refresh-and-update.md) | The 7-day refresh, updating the IPA and Mac Receiver, when data can be lost |
-| [10 Troubleshooting](docs/manual/10-troubleshooting.md) | Common problems with installing, pairing and typing |
+| [Manual home](docs/manual/en/README.md) | List of chapters and suggested reading order |
+| [01 Before you start](docs/manual/en/01-before-you-start.md) | What to prepare, the limits of a free account, safety rules, the overall process |
+| [02 Install SideStore](docs/manual/en/02-install-sidestore.md) | LocalDevVPN, iloader, trusting the developer, Developer Mode, signing in and the first refresh |
+| [03 Install the iPhone app](docs/manual/en/03-install-iphone-app.md) | Verifying and importing the IPA, adding the keyboard, allowing Full Access and Bluetooth |
+| [04 Install Mac Receiver](docs/manual/en/04-install-mac-receiver.md) | Download, unzip, first launch, Bluetooth and Accessibility permissions, the menu bar panel |
+| [05 Pairing](docs/manual/en/05-pairing.md) | Pairing the iPhone and the Mac with a six-digit pairing code |
+| [06 Using the keyboard](docs/manual/06-using-the-keyboard.md) (in Chinese) | Local and remote, live and draft, handwriting, Quick, the keyboard's status line, how passwords are handled |
+| [07 Trackpad](docs/manual/07-trackpad.md) (in Chinese) | Trackpad gestures and settings |
+| [08 App settings](docs/manual/08-app-settings.md) (in Chinese) | Main screen, keyboard feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices |
+| [09 Refresh and update](docs/manual/en/09-refresh-and-update.md) | The 7-day refresh, updating the IPA and Mac Receiver, when data can be lost |
+| [10 Troubleshooting](docs/manual/en/10-troubleshooting.md) | Common problems with installing, pairing and typing |
 
 ## Privacy and security
 
