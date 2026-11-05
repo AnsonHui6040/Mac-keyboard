@@ -4,9 +4,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for f in public/audio/Clean_Geometry.mp3 public/audio/Soft_Geometry.mp3; do
-  [ -f "$f" ] || { echo "missing $f: the film's music needs it" >&2; exit 1; }
-done
+MUSIC_FILE=public/audio/Clean_Geometry.mp3
+[ -f "$MUSIC_FILE" ] || { echo "missing $MUSIC_FILE: the film's music needs it" >&2; exit 1; }
 
 RAW=out/renders/product-film-raw.mp4
 OUT=out/renders/product-film.mp4

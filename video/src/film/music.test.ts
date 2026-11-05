@@ -1,20 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
 import { FPS, FRAMES } from './timeline.ts';
 import { DUCK_DB, DUCK_FRAMES, MUSIC, musicGain, musicSource, trimFrames } from './music.ts';
 import { soundEvents } from './events.ts';
 
 const sec = (s: number) => Math.round(s * FPS);
 const db = (a: number, b: number) => 20 * Math.log10(a / b);
+const near = (a: number, b: number, d: number, msg: string) => assert.ok(Math.abs(a - b) <= d, `${msg}: ${a} vs ${b}`);
 
-test('the music plays in three places: 0.0 to 12.2, 16.0 to 41.0 and 41.5 to 49.5, and is silent everywhere else', () => {
-  assert.deepEqual(MUSIC.map((m) => [m.from, m.to]), [[0, sec(12.2)], [sec(16), sec(41)], [sec(41.5), sec(49.5)]]);
-  for (let f = 0; f < FRAMES; f++) {
-    const inside = MUSIC.some((m) => f >= m.from && f < m.to);
-    if (!inside) assert.equal(musicGain(f), 0, `frame ${f}`);
-    else assert.ok(musicGain(f) > 0, `frame ${f}`);
+const FILE_SECONDS = 46.994;
+
+test('the music is one take of Clean Geometry from frame 0 to the end of the file, and silent after it', () => {
+  assert.equal(MUSIC.length, 1);
+  assert.equal(MUSIC[0].file, 'audio/Clean_Geometry.mp3');
+  assert.equal(MUSIC[0].from, 0);
+  assert.equal(MUSIC[0].to, Math.floor((FILE_SECONDS - 0.058) * FPS), 'it runs until the file does');
+  assert.ok(MUSIC[0].to < FRAMES);
+  for (let f = 0; f < MUSIC[0].to; f++) assert.ok(musicGain(f) > 0, `frame ${f}`);
+  for (let f = MUSIC[0].to; f < FRAMES; f++) assert.equal(musicGain(f), 0, `silent ${f}`);
+});
+
+test('there is no splice: every frame plays the next 1/30 s of the file, so nothing cuts, replays or restarts', () => {
+  for (let f = 1; f < MUSIC[0].to; f++) {
+    near(musicSource(f).seconds - musicSource(f - 1).seconds, 1 / FPS, 1e-9, `frame ${f}`);
+    assert.equal(musicSource(f).file, musicSource(0).file);
   }
-  for (const [a, b] of [[12.2, 16], [41, 41.5], [49.5, 50.5]]) for (let f = sec(a); f < sec(b); f++) assert.equal(musicGain(f), 0, `silent ${f}`);
+  for (let f = 1; f < MUSIC[0].to - 1; f++) assert.ok(musicGain(f) > 0.2 * musicGain(f - 1) && musicGain(f) < 5 * musicGain(f - 1), `a gain jump at ${f}`);
+});
+
+test('nothing in the film or its script or storyboard names the second music file', () => {
+  const dir = new URL('./', import.meta.url);
+  const files = [...readdirSync(dir)].filter((f) => !f.endsWith('.test.ts')).map((f) => new URL(f, dir));
+  files.push(new URL('../../scripts/render-film.sh', import.meta.url), new URL('../../../docs/video/product-film-storyboard.md', import.meta.url));
+  for (const u of files) assert.ok(!/soft[_ ]geometry/i.test(readFileSync(u, 'utf8')), u.pathname);
+  assert.ok(!MUSIC.some((m) => /soft/i.test(m.file)));
 });
 
 test('the music is there from the first frame, and is audible well inside the first second', () => {
@@ -25,46 +45,70 @@ test('the music is there from the first frame, and is audible well inside the fi
   assert.ok(Math.abs(musicSource(0).seconds - 0.058) < 1e-9, 'the file plays from its first 0.1 s');
 });
 
-test('each segment fades in and out over one frame, so a hard stop never clicks', () => {
+test('the music comes in with a half-gain first frame, and is off after the end of the file', () => {
   for (const m of MUSIC) {
-    const mid = musicGain(m.from + 10);
-    assert.ok(musicGain(m.from) < mid, `${m.id} start`);
-    assert.ok(musicGain(m.to - 1) < musicGain(m.to - 2) + 1e-12 && musicGain(m.to - 1) < mid, `${m.id} end`);
+    assert.ok(musicGain(m.from) < musicGain(m.from + 10), `${m.id} start`);
+    assert.ok(musicGain(m.to - 1) > 0, `${m.id} last frame`);
     assert.equal(musicGain(m.to), 0);
     assert.equal(musicGain(m.from - 1), 0);
   }
 });
 
-test('the source time of the film second: Clean Geometry 0.058 at 0.0, 3.058 at 16.0 and 16.058 at 29.0; Soft Geometry 55.0 at 41.5', () => {
-  const at = (t: number) => musicSource(Math.round(t * FPS));
-  assert.equal(at(0).file, 'audio/Clean_Geometry.mp3');
-  assert.ok(Math.abs(at(0).seconds - 0.058) < 1e-9);
-  assert.ok(Math.abs(at(12.1).seconds - 12.158) < 1e-9);
-  assert.ok(Math.abs(at(16.0).seconds - 3.058) < 1e-9);
-  assert.ok(Math.abs(at(29.0).seconds - 16.058) < 1e-9, 'the lift of the source lands on 29.0 s');
-  assert.ok(Math.abs(at(40.9).seconds - (40.9 - 12.942)) < 1e-9);
-  assert.equal(at(41.5).file, 'audio/Soft_Geometry.mp3');
-  assert.ok(Math.abs(at(41.5).seconds - 55.0) < 1e-9, 'the same tail of the file as before the cut');
-  assert.ok(Math.abs(at(49.4).seconds - 62.9) < 1e-9);
-  assert.equal(musicSource(sec(20)).file, 'audio/Clean_Geometry.mp3');
+test('no two adjacent frames differ by more than 1.5 dB, except at the tap and click duck onsets from 29 to 41 s and at frame 0', () => {
+  const onsets = new Set(soundEvents().filter((e) => (e.kind === 'tap' || e.kind === 'click') && e.frame >= sec(29) && e.frame < sec(41)).map((e) => e.frame));
+  let worst = 0;
+  for (let f = 1; f < MUSIC[0].to; f++) {
+    if (f === 1 || onsets.has(f)) continue; // frame 0 starts at half gain
+    const step = Math.abs(db(musicGain(f), musicGain(f - 1)));
+    worst = Math.max(worst, step);
+    assert.ok(step <= 1.5, `${step.toFixed(2)} dB between frames ${f - 1} and ${f}`);
+  }
+  assert.ok(worst > 0.1, 'the ramps are really there');
 });
 
-test('the files are long enough for what is asked of them (Clean 46.99 s, Soft 63.37 s) and trimBefore is a whole frame within half a frame of the mapping', () => {
-  const LEN: Record<string, number> = { 'audio/Clean_Geometry.mp3': 46.99, 'audio/Soft_Geometry.mp3': 63.37 };
+test('the handwriting dip ramps over 12 frames: down from 18.1 s, back up ending at 21.7 s', () => {
+  const a = sec(18.1);
+  const b = sec(21.7);
+  const top = musicGain(a - 1);
+  assert.equal(musicGain(a), top);
+  assert.ok(musicGain(a + 6) < top && musicGain(a + 6) > 0.5 * top, 'half way down');
+  near(musicGain(a + 12), 0.5 * top, 1e-12, 'the bottom is reached 12 frames in');
+  near(musicGain(b - 13), 0.5 * top, 1e-12, 'the bottom holds until 12 frames before the end');
+  assert.ok(musicGain(b - 6) > 0.5 * top && musicGain(b - 6) < top);
+  near(musicGain(b), top, 1e-12, 'back at the full level at 21.7 s');
+});
+
+test('the source time of the film second is film + 0.058 all through: 16.058 at 16.0 s, 29.058 at 29.0 s, 44.058 at 44.0 s', () => {
+  const at = (t: number) => musicSource(Math.round(t * FPS));
+  for (const t of [0, 3, 12.1, 14, 16, 20, 29, 40.9, 44]) near(at(t).seconds, t + 0.058, 1e-9, `film ${t}`);
+  near(at(16.0).seconds, 16.058, 1e-9, 'the source lifts at 16.058 s, which is the moment the whole sentence lands on the Mac');
+});
+
+test('the file is long enough for the segment, and trimBefore is a whole frame within half a frame of the mapping', () => {
   for (const m of MUSIC) {
     assert.ok(musicSource(m.from).seconds >= 0);
-    assert.ok(musicSource(m.to - 1).seconds + 1 / FPS <= LEN[m.file]);
+    assert.ok(musicSource(m.to - 1).seconds + 1 / FPS <= FILE_SECONDS + 1e-9);
     assert.ok(Number.isInteger(m.trimBefore) && m.trimBefore >= 0);
     assert.ok(Math.abs(m.trimBefore / FPS - musicSource(m.from).seconds) <= 0.5 / FPS + 1e-9, `${m.id}: ${m.trimBefore}`);
     assert.equal(trimFrames(m.id), m.trimBefore);
   }
 });
 
+test('the gain follows the source lift: it steps down over the 12 frames before 16.0 s, while the source is still quiet, and is steady after', () => {
+  const lift = sec(16);
+  const before = musicGain(lift - 20);
+  const after = musicGain(lift + 10);
+  assert.ok(after < before, 'the louder arrangement gets a lower gain');
+  assert.ok(db(before, after) >= 3 && db(before, after) <= 9, `${db(before, after)} dB`);
+  for (let f = lift - 12; f < lift; f++) assert.ok(musicGain(f) <= musicGain(f - 1) + 1e-12, `still stepping down at ${f}`);
+  for (let f = lift; f < sec(18.1) - 1; f++) assert.equal(musicGain(f), after, `steady at ${f}`);
+});
+
 test('the writing stretch 18.1 to 21.7 is half as loud as the music around it', () => {
   const a = sec(18.1);
   const b = sec(21.7);
-  assert.ok(Math.abs(db(musicGain(a + 10), musicGain(a - 10)) - -6.02) < 0.1, `${db(musicGain(a + 10), musicGain(a - 10))} dB`);
-  assert.ok(Math.abs(musicGain(b - 10) / musicGain(b + 10) - 0.5) < 1e-9);
+  assert.ok(Math.abs(db(musicGain(a + 14), musicGain(a - 10)) - -6.02) < 0.1, `${db(musicGain(a + 14), musicGain(a - 10))} dB`);
+  assert.ok(Math.abs(musicGain(b - 14) / musicGain(b + 10) - 0.5) < 1e-9);
   assert.ok(Math.abs(musicGain(sec(20)) / musicGain(sec(25)) - 0.5) < 1e-9);
 });
 

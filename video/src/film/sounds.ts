@@ -1,6 +1,6 @@
 /**
  * The film's sound effects: the shared tick, tap and click made louder so they stand above the music, and the two chimes retuned
- * to the key of the music (Clean Geometry is C# major, Soft Geometry F# major). audio/synth.ts is not touched.
+ * to the key of the music (Clean Geometry is C# major at the start and ends in F# major, measured on the file). audio/synth.ts is not touched.
  */
 import { click, key, tap, type Mixer } from '../audio/synth.ts';
 
