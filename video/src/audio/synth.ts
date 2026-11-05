@@ -1,6 +1,6 @@
 /**
  * The sounds, each one a small function: it builds a few Web Audio nodes at time `t` and lets them end. No sample files.
- * Peak levels are chosen so the effects sit about 6 to 10 dB above the music's peak (keys are meant to be nearly
+ * Peak levels are chosen so the effects sit at least 9 dB above the music's peak (keys are meant to be nearly
  * inaudible). Noise is seeded: `random(seed)` gives the generator its start, never Math.random.
  */
 import { random } from '@kinetographdev/core';
@@ -12,12 +12,8 @@ export type VoiceSpec = { freq: number; wave: 'sine' | 'triangle'; gain: number;
 const FLOOR = 0.0001;
 /** Gain into the music compressor and the compressor's settings (a peak limiter in all but name). */
 const MUSIC_TRIM = 2.5;
-/** Gain after the compressor, which sets the music's loudness in the film. */
-const MUSIC_LEVEL = 0.72;
-/** The master limiter, and the gain that cancels the makeup gain the compressor node adds by itself. */
-const LIMIT = { threshold: -2, release: 0.08, makeup: 0.877 };
-/** A DynamicsCompressorNode delays its output by 6 ms (its look-ahead), so effects are started this much early to land on their frame. */
-export const LIMITER_DELAY = 0.006;
+/** Gain after the compressor, which sets the music's loudness in the film (about -20 LUFS on its own). */
+const MUSIC_LEVEL = 0.454;
 const COMP = { threshold: -18, knee: 0, ratio: 20, attack: 0, release: 0.3 };
 
 /** A seeded noise buffer of `seconds` (mono). The seed goes through random(), then a small generator makes the samples. */
@@ -147,7 +143,7 @@ export function bad(m: Mixer, t: number): void {
   lp.connect(sfx);
   [[246.94, 0], [196, 0.17]].forEach(([f, dt]) => {
     const o = osc(ctx, 'triangle', f, null, t + dt, 0);
-    o.connect(pluckEnv(ctx, lp, t + dt, 0.63, 0.02, 0.32));
+    o.connect(pluckEnv(ctx, lp, t + dt, 0.69, 0.02, 0.32));
     o.start(t + dt);
     o.stop(t + dt + 0.4);
   });
@@ -198,17 +194,9 @@ const mixers = new WeakMap<object, Mixer>();
 export function mixer(ctx: OfflineAudioContext, musicCurve: Float32Array, curveSeconds: number): Mixer {
   const have = mixers.get(ctx);
   if (have) return have;
-  // Last in the chain: a limiter, so an effect that lands on a peak of the pad cannot push the film over the true-peak ceiling.
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = LIMIT.threshold;
-  limiter.knee.value = 0;
-  limiter.ratio.value = 20;
-  limiter.attack.value = 0;
-  limiter.release.value = LIMIT.release;
-  const makeup = ctx.createGain();
-  makeup.gain.value = LIMIT.makeup;
+  // No limiter on the master: the music peaks about 14 dB below full scale and the loudest effect about 4 dB below it, so their sum stays under the true-peak ceiling.
   const master = ctx.createGain();
-  master.connect(limiter).connect(makeup).connect(ctx.destination);
+  master.connect(ctx.destination);
   const sfx = ctx.createGain();
   sfx.connect(master);
 

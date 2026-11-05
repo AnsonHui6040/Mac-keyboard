@@ -11,7 +11,7 @@ import { onFrame } from '@kinetographdev/audio';
 import { FILM_FRAMES, FPS } from '../data/scenes/index.ts';
 import { soundEvents, type SoundEvent } from './events.ts';
 import { CHORD_COUNT, FILM_SECONDS, chordFrame, musicEnvelope, scheduleChord } from './music.ts';
-import { LIMITER_DELAY, bad, click, good, key, mixer, success, tap, type Mixer } from './synth.ts';
+import { bad, click, good, key, mixer, success, tap, type Mixer } from './synth.ts';
 
 const curve = Float32Array.from(musicEnvelope());
 
@@ -19,7 +19,7 @@ const playsHere = (ctx: OfflineAudioContext): boolean => ctx.length >= Math.roun
 const mix = (ctx: OfflineAudioContext): Mixer => mixer(ctx, curve, FILM_SECONDS);
 
 const play = (e: SoundEvent, m: Mixer, time: number, seed: string): void => {
-  const t = Math.max(0, time - LIMITER_DELAY);
+  const t = Math.max(0, time);
   if (e.kind === 'click') click(m, t);
   else if (e.kind === 'tap') tap(m, t);
   else if (e.kind === 'key') key(m, t, seed);

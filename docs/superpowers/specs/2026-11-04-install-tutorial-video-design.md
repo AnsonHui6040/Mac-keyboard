@@ -156,7 +156,7 @@ video/
 
 1. `kinetograph check`、`lint`（每場開頭、中間、結尾）、`doctor` 無錯誤。
 2. 用 `kinetograph inspect` 核對每條標示線的 y 等於目標按鈕中心，以及每個指向停留時落在目標按鈕範圍內，誤差 1 px 內。逐條列出。
-3. MP4 有一條 AAC 音軌，長度等於影片；`kinetograph audio analyze` 的整體響度約 -16 LUFS、true peak 低於 -1 dB、削波 0、沒有非預期的靜音；音效落點由 `scripts/verify-audio.mjs` 從 MP4 量測。
+3. MP4 有一條 AAC 音軌，長度等於影片；`kinetograph audio analyze` 的整體響度約 -20 LUFS（±1.5 LU）、true peak 低於 -1 dB、削波 0、沒有非預期的靜音；音效落點由 `scripts/verify-audio.mjs` 從 MP4 量測。
 4. 每一拍字幕顯示時間不短於 2.5 秒與「字數 ÷ 5」；每拍不超過兩行。
 5. grep 原始碼：沒有「強制開啟」、「移至垃圾桶」、「私隱」、「軟件」、廣東話字、` · `、真實帳號或裝置名。
 6. 每場 `strip` 由主代理親自看過，不採信子代理的自我報告。
