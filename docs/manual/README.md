@@ -1,6 +1,8 @@
 # Remote Keyboard 使用手冊
 
-這份手冊說明如何在 iPhone 與 Mac 上安裝、設定並使用 Remote Keyboard v0.1.0 測試版。每一章都按步驟編號，附上畫面截圖，並在章節結尾寫明成功時應該看到什麼。
+這份手冊說明如何在 iPhone 與 Mac 上安裝、設定並使用 Remote Keyboard v0.1.0 Alpha 版。每一章都按步驟編號，附上畫面截圖，並在章節結尾寫明成功時應該看到什麼。
+
+想先看一次完整流程，可以看安裝教學影片：[Remote Keyboard 安裝教學](https://youtu.be/dGhEuzRpAEg)。
 
 ## 章節
 

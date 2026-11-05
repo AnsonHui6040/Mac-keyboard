@@ -34,6 +34,10 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 | 有效期 | 免費帳號簽署的 App 只有 7 天有效，要在到期前續簽 |
 | 名額 | 免費帳號同時最多 3 個側載 App，SideStore 自己佔 1 個 |
 
+## 安裝教學影片
+
+[Remote Keyboard 安裝教學](https://youtu.be/dGhEuzRpAEg)（約 5 分半鐘）帶你由零開始裝好並打出第一個字。影片對應 v0.1.0 Alpha 1；內容有出入時，以手冊為準。
+
 ## 使用手冊
 
 第一次安裝請依章節順序閱讀。
