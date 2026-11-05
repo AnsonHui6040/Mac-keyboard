@@ -1,5 +1,6 @@
 /**
- * Registers the film's sound with Kinetograph: one onFrame call per sound event and per chord, at film-global frames.
+ * Registers the film's sound with Kinetograph: one onFrame call per sound event, at film-global frames. The film has sound
+ * effects only: music.ts is no longer scheduled.
  * Imported by src/index.tsx for its effect only.
  *
  * Standalone scene compositions (Scene16, ...) render silent. The registry is global and does not say which composition is being
@@ -10,7 +11,7 @@
 import { onFrame } from '@kinetographdev/audio';
 import { FILM_FRAMES, FPS } from '../data/scenes/index.ts';
 import { soundEvents, type SoundEvent } from './events.ts';
-import { CHORD_COUNT, FILM_SECONDS, chordFrame, musicEnvelope, scheduleChord } from './music.ts';
+import { FILM_SECONDS, musicEnvelope } from './music.ts';
 import { bad, click, good, key, mixer, success, tap, type Mixer } from './synth.ts';
 
 const curve = Float32Array.from(musicEnvelope());
@@ -42,12 +43,5 @@ for (const [frame, list] of byFrame) {
       const at = e.kind === 'key' ? t + (seen++ / keys) / FPS : t;
       play(e, m, at, `${frame}-${i}`);
     });
-  });
-}
-
-// Music: one callback per chord, so the schedule is the same data the tests read.
-for (let k = 0; k < CHORD_COUNT; k++) {
-  onFrame(chordFrame(k), (ctx, t) => {
-    if (playsHere(ctx)) scheduleChord(mix(ctx), k, t);
   });
 }
