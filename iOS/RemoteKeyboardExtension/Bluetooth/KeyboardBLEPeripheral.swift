@@ -86,6 +86,11 @@ final class KeyboardBLEPeripheral: NSObject {
     /// How many `pointerOpen` were sent for the current page visit; the second one is the last.
     private var pointerAttempts = 0
     private var pointerOpenTimer: Timer?
+    /// The connection interval asked for, from typing and the pointer. `appliedLatency` is what the current central was last
+    /// asked for; `latencyTimer` is the single one-shot that fires when the link turns idle.
+    private var latencyPolicy = LinkLatencyPolicy()
+    private var appliedLatency: LinkLatencyPolicy.Level?
+    private var latencyTimer: Timer?
     private static let pointerOpenTimeout: TimeInterval = 1.5
 
     // Reconnect timing of the current appearance, and the one probe sent for it.
@@ -154,6 +159,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .medium: latencySetting = .unset
         }
         applyLatency()
+        if latencySetting == .unset { reconcileLatency() }
     }
 
     /// Asks the subscribed central for the latency a measurement run wants; nothing for `.none`. Returns whether a request
@@ -174,7 +180,7 @@ final class KeyboardBLEPeripheral: NSObject {
     /// The name of a latency request that is still in force on this connection, if any.
     var latencyCarryover: String? {
         switch latencySetting {
-        case .unset: nil
+        case .unset: appliedLatency.map { "\($0)" }
         case .low: "low"
         case .medium: "medium"
         }
@@ -205,6 +211,7 @@ final class KeyboardBLEPeripheral: NSObject {
     private func connectionEnded() {
         channels = nil
         pointerConnectionEnded()
+        resetLatency()
         #if DEBUG
         measureConnectionEnded()
         #endif
@@ -235,14 +242,18 @@ final class KeyboardBLEPeripheral: NSObject {
         case .denied: guard grant != pointerGrant else { return }
         case .opening, .open, .timedOut: return
         }
-        guard let id = send(.pointerOpen(grant: grant)) else { return }
+        // The fast interval is asked for before the open leaves the phone.
+        setPointerLatency(open: true)
+        guard let id = send(.pointerOpen(grant: grant)) else {
+            setPointerLatency(open: false)
+            return
+        }
         pointerAttempts += 1
         schedulePointerOpenTimeout()
         pointerOpenEventId = id
         pointerEventIds.insert(id)
         pointerGrant = grant
         pointerState = .opening
-        setPointerLatency(low: true)
     }
 
     /// The page was left: whatever is held is released, the Mac is told, and the latency goes back to medium.
@@ -260,7 +271,7 @@ final class KeyboardBLEPeripheral: NSObject {
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
         pointerState = .closed
-        setPointerLatency(low: false)
+        setPointerLatency(open: false)
     }
 
     private func schedulePointerOpenTimeout() {
@@ -287,18 +298,63 @@ final class KeyboardBLEPeripheral: NSObject {
             openPointer()
         } else {
             pointerState = .timedOut
+            setPointerLatency(open: false)
         }
     }
 
     /// Hands what the sender has to the radio.
     func pumpPointer() { drain() }
 
-    private func setPointerLatency(low: Bool) {
+    private func setPointerLatency(open: Bool) {
+        latencyPolicy.setPointerOpen(open)
+        if open { latencyPolicy.noteActivity(atMs: MonotonicClock.nowMs()) }
+        reconcileLatency()
+    }
+
+    /// Asks the subscribed central for the interval the policy wants, only when it differs from the last ask, and arms the
+    /// one-shot that fires when the link turns idle. A measurement run that requested a latency keeps control.
+    private func reconcileLatency() {
+        cancelLatencyTimer()
         guard let manager, let central = subscribedCentral else { return }
-        manager.setDesiredConnectionLatency(low ? .low : .medium, for: central)
         #if DEBUG
-        latencySetting = low ? .low : .medium
+        if latencySetting != .unset {
+            appliedLatency = nil
+            return
+        }
         #endif
+        let now = MonotonicClock.nowMs()
+        let level = latencyPolicy.desired(atMs: now)
+        if level != appliedLatency {
+            switch level {
+            case .low: manager.setDesiredConnectionLatency(.low, for: central)
+            case .medium: manager.setDesiredConnectionLatency(.medium, for: central)
+            case .high: manager.setDesiredConnectionLatency(.high, for: central)
+            }
+            appliedLatency = level
+        }
+        guard let changeAt = latencyPolicy.nextChangeAtMs(atMs: now) else { return }
+        let timer = Timer(timeInterval: Double(max(changeAt - now, 1)) / 1000, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.latencyTimerFired() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        latencyTimer = timer
+    }
+
+    private func latencyTimerFired() {
+        latencyTimer = nil
+        reconcileLatency()
+    }
+
+    private func cancelLatencyTimer() {
+        latencyTimer?.invalidate()
+        latencyTimer = nil
+    }
+
+    /// The link is gone or replaced: the next central is asked afresh, and nothing waits to fire.
+    private func resetLatency() {
+        cancelLatencyTimer()
+        latencyPolicy = LinkLatencyPolicy()
+        appliedLatency = nil
     }
 
     private func pointerConnectionEnded() {
@@ -322,6 +378,7 @@ final class KeyboardBLEPeripheral: NSObject {
             pointerState = .open
         } else {
             pointerState = .denied
+            setPointerLatency(open: false)
         }
     }
 
@@ -334,7 +391,7 @@ final class KeyboardBLEPeripheral: NSObject {
         pointerAttempts = 0
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
-        setPointerLatency(low: false)
+        setPointerLatency(open: false)
         pointerState = status.pointerGrant == nil ? .denied : .closed
     }
 
@@ -448,6 +505,7 @@ final class KeyboardBLEPeripheral: NSObject {
         eventCharacteristic = nil
         cancelProbe()
         subscribedCentral = nil
+        resetLatency()
         binding.clear()
         handshake = nil
         latestStatus = nil
@@ -469,6 +527,7 @@ final class KeyboardBLEPeripheral: NSObject {
         handshake = nil
         startSession()
         subscribedCentral = nil
+        resetLatency()
         binding.clear()
         latestStatus = nil
         tracker.reset()
@@ -515,6 +574,11 @@ final class KeyboardBLEPeripheral: NSObject {
             return nil
         }
         messageId &+= 1
+        // Typing is activity; the slower interval is lifted before the first frame is handed to the radio.
+        if kind.carriesFocusEpoch {
+            latencyPolicy.noteActivity(atMs: MonotonicClock.nowMs())
+            reconcileLatency()
+        }
         // All frames of one message go into the FIFO together, so another key can never interleave with them.
         for frame in frames { queue.enqueue(frame) }
         if let (key, length) = Self.diagnosticKey(kind) {
@@ -645,6 +709,7 @@ final class KeyboardBLEPeripheral: NSObject {
                     // The counter is used up: nothing more can be sealed on this connection.
                     pointerSender = nil
                     pointerState = .closed
+                    setPointerLatency(open: false)
                     return
                 }
                 guard manager.updateValue(packet, for: characteristic, onSubscribedCentrals: [central]) else {
@@ -775,6 +840,7 @@ final class KeyboardBLEPeripheral: NSObject {
         cancelProbe()
         binding.clear()
         subscribedCentral = nil
+        resetLatency()
         handshake = nil
         latestStatus = nil
     }
@@ -834,10 +900,14 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // A repeat subscription replaces the handshake without it ever being nil, so the old connection's channels go here.
         channels = nil
         pointerConnectionEnded()
+        resetLatency()
         #if DEBUG
         measureConnectionEnded()
         applyLatency()
         #endif
+        // A new link counts as activity: it starts at the default interval and slows down after ten quiet seconds.
+        latencyPolicy.noteActivity(atMs: MonotonicClock.nowMs())
+        reconcileLatency()
         handshake = PhoneHandshake(pairKey: pairKey, phoneNonce: Pairing.randomNonce())
         KeyboardLifecycleLog.note(.handshakeStarted)
         feed(.subscribed)
@@ -854,6 +924,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // Keys typed for the old connection are not replayed into a later one.
         cancelProbe()
         subscribedCentral = nil
+        resetLatency()
         handshake = nil
         latestStatus = nil
         queue.removeAll()
