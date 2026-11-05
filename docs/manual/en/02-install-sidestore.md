@@ -12,9 +12,9 @@ LocalDevVPN creates a local tunnel inside the iPhone, so SideStore can sign and 
 2. Open LocalDevVPN and tap the connect button (labeled Connect in the English interface).
 3. When iOS asks whether to add a VPN configuration, tap Allow and enter your iPhone passcode when prompted.
 
-<img src="../images/iphone-localdevvpn.png" width="320" alt="LocalDevVPN main screen, with the status showing Connected and the button below showing Disconnect">
+<img src="../images/iphone-localdevvpn.png" width="320" alt="LocalDevVPN main screen, with the status showing Connected (已連線) and the button below showing Disconnect (斷線)">
 
-When it worked, LocalDevVPN shows the status Connected, and the button below it changes to Disconnect.
+When it worked, LocalDevVPN shows the status Connected (已連線), and the button below it changes to Disconnect (斷線).
 
 ## 2. Install iloader on the Mac
 
@@ -62,7 +62,7 @@ If you do not see a Developer Mode option, you can skip this step.
 ## 6. Connect LocalDevVPN and sign in to SideStore
 
 1. Make sure the iPhone is on Wi-Fi.
-2. Open LocalDevVPN and check that it shows Connected. If it is not connected, tap the connect button.
+2. Open LocalDevVPN and check that it shows Connected (已連線). If it is not connected, tap the connect button.
 3. Open SideStore.
 4. Sign in to SideStore with the same Apple Account you used in iloader.
 
