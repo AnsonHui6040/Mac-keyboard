@@ -1,4 +1,7 @@
+import { Layer } from '@kinetographdev/core';
+import { MacPressRing } from '../components/MacCursor.tsx';
 import { fadeIn, pageAt } from '../components/PhoneScreen.tsx';
+import { pulseAt, secondPeak } from './doubleClick.ts';
 import { FinderPage, ReleasePage, TerminalPage } from './macPages.tsx';
 import type { ScreenProps } from './registry.tsx';
 
@@ -17,8 +20,17 @@ export const ZipFlow = ({ beatIndex, beatFrame, stepTimes, pointer }: ScreenProp
       return <ReleasePage row="zip" hover={fadeIn(beatFrame, land - 4, 6)} downloaded={fadeIn(beatFrame, land + 4, 8)} />;
     }
     if (page === 1) return <TerminalPage kind="zip" match={fadeIn(beatFrame, stepTimes[1]?.land ?? Infinity, 10)} />;
+    // 連按兩下: the step's own press is the first click; the second ring is drawn here, 10 frames later, and the app comes out after it.
     const land = stepTimes[2]?.land ?? Infinity;
-    return <FinderPage s={{ zipSelected: fadeIn(beatFrame, land - 4, 4), app: fadeIn(beatFrame, land + 4, 10), ghost: false, moved: false, appsHi: 0 }} />;
+    const second = secondPeak(land);
+    return (
+      <Layer>
+        <FinderPage s={{ zipSelected: fadeIn(beatFrame, land - 4, 4), app: fadeIn(beatFrame, second, 6), ghost: false, moved: false, appsHi: 0 }} />
+        <Layer id="second-click" x={pointer.x} y={pointer.y}>
+          <MacPressRing press={pulseAt(beatFrame, second)} />
+        </Layer>
+      </Layer>
+    );
   }
 
   const dragStart = stepTimes[1]?.start ?? Infinity;

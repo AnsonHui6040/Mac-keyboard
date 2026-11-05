@@ -20,6 +20,6 @@ export const scene14: SceneSpec = {
     // 再按「允許藍牙」和「允許」。
     { screen: 'appSetup', device: 'iphone', steps: [{ target: 'allowbt', press: true }, { target: 'allow', press: true }] },
     // iPhone 這邊就好了。
-    { screen: 'appSetup', device: 'iphone' },
+    { screen: 'appSetup', device: 'iphone', hidePointer: true },
   ],
 };

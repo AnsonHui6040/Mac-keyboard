@@ -43,9 +43,9 @@ export const ShareSheetOverlay = ({ opacity }: { opacity: number }) => {
 
 // ------------------------------------------------------------------ scene 11: My Apps with the plus, the file picker
 
-export const MyAppsPlusPage = () => (
+export const MyAppsPlusPage = ({ vpn = false }: { vpn?: boolean }) => (
   <Layer id="page-myapps-plus">
-    <StatusBar />
+    <StatusBar vpn={vpn} />
     <Btn target="plus" rect={L.PLUS}>
       <Ellipse width={64} height={64} fill="#2c2c2e" />
       <Path d="M32 17 V47 M17 32 H47" fill={NONE} stroke={{ color: ios.ink, width: 5, cap: 'round' }} />
@@ -64,11 +64,11 @@ export const MyAppsPlusPage = () => (
 
 const PICKER_ROW_H = 108;
 
-export const PickerPage = () => {
+export const PickerPage = ({ vpn = false }: { vpn?: boolean }) => {
   const R = L.PICKER_ROWS;
   return (
     <Layer id="page-picker">
-      <StatusBar />
+      <StatusBar vpn={vpn} />
       <Rect x={0} y={56} width={390} height={788} radius={38} fill="#141416" />
       <PText x={24} y={80} size={28} color={ios.blue}>取消</PText>
       <PText x={0} y={80} size={30} weight={700} w={390} align="center">下載項目</PText>

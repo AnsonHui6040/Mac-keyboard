@@ -3,6 +3,7 @@ import { Ellipse, Layer, Path, Rect, Text } from '@kinetographdev/core';
 import type { Rect as Box } from '../screens/geometry.ts';
 import { ALERT_X, ALERT_W, ALERT_BTN_H, PHONE_MIN_TEXT, type AlertLayout } from '../screens/layouts.ts';
 import { theme } from '../theme.ts';
+import { VpnBadge } from './VpnBadge.tsx';
 
 /** iOS dark-mode colors for the drawn iPhone screens. */
 export const ios = {
@@ -68,17 +69,26 @@ export const BackChevron = ({ x, y }: { x: number; y: number }) => (
   <Path x={x} y={y} d="M14 0 L0 14 L14 28" fill={ios.none} stroke={{ color: ios.blue, width: 5, cap: 'round', join: 'round' }} />
 );
 
-/** Time, signal bars and battery. Drawn on every screen; the island is added by IPhoneFrame. */
-export const StatusBar = () => (
-  <Layer id="status-bar">
-    <PText x={44} y={12} size={26} weight={700}>9:41</PText>
-    {[0, 1, 2, 3].map((i) => (
-      <Rect key={i} x={262 + i * 9} y={34 - i * 5} width={6} height={8 + i * 5} radius={2} fill={ios.ink} />
-    ))}
-    <Rect x={308} y={20} width={44} height={22} radius={7} fill={ios.none} stroke={{ color: '#ffffff80', width: 2 }} />
-    <Rect x={311} y={23} width={30} height={16} radius={4.5} fill={ios.ink} />
-  </Layer>
-);
+/**
+ * Time, signal bars and battery. Drawn on every screen; the island is added by IPhoneFrame. With `vpn`, the iOS VPN pill
+ * sits beside the island and the signal bars and battery tuck in to its right (scaled to 0.7, right edge kept at 370).
+ */
+export const StatusBar = ({ vpn = false }: { vpn?: boolean }) => {
+  const s = vpn ? 0.7 : 1;
+  return (
+    <Layer id="status-bar">
+      <PText x={44} y={12} size={26} weight={700}>9:41</PText>
+      {vpn && <VpnBadge />}
+      <Layer x={vpn ? 370 - 352 * s : 0} y={vpn ? 31 * (1 - s) : 0} scale={s}>
+        {[0, 1, 2, 3].map((i) => (
+          <Rect key={i} x={262 + i * 9} y={34 - i * 5} width={6} height={8 + i * 5} radius={2} fill={ios.ink} />
+        ))}
+        <Rect x={308} y={20} width={44} height={22} radius={7} fill={ios.none} stroke={{ color: '#ffffff80', width: 2 }} />
+        <Rect x={311} y={23} width={30} height={16} radius={4.5} fill={ios.ink} />
+      </Layer>
+    </Layer>
+  );
+};
 
 /** Large left title ("設定") with the status bar above. */
 export const LargeTitle = ({ children, y = 70 }: { children: string; y?: number }) => (

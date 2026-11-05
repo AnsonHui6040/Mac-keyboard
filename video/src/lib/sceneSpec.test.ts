@@ -219,3 +219,37 @@ test('stepTimes: per step, when the pointer starts and lands (arrival, or the pr
   // the press peak is the frame where pointerAt reports press 1
   assert.equal(pointerAt(t.from + slot + 37, c.cues, 30).press, 1);
 });
+
+test('hidePointer: the pointer fades 1 to 0 over 8 frames from the start of that beat and stays hidden; other beats are untouched', () => {
+  const c = compileScene({ n: 80, beats: [blocked({ steps: [{ target: 'done', press: true }] }), blocked({ hidePointer: true }), blocked()] }, A + B + C, 12, 30);
+  const [b0, b1, b2] = c.timeline;
+  assert.equal(c.pointerHide(b0.from), 1);
+  assert.equal(c.pointerHide(b1.from - 1), 1);
+  assert.equal(c.pointerHide(b1.from), 1);
+  assert.equal(c.pointerHide(b1.from + 4), 0.5);
+  assert.equal(c.pointerHide(b1.from + 8), 0);
+  assert.equal(c.pointerHide(b1.to - 1), 0);
+  assert.equal(c.pointerHide(b2.from), 1);
+  // the pointer run still covers the hiding beat, so the cues are the same with or without the flag
+  assert.deepEqual(c.cues, compileScene({ n: 80, beats: [blocked({ steps: [{ target: 'done', press: true }] }), blocked(), blocked()] }, A + B + C, 12, 30).cues);
+});
+
+test('a beat that hides the pointer cannot also have steps', () => {
+  assert.throws(() => compileScene({ n: 79, beats: [blocked({ hidePointer: true, steps: [{ target: 'done' }] })] }, A, 5, 30), /79.*hides the pointer.*steps/);
+  compileScene({ n: 79, beats: [blocked({ hidePointer: true, steps: [] })] }, A, 5, 30);
+});
+
+test('hidePointer is set on scene 13 beat 1 and scene 14 beat 2 and nowhere else; scene 16 never hides its pointer', () => {
+  const flagged = SCENES.flatMap((s) => s.beats.flatMap((b, i) => (b.hidePointer ? [`${s.n}:${i}`] : [])));
+  assert.deepEqual(flagged, ['13:1', '14:2']);
+  const c = compileRegistered(scene16);
+  for (let f = 0; f < sceneEntry(16).seconds * FPS; f++) assert.equal(c.pointerHide(f), 1);
+  // scene 13 beat 1 and scene 14 beat 2 follow a press, so the pointer is visible until their start and gone 8 frames in
+  for (const [n, beat] of [[13, 1], [14, 2]] as const) {
+    const s = compileRegistered(SCENES.find((x) => x.n === n)!);
+    const from = s.timeline[beat].from;
+    assert.equal(s.pointerHide(from - 1), 1, `${n} before`);
+    assert.equal(s.pointerHide(from + 8), 0, `${n} after`);
+    assert.equal(s.pointerHide(s.timeline[beat].to - 1), 0, `${n} end`);
+  }
+});

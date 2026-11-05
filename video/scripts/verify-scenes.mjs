@@ -84,6 +84,10 @@ for (const spec of specs) {
           check(`${tag} pointer tip not inside btn-${l.target}`, !within(tip, t) && !within(tip, s), `tip ${fmt(tip.x)},${fmt(tip.y)} vs ${l.target} ${fmt(t.x)},${fmt(t.y)} ${fmt(t.width)}x${fmt(t.height)}`);
         }
       }
+    } else if (b.hidePointer) {
+      // hidePointer: the pointer has faded out 8 frames into the beat, so it is gone at the end of it.
+      const fade = find(layers, 'pointer-fade');
+      check(`${tag} pointer hidden (hidePointer)`, !!fade && fade.opacity === 0, `pointer-fade opacity ${fade ? fade.opacity : 'absent'}`);
     } else if (!c.runs.some((r) => frame >= r.cues[0].from && frame < r.to)) {
       // No step and no pointer run on screen: the pointer must be hidden. (Inside a run it stays where it was.)
       const fade = find(layers, 'pointer-fade');

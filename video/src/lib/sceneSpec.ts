@@ -10,7 +10,11 @@ export type Device = 'mac' | 'iphone';
  */
 export type Step = { target: string; press?: boolean };
 export type Label = { target: string; kind: 'good' | 'bad'; head?: string };
-export type BeatSpec = { screen: string; device?: Device; steps?: Step[]; labels?: Label[]; minSeconds?: number };
+/**
+ * `hidePointer`: the pointer fades out over HIDE_FRAMES frames from the start of this beat and stays hidden to its end.
+ * For a beat that shows a result and has no steps of its own (the tap ring would rest on an empty spot); a beat with steps cannot use it.
+ */
+export type BeatSpec = { screen: string; device?: Device; steps?: Step[]; labels?: Label[]; minSeconds?: number; hidePointer?: boolean };
 export type SceneSpec = { n: number; beats: BeatSpec[] };
 export type Span = { from: number; to: number };
 
@@ -30,10 +34,14 @@ export type CompiledScene = {
   runs: PointerRun[];
   deviceAt(frame: number): Device | undefined;
   beatAt(frame: number): number;
+  /** Opacity factor of the pointer from `hidePointer` beats: 1 normally, 1 to 0 over HIDE_FRAMES from such a beat's start, 0 to its end. */
+  pointerHide(frame: number): number;
 };
 
 /** Frames of the cross fade when the screen changes at the start of a beat. */
 export const FADE_FRAMES = 8;
+/** Frames a `hidePointer` beat takes to fade the pointer out. */
+export const HIDE_FRAMES = 8;
 /** The pointer starts this many px below its first target and travels in. */
 export const ENTRY_OFFSET = 120;
 /** One step needs travel (18) + hold (15) + press (8) frames; a step without a press needs travel + hold. */
@@ -72,6 +80,7 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   spec.beats.forEach((b, i) => {
     if (!Object.hasOwn(SCREENS, b.screen)) throw new Error(`${where}: beat ${i} uses unknown screen ${b.screen}`);
     if (b.steps && b.steps.length > 0 && !b.device) throw new Error(`${where}: beat ${i} has steps but no device`);
+    if (b.hidePointer && b.steps && b.steps.length > 0) throw new Error(`${where}: beat ${i} hides the pointer but has steps`);
     for (const t of [...(b.steps ?? []), ...(b.labels ?? [])]) {
       if (!hasTarget(b.screen, t.target)) throw new Error(`${where}: beat ${i} has no ${t.target} on ${b.screen}`);
     }
@@ -140,6 +149,11 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     const i = timeline.findIndex((t) => frame >= t.from && frame < t.to);
     return i === -1 ? timeline.length - 1 : i;
   };
+  const pointerHide = (frame: number): number => {
+    const i = beatAt(frame);
+    if (!spec.beats[i].hidePointer) return 1;
+    return Math.min(1, Math.max(0, 1 - (frame - timeline[i].from) / HIDE_FRAMES));
+  };
   return {
     beats,
     timeline,
@@ -148,6 +162,7 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     runs: shown,
     deviceAt: (frame) => spec.beats[beatAt(frame)]?.device,
     beatAt,
+    pointerHide,
   };
 }
 

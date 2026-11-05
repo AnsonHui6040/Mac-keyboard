@@ -80,7 +80,7 @@ export const SceneRunner = ({ spec }: { spec: SceneSpec }) => {
         {device && <DeviceTag label={DEVICE_LABEL[device]} />}
         {outgoing > 0 && <BeatContent spec={spec} index={i - 1} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={outgoing} pointer={state} stepTimes={c.stepTimes[i - 1]} />}
         {incoming > 0 && <BeatContent spec={spec} index={i} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={incoming} pointer={state} stepTimes={c.stepTimes[i]} />}
-        <Layer id="pointer-fade" opacity={fadeIn * fadeOut}>
+        <Layer id="pointer-fade" opacity={fadeIn * fadeOut * c.pointerHide(frame)}>
           {pointerDevice === 'iphone' ? <TapDot state={state} /> : <MacCursor state={state} />}
         </Layer>
         <Subtitle beat={c.beats[i]} />

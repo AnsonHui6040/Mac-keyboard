@@ -7,6 +7,6 @@ export const scene13: SceneSpec = {
     // 開啟「允許完整取用」，出現警告時按「允許」。
     { screen: 'fullAccess', device: 'iphone', steps: [{ target: 'toggle', press: true }, { target: 'allow', press: true }] },
     // 遠端打字和手寫都需要這項權限。
-    { screen: 'fullAccess', device: 'iphone' },
+    { screen: 'fullAccess', device: 'iphone', hidePointer: true },
   ],
 };
