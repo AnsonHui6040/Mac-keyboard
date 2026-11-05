@@ -94,3 +94,16 @@ Mac 的 `bluetoothd` 在已連線時比未接收時高約 5 個百分點，所�
 Mac `bluetoothd` 餘下的 9–10% 不是 Receiver 造成：Receiver 完全結束後，連續兩次 20 秒量測都是 10.7%，重新開啟後是 9.8%。實際來源沒有進一步確認。
 
 閒置時間以開發者操作為準；上表修改前後的 `bluetoothd` 不是同一時間量測，其他藍牙裝置的活動可能有影響。
+
+## 正式 Alpha 1（build 4）
+
+iPhone 與 Mac 都由公開 Release 安裝。Mac 執行檔的 SHA-256 與 Release 內的相同（開頭 `1272c794`），iPhone 顯示 build 4。面板顯示已連線，開發者確認已連接，閒置超過 10 秒。
+
+| 程序 | CPU |
+|---|---|
+| Mac Receiver | 0.37%（30 秒累積 CPU 時間） |
+| Mac `bluetoothd` | 10.0% |
+| iPhone 鍵盤 | 約 0.7%，單筆最高 1.8% |
+| iPhone `bluetoothd` | 約 1.2–3.0% |
+
+Receiver 結束時的 iPhone 對照沒有錄到，裝置在該次錄製逾時。
