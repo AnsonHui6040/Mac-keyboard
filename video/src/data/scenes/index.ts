@@ -17,12 +17,17 @@ import { scene13 } from './scene13.ts';
 import { scene14 } from './scene14.ts';
 import { scene15 } from './scene15.ts';
 import { scene16 } from './scene16.ts';
+import { scene17 } from './scene17.ts';
+import { scene18 } from './scene18.ts';
+import { scene19 } from './scene19.ts';
+import { scene20 } from './scene20.ts';
+import { scene21 } from './scene21.ts';
 
 export const FPS = 30;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
 
-export const SCENES: SceneSpec[] = [scene01, scene02, scene03, scene04, scene05, scene06, scene07, scene08, scene09, scene10, scene11, scene12, scene13, scene14, scene15, scene16];
+export const SCENES: SceneSpec[] = [scene01, scene02, scene03, scene04, scene05, scene06, scene07, scene08, scene09, scene10, scene11, scene12, scene13, scene14, scene15, scene16, scene17, scene18, scene19, scene20, scene21];
 
 export const sceneEntry = (n: number): { n: number; seconds: number; caption: string } => {
   const entry = script.scenes.find((s) => s.n === n);

@@ -215,3 +215,148 @@ export const MAIN_CARD_OPEN = R(16, 190, 358, 300);
 export const MAIN_BT = R(16, 190, 358, 72);
 export const MAIN_ALLOWBT = R(40, 274, 310, 60);
 export const ALERT_BT = alertLayout(3, 2, false); // 不允許 | 允許
+
+// ================================================================ scenes 17 to 21
+// Mac rects are canvas pixels; iPhone rects are logical (390 x 844). The iPhone sits on the right (PHONE_ORIGIN_RIGHT) in scenes 18 to 20.
+
+// ---------------------------------------------------------------- scene 17: menu bar, Receiver panel, Accessibility list
+export const MENUBAR_H = 60;
+/** The keyboard icon in the menu bar; a click opens the panel under it. */
+export const MENU_ICON = R(1700, 2, 72, 56);
+
+export type PanelKind = 'access' | 'idle' | 'waiting' | 'code' | 'saved' | 'paired';
+export const PANEL_W = 560;
+const PANEL_PAD = 24;
+const PANEL_LINE = 36;
+const PANEL_BTN_H = 52;
+const PANEL_GAP = 12;
+const PANEL_SEP = 42; // gap, hairline, gap between sections
+export const PANEL_TEXT = 24;
+
+export type PanelLayout = {
+  rect: Rect;
+  /** Top of each section. `warnY` exists only for kind `access`. */
+  warnY?: number;
+  statusY: number;
+  startY: number;
+  pairY: number;
+  tailY: number;
+  /** Hairlines between sections. */
+  dividers: number[];
+  /** Button rects by name: authorize, openSettings (access); start, stop; pairNew, unpair (idle, access, paired); cancel (waiting, code); confirm (code); done (saved). */
+  buttons: Record<string, Rect>;
+};
+
+const pairHeight = (kind: PanelKind): number => {
+  switch (kind) {
+    case 'access':
+    case 'idle':
+      return PANEL_LINE + PANEL_GAP + PANEL_BTN_H + PANEL_GAP + 3 * 32;
+    case 'waiting':
+    case 'saved':
+      return 2 * 34 + PANEL_GAP + PANEL_BTN_H;
+    case 'code':
+      return PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP + PANEL_BTN_H + 8 + PANEL_LINE;
+    case 'paired':
+      return PANEL_LINE + 34 + PANEL_GAP + PANEL_BTN_H;
+  }
+};
+
+/** The Receiver menu bar panel with its top-left at (x, y); every number follows from the section heights. */
+export function panelLayout(kind: PanelKind, x: number, y: number): PanelLayout {
+  const bx = x + PANEL_PAD;
+  const buttons: Record<string, Rect> = {};
+  let cy = y + PANEL_PAD;
+  let warnY: number | undefined;
+  if (kind === 'access') {
+    warnY = cy;
+    buttons.authorize = R(bx, cy + PANEL_LINE + PANEL_GAP, 220, PANEL_BTN_H);
+    buttons.openSettings = R(bx + 220 + 12, cy + PANEL_LINE + PANEL_GAP, 236, PANEL_BTN_H);
+    cy += PANEL_LINE + PANEL_GAP + PANEL_BTN_H + 20;
+  }
+  const statusY = cy;
+  cy += 3 * PANEL_LINE + 12;
+  const startY = cy;
+  buttons.start = R(bx, cy, 140, PANEL_BTN_H);
+  buttons.stop = R(bx + 152, cy, 140, PANEL_BTN_H);
+  cy += PANEL_BTN_H;
+  const dividers = [cy + 20];
+  cy += PANEL_SEP;
+  const pairY = cy;
+  const by = (offset: number): number => pairY + offset;
+  if (kind === 'access' || kind === 'idle') {
+    buttons.pairNew = R(bx, by(PANEL_LINE + PANEL_GAP), 250, PANEL_BTN_H);
+    buttons.unpair = R(bx + 250 + 12, by(PANEL_LINE + PANEL_GAP), 140, PANEL_BTN_H);
+  } else if (kind === 'waiting') {
+    buttons.cancel = R(x + PANEL_W - PANEL_PAD - 92, by(2 * 34 + PANEL_GAP), 92, PANEL_BTN_H);
+  } else if (kind === 'code') {
+    const row = by(PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP);
+    buttons.confirm = R(bx, row, 92, PANEL_BTN_H);
+    buttons.cancel = R(bx + 104, row, 92, PANEL_BTN_H);
+  } else if (kind === 'saved') {
+    buttons.done = R(x + PANEL_W - PANEL_PAD - 92, by(2 * 34 + PANEL_GAP), 92, PANEL_BTN_H);
+  } else {
+    buttons.pairNew = R(bx, by(PANEL_LINE + 34 + PANEL_GAP), 250, PANEL_BTN_H);
+    buttons.unpair = R(bx + 250 + 12, by(PANEL_LINE + 34 + PANEL_GAP), 140, PANEL_BTN_H);
+  }
+  cy += pairHeight(kind);
+  dividers.push(cy + 20);
+  cy += PANEL_SEP;
+  const tailY = cy;
+  cy += 2 * 44 + PANEL_PAD;
+  return { rect: R(x, y, PANEL_W, cy - y), warnY, statusY, startY, pairY, tailY, dividers, buttons };
+}
+
+/** Scene 17: the panel hangs from the menu bar icon, its right edge 28 px right of the icon's. */
+export const PANEL17 = panelLayout('access', MENU_ICON.x + MENU_ICON.width + 28 - PANEL_W, MENUBAR_H + 8);
+/** Scenes 18 and 19: the panel floats on the Mac side, left of the iPhone. */
+export const PANEL_X2 = 640;
+export const PANEL_Y2 = 70;
+export const PANEL18 = {
+  idle: panelLayout('idle', PANEL_X2, PANEL_Y2),
+  waiting: panelLayout('waiting', PANEL_X2, PANEL_Y2),
+  code: panelLayout('code', PANEL_X2, PANEL_Y2),
+  saved: panelLayout('saved', PANEL_X2, PANEL_Y2),
+  paired: panelLayout('paired', PANEL_X2, PANEL_Y2),
+};
+
+/** Scene 17 beat 2: the System Settings window with the Accessibility list. */
+export const ACCESS_WINDOW = R(360, 90, 1200, 700);
+export const ACCESS_SIDEBAR_W = 280;
+export const ACCESS_CARD = R(ACCESS_WINDOW.x + ACCESS_SIDEBAR_W + 40, ACCESS_WINDOW.y + 210, ACCESS_WINDOW.width - ACCESS_SIDEBAR_W - 80, 5 * 72);
+/** The row of Remote Keyboard Receiver is the third of five. */
+export const ACCESS_ROW = R(ACCESS_CARD.x, ACCESS_CARD.y + 2 * 72, ACCESS_CARD.width, 72);
+export const ACCESS_TOGGLE = R(ACCESS_CARD.x + ACCESS_CARD.width - 24 - 76, ACCESS_ROW.y + 13, 76, 46);
+
+// ---------------------------------------------------------------- scenes 18 and 19: the iPhone pages of pairing (logical)
+/** 設定進度 card on the app's home: three rows of 72; the second is 已配對 Mac. */
+export const SETUP_ROW_PAIR = R(MAIN_CARD.x, MAIN_CARD.y + 72, MAIN_CARD.width, 72);
+/** 已配對 Mac page (not paired yet): two rows, the second is 配對 Mac. */
+export const PAIRPAGE_CARD = R(16, 200, 358, 144);
+export const PAIRPAGE_ROW = R(16, 272, 358, 72);
+/** 配對 Mac while it waits for the Mac. */
+export const PW_CARD = R(16, 200, 358, 170);
+export const PW_CANCEL = R(16, 390, 358, 72);
+/** 配對 Mac with the code: header at y 186, the card, then 確認 and 取消. */
+export const PC_HEAD_Y = 186;
+export const PC_CARD = R(16, 226, 358, 264);
+export const PC_CONFIRM = R(16, 514, 358, 72);
+export const PC_CANCEL = R(16, 586, 358, 72);
+/** 已儲存: a text row, a countdown row, 完成. After 完成 the page says 已配對 Mac with 完成 at the same place. */
+export const PS_CARD = R(16, 200, 358, 244);
+export const PS_DONE = R(16, 372, 358, 72);
+
+// ---------------------------------------------------------------- scene 20: TextEdit and the keyboard switch
+/** The TextEdit window of scene 20: lower than scene 1's, so the device tag at the top left stays clear of it. */
+export const TEXTEDIT20 = R(120, 150, 1260, 680);
+/** Where a click goes in the TextEdit document. */
+export const DOC_CLICK = R(TEXTEDIT20.x + 60, TEXTEDIT20.y + 110, 1140, 300);
+/** An input field on the iPhone, the page the keyboard comes up on. */
+export const FIELD = R(24, 112, 342, 72);
+export const GLOBE = R(10, 770, 64, 64);
+/** The keyboard list that opens above the globe key: two gray rows, then Remote Keyboard. */
+export const KBPOP = R(12, 560, 300, 198);
+export const KBPOP_RK = R(12, 560 + 132, 300, 66);
+/** 遠端 half of the 本機 | 遠端 switch on the Remote Keyboard toolbar. */
+export const TB_REMOTE = R(77, KB_TOP + 5, 62, 48);
+export const TB_LOCAL = R(15, KB_TOP + 5, 62, 48);

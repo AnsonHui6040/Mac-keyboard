@@ -19,11 +19,16 @@ import { AppSetup } from './AppSetup.tsx';
 import { IpaDownload, IpaSave, IpaVerify } from './IpaFlow.tsx';
 import { FullAccess, KbAdd, KbList, KbSettings } from './KeyboardFlow.tsx';
 import { ZipFlow } from './ZipFlow.tsx';
+import { MacAccess, MacBluetooth, ReceiverMenu } from './ReceiverFlow.tsx';
+import { PairDone, PairFlow } from './PairFlow.tsx';
+import { KeyboardOn } from './KeyboardOn.tsx';
+import { Calendar } from './Calendar.tsx';
 
 /**
  * What a screen is told each frame.
  * - `active`: the device the current beat operates. Two-device screens draw the other one at `deviceBrightness`.
- * - `prevActive`: the previous beat's device when that beat shows the same screen (else undefined); `deviceBrightness` eases from it.
+ * - `prevActive`: the device operated before `active` (the previous beat's, when it shows the same screen; or the one before a change inside this beat), else undefined; `deviceBrightness` eases from it.
+ * - `deviceFrame`: frames since `active` took over (the beat start, or the start of the step slot where this beat changed device). Pass it as `beatFrame` to `deviceBrightness`.
  * - `frame`: global frame. `localFrame`: frames since the scene started. `beatFrame`: frames since this beat started.
  * - `beatIndex`: index of this beat in the scene. Typing and list reveal count from `beatFrame`.
  * - `pointer`: where the pointer is; a dragged item is drawn at this position.
@@ -33,6 +38,7 @@ import { ZipFlow } from './ZipFlow.tsx';
 export type ScreenProps = {
   active?: Device;
   prevActive?: Device;
+  deviceFrame: number;
   frame: number;
   localFrame: number;
   beatIndex: number;
@@ -67,4 +73,11 @@ export const SCREEN_VIEWS: Record<string, (props: ScreenProps) => ReactNode> = {
   fullAccess: (p) => <FullAccess {...p} />,
   appSetup: (p) => <AppSetup {...p} />,
   zipFlow: (p) => <ZipFlow {...p} />,
+  macBluetooth: () => <MacBluetooth />,
+  receiverMenu: (p) => <ReceiverMenu {...p} />,
+  macAccess: (p) => <MacAccess {...p} />,
+  pairFlow: (p) => <PairFlow {...p} />,
+  pairDone: (p) => <PairDone {...p} />,
+  keyboardOn: (p) => <KeyboardOn {...p} />,
+  calendar: (p) => <Calendar {...p} />,
 };

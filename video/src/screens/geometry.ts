@@ -69,6 +69,7 @@ const P = (r: Rect): Rect => phoneRect(r);
 
 export const DIALOGS: Record<ScreenId, Rect> = {
   dialogBlocked: BLOCKED,
+  macBluetooth: BLOCKED,
   settingsSecurity: SETTINGS_WINDOW,
   dialogConfirm: CONFIRM,
   auth: AUTH,
@@ -119,4 +120,24 @@ export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   fullAccess: { toggle: P(L.FA_ROW), allow: P(L.ALERT_FULL.buttons[1]) },
   appSetup: { open: P(L.HOME_RK), next: P(L.GUIDE_NEXT), bt: P(L.MAIN_BT), allowbt: P(L.MAIN_ALLOWBT), allow: P(L.ALERT_BT.buttons[1]) },
   zipFlow: { zipdl: L.REL_ZIP, hash: L.TERM_HASH_BOX, zipfile: L.FIN_ZIP, receiver: L.FIN_APP, apps: L.FIN_APPS },
+  // Scenes 17 to 21. The iPhone of scenes 18 to 20 is on the right of the Mac side (PHONE_ORIGIN_RIGHT).
+  macBluetooth: { deny: blockedBtn(0), allow: blockedBtn(1) },
+  receiverMenu: { icon: L.MENU_ICON, authorize: L.PANEL17.buttons.authorize },
+  macAccess: { toggle: L.ACCESS_TOGGLE },
+  pairFlow: {
+    pairNew: L.PANEL18.idle.buttons.pairNew,
+    phoneRow: phoneRect(L.SETUP_ROW_PAIR, PHONE_ORIGIN_RIGHT),
+    pairMac: phoneRect(L.PAIRPAGE_ROW, PHONE_ORIGIN_RIGHT),
+    macConfirm: L.PANEL18.code.buttons.confirm,
+    phoneConfirm: phoneRect(L.PC_CONFIRM, PHONE_ORIGIN_RIGHT),
+  },
+  pairDone: { macDone: L.PANEL18.saved.buttons.done, phoneDone: phoneRect(L.PS_DONE, PHONE_ORIGIN_RIGHT) },
+  keyboardOn: {
+    doc: L.DOC_CLICK,
+    field: phoneRect(L.FIELD, PHONE_ORIGIN_RIGHT),
+    globe: phoneRect(L.GLOBE, PHONE_ORIGIN_RIGHT),
+    rk: phoneRect(L.KBPOP_RK, PHONE_ORIGIN_RIGHT),
+    remote: phoneRect(L.TB_REMOTE, PHONE_ORIGIN_RIGHT),
+  },
+  calendar: {},
 };

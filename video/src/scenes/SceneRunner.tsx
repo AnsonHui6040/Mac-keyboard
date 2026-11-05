@@ -6,7 +6,7 @@ import { Subtitle } from '../components/Subtitle.tsx';
 import { TapDot } from '../components/TapDot.tsx';
 import { compileRegistered } from '../data/scenes/index.ts';
 import { pointerAt, type PointerState } from '../lib/pointer.ts';
-import { DEFAULT_HEAD, FADE_FRAMES, labelRunStart, type CompiledScene, type Device, type Label, type SceneSpec, type StepTime } from '../lib/sceneSpec.ts';
+import { DEFAULT_HEAD, FADE_FRAMES, labelRunStart, type CompiledScene, type Device, type DeviceState, type Label, type SceneSpec, type StepTime } from '../lib/sceneSpec.ts';
 import { SCREEN_VIEWS } from '../screens/registry.tsx';
 import { SCREENS } from '../screens/geometry.ts';
 import { theme } from '../theme.ts';
@@ -26,9 +26,8 @@ const compile = (spec: SceneSpec): CompiledScene => {
 const HIDDEN: PointerState = { x: 0, y: 0, visible: false, press: 0 };
 
 /** A beat's screen with the callouts it carries. `opacity` is the cross fade factor. */
-const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity, pointer, stepTimes }: { spec: SceneSpec; index: number; frame: number; localFrame: number; fps: number; from: (i: number) => number; opacity: number; pointer: PointerState; stepTimes: StepTime[] }) => {
+const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity, pointer, stepTimes, state }: { spec: SceneSpec; index: number; frame: number; localFrame: number; fps: number; from: (i: number) => number; opacity: number; pointer: PointerState; stepTimes: StepTime[]; state: DeviceState }) => {
   const b = spec.beats[index];
-  const prev = index > 0 && spec.beats[index - 1].screen === b.screen ? spec.beats[index - 1].device : undefined;
   const rise = (label: Label): number => {
     const start = from(labelRunStart(spec, index, label));
     const s = spring({ frame: frame - start, fps, config: { damping: 30, stiffness: 140 } });
@@ -36,7 +35,7 @@ const BeatContent = ({ spec, index, frame, localFrame, fps, from, opacity, point
   };
   return (
     <Layer id={`beat-${index}`} opacity={opacity}>
-      {SCREEN_VIEWS[b.screen]({ active: b.device, prevActive: prev, frame, localFrame, beatIndex: index, beatFrame: frame - from(index), pointer, stepTimes })}
+      {SCREEN_VIEWS[b.screen]({ active: state.active, prevActive: state.prevActive, deviceFrame: state.since, frame, localFrame, beatIndex: index, beatFrame: frame - from(index), pointer, stepTimes })}
       {b.labels?.map((l) => (
         <Layer key={`${l.kind}-${l.target}`} opacity={rise(l)}>
           <Callout id={`callout-${l.target}`} targetRect={SCREENS[b.screen][l.target]}
@@ -78,8 +77,8 @@ export const SceneRunner = ({ spec }: { spec: SceneSpec }) => {
     <AbsoluteFill style={{ backgroundColor: theme.stage }}>
       <Layer id="stage">
         {device && <DeviceTag label={DEVICE_LABEL[device]} />}
-        {outgoing > 0 && <BeatContent spec={spec} index={i - 1} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={outgoing} pointer={state} stepTimes={c.stepTimes[i - 1]} />}
-        {incoming > 0 && <BeatContent spec={spec} index={i} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={incoming} pointer={state} stepTimes={c.stepTimes[i]} />}
+        {outgoing > 0 && <BeatContent spec={spec} index={i - 1} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={outgoing} pointer={state} stepTimes={c.stepTimes[i - 1]} state={c.deviceState(i - 1, frame)} />}
+        {incoming > 0 && <BeatContent spec={spec} index={i} frame={frame} localFrame={localFrame} fps={fps} from={from} opacity={incoming} pointer={state} stepTimes={c.stepTimes[i]} state={c.deviceState(i, frame)} />}
         <Layer id="pointer-fade" opacity={fadeIn * fadeOut * c.pointerHide(frame)}>
           {pointerDevice === 'iphone' ? <TapDot state={state} /> : <MacCursor state={state} />}
         </Layer>

@@ -23,7 +23,12 @@ const rel = (r: Box): Box => ({ x: 0, y: 0, width: r.width, height: r.height });
 export const typedCount = (localFrame: number): number =>
   localFrame < TYPE_START ? 0 : Math.min(TYPED.length, Math.floor((localFrame - TYPE_START) / TYPE_PITCH) + 1);
 
-const Keyboard = ({ pressed }: { pressed: string | undefined }) => {
+/** `system`: the stock keyboard, no toolbar. `local` and `remote`: Remote Keyboard with 本機 or 遠端 selected. `connected`: 遠端 and the green 已連接 (scene 1). */
+export type KeyboardMode = 'system' | 'local' | 'remote' | 'connected';
+
+export const Keyboard = ({ pressed, mode = 'connected' }: { pressed: string | undefined; mode?: KeyboardMode }) => {
+  const rk = mode !== 'system';
+  const remote = mode === 'remote' || mode === 'connected';
   const letter = (ch: string) => {
     const r = keyRect(ch)!;
     const on = pressed !== undefined && pressed.toLowerCase() === ch;
@@ -41,13 +46,17 @@ const Keyboard = ({ pressed }: { pressed: string | undefined }) => {
     <Layer id="keyboard">
       <Rect x={0} y={KB_TOP - 6} width={390} height={844 - KB_TOP + 6} fill="#1d1d1f" />
       {/* toolbar: 本機 | 遠端, 已連接, 觸控板 */}
-      <Rect x={12} y={KB_TOP + 2} width={130} height={54} radius={14} fill="#2c2c2e" />
-      <Rect x={77} y={KB_TOP + 5} width={62} height={48} radius={11} fill="#ffffff" />
-      <PText x={12} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} color={ios.muted} w={65} align="center">本機</PText>
-      <PText x={77} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={700} color="#000000" w={62} align="center">遠端</PText>
-      <PText x={156} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={700} color={ios.green} w={90} align="center">已連接</PText>
-      <Rect x={262} y={KB_TOP + 2} width={116} height={54} radius={14} fill="#3a3a3e" />
-      <PText x={262} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} w={116} align="center">觸控板</PText>
+      {rk && (
+        <Layer id="toolbar">
+          <Rect x={12} y={KB_TOP + 2} width={130} height={54} radius={14} fill="#2c2c2e" />
+          <Rect x={remote ? 77 : 15} y={KB_TOP + 5} width={62} height={48} radius={11} fill="#ffffff" />
+          <PText x={12} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={remote ? undefined : 700} color={remote ? ios.muted : '#000000'} w={65} align="center">本機</PText>
+          <PText x={77} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={remote ? 700 : undefined} color={remote ? '#000000' : ios.muted} w={62} align="center">遠端</PText>
+          {mode === 'connected' && <PText x={156} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={700} color={ios.green} w={90} align="center">已連接</PText>}
+          <Rect x={262} y={KB_TOP + 2} width={116} height={54} radius={14} fill="#3a3a3e" />
+          <PText x={262} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} w={116} align="center">觸控板</PText>
+        </Layer>
+      )}
       {KB_ROWS.flatMap((row) => row.split('')).map(letter)}
       {/* shift and delete */}
       <Rect x={6} y={KB_TOP + 4 + 2 * 66 + 66} width={51} height={KB_KEY_H} radius={9} fill={KEY_DARK} />
@@ -56,13 +65,13 @@ const Keyboard = ({ pressed }: { pressed: string | undefined }) => {
       <Path x={345} y={KB_TOP + 4 + 2 * 66 + 66 + 14} d="M8 0 H28 V28 H8 L0 14 Z M13 8 L23 20 M23 8 L13 20" fill={NONE} stroke={{ color: ios.ink, width: 3, join: 'round', cap: 'round' }} />
       {/* bottom row */}
       <Rect x={6} y={y4} width={96} height={KB_KEY_H} radius={9} fill={KEY_DARK} />
-      <PText x={6} y={y4 + (KB_KEY_H - 26 * 1.45) / 2} size={26} w={96} align="center">符號</PText>
+      <PText x={6} y={y4 + (KB_KEY_H - 26 * 1.45) / 2} size={26} w={96} align="center">{rk ? '符號' : '123'}</PText>
       <Layer x={space.x} y={space.y}>
         <Rect width={space.width} height={space.height} radius={9} fill={spaceOn ? '#ffffff' : KEY} />
-        <BoxText box={rel(space)} size={28} weight={400} color={spaceOn ? '#000000' : ios.ink}>空白</BoxText>
+        <BoxText box={rel(space)} size={28} weight={400} color={spaceOn ? '#000000' : ios.ink}>{rk ? '空白' : 'space'}</BoxText>
       </Layer>
       <Rect x={288} y={y4} width={96} height={KB_KEY_H} radius={9} fill={KEY_DARK} />
-      <PText x={288} y={y4 + (KB_KEY_H - 26 * 1.45) / 2} size={26} w={96} align="center">換行</PText>
+      <PText x={288} y={y4 + (KB_KEY_H - 26 * 1.45) / 2} size={26} w={96} align="center">{rk ? '換行' : 'return'}</PText>
       {/* globe and microphone */}
       <Ellipse x={22} y={782} width={40} height={40} fill={NONE} stroke={{ color: ios.ink, width: 3 }} />
       <Path x={22} y={782} d="M20 0 V40 M0 20 H40 M20 0 Q6 20 20 40 M20 0 Q34 20 20 40" fill={NONE} stroke={{ color: ios.ink, width: 2 }} />

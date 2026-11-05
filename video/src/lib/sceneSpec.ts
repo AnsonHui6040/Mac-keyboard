@@ -7,8 +7,11 @@ export type Device = 'mac' | 'iphone';
 /**
  * One pointer move to a target, optionally followed by a press. A drag has no pointer model of its own: it is a
  * sequence of steps without `press`, and the screen draws the dragged item at the `pointer` position it is given.
+ * `device` overrides the beat's device for this step, for a beat whose subtitle moves from one device to the other
+ * ("先在 Mac、再在 iPhone"). The beat's own `device` is the device it starts on; the pointer, the device tag and the dimming
+ * change at the start of the step's slot.
  */
-export type Step = { target: string; press?: boolean };
+export type Step = { target: string; press?: boolean; device?: Device };
 export type Label = { target: string; kind: 'good' | 'bad'; head?: string };
 /**
  * `hidePointer`: the pointer fades out over HIDE_FRAMES frames from the start of this beat and stays hidden to its end.
@@ -17,6 +20,7 @@ export type Label = { target: string; kind: 'good' | 'bad'; head?: string };
 export type BeatSpec = { screen: string; device?: Device; steps?: Step[]; labels?: Label[]; minSeconds?: number; hidePointer?: boolean };
 export type SceneSpec = { n: number; beats: BeatSpec[] };
 export type Span = { from: number; to: number };
+export type DeviceState = { active?: Device; prevActive?: Device; since: number };
 
 /** Pointer cues of consecutive beats on one device. The pointer is drawn only while the run lasts. */
 export type PointerRun = { device: Device; from: number; to: number; cues: PointerCue[] };
@@ -33,6 +37,12 @@ export type CompiledScene = {
   cues: PointerCue[];
   runs: PointerRun[];
   deviceAt(frame: number): Device | undefined;
+  /**
+   * What a screen needs to dim the device that is not operated, at `frame` inside beat `i` (a frame past the beat is
+   * clamped to its end): `active` is the device operated now, `prevActive` the one before it (when the beat changed device
+   * inside itself, or when the previous beat shows the same screen), `since` the frames since `active` took over.
+   */
+  deviceState(i: number, frame: number): DeviceState;
   beatAt(frame: number): number;
   /** Opacity factor of the pointer from `hidePointer` beats: 1 normally, 1 to 0 over HIDE_FRAMES from such a beat's start, 0 to its end. */
   pointerHide(frame: number): number;
@@ -80,6 +90,7 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   spec.beats.forEach((b, i) => {
     if (!Object.hasOwn(SCREENS, b.screen)) throw new Error(`${where}: beat ${i} uses unknown screen ${b.screen}`);
     if (b.steps && b.steps.length > 0 && !b.device) throw new Error(`${where}: beat ${i} has steps but no device`);
+    if (!b.device && b.steps?.some((t) => t.device)) throw new Error(`${where}: beat ${i} gives a step a device but the beat has none`);
     if (b.hidePointer && b.steps && b.steps.length > 0) throw new Error(`${where}: beat ${i} hides the pointer but has steps`);
     for (const t of [...(b.steps ?? []), ...(b.labels ?? [])]) {
       if (!hasTarget(b.screen, t.target)) throw new Error(`${where}: beat ${i} has no ${t.target} on ${b.screen}`);
@@ -100,8 +111,11 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     if (hasSteps) runHasStep = true;
   });
 
+  /** A beat that changes device inside itself: its second pointer starts a run too, and the first one fades out before it, so every slot needs the entry cue and the fade. */
+  const changesDevice = (b: BeatSpec): boolean => !!b.device && (b.steps ?? []).some((t) => t.device && t.device !== b.device);
   const minSeconds = spec.beats.map((b, i) => {
-    const need = beatStepFrames(b.steps, startsRun[i]) / fps;
+    const mixedNeed = changesDevice(b) ? (b.steps ?? []).length * (PRESS_STEP_FRAMES + ENTRY_CUE_FRAMES + FADE_FRAMES) : 0;
+    const need = Math.max(beatStepFrames(b.steps, startsRun[i]), mixedNeed) / fps;
     if (need === 0) return b.minSeconds;
     return Math.max(need, b.minSeconds ?? 0);
   });
@@ -131,6 +145,13 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     steps.forEach((step, k) => {
       const p = restPoint(SCREENS[b.screen][step.target]);
       const from = span.from + k * slot;
+      const stepDevice = step.device ?? b.device!;
+      if (run!.device !== stepDevice) {
+        // The beat moves to the other device: the first pointer ends where this slot begins, a new run starts.
+        run!.to = from;
+        run = { device: stepDevice, from, to: span.to, cues: [] };
+        runs.push(run);
+      }
       const moveFrom = run!.cues.length === 0 ? from + 1 : from;
       stepTimes[i][k] = { start: moveFrom - span.from, land: moveFrom - span.from + travel + settle + (step.press ? PRESS_FRAMES / 2 : 0) };
       if (run!.cues.length === 0) {
@@ -154,13 +175,45 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     if (!spec.beats[i].hidePointer) return 1;
     return Math.min(1, Math.max(0, 1 - (frame - timeline[i].from) / HIDE_FRAMES));
   };
+  /** The device of each step of beat `i`; empty when the beat has no steps. */
+  const stepDevices = (i: number): (Device | undefined)[] => (spec.beats[i].steps ?? []).map((t) => t.device ?? spec.beats[i].device);
+  const slotAt = (i: number, frame: number): number => {
+    const n = (spec.beats[i].steps ?? []).length;
+    if (n === 0) return 0;
+    const slot = Math.floor((timeline[i].to - timeline[i].from) / n);
+    return Math.min(n - 1, Math.max(0, Math.floor((frame - timeline[i].from) / slot)));
+  };
+  const deviceEnd = (i: number): Device | undefined => {
+    const d = stepDevices(i);
+    return d.length > 0 ? d[d.length - 1] : spec.beats[i].device;
+  };
+  const deviceState = (i: number, at: number): DeviceState => {
+    const span = timeline[i];
+    const frame = Math.min(span.to - 1, Math.max(span.from, at));
+    const devs = stepDevices(i);
+    if (devs.length > 0) {
+      const k = slotAt(i, frame);
+      let j = k;
+      while (j > 0 && devs[j - 1] === devs[k]) j--;
+      if (j > 0) {
+        const slot = Math.floor((span.to - span.from) / devs.length);
+        return { active: devs[k], prevActive: devs[j - 1], since: frame - (span.from + j * slot) };
+      }
+    }
+    const prevSame = i > 0 && spec.beats[i - 1].screen === spec.beats[i].screen;
+    return { active: devs.length > 0 ? devs[0] : spec.beats[i].device, prevActive: prevSame ? deviceEnd(i - 1) : undefined, since: frame - span.from };
+  };
   return {
     beats,
     timeline,
     stepTimes,
     cues: shown.flatMap((r) => r.cues),
     runs: shown,
-    deviceAt: (frame) => spec.beats[beatAt(frame)]?.device,
+    deviceAt: (frame) => {
+      const i = beatAt(frame);
+      return deviceState(i, frame).active;
+    },
+    deviceState,
     beatAt,
     pointerHide,
   };

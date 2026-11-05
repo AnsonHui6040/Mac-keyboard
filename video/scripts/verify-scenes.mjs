@@ -66,7 +66,7 @@ for (const spec of specs) {
         const same = Math.abs(r.x - expected.x) <= TOL && Math.abs(r.y - expected.y) <= TOL && Math.abs(r.width - expected.width) <= TOL && Math.abs(r.height - expected.height) <= TOL;
         check(`${tag} btn-${last.target} bounds equal SCREENS.${b.screen}.${last.target}`, same, `bounds ${fmt(r.x)},${fmt(r.y)} ${fmt(r.width)}x${fmt(r.height)}`);
         check(`${tag} pointer tip inside btn-${last.target}`, within(tip, r) && within(tip, expected), `tip ${fmt(tip.x)},${fmt(tip.y)} in ${fmt(r.x)},${fmt(r.y)} ${fmt(r.width)}x${fmt(r.height)}`);
-        if (b.device !== 'iphone' && expected.height >= MIN_BOX_HEIGHT) {
+        if ((last.device ?? b.device) !== 'iphone' && expected.height >= MIN_BOX_HEIGHT) {
           // Whole arrow (full layer bounds) at rest stays inside the target button.
           const pb = pointer.bounds;
           const slack = Math.max(r.x - pb.x, r.y - pb.y, pb.x + pb.width - (r.x + r.width), pb.y + pb.height - (r.y + r.height));
@@ -110,6 +110,17 @@ for (const spec of specs) {
       }
     }
   });
+
+  if (spec.n === 18) {
+    // The same six digits on both devices: the Mac panel's text and the iPhone page's text, in the last frame of beats 3 and 4.
+    for (const i of [3, 4]) {
+      const frame = c.timeline[i].to - 5;
+      const layers = inspect(comp, frame);
+      const mac = find(layers, 'pair-code-text')?.text?.text;
+      const phone = find(layers, 'phone-pair-code')?.text?.text;
+      check(`${comp} beat ${i} f${frame} both devices show the same code`, mac !== undefined && mac === phone && /^\d{6}$/.test(mac), `Mac ${mac} iPhone ${phone}`);
+    }
+  }
 
   if (wantMp4) {
     const mp4 = new URL(`../out/renders/${comp}.mp4`, import.meta.url).pathname;

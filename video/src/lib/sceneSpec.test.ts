@@ -253,3 +253,68 @@ test('hidePointer is set on scene 13 beat 1 and scene 14 beat 2 and nowhere else
     assert.equal(s.pointerHide(s.timeline[beat].to - 1), 0, `${n} end`);
   }
 });
+
+// ---- a step with its own device (a beat that moves from one device to the other)
+
+const mixed = (b: Partial<BeatSpec> = {}): BeatSpec => blocked({ steps: [{ target: 'done', press: true }, { target: 'trash', press: true, device: 'iphone' }], ...b });
+
+test('a step may override the beat device only when the beat has one', () => {
+  assert.throws(() => compileScene({ n: 70, beats: [{ screen: 'dialogBlocked', steps: [{ target: 'done', device: 'iphone' }] }] }, A, 5, 30), /70/);
+  compileScene({ n: 70, beats: [mixed()] }, A, 5, 30);
+});
+
+test('a beat that changes device needs a slot of entry, press and fade per step; what does not fit throws', () => {
+  // two steps x (41 + 1 + 8) = 100 frames: 3 s (90 frames) is too short, 4 s is enough
+  assert.throws(() => compileScene({ n: 69, beats: [mixed()] }, A, 3, 30), /69/);
+  const c = compileScene({ n: 69, beats: [mixed()] }, A, 4, 30);
+  assert.ok(c.timeline[0].to - c.timeline[0].from >= 100);
+});
+
+test('a device change inside a beat ends the first pointer run where the second slot starts and starts a new run there', () => {
+  const c = compileScene({ n: 68, beats: [mixed()] }, A, 5, 30);
+  const { from, to } = c.timeline[0];
+  const slot = Math.floor((to - from) / 2);
+  assert.deepEqual(c.runs.map((r) => [r.device, r.from, r.to]), [['mac', from, from + slot], ['iphone', from + slot, to]]);
+  // the second run enters ENTRY_OFFSET below its target, like any first step of a run
+  const t = restPoint(trash);
+  assert.deepEqual(c.runs[1].cues, [
+    { from: from + slot, x: t.x, y: t.y + ENTRY_OFFSET, press: false },
+    { from: from + slot + 1, x: t.x, y: t.y, press: true },
+  ]);
+  // each press peaks inside its own slot
+  for (const r of c.runs) {
+    let peak = 0;
+    for (let f = r.from; f < r.to; f++) peak = Math.max(peak, pointerAt(f, r.cues, 30).press);
+    assert.equal(peak, 1);
+  }
+});
+
+test('deviceAt and deviceState follow the step slots: the device, the one before it, and the frames since the change', () => {
+  const c = compileScene({ n: 67, beats: [mixed()] }, A, 5, 30);
+  const { from, to } = c.timeline[0];
+  const slot = Math.floor((to - from) / 2);
+  assert.equal(c.deviceAt(from), 'mac');
+  assert.equal(c.deviceAt(from + slot - 1), 'mac');
+  assert.equal(c.deviceAt(from + slot), 'iphone');
+  assert.deepEqual(c.deviceState(0, from + 3), { active: 'mac', prevActive: undefined, since: 3 });
+  assert.deepEqual(c.deviceState(0, from + slot + 5), { active: 'iphone', prevActive: 'mac', since: 5 });
+  // a frame past the beat is clamped to its last frame (the outgoing screen of a cross fade)
+  assert.equal(c.deviceState(0, to + 20).active, 'iphone');
+});
+
+test('the next beat dims from the device the previous beat ended on, and a beat without steps keeps its own device', () => {
+  const c = compileScene({ n: 66, beats: [mixed(), blocked(), blocked({ device: undefined })] }, A + B + C, 12, 30);
+  assert.equal(c.deviceState(1, c.timeline[1].from + 2).prevActive, 'iphone');
+  assert.deepEqual(c.deviceState(2, c.timeline[2].from + 2), { active: undefined, prevActive: 'mac', since: 2 });
+});
+
+test('a plain beat gives the same device state as before steps could carry a device', () => {
+  const c = compileScene({ n: 65, beats: [blocked({ steps: [{ target: 'done', press: true }] }), blocked({ steps: [{ target: 'trash', press: true }] })] }, A + B, 8, 30);
+  for (let f = 0; f < 240; f++) {
+    const i = c.beatAt(f);
+    const s = c.deviceState(i, f);
+    assert.equal(s.active, 'mac');
+    assert.equal(s.since, f - c.timeline[i].from);
+    assert.equal(s.prevActive, i === 0 ? undefined : 'mac');
+  }
+});
