@@ -52,7 +52,7 @@ for (const kind of ['click', 'tap']) {
   const chosen = picks.filter((_, i) => i % step === 0).slice(0, Math.max(WANT, 8));
   for (const e of chosen) {
     const m = measure(a, e.frame);
-    const ok = (kind === 'click' ? m.rmsGain >= 10 : m.peakGain >= 3) && m.onset !== null && m.Math.abs(onset) <= 4;
+    const ok = (kind === 'click' ? m.rmsGain >= 10 : m.peakGain >= 3) && m.onset !== null && Math.abs(m.onset) <= 4;
     if (!ok) failed = true;
     rows.push({ what: kind, frame: e.frame, sec: (e.frame / FPS).toFixed(2), before: db(m.before).toFixed(1), after: db(m.after).toFixed(1), gain: m.rmsGain.toFixed(1), peak: m.peakGain.toFixed(1), onset: m.onset === null ? 'none' : `${m.onset} ms`, ok: ok ? 'PASS' : 'FAIL' });
   }
