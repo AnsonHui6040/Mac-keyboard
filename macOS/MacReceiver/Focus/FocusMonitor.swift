@@ -63,7 +63,9 @@ struct FocusEnvironment {
 /// applied is discarded and the newer snapshot is returned.
 @MainActor
 final class FocusMonitor: ObservableObject {
-    static let pollInterval: TimeInterval = 0.25
+    /// How often focus is polled: fast while an iPhone is connected and authenticated, slow otherwise so an idle Receiver
+    /// does not keep asking the frontmost app for Accessibility data. App switches are caught by the activation notification.
+    nonisolated static func pollInterval(linkActive: Bool) -> TimeInterval { linkActive ? 0.25 : 2.0 }
     /// Upper bound for any single AX call; a hung target app must not stall the Receiver.
     nonisolated static let axTimeout: Float = 0.25
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "focus")
@@ -85,6 +87,12 @@ final class FocusMonitor: ObservableObject {
     private var startedReads: UInt64 = 0
     private var appliedRead: UInt64 = 0
     private var pollInFlight = false
+    /// An iPhone is connected and authenticated.
+    private(set) var isLinkActive = false
+    /// The interval of the running poll timer; `nil` while not started.
+    var scheduledPollInterval: TimeInterval? { pollTimer?.timeInterval }
+    /// The running poll timer, so a test can tell whether it was replaced.
+    var scheduledTimerForTesting: Timer? { pollTimer }
 
     init(reader: FocusReading = AXFocusReader(), environment: FocusEnvironment = .live) {
         self.reader = reader
@@ -151,10 +159,25 @@ final class FocusMonitor: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { Task { _ = await self?.refreshNow() } }
         }
-        pollTimer = CommonModeTimer.make(Self.pollInterval, repeats: true) { [weak self] in
+        schedulePollTimer()
+        poll()
+    }
+
+    private func schedulePollTimer() {
+        pollTimer?.invalidate()
+        pollTimer = CommonModeTimer.make(Self.pollInterval(linkActive: isLinkActive), repeats: true) { [weak self] in
             MainActor.assumeIsolated { self?.poll() }
         }
-        poll()
+    }
+
+    /// The link to the iPhone became authenticated or was lost. Reschedules the poll only when the interval changes, and
+    /// reads at once when it becomes active so the first status after connecting is fresh.
+    func setLinkActive(_ active: Bool) {
+        let was = isLinkActive
+        isLinkActive = active
+        guard pollTimer != nil else { return }
+        if Self.pollInterval(linkActive: was) != Self.pollInterval(linkActive: active) { schedulePollTimer() }
+        if active, !was { poll() }
     }
 
     func stop() {

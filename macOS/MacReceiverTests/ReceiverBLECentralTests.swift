@@ -156,6 +156,55 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(central.remainingSeconds, 1700)
     }
 
+    // MARK: Panel visibility and the tick
+
+    func testArmedWithThePanelClosedHasNoTickTimer() {
+        let central = make()
+        central.startReceiving()
+        XCTAssertTrue(central.isArmed)
+        XCTAssertFalse(central.isTicking)
+    }
+
+    func testOpeningThePanelWhileArmedUpdatesNowAndTicks() {
+        var current = Date(timeIntervalSince1970: 1000)
+        let central = make(clock: { current })
+        central.startReceiving()
+        current = Date(timeIntervalSince1970: 1050)
+        central.setPanelVisible(true)
+        XCTAssertEqual(central.now, current, "becoming visible refreshes now at once")
+        XCTAssertTrue(central.isTicking)
+    }
+
+    func testClosingThePanelStopsTheTick() {
+        let central = make()
+        central.startReceiving()
+        central.setPanelVisible(true)
+        central.setPanelVisible(false)
+        XCTAssertFalse(central.isTicking)
+    }
+
+    func testDisarmedNeverTicksAndDisarmingStopsAnOpenPanelsTick() {
+        let central = make()
+        central.setPanelVisible(true)
+        XCTAssertFalse(central.isTicking, "not armed")
+        central.startReceiving()
+        XCTAssertTrue(central.isTicking)
+        central.stopReceiving()
+        XCTAssertFalse(central.isTicking)
+        central.startReceiving()
+        XCTAssertTrue(central.isTicking, "armed again with the panel still open")
+    }
+
+    func testIdleExpiryDoesNotDependOnThePanelTick() {
+        var current = Date(timeIntervalSince1970: 1000)
+        let central = make(clock: { current })
+        central.startReceiving()
+        XCTAssertFalse(central.isTicking)
+        current = Date(timeIntervalSince1970: 2800)
+        central.handleSession(.timerFired)
+        XCTAssertFalse(central.isArmed, "the idle timer, not the tick, ends the session")
+    }
+
     func testDefaultIdleTimeoutIsThirtyMinutes() {
         var current = Date(timeIntervalSince1970: 1000)
         let central = make(clock: { current })

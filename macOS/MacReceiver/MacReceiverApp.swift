@@ -3,17 +3,20 @@ import SwiftUI
 
 @main
 struct MacReceiverApp: App {
-    @StateObject private var central: ReceiverBLECentral
-    @StateObject private var security: ReceiverSecurity
-    @StateObject private var loginItem: LoginItem
-    @StateObject private var focus: FocusMonitor
-    @StateObject private var testInsert: TestInsertController
-    @StateObject private var coordinator: ReceiverCoordinator
-    @StateObject private var notice: InputSourceNotice
-    @StateObject private var pointer: PointerReceiver
+    // Plain stored properties, not @StateObject: the App value observes nothing, so a @Published change (the countdown
+    // tick, a focus snapshot) never re-evaluates this body or redraws the status item. `init` runs once and the App value
+    // keeps every service alive; only ReceiverPanel observes them.
+    private let central: ReceiverBLECentral
+    private let security: ReceiverSecurity
+    private let loginItem: LoginItem
+    private let focus: FocusMonitor
+    private let testInsert: TestInsertController
+    private let coordinator: ReceiverCoordinator
+    private let notice: InputSourceNotice
+    private let pointer: PointerReceiver
     #if DEBUG
-    @StateObject private var burstVerifier = BurstVerifier()
-    @StateObject private var measurement: MeasurementEcho
+    private let burstVerifier = BurstVerifier()
+    private let measurement: MeasurementEcho
     #endif
     private let pipeline: EventPipeline
 
@@ -85,17 +88,17 @@ struct MacReceiverApp: App {
             measurement.setMeasureMode(true)
             central.startReceiving()
         }
-        _measurement = StateObject(wrappedValue: measurement)
+        self.measurement = measurement
         #endif
         self.pipeline = pipeline
-        _central = StateObject(wrappedValue: central)
-        _security = StateObject(wrappedValue: security)
-        _loginItem = StateObject(wrappedValue: loginItem)
-        _focus = StateObject(wrappedValue: focus)
-        _testInsert = StateObject(wrappedValue: TestInsertController(focus: focus, switcher: switcher, notice: notice))
-        _notice = StateObject(wrappedValue: notice)
-        _pointer = StateObject(wrappedValue: pointer)
-        _coordinator = StateObject(wrappedValue: coordinator)
+        self.central = central
+        self.security = security
+        self.loginItem = loginItem
+        self.focus = focus
+        self.testInsert = TestInsertController(focus: focus, switcher: switcher, notice: notice)
+        self.notice = notice
+        self.pointer = pointer
+        self.coordinator = coordinator
     }
 
     var body: some Scene {

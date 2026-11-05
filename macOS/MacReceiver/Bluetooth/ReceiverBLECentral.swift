@@ -42,6 +42,7 @@ final class ReceiverBLECentral: ObservableObject {
     private var idleTimer: Timer?
     private var connectTimer: Timer?
     private var tickTimer: Timer?
+    private var panelVisible = false
     private let monotonicMs: () -> Int64
     private var rescanTimer: Timer?
     /// Last power state reported by CoreBluetooth. The radio is only commanded while it is on.
@@ -249,11 +250,11 @@ final class ReceiverBLECentral: ObservableObject {
             case .arm:
                 skippedPeripherals.removeAll()
                 if driver == nil { driver = makeDriver(self) }
-                startTicking()
+                refreshTicking()
                 handleLink(.start)
             case .disarm:
                 skippedPeripherals.removeAll()
-                stopTicking()
+                refreshTicking()
                 idleTimer?.invalidate()
                 idleTimer = nil
                 endLinkDeliberately(.stop)
@@ -322,14 +323,25 @@ final class ReceiverBLECentral: ObservableObject {
         idleTimer = Self.makeTimer(interval, repeats: false) { [weak self] in self?.handleSession(.timerFired) }
     }
 
-    private func startTicking() {
-        tickTimer?.invalidate()
-        tickTimer = Self.makeTimer(1, repeats: true) { [weak self] in self?.now = self?.clock() ?? Date() }
+    /// Whether the one-second tick is running (armed and the panel open).
+    var isTicking: Bool { tickTimer != nil }
+
+    /// The menu bar panel opened or closed. `now` only feeds the panel's countdowns, so the tick runs only while armed and
+    /// visible; nothing else (idle expiry, deadlines) reads `now`, they use their own timers and `clock()`.
+    func setPanelVisible(_ visible: Bool) {
+        panelVisible = visible
+        if visible { now = clock() }
+        refreshTicking()
     }
 
-    private func stopTicking() {
-        tickTimer?.invalidate()
-        tickTimer = nil
+    private func refreshTicking() {
+        guard isArmed, panelVisible else {
+            tickTimer?.invalidate()
+            tickTimer = nil
+            return
+        }
+        guard tickTimer == nil else { return }
+        tickTimer = Self.makeTimer(1, repeats: true) { [weak self] in self?.now = self?.clock() ?? Date() }
     }
 
     // MARK: Link
