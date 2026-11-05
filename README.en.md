@@ -6,16 +6,16 @@ Remote Keyboard turns your iPhone into a Bluetooth keyboard for your Mac. Switch
 
 This is v0.1.0 Alpha. It is installed with SideStore, and it is not an App Store release.
 
-The app and the install tutorial video are in Traditional Chinese. The user manual's installation chapters are translated into English. If this translation and the Chinese README differ, the Chinese README applies.
+The app and the install tutorial video are in Traditional Chinese. The whole user manual is in English, with the original Chinese screenshots. The app shows Chinese labels, so every label, message and setting name in this README and the manual is written in English first, with the Chinese as it appears on screen in parentheses after it. If this translation and the Chinese README differ, the Chinese README applies.
 
 ## Features
 
-- Remote mode: type on your iPhone, and the text appears in the field that is active on your Mac.
-- Local mode: the same keyboard also types straight into apps on your iPhone.
-- Live and draft: live mode sends every key as you press it. Draft mode lets you edit on the keyboard first, and sends everything at once when you press 傳送 (Send).
-- Input methods: English, symbols, Chinese handwriting and Quick (速成, a simplified form of Cangjie).
-- Trackpad: move, click, double-click, right-click, drag and scroll.
-- First-time guide and tutorial: the first time you open the app, a four-page introduction appears, which you can skip. After that, open 使用教學 (Tutorial) in the app. The panel in the Mac menu bar also has 使用教學.
+- Remote (遠端) mode: type on your iPhone, and the text appears in the field that is active on your Mac.
+- Local (本機) mode: the same keyboard also types straight into apps on your iPhone.
+- Live and draft: Live (即時) mode sends every key as you press it. Draft (草稿) mode lets you edit on the keyboard first, and sends everything at once when you press Send (傳送).
+- Input methods: English, symbols, Chinese handwriting and Quick (速成), a simplified form of Cangjie.
+- Trackpad (觸控板): move, click, double-click, right-click, drag and scroll.
+- First-time guide and tutorial: the first time you open the app, a four-page introduction appears, which you can skip. After that, open Tutorial (使用教學) in the app. The panel in the Mac menu bar also has Tutorial (使用教學).
 - Password protection: fields that the system marks as password fields, Secure Input and the Mac's lock screen receive no text. For other cases, see "Privacy and security" below.
 
 ## Requirements
@@ -44,7 +44,7 @@ The [Remote Keyboard install tutorial](https://youtu.be/dGhEuzRpAEg) (about 5 an
 
 ## User manual
 
-On a first install, read the chapters in order. Chapters 06, 07 and 08 are in Traditional Chinese only; the others are in English, with the original Chinese screenshots.
+On a first install, read the chapters in order. The whole manual is in English, with the original Chinese screenshots.
 
 | Chapter | Contents |
 |---|---|
@@ -54,9 +54,9 @@ On a first install, read the chapters in order. Chapters 06, 07 and 08 are in Tr
 | [03 Install the iPhone app](docs/manual/en/03-install-iphone-app.md) | Verifying and importing the IPA, adding the keyboard, allowing Full Access and Bluetooth |
 | [04 Install Mac Receiver](docs/manual/en/04-install-mac-receiver.md) | Download, unzip, first launch, Bluetooth and Accessibility permissions, the menu bar panel |
 | [05 Pairing](docs/manual/en/05-pairing.md) | Pairing the iPhone and the Mac with a six-digit pairing code |
-| [06 Using the keyboard](docs/manual/06-using-the-keyboard.md) (in Chinese) | Local and remote, live and draft, handwriting, Quick, the keyboard's status line, how passwords are handled |
-| [07 Trackpad](docs/manual/07-trackpad.md) (in Chinese) | Trackpad gestures and settings |
-| [08 App settings](docs/manual/08-app-settings.md) (in Chinese) | Main screen, keyboard feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices |
+| [06 Using the keyboard](docs/manual/en/06-using-the-keyboard.md) | Local and remote, live and draft, handwriting, Quick (速成), the keyboard's status line, how passwords are handled |
+| [07 Trackpad](docs/manual/en/07-trackpad.md) | Trackpad gestures and settings |
+| [08 App settings](docs/manual/en/08-app-settings.md) | Main screen, Keyboard feedback (鍵盤回饋), Trackpad (觸控板), Chinese input and handwriting (中文輸入與手寫), Dictation (聽寫), Tutorial (使用教學), legal notices |
 | [09 Refresh and update](docs/manual/en/09-refresh-and-update.md) | The 7-day refresh, updating the IPA and Mac Receiver, when data can be lost |
 | [10 Troubleshooting](docs/manual/en/10-troubleshooting.md) | Common problems with installing, pairing and typing |
 

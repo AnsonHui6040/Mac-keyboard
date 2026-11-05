@@ -2,7 +2,7 @@
 
 [中文版](../README.md)
 
-Chapters 06, 07 and 08 are only available in Chinese for now. The app's own labels are in Chinese, so this manual gives the Chinese label with its English meaning in brackets.
+The app shows Chinese labels. This manual writes every label, message, button and setting name in English first, with the Chinese exactly as it appears on screen in parentheses after it. Screenshots are the original ones, so they show the Chinese interface.
 
 This manual explains how to install, set up and use Remote Keyboard v0.1.0 Alpha on an iPhone and a Mac. Every chapter has numbered steps and screenshots, and ends by saying what you should see when it worked.
 
@@ -17,9 +17,9 @@ To see the whole process once before you start, watch the install tutorial video
 | [03 Install the iPhone app](03-install-iphone-app.md) | Install Remote Keyboard with SideStore, add the keyboard and turn on its permissions | First install |
 | [04 Install the Mac Receiver](04-install-mac-receiver.md) | Install the receiving app on your Mac and grant its permissions | First install |
 | [05 Pairing](05-pairing.md) | Pair your iPhone with your Mac | First install, or whenever you need to pair again |
-| [06 Using the keyboard](../06-using-the-keyboard.md) (in Chinese) | Typing, handwriting, Quick, status messages and how passwords are handled | Every day |
-| [07 Trackpad](../07-trackpad.md) (in Chinese) | Control the Mac's pointer from your iPhone | Every day |
-| [08 App settings](../08-app-settings.md) (in Chinese) | Main screen, key feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices | When you want to adjust something |
+| [06 Using the keyboard](06-using-the-keyboard.md) | Typing, handwriting, Quick (速成), status messages and how passwords are handled | Every day |
+| [07 Trackpad](07-trackpad.md) | Control the Mac's pointer from your iPhone | Every day |
+| [08 App settings](08-app-settings.md) | Main screen, Keyboard feedback (鍵盤回饋), Trackpad (觸控板), Chinese input and handwriting (中文輸入與手寫), Dictation (聽寫), Tutorial (使用教學), legal notices | When you want to adjust something |
 | [09 Refresh and update](09-refresh-and-update.md) | Refresh every 7 days, and update to a new version | Every week, or when a new version arrives |
 | [10 Troubleshooting](10-troubleshooting.md) | Common problems and how to fix them | When something goes wrong |
 

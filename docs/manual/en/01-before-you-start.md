@@ -45,7 +45,7 @@ The "3 sideloaded apps" include any app you installed on this iPhone yourself wi
 | 3 | iPhone: import the IPA with SideStore, add the keyboard, allow Full Access and Bluetooth | [03 Install the iPhone app](03-install-iphone-app.md) |
 | 4 | Mac: install the Mac Receiver, allow Bluetooth and Accessibility | [04 Install the Mac Receiver](04-install-mac-receiver.md) |
 | 5 | iPhone and Mac: pair | [05 Pairing](05-pairing.md) |
-| 6 | iPhone: start using it | [06 Using the keyboard](../06-using-the-keyboard.md) (in Chinese), [07 Trackpad](../07-trackpad.md) (in Chinese) |
+| 6 | iPhone: start using it | [06 Using the keyboard](06-using-the-keyboard.md), [07 Trackpad](07-trackpad.md) |
 
 Do not install any other app until the first SideStore refresh is finished.
 
