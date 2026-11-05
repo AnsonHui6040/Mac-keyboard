@@ -128,7 +128,7 @@ npx kinetograph audio analyze src/index.tsx --comp ProductFilm
 ffprobe out/renders/product-film.mp4
 ```
 
-Lint 的 `text-overflow-canvas` 來自特寫放大，逐項分辨：真的切到要讀的字就要修；只是景深層超出畫布的，列出來說明。第 21、30 鏡的洋紅對齊測試方法見 `film-lab/spike.tsx`。
+Lint 的 `text-overflow-canvas` 來自特寫放大，逐項分辨：真的切到要讀的字就要修；只是景深層超出畫布的，列出來說明。第 21、30 鏡的對齊用洋紅平面墊在螢幕下方檢查。
 
 每鏡至少抽一幀親自看，第 21 鏡每個小段都要看，縮到 390 寬核對標題與圓環看得清楚。舊片比對：`Main`、`ProductIntro`、`Scene16` 的抽樣畫面與 `audio analyze` 要和 main 相同。
 
