@@ -35,7 +35,7 @@
 | `npx kinetograph check src/index.tsx` | no type errors |
 | `npx kinetograph lint src/index.tsx --comp Main --frames 150,495,885,1275,1830,2550,3075,3450,3795,4230,4905,5490,5865,6240,6750,7440,8070,8625,9060,9435,9870`（每場中間一幀，共 21 幀） | 0 errors，7 warnings（見下） |
 | `npx kinetograph doctor src/index.tsx --comp Main` | 10050 幀中 9557 幀 clean；493 幀有 1 項提示（見下） |
-| `npx kinetograph render src/index.tsx --comp Main --concurrency 4` | 已產生 `out/renders/Main.mp4`，共 15 秒（10050 幀，其中 6624 幀與前一幀相同、不重畫）；h264、yuv420p、無音訊 |
+| `npx kinetograph render src/index.tsx --comp Main --concurrency 4` | 已產生 `out/renders/Main.mp4`，共 15 秒（10050 幀，其中 6624 幀與前一幀相同、不重畫）；h264、yuv420p、有 AAC 音軌 |
 | `ffprobe out/renders/Main.mp4` | h264、1920×1080、30/1 fps、10050 幀、長度 335.000 秒；加入音樂與音效後為 15,024,081 位元組，視訊流與加入前逐位元組相同，另有一條 AAC 立體聲音軌（見第六節） |
 
 lint 的 7 個 warning：
