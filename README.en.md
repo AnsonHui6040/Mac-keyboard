@@ -13,10 +13,10 @@ The app, the user manual and the install tutorial video are in Traditional Chine
 - Remote mode: type on your iPhone, and the text appears in the field that is active on your Mac.
 - Local mode: the same keyboard also types straight into apps on your iPhone.
 - Live and draft: live mode sends every key as you press it. Draft mode lets you edit on the keyboard first, and sends everything at once when you press 傳送 (Send).
-- Input methods: English, symbols, Chinese handwriting and Quick (速成).
+- Input methods: English, symbols, Chinese handwriting and Quick (速成, a simplified form of Cangjie).
 - Trackpad: move, click, double-click, right-click, drag and scroll.
-- Onboarding and tutorial: the first time you open the app, a four-page introduction appears, which you can skip. After that, open 使用教學 (Tutorial) in the app. The panel in the Mac menu bar also has 使用教學.
-- Password protection: fields that the system marks as password fields, Secure Input and the lock screen receive no text. For other cases, see "Privacy and security" below.
+- First-time guide and tutorial: the first time you open the app, a four-page introduction appears, which you can skip. After that, open 使用教學 (Tutorial) in the app. The panel in the Mac menu bar also has 使用教學.
+- Password protection: fields that the system marks as password fields, Secure Input and the Mac's lock screen receive no text. For other cases, see "Privacy and security" below.
 
 ## Requirements
 
@@ -40,7 +40,7 @@ The app, the user manual and the install tutorial video are in Traditional Chine
 
 ## Install tutorial video
 
-The [Remote Keyboard install tutorial](https://youtu.be/dGhEuzRpAEg) (about 5 and a half minutes, in Traditional Chinese) takes you from nothing to typing your first character. The video matches v0.1.0 Alpha 1. Where it differs from the manual, follow the manual.
+The [Remote Keyboard install tutorial](https://youtu.be/dGhEuzRpAEg) (about 5 and a half minutes, in Traditional Chinese) takes you from scratch to typing your first character. The video matches v0.1.0 Alpha 1. Where it differs from the manual, follow the manual.
 
 ## User manual
 
@@ -51,12 +51,12 @@ On a first install, read the chapters in order. All chapters are in Traditional 
 | [Manual home](docs/manual/README.md) | List of chapters and suggested reading order |
 | [01 Before you start](docs/manual/01-before-you-start.md) | What to prepare, the limits of a free account, safety rules, the overall process |
 | [02 Install SideStore](docs/manual/02-install-sidestore.md) | LocalDevVPN, iloader, trusting the developer, Developer Mode, signing in and the first refresh |
-| [03 Install the iPhone app](docs/manual/03-install-iphone-app.md) | Checking and importing the IPA, adding the keyboard, allowing Full Access and Bluetooth |
+| [03 Install the iPhone app](docs/manual/03-install-iphone-app.md) | Verifying and importing the IPA, adding the keyboard, allowing Full Access and Bluetooth |
 | [04 Install Mac Receiver](docs/manual/04-install-mac-receiver.md) | Download, unzip, first launch, Bluetooth and Accessibility permissions, the menu bar panel |
 | [05 Pairing](docs/manual/05-pairing.md) | Pairing the iPhone and the Mac with a six-digit pairing code |
-| [06 Using the keyboard](docs/manual/06-using-the-keyboard.md) | Local and remote, live and draft, handwriting, Quick, status bar messages, how passwords are handled |
+| [06 Using the keyboard](docs/manual/06-using-the-keyboard.md) | Local and remote, live and draft, handwriting, Quick, the keyboard's status line, how passwords are handled |
 | [07 Trackpad](docs/manual/07-trackpad.md) | Trackpad gestures and settings |
-| [08 App settings](docs/manual/08-app-settings.md) | Home screen, keyboard feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices |
+| [08 App settings](docs/manual/08-app-settings.md) | Main screen, keyboard feedback, trackpad, Chinese input and handwriting, dictation, tutorial, legal notices |
 | [09 Refresh and update](docs/manual/09-refresh-and-update.md) | The 7-day refresh, updating the IPA and Mac Receiver, when data can be lost |
 | [10 Troubleshooting](docs/manual/10-troubleshooting.md) | Common problems with installing, pairing and typing |
 
@@ -65,7 +65,7 @@ On a first install, read the chapters in order. All chapters are in Traditional 
 - Your text goes only to the Mac you paired, encrypted over Bluetooth. It is never sent to the developer or to any server. The app's logs record only the type of event, the length, the time and the result, never the text itself.
 - The keyboard needs Allow Full Access. Mac Receiver needs the Bluetooth and Accessibility permissions. What each one is used for is written in the privacy note.
 - Handwriting recognition uses Google ML Kit. When you use handwriting, ML Kit connects to Google to download its model and sends usage and performance data.
-- Do not use this keyboard to enter passwords. Some password prompts are not detected, such as those in some terminals and fields inside a remote desktop, and the text is still sent.
+- Do not use this keyboard to enter passwords. Some password prompts cannot be detected, for example in some terminals or in fields inside a remote desktop window. The text is still sent there.
 - Never give your Apple Account password or two-factor authentication codes to anyone, including the developer.
 
 For details, see the [privacy note](docs/distribution/privacy-note.md) and the [risk note](docs/distribution/risk-note.md), both in Traditional Chinese.
