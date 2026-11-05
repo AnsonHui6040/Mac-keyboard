@@ -117,8 +117,8 @@ export const ReceiverPanel = ({ layout, state }: { layout: L.PanelLayout; state:
       {state.access && layout.warnY !== undefined && (
         <Layer id="panel-warning">
           <T x={bx} y={layout.warnY} w={inner} color={RED}>尚未授權輔助使用，無法輸入文字</T>
-          <PBtn target="authorize" rect={b.authorize} label="授權輔助使用" />
-          <PBtn rect={b.openSettings} label="打開輔助使用設定" />
+          <PBtn rect={b.authorize} label="授權輔助使用" />
+          <PBtn target="openSettings" rect={b.openSettings} label="打開輔助使用設定" />
         </Layer>
       )}
 

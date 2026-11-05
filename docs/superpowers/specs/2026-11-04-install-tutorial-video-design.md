@@ -4,7 +4,7 @@
 
 帶沒有程式背景的測試者，由零開始裝好 Remote Keyboard 並打出第一個字。測試者一邊看片一邊操作，所以每個畫面都要讓人知道：現在在哪部裝置、要按哪個按鈕、哪個不能按。
 
-內容唯一來源是 `docs/video/install-tutorial-script.md`（21 場，約 5 分 13 秒）。腳本與手冊有出入時，以手冊為準；按鈕文字以台灣繁體中文系統字串為準。
+內容唯一來源是 `docs/video/install-tutorial-script.md`（21 場，約 5 分 35 秒）。腳本與手冊有出入時，以手冊為準；按鈕文字以台灣繁體中文系統字串為準。
 
 ## 目標
 
@@ -50,7 +50,7 @@
 | 不入 git | `video/node_modules`、`video/out`、`video/public/fonts` | MP4 與字型都可以重新產生；字型三個檔共 21 MB，repo 是公開的 |
 | 字型 | Noto Sans TC（Regular、Medium、Bold），由 `video/scripts/setup-fonts.sh` 從 `~/Library/Fonts` 複製 | OFL 授權可以用在影片；PingFang 是 Apple 字型，不用 |
 | 字幕 | 用腳本「字幕」欄原文，按標點拆成多拍，一次一拍，每拍最多兩行、每行最多 30 字 | 沒有聲音，字幕要帶完整步驟；一次一拍才能和指向同步 |
-| 每場時長 | 用腳本秒數，全片約 5 分 13 秒；每拍至少 2.5 秒，並以每秒 5 字估算閱讀時間 | 已估算全片閱讀加動作約 247 秒，腳本 310 秒放得下，多出的時間留給測試者操作 |
+| 每場時長 | 用腳本秒數，全片約 5 分 35 秒；每拍至少 2.5 秒，並以每秒 5 字估算閱讀時間 | 已估算全片閱讀加動作約 247 秒，腳本 335 秒放得下，多出的時間留給測試者操作 |
 | 指向時間點 | `src/data/cues.json` 記每一拍字幕對應的目標按鈕 | 字幕與指向由同一份資料驅動，不會各走各的 |
 | 裝置標籤 | 依目前要操作的裝置切換；兩部裝置同框時，正在操作的全亮，另一部降到 40% 亮度；沒有裝置的場景不顯示 | 觀眾任何時候都知道要看哪部裝置 |
 
@@ -102,9 +102,13 @@
 
 第 5 場信任提示、第 6 場開發者模式、第 7 場 SideStore 登入、第 10 場 Finder 與終端機、第 11 場檔案選擇、第 15 場解壓縮。依系統慣例繪製，並在驗收報告標明「未對過實機」。
 
-### 虛構內容
+### 虛構內容與真實的公開值
 
-帳號：`your.name@example.com`。裝置名：「我的 iPhone」、「我的 Mac」。配對碼固定用虛構的 `482915`。終端機路徑用 `~/Downloads`，SHA-256 顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.1.0-unsigned.ipa`）為 `e66d8a72cf6d7f3533e5ce22afdb8f78154f94c9aecfac62b0463444e966753f`，zip（`RemoteKeyboardReceiver-v0.1.0-macOS.zip`）為 `f9b5f22650539eab6def4bdcae8247763ff13d6325946f22d413fe3b5c40854a`。第 20 場 Receiver 面板「目前欄位」顯示「文字編輯（可輸入）」。
+虛構的只有這些：帳號 `your.name@example.com`；裝置名「我的 iPhone」、「我的 Mac」；配對碼固定用 `482915`；第 5 場 iloader 驗證碼面板的六位數字（`607143`，與配對碼不同）；終端機路徑 `~/Downloads`；第 20 場 Receiver 面板「目前欄位」顯示「文字編輯（可輸入）」。
+
+下列是真實的公開值，不是虛構：檔名與 SHA-256 都是 v0.1.0-b2 Release 頁面上的值（`https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-b2`），測試者要拿自己的下載結果與它比對。終端機顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.1.0-unsigned.ipa`）為 `e66d8a72cf6d7f3533e5ce22afdb8f78154f94c9aecfac62b0463444e966753f`，zip（`RemoteKeyboardReceiver-v0.1.0-macOS.zip`）為 `f9b5f22650539eab6def4bdcae8247763ff13d6325946f22d413fe3b5c40854a`。瀏覽器網址列的 `sidestore.io`、Release 頁面網址與第 21 場的 `github.com/AnsonHui6040/Mac-keyboard` 也是真實的公開網址。
+
+這支影片綁定 v0.1.0-b2：下一版 Release 的檔名或 SHA-256 一變，影片裡的值就過時，必須重做第 10、15 場的終端機畫面與網址列。
 
 ## 動態
 

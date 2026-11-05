@@ -26,9 +26,9 @@
     },
     {
       "n": 5,
-      "seconds": 19,
-      "focus": "下載 iloader，Add Account，選 Stable SideStore",
-      "caption": "接著在 Mac 下載 iloader，用 USB 線接上 iPhone，在 iPhone 按「信任」。在 iloader 登入你的 Apple 帳號，確認有列出 iPhone，再安裝 Stable SideStore。"
+      "seconds": 24,
+      "focus": "下載 iloader，Add Account，輸入驗證碼，選 Stable SideStore",
+      "caption": "接著到 sidestore.io 下載 iloader 並打開，用 USB 線接上 iPhone，在 iPhone 按「信任」。在 iloader 登入你的 Apple 帳號，如果要驗證碼，輸入 Apple 裝置收到的號碼。確認有列出 iPhone，再安裝 Stable SideStore。"
     },
     {
       "n": 6,
@@ -56,15 +56,15 @@
     },
     {
       "n": 10,
-      "seconds": 15,
+      "seconds": 20,
       "focus": "下載 IPA，核對 SHA-256，AirDrop 到 iPhone，存到「檔案」",
-      "caption": "現在到 GitHub 的 Release 頁面下載 IPA，核對 SHA-256 完全相同，再用 AirDrop 傳到 iPhone，存到「檔案」。"
+      "caption": "現在到 GitHub 的 Release 頁面下載 IPA，打開「終端機」輸入指令，核對 SHA-256 完全相同，再用 AirDrop 傳到 iPhone，存到「檔案」。"
     },
     {
       "n": 11,
-      "seconds": 21,
-      "focus": "按「+」；選 Keep App Extensions (Register App ID for Each Extension)；不要選 Remove",
-      "caption": "開著 LocalDevVPN，在 My Apps 按左上角的加號，選這個 IPA。詢問 Extension 時，選第二個，Register App ID for Each Extension。千萬不要選 Remove，否則就沒有鍵盤了。"
+      "seconds": 25,
+      "focus": "按「+」；選 Keep App Extensions (Register App ID for Each Extension)；不要選 Remove；安裝完成後 My Apps 的 Active 清單出現 Remote Keyboard，7 DAYS",
+      "caption": "開著 LocalDevVPN，在 My Apps 按左上角的加號，選這個 IPA。詢問 Extension 時，選第二個，Register App ID for Each Extension。千萬不要選 Remove，否則就沒有鍵盤了。等安裝完成，My Apps 會出現 Remote Keyboard。"
     },
     {
       "n": 12,
@@ -86,9 +86,9 @@
     },
     {
       "n": 15,
-      "seconds": 12,
-      "focus": "下載 zip，核對 SHA-256，拖進「應用程式」",
-      "caption": "換到 Mac。下載 zip，同樣核對 SHA-256，連按兩下解壓縮，把 Receiver 拖到「應用程式」。"
+      "seconds": 20,
+      "focus": "下載 zip，核對 SHA-256，拖進「應用程式」，連按兩下 Remote Keyboard Receiver",
+      "caption": "換到 Mac。下載 zip，同樣在「終端機」核對 SHA-256，連按兩下解壓縮，把 Receiver 拖到「應用程式」，再從「應用程式」打開它。"
     },
     {
       "n": 16,
@@ -100,7 +100,7 @@
       "n": 17,
       "seconds": 16,
       "focus": "允許藍牙；輔助使用開啟 Remote Keyboard Receiver",
-      "caption": "系統詢問藍牙時按「允許」。再點選單列的鍵盤圖示，按「授權輔助使用」，在清單裡開啟 Remote Keyboard Receiver。"
+      "caption": "系統詢問藍牙時按「允許」。再點選單列的鍵盤圖示，按「打開輔助使用設定」，在清單裡開啟 Remote Keyboard Receiver。"
     },
     {
       "n": 18,

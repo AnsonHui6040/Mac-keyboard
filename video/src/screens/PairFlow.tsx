@@ -14,7 +14,8 @@ export const CODE_AT = 14;
 const pressed = (beatFrame: number, land: number | undefined): number => (land === undefined ? 0 : Math.max(0, 1 - Math.abs(beatFrame - land) / 6));
 
 /**
- * Scene 18. Beat 0 and 1: the panel, then a press on 配對新 iPhone. Beat 2: the panel waits; on the iPhone 已配對 Mac, then 配對 Mac.
+ * Scene 18. Beat 0 and 1: the panel in its idle state (尚未開始接收, 待命: nothing is receiving yet), then a press on 配對新 iPhone.
+ * Pairing starts the receiving (ReceiverSecurity arms the central), so from beat 2 the panel looks for the iPhone and counts down. Beat 2: the panel waits; on the iPhone 已配對 Mac, then 配對 Mac.
  * Beat 3: both show the code (the waiting pages for the first CODE_AT frames). Beat 4: 確認 on the Mac, then on the iPhone.
  * Each press shows its result in the next beat, so the button the beat ends on is still on screen.
  */
@@ -37,7 +38,7 @@ export const PairFlow = ({ active, prevActive, deviceFrame, beatIndex, beatFrame
   return (
     <Layer id="screen-pairFlow">
       <Layer id="mac-device" opacity={dim('mac')}>
-        <ReceiverPanel layout={panel} state={{ kind, link: kind === 'code' ? 'ready' : 'searching', access: false }} />
+        <ReceiverPanel layout={panel} state={{ kind, link: kind === 'idle' ? 'idle' : kind === 'code' ? 'ready' : 'searching', access: false }} />
       </Layer>
       <PhoneScreen origin={PHONE_ORIGIN_RIGHT} brightness={dim('iphone')}>{phone}</PhoneScreen>
     </Layer>

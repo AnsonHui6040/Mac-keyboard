@@ -111,6 +111,11 @@ export const ILO_SHEET = R(520, 190, 600, 450);
 export const ILO_SHEET_FIELD1 = R(552, 304, 536, 64);
 export const ILO_SHEET_FIELD2 = R(552, 420, 536, 64);
 export const ILO_SIGNIN = R(552, 528, 536, 72);
+/** The six-digit field of the verification code sheet (it replaces the sign-in sheet's fields). */
+export const ILO_CODE = R(552, 400, 536, 80);
+/** The browser page of scene 5 beat 0: the iloader download button, and the header of the iloader window the pointer visits next. */
+export const ILO_DL = R(320, 430, 440, 84);
+export const ILO_OPEN = R(296, 112, 300, 84);
 export const ILO_INSTALLERS = R(296, 578, 1048, 230);
 export const ILO_STABLE = R(324, 660, 420, 72);
 
@@ -156,6 +161,8 @@ export const TERM_ROW_FILE = TERM_WIN.y + 186;
 export const TERM_DIVIDER = TERM_WIN.y + 256;
 export const TERM_LABEL = TERM_WIN.y + 276;
 export const TERM_ROW_RELEASE = TERM_WIN.y + 336;
+/** The command line, for a click into the terminal; the pointer rests right of the command. */
+export const TERM_CMD_BOX = R(TERM_X, TERM_ROW_CMD - 6, 1500, 60);
 /** Both hashes (the shasum output and the Release value): the pointer rests to the right of their ends. */
 export const TERM_HASH_BOX = R(TERM_X, TERM_WIN.y + 130, 1500, 260);
 
@@ -169,6 +176,8 @@ export const FIN_APPS = R(FIN_WIN.x + 14, FIN_WIN.y + 250, 272, 52);
 export const FIN_DOWNLOADS = R(FIN_WIN.x + 14, FIN_WIN.y + 310, 272, 52);
 export const FIN_ZIP = R(FIN_WIN.x + 380, FIN_WIN.y + 110, 240, 292);
 export const FIN_APP = R(FIN_WIN.x + 680, FIN_WIN.y + 110, 240, 292);
+/** Remote Keyboard Receiver in the 應用程式 folder: the third of four apps. */
+export const FIN_RKAPP = R(FIN_WIN.x + 980, FIN_WIN.y + 110, 240, 292);
 
 // ---------------------------------------------------------------- scene 10: save to Files (iPhone)
 export const SAVE_SHEET = R(8, 290, 374, 550);
@@ -179,6 +188,11 @@ export const SAVE_ROW = R(16, 612, 358, 72);
 export const PLUS = R(16, 58, 64, 64);
 export const MYAPPS2_CARD = R(16, 248, 358, 116);
 export const MYAPPS2_DAYS = R(250, 282, 108, 52);
+/** Scene 11 beat 4: My Apps after the install; Remote Keyboard is the second card of the Active list. */
+export const MYAPPS3_CARD = R(16, 380, 358, 116);
+export const MYAPPS3_DAYS = R(250, 414, 108, 52);
+/** The left strip of the Remote Keyboard card: the pointer rests on its icon, clear of the name. */
+export const MYAPPS3_ICON = R(16, 380, 54, 116);
 export const PICKER_ROWS = R(16, 236, 358, 540);
 export const PICKER_IPA = R(16, 344, 358, 108);
 

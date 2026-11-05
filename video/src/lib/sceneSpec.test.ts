@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { SCREENS, restPoint, type Rect } from '../screens/geometry.ts';
 import { SCENES, FPS, compileRegistered, sceneEntry } from '../data/scenes/index.ts';
 import { scene16 } from '../data/scenes/scene16.ts';
-import { ENTRY_OFFSET, compileScene, labelRunStart, type BeatSpec } from './sceneSpec.ts';
+import { ENTRY_OFFSET, compileScene, labelRunStart, slotStarts, type BeatSpec } from './sceneSpec.ts';
 import { pointerAt } from './pointer.ts';
 
 const A = '第一句。';
@@ -317,4 +317,30 @@ test('a plain beat gives the same device state as before steps could carry a dev
     assert.equal(s.since, f - c.timeline[i].from);
     assert.equal(s.prevActive, i === 0 ? undefined : 'mac');
   }
+});
+
+test('step weights: slots are shares of the beat; each slot must hold its own step; without weights the slots are equal as before', () => {
+  const weighted = blocked({ steps: [{ target: 'done', press: true, weight: 1 }, { target: 'trash', weight: 3 }] });
+  // press (42 as the first press of a run) in a quarter of the beat: 168 frames, plus 2 for the floor
+  assert.throws(() => compileScene({ n: 60, beats: [weighted] }, A, 5.5, 30), /60/);
+  const c = compileScene({ n: 60, beats: [weighted] }, A, 6, 30);
+  const { from, to } = c.timeline[0];
+  const len = to - from;
+  assert.deepEqual(c.stepTimes[0].map((t) => t.start), [1, Math.floor(len / 4)]);
+  assert.deepEqual(slotStarts([{ target: 'a', weight: 1 }, { target: 'b', weight: 3 }], 100), [0, 25]);
+  assert.deepEqual(slotStarts([{ target: 'a' }, { target: 'b' }, { target: 'c' }], 100), [0, 33, 66]);
+  // the press of step 0 peaks inside its own (short) slot
+  let peak = 0;
+  for (let f = from; f < from + Math.floor(len / 4); f++) peak = Math.max(peak, pointerAt(f, c.cues, 30).press);
+  assert.equal(peak, 1);
+});
+
+test('step weights decide which step a frame belongs to for the device state', () => {
+  const beat: BeatSpec = { screen: 'dialogBlocked', device: 'mac', steps: [{ target: 'done', press: true, weight: 1 }, { target: 'trash', press: true, device: 'iphone', weight: 3 }] };
+  const c = compileScene({ n: 59, beats: [beat] }, A, 12, 30);
+  const { from, to } = c.timeline[0];
+  const second = from + Math.floor((to - from) / 4);
+  assert.equal(c.deviceAt(second - 1), 'mac');
+  assert.equal(c.deviceAt(second), 'iphone');
+  assert.deepEqual(c.deviceState(0, second + 5), { active: 'iphone', prevActive: 'mac', since: 5 });
 });

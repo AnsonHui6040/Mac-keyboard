@@ -1,4 +1,4 @@
-/** Scene 11: My Apps +, pick the IPA, then the App Contains Extensions dialog: the second option is the right one, Remove is not. The dialog is never pressed. */
+/** Scene 11: My Apps +, pick the IPA, then the App Contains Extensions dialog: the second option is the right one, Remove is not. Beats 1 to 3 do not press the dialog; beat 4 presses the second option, and My Apps then lists Remote Keyboard. */
 import type { SceneSpec } from '../../lib/sceneSpec.ts';
 
 export const scene11: SceneSpec = {
@@ -18,5 +18,7 @@ export const scene11: SceneSpec = {
       labels: [{ target: 'keepEach', kind: 'good' }, { target: 'remove', kind: 'bad' }],
       minSeconds: 3.5,
     },
+    // 等安裝完成，My Apps 會出現 Remote Keyboard。
+    { screen: 'extDialog', device: 'iphone', steps: [{ target: 'keepEach', press: true }, { target: 'rkapp' }] },
   ],
 };

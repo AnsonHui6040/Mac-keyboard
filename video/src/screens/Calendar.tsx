@@ -1,6 +1,7 @@
 import { Layer, Rect, Text } from '@kinetographdev/core';
 import { SideStoreIcon } from '../components/icons.tsx';
 import { fadeIn } from '../components/PhoneScreen.tsx';
+import { REPO_URL } from '../data/artifacts.ts';
 import { theme } from '../theme.ts';
 import { CARD, DAYS, MARKED_DAYS, MARK_PITCH, MARK_START, cellRect } from './calendar.ts';
 import type { ScreenProps } from './registry.tsx';
@@ -15,8 +16,11 @@ const Right = ({ opacity, children }: { opacity: number; children: React.ReactNo
  */
 export const Calendar = ({ beatIndex, beatFrame }: ScreenProps) => {
   const last = cellRect(MARKED_DAYS);
+  // In beat 2 the calendar fades out so the manual and its address have the whole width, at a size a phone screen can read.
+  const calendar = beatIndex === 2 ? 1 - fadeIn(beatFrame, 0, 8) : 1;
   return (
     <Layer id="screen-calendar">
+      <Layer id="calendar-card" opacity={calendar}>
       <Rect x={CARD.x} y={CARD.y} width={CARD.width} height={CARD.height} radius={26} fill="#222328" stroke={{ color: theme.hairline, width: 2 }} />
       <Rect x={CARD.x + 32} y={CARD.y + 32} width={260} height={28} radius={14} fill={theme.skeleton.color} />
       {Array.from({ length: DAYS }, (_, k) => {
@@ -35,6 +39,7 @@ export const Calendar = ({ beatIndex, beatFrame }: ScreenProps) => {
         <Rect id="last-day-ring" x={last.x - 7} y={last.y - 7} width={last.width + 14} height={last.height + 14} radius={20} fill={NONE}
           stroke={{ color: theme.good.ring, width: 5 }} opacity={beatIndex === 1 ? fadeIn(beatFrame, 0, 8) : 1} />
       )}
+      </Layer>
       {beatIndex === 1 && (
         <Right opacity={fadeIn(beatFrame, 6, 10)}>
           <SideStoreIcon x={1260} y={360} size={150} />
@@ -44,8 +49,8 @@ export const Calendar = ({ beatIndex, beatFrame }: ScreenProps) => {
       )}
       {beatIndex === 2 && (
         <Right opacity={fadeIn(beatFrame, 6, 10)}>
-          <Text id="manual-link" font={theme.font} weight={700} size={56} color={LINK} x={1200} y={390}>GitHub 上的使用手冊</Text>
-          <Rect x={1200} y={474} width={542} height={4} radius={2} fill={LINK} />
+          <Text id="manual-link" font={theme.font} weight={700} size={72} color={LINK} x={0} y={330} maxWidth={1920} align="center">GitHub 上的使用手冊</Text>
+          <Text id="repo-address" font={theme.font} weight={500} size={60} color={theme.ink} x={0} y={470} maxWidth={1920} align="center">{REPO_URL}</Text>
         </Right>
       )}
     </Layer>

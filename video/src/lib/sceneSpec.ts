@@ -10,8 +10,10 @@ export type Device = 'mac' | 'iphone';
  * `device` overrides the beat's device for this step, for a beat whose subtitle moves from one device to the other
  * ("先在 Mac、再在 iPhone"). The beat's own `device` is the device it starts on; the pointer, the device tag and the dimming
  * change at the start of the step's slot.
+ * `weight` (default 1) is the step's share of the beat: slots are equal while no step of the beat sets a weight, otherwise
+ * a step's slot is its weight over the sum of the weights, so a page that must stay on screen longer gets a longer slot.
  */
-export type Step = { target: string; press?: boolean; device?: Device };
+export type Step = { target: string; press?: boolean; device?: Device; weight?: number };
 export type Label = { target: string; kind: 'good' | 'bad'; head?: string };
 /**
  * `hidePointer`: the pointer fades out over HIDE_FRAMES frames from the start of this beat and stays hidden to its end.
@@ -65,14 +67,41 @@ const stepFrames = (s: Step): number => (s.press ? PRESS_STEP_FRAMES : PLAIN_STE
 /** The pointer's first step in a run starts one frame late (the entry cue takes the first frame), so a press there needs one more frame. */
 export const ENTRY_CUE_FRAMES = 1;
 
+const weighted = (steps: Step[]): boolean => steps.some((s) => s.weight !== undefined);
+
 /**
- * Smallest beat length that fits its steps spaced evenly: every slot must hold the slowest step. `startsRun` is true
+ * Smallest beat length in which every step's slot holds `need(step, k)` frames. Equal slots: every slot must hold the
+ * slowest step. Weighted slots: each slot's share of the beat must hold its own step (plus one frame per step for the floor).
+ */
+const slotNeed = (steps: Step[], need: (s: Step, k: number) => number): number => {
+  if (steps.length === 0) return 0;
+  if (!weighted(steps)) return steps.length * Math.max(...steps.map(need));
+  const total = steps.reduce((sum, s) => sum + (s.weight ?? 1), 0);
+  return Math.max(...steps.map((s, k) => Math.ceil((need(s, k) * total) / (s.weight ?? 1)))) + steps.length;
+};
+
+/** Frames from the beat start at which each step's slot begins, in a beat of `len` frames. Equal slots are floor(len / n) long. */
+export const slotStarts = (steps: Step[], len: number): number[] => {
+  if (!weighted(steps)) {
+    const slot = Math.floor(len / steps.length);
+    return steps.map((_, k) => k * slot);
+  }
+  const total = steps.reduce((sum, s) => sum + (s.weight ?? 1), 0);
+  let acc = 0;
+  return steps.map((s) => {
+    const at = Math.floor((len * acc) / total);
+    acc += s.weight ?? 1;
+    return at;
+  });
+};
+
+/**
+ * Smallest beat length that fits its steps: every slot must hold its step. `startsRun` is true
  * when this beat holds the first step of a pointer run; a press there needs 42 frames, not 41.
  */
 export const beatStepFrames = (steps: Step[] | undefined, startsRun = false): number => {
   if (!steps || steps.length === 0) return 0;
-  const first = stepFrames(steps[0]) + (startsRun && steps[0].press ? ENTRY_CUE_FRAMES : 0);
-  return steps.length * Math.max(first, ...steps.slice(1).map(stepFrames));
+  return slotNeed(steps, (s, k) => stepFrames(s) + (k === 0 && startsRun && s.press ? ENTRY_CUE_FRAMES : 0));
 };
 
 const hasTarget = (screen: string, target: string): boolean =>
@@ -114,7 +143,7 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   /** A beat that changes device inside itself: its second pointer starts a run too, and the first one fades out before it, so every slot needs the entry cue and the fade. */
   const changesDevice = (b: BeatSpec): boolean => !!b.device && (b.steps ?? []).some((t) => t.device && t.device !== b.device);
   const minSeconds = spec.beats.map((b, i) => {
-    const mixedNeed = changesDevice(b) ? (b.steps ?? []).length * (PRESS_STEP_FRAMES + ENTRY_CUE_FRAMES + FADE_FRAMES) : 0;
+    const mixedNeed = changesDevice(b) ? slotNeed(b.steps ?? [], () => PRESS_STEP_FRAMES + ENTRY_CUE_FRAMES + FADE_FRAMES) : 0;
     const need = Math.max(beatStepFrames(b.steps, startsRun[i]), mixedNeed) / fps;
     if (need === 0) return b.minSeconds;
     return Math.max(need, b.minSeconds ?? 0);
@@ -141,10 +170,10 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
     }
     run.to = span.to;
     const steps = b.steps ?? [];
-    const slot = steps.length > 0 ? Math.floor((span.to - span.from) / steps.length) : 0;
+    const starts = slotStarts(steps, span.to - span.from);
     steps.forEach((step, k) => {
       const p = restPoint(SCREENS[b.screen][step.target]);
-      const from = span.from + k * slot;
+      const from = span.from + starts[k];
       const stepDevice = step.device ?? b.device!;
       if (run!.device !== stepDevice) {
         // The beat moves to the other device: the first pointer ends where this slot begins, a new run starts.
@@ -178,10 +207,12 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
   /** The device of each step of beat `i`; empty when the beat has no steps. */
   const stepDevices = (i: number): (Device | undefined)[] => (spec.beats[i].steps ?? []).map((t) => t.device ?? spec.beats[i].device);
   const slotAt = (i: number, frame: number): number => {
-    const n = (spec.beats[i].steps ?? []).length;
-    if (n === 0) return 0;
-    const slot = Math.floor((timeline[i].to - timeline[i].from) / n);
-    return Math.min(n - 1, Math.max(0, Math.floor((frame - timeline[i].from) / slot)));
+    const steps = spec.beats[i].steps ?? [];
+    if (steps.length === 0) return 0;
+    const starts = slotStarts(steps, timeline[i].to - timeline[i].from);
+    let k = 0;
+    for (let j = 1; j < starts.length; j++) if (frame - timeline[i].from >= starts[j]) k = j;
+    return k;
   };
   const deviceEnd = (i: number): Device | undefined => {
     const d = stepDevices(i);
@@ -196,8 +227,8 @@ export function compileScene(spec: SceneSpec, caption: string, seconds: number, 
       let j = k;
       while (j > 0 && devs[j - 1] === devs[k]) j--;
       if (j > 0) {
-        const slot = Math.floor((span.to - span.from) / devs.length);
-        return { active: devs[k], prevActive: devs[j - 1], since: frame - (span.from + j * slot) };
+        const starts = slotStarts(spec.beats[i].steps ?? [], span.to - span.from);
+        return { active: devs[k], prevActive: devs[j - 1], since: frame - (span.from + starts[j]) };
       }
     }
     const prevSame = i > 0 && spec.beats[i - 1].screen === spec.beats[i].screen;

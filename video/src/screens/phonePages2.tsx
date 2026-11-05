@@ -62,6 +62,46 @@ export const MyAppsPlusPage = ({ vpn = false }: { vpn?: boolean }) => (
   </Layer>
 );
 
+/**
+ * Scene 11, beat 4: My Apps after the dialog's answer. While `progress` (0 to 1) is below 1 a green bar fills where the new card will be;
+ * once `installed` is true Remote Keyboard is in the Active list under SideStore, with its own 7 DAYS (the layout of docs/manual/images/iphone-sidestore-myapps.png).
+ */
+export const MyAppsInstalledPage = ({ progress, installed }: { progress: number; installed: boolean }) => {
+  const C = L.MYAPPS3_CARD;
+  return (
+    <Layer id="page-myapps-installed">
+      <StatusBar vpn />
+      <Ellipse x={L.PLUS.x} y={L.PLUS.y} width={64} height={64} fill="#2c2c2e" />
+      <Path x={L.PLUS.x} y={L.PLUS.y} d="M32 17 V47 M17 32 H47" fill={NONE} stroke={{ color: ios.ink, width: 5, cap: 'round' }} />
+      <LargeTitle y={124}>My Apps</LargeTitle>
+      <PText x={24} y={198} size={30} weight={700}>Active</PText>
+      <Card rect={L.MYAPPS2_CARD} />
+      <SideStoreIcon x={28} y={276} size={60} />
+      <PText x={98} y={270} size={28} weight={700}>SideStore</PText>
+      <Skel x={98} y={324} w={96} />
+      <Rect x={L.MYAPPS2_DAYS.x} y={L.MYAPPS2_DAYS.y} width={L.MYAPPS2_DAYS.width} height={L.MYAPPS2_DAYS.height} radius={26} fill="#2f9e4f" />
+      <BoxText box={L.MYAPPS2_DAYS} size={26} weight={700}>7 DAYS</BoxText>
+      {installed ? (
+        <Layer id="installed-card">
+          <Card rect={C} />
+          <RkIcon x={28} y={C.y + 28} size={60} />
+          <Btn target="rkapp" rect={L.MYAPPS3_ICON} />
+          <PText x={98} y={C.y + 12} size={26} weight={700} lineHeight={1.12}>{'Remote\nKeyboard'}</PText>
+          <Skel x={98} y={C.y + 84} w={96} />
+          <Rect x={L.MYAPPS3_DAYS.x} y={L.MYAPPS3_DAYS.y} width={L.MYAPPS3_DAYS.width} height={L.MYAPPS3_DAYS.height} radius={26} fill="#2f9e4f" />
+          <BoxText box={L.MYAPPS3_DAYS} size={26} weight={700}>7 DAYS</BoxText>
+        </Layer>
+      ) : (
+        <Layer id="install-progress">
+          <Rect x={C.x} y={C.y + 52} width={C.width} height={12} radius={6} fill="#3a3a3e" />
+          <Rect x={C.x} y={C.y + 52} width={Math.max(1, C.width * Math.min(1, Math.max(0, progress)))} height={12} radius={6} fill={ios.green} />
+        </Layer>
+      )}
+      <PText x={0} y={installed ? C.y + C.height + 28 : 390} size={26} color={ios.muted} w={390} align="center">5 App IDs Remaining</PText>
+    </Layer>
+  );
+};
+
 const PICKER_ROW_H = 108;
 
 export const PickerPage = ({ vpn = false }: { vpn?: boolean }) => {

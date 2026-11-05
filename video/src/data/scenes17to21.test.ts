@@ -8,6 +8,7 @@ import { scene18 } from './scenes/scene18.ts';
 import { scene19 } from './scenes/scene19.ts';
 import { scene20 } from './scenes/scene20.ts';
 import { scene21 } from './scenes/scene21.ts';
+import { REPO_URL } from './artifacts.ts';
 import { CODE_LEFT, FOCUS_LINE, PAIR_CODE, REMAINING_LINE, WAIT_LEFT } from './pairing.ts';
 import { TYPED_20, TYPE20_PITCH, TYPE20_START, CONNECT_AT, typed20 } from '../screens/typing20.ts';
 import { DAYS, MARKED_DAYS, MARK_PITCH, MARK_START, cellRect, CARD } from '../screens/calendar.ts';
@@ -49,9 +50,9 @@ test('no scene source names a real app (Claude2) or a real device name', () => {
   }
 });
 
-test('scene 17: Bluetooth 允許, the menu bar icon, 授權輔助使用, the switch; all on the Mac', () => {
+test('scene 17: Bluetooth 允許, the menu bar icon, 打開輔助使用設定 (not 授權輔助使用), the switch; all on the Mac', () => {
   assert.deepEqual(scene17.beats.map((b) => b.device), ['mac', 'mac', 'mac']);
-  assert.deepEqual(scene17.beats.map((b) => b.steps?.map((s) => s.target)), [['allow'], ['icon', 'authorize'], ['toggle']]);
+  assert.deepEqual(scene17.beats.map((b) => b.steps?.map((s) => s.target)), [['allow'], ['icon', 'openSettings'], ['toggle']]);
   assert.ok(scene17.beats.every((b) => b.steps!.every((s) => s.press)));
 });
 
@@ -71,6 +72,35 @@ test('scene 18 follows the manual: Mac 配對新 iPhone; iPhone 已配對 Mac, �
   assert.equal(c.deviceAt(to - 2), 'iphone');
   assert.equal(c.deviceAt(c.timeline[3].from + 2), undefined);
   assert.deepEqual(c.runs.map((r) => r.device), ['mac', 'iphone', 'mac', 'iphone']);
+});
+
+test('scene 17 keeps the red 尚未授權輔助使用，無法輸入文字 line and both buttons on the panel; the pointer presses the second one', () => {
+  const src = read('../screens/macReceiver.tsx');
+  assert.ok(src.includes('尚未授權輔助使用，無法輸入文字'));
+  assert.match(src, /<PBtn rect=\{b\.authorize\} label="授權輔助使用" \/>/);
+  assert.match(src, /<PBtn target="openSettings" rect=\{b\.openSettings\} label="打開輔助使用設定" \/>/);
+  assert.ok(!('authorize' in SCREENS.receiverMenu));
+});
+
+test('scene 18: before 配對新 iPhone is pressed the panel is idle (尚未開始接收, 待命); pairing then arms the receiver', () => {
+  const flow = read('../screens/PairFlow.tsx');
+  assert.match(flow, /link: kind === 'idle' \? 'idle'/);
+  const mac = read('../screens/macReceiver.tsx');
+  assert.ok(mac.includes("idle: '尚未開始接收'"));
+  assert.ok(mac.includes("state.link === 'idle' ? '待命'"));
+  // beats 0 and 1 show the idle panel; the press is the last step of beat 1
+  assert.deepEqual(scene18.beats.slice(0, 2).map((b) => b.steps?.map((s) => s.target)), [undefined, ['pairNew']]);
+});
+
+test('scene 21 shows the repository address below the manual link, at 60 px or more', () => {
+  const src = read('../screens/Calendar.tsx');
+  assert.ok(src.includes('{REPO_URL}'));
+  assert.match(src, /id="manual-link"[^>]*y=\{(\d+)\}/);
+  const link = Number(src.match(/id="manual-link"[^>]*y=\{(\d+)\}/)![1]);
+  const addr = Number(src.match(/id="repo-address"[^>]*y=\{(\d+)\}/)![1]);
+  assert.ok(addr > link + 72);
+  assert.ok(Number(src.match(/id="repo-address"[^>]*size=\{(\d+)\}/)![1]) >= 60);
+  assert.equal(REPO_URL, 'github.com/AnsonHui6040/Mac-keyboard');
 });
 
 test('scene 19: 已儲存 on both, 完成 on the Mac and then on the iPhone, in one beat', () => {
