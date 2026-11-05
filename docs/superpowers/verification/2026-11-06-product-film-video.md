@@ -25,7 +25,7 @@ scripts/render-film.sh
 
 | 項目 | 結果 |
 |---|---|
-| `npm test` | 260 項全部通過（新增 `cameras.test.ts` 15 項、第 1 鏡 6 項、沒有「密碼」字樣與新時間軸的測試） |
+| `npm test` | 262 項全部通過（新增 `cameras.test.ts` 15 項、第 1 鏡 6 項、沒有「密碼」字樣與新時間軸的測試） |
 | `kinetograph check` | 沒有型別錯誤 |
 | `kinetograph doctor` | 1515 幀全部可完整繪製 |
 | `kinetograph lint` 預設 8 幀（0、216、433、649、865、1081、1298、1514） | 3 個 error，74 個 warning；3 個都在第 649 幀（第 15 鏡）：手寫頁最下排按鍵的文字被畫面下緣切掉，這是為了讓面板頂端離開標題而接受的裁切 |
