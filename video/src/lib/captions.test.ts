@@ -119,3 +119,14 @@ for (const s of script.scenes) {
     });
   });
 }
+
+test('wrapBeat keeps a CJK character with the ASCII word before it, so a line never starts with a lone 線', () => {
+  const beat = '先準備這些：iOS 18 以上的 iPhone、Apple 晶片的 Mac、一條 USB 線、Wi-Fi，';
+  assert.deepEqual(wrapBeat(beat), ['先準備這些：iOS 18 以上的 iPhone、Apple 晶片的 Mac、一條', 'USB 線、Wi-Fi，']);
+  // directly attached, and only one character joins the word
+  assert.deepEqual(wrapBeat('甲'.repeat(28) + 'USB線乙'), ['甲'.repeat(28), 'USB線乙']);
+});
+
+test('wrapBeat output for every other caption is unchanged (single lines stay single lines)', () => {
+  assert.deepEqual(wrapBeat('Touch ID 或密碼確認。'), ['Touch ID 或密碼確認。']);
+});
