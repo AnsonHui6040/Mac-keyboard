@@ -159,6 +159,7 @@ final class KeyboardBLEPeripheral: NSObject {
         case .medium: latencySetting = .unset
         }
         applyLatency()
+        if latencySetting == .unset { reconcileLatency() }
     }
 
     /// Asks the subscribed central for the latency a measurement run wants; nothing for `.none`. Returns whether a request
@@ -297,6 +298,7 @@ final class KeyboardBLEPeripheral: NSObject {
             openPointer()
         } else {
             pointerState = .timedOut
+            setPointerLatency(open: false)
         }
     }
 
@@ -376,6 +378,7 @@ final class KeyboardBLEPeripheral: NSObject {
             pointerState = .open
         } else {
             pointerState = .denied
+            setPointerLatency(open: false)
         }
     }
 
@@ -706,6 +709,7 @@ final class KeyboardBLEPeripheral: NSObject {
                     // The counter is used up: nothing more can be sealed on this connection.
                     pointerSender = nil
                     pointerState = .closed
+                    setPointerLatency(open: false)
                     return
                 }
                 guard manager.updateValue(packet, for: characteristic, onSubscribedCentrals: [central]) else {
