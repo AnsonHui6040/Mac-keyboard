@@ -14,7 +14,9 @@ TMP=out/renders/product-film-pass.mp4
 TARGET=${TARGET_LUFS:--14}
 TOL=0.4
 CEIL=-1.0
-FRAMES=1800
+# the film's length comes from src/film/timeline.ts, the one place it is set
+FRAMES=$(node --input-type=module -e "import('./src/film/timeline.ts').then((m) => console.log(m.FRAMES))")
+case "$FRAMES" in ''|*[!0-9]*) echo "could not read FRAMES from src/film/timeline.ts" >&2; exit 1 ;; esac
 mkdir -p out/renders
 trap 'rm -f "$TMP"' EXIT
 rm -f "$RAW" "$OUT" "$TMP"

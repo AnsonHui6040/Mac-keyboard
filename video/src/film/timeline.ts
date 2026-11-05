@@ -1,15 +1,14 @@
 /** Shots, titles and the end card of ProductFilm (docs/video/product-film-storyboard.md). Seconds times 30 is frames. Pure. */
 export const FPS = 30;
-export const FRAMES = 1800;
+export const FRAMES = 1515;
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
 
-export type ShotKind = 'hero' | 'phone' | 'mac' | 'stage' | 'black' | 'card';
+export type ShotKind = 'hero' | 'phone' | 'mac' | 'stage' | 'card';
 export type Shot = { id: string; from: number; to: number; kind: ShotKind };
 
 const fr = (s: number): number => Math.round(s * FPS);
 const shot = (id: string, from: number, to: number, kind: ShotKind): Shot => ({ id, from: fr(from), to: fr(to), kind });
-const exact = (id: string, from: number, to: number, kind: ShotKind): Shot => ({ id, from, to, kind });
 
 export const SHOTS: readonly Shot[] = [
   shot('1', 0, 3.0, 'hero'),
@@ -38,17 +37,8 @@ export const SHOTS: readonly Shot[] = [
   shot('21d', 32.8, 35.4, 'stage'),
   shot('21e', 35.4, 37.7, 'stage'),
   shot('21f', 37.7, 41.0, 'stage'),
-  shot('22', 41.0, 41.8, 'mac'),
-  shot('23', 41.8, 43.2, 'phone'),
-  // 43.2 to 45.4 is one storyboard row (24 to 27): the shots of 3 and 4 again, four cuts of 16 or 17 frames.
-  exact('24', 1296, 1312, 'phone'),
-  exact('25', 1312, 1329, 'mac'),
-  exact('26', 1329, 1345, 'phone'),
-  exact('27', 1345, 1362, 'mac'),
-  shot('28', 45.4, 48.3, 'mac'),
-  shot('29', 48.3, 50.5, 'black'),
-  shot('30', 50.5, 54.0, 'stage'),
-  shot('31', 54.0, 60.0, 'card'),
+  shot('30', 41.0, 44.5, 'stage'),
+  shot('31', 44.5, 50.5, 'card'),
 ];
 
 export const shotAt = (frame: number): Shot => SHOTS.find((s) => frame >= s.from && frame < s.to) ?? SHOTS[SHOTS.length - 1];
@@ -71,22 +61,19 @@ export const TITLES: readonly Title[] = [
   title('t9', '按住再拖曳', 32.8, 35.4, { x: 120, y: 58, size: 84, width: 1200 }),
   title('t10', '兩指輕點是右鍵', 35.4, 37.7, { x: 120, y: 58, size: 84, width: 1200 }),
   title('t11', '兩指滑動來捲動', 37.7, 41.0, { x: 120, y: 58, size: 84, width: 1200 }),
-  title('t12', '系統標示的密碼欄不會輸入文字', 42.2, 45.4, TOP),
-  title('t13', '部分終端機與遠端桌面偵測不到', 45.4, 48.3, TOP),
-  title('t14', '請不要用這個鍵盤輸入密碼', 48.3, 50.5, { x: 160, y: 446, size: 100, width: 1600, align: 'center' }),
 ];
 
 export type CardLine = { at: number; text: string; size: number; y: number; weight: 400 | 500 | 700; color: string };
 const line = (at: number, text: string, size: number, y: number, weight: 400 | 500 | 700, color: string): CardLine => ({ at: fr(at), text, size, y, weight, color });
 export const CARD_X = 160;
 export const END_CARD: readonly CardLine[] = [
-  line(54.0, 'Remote Keyboard', 120, 170, 700, '#f5f5f7'),
-  line(54.0, 'v0.1.0 Alpha', 56, 350, 500, '#f5f5f7'),
-  line(54.0, '透過 SideStore 安裝', 52, 450, 400, '#9a9ba1'),
-  line(54.0, '不是 App Store 版本', 52, 530, 400, '#9a9ba1'),
-  line(56.0, '下載 github.com/AnsonHui6040/Mac-keyboard', 56, 690, 500, '#f5f5f7'),
-  line(56.0, '安裝教學 youtu.be/dGhEuzRpAEg', 56, 780, 500, '#f5f5f7'),
-  line(56.0, '與 Apple 沒有關聯', 32, 960, 400, '#9a9ba1'),
+  line(44.5, 'Remote Keyboard', 120, 170, 700, '#f5f5f7'),
+  line(44.5, 'v0.1.0 Alpha', 56, 350, 500, '#f5f5f7'),
+  line(44.5, '透過 SideStore 安裝', 52, 450, 400, '#9a9ba1'),
+  line(44.5, '不是 App Store 版本', 52, 530, 400, '#9a9ba1'),
+  line(46.5, '下載 github.com/AnsonHui6040/Mac-keyboard', 56, 690, 500, '#f5f5f7'),
+  line(46.5, '安裝教學 youtu.be/dGhEuzRpAEg', 56, 780, 500, '#f5f5f7'),
+  line(46.5, '與 Apple 沒有關聯', 32, 960, 400, '#9a9ba1'),
 ];
 
 /** Length for the reading-speed rule: every CJK character counts 1, every run of Latin letters or digits counts 1. */

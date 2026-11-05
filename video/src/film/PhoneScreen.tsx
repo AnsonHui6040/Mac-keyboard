@@ -8,7 +8,7 @@ import { theme } from '../theme.ts';
 import { HW_CAND, KB, KEY_LABEL, QUICK_BAR, QUICK_ROOT, quickCenter } from '../intro/layout.ts';
 import { panelPath, rectPath, polyline } from '../intro/shapes.ts';
 import { INK_FROM } from './events.ts';
-import { PHONE, kbTop, type KbName, type R } from './layout.ts';
+import { PHONE, PHONE_TOP, kbTop, type KbName, type R } from './layout.ts';
 import { DRAFT_TEXT, inkAt, type PhoneState } from './state.ts';
 import { textWidth } from './metrics.ts';
 
@@ -21,13 +21,8 @@ const SEG = '#36353a';
 const FIELD = '#373639';
 const BLUE = '#0a84ff';
 const GREEN = '#30d158';
-const RED = '#ff453a';
 const GREY = '#8e8e93';
 const BOTTOM_RADIUS = 110;
-/** Where the tallest page starts: a page drawn at y 109 and below. */
-export const PHONE_TOP = PHONE.bottom - 755;
-
-const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 const Label = ({ r, text, size, color = '#ffffff', weight = 400, dy = 0 }: { r: R; text: string; size: number; color?: string; weight?: 400 | 500 | 700; dy?: number }) => (
   <Text font={theme.font} weight={weight} size={size} color={color} x={r.x} y={r.y + (r.h - size * LINE) / 2 + dy} maxWidth={r.w} align="center">{text}</Text>
@@ -71,11 +66,10 @@ const Mic = ({ cx, cy }: { cx: number; cy: number }) => (
 );
 
 // --- the pieces of a page (image coordinates of its screenshot) ---
-const Toolbar = ({ kb, s, f }: { kb: KbName; s: PhoneState; f: number }) => {
+const Toolbar = ({ kb, s }: { kb: KbName; s: PhoneState }) => {
   const y = KB[kb].toolbarY;
   const pad = kb === 'trackpad';
   const live = s.kb !== 'draft' && s.kb !== 'handwriting' && s.kb !== 'quick';
-  const since = clamp01((f - s.statusSince + 1) / 8);
   const dim = s.status === 'none' ? 0.4 : 1;
   return (
     <Layer>
@@ -88,7 +82,6 @@ const Toolbar = ({ kb, s, f }: { kb: KbName; s: PhoneState; f: number }) => {
         </Layer>
       )}
       {s.status === 'connected' && <Label r={{ x: 148, y, w: 140, h: 49 }} text="已連接" size={22} color={GREEN} weight={500} />}
-      {s.status === 'blocked' && <Layer opacity={since}><Label r={{ x: 148, y, w: 140, h: 49 }} text="密碼不能輸入" size={19.5} color={RED} weight={500} /></Layer>}
       <Layer opacity={dim}>
         <Rect x={295} y={y} width={130} height={49} radius={12} fill={FUNC} />
         <Label r={{ x: 295, y, w: 130, h: 49 }} text={pad ? '鍵盤' : '觸控板'} size={24.5} />
@@ -233,7 +226,7 @@ export const PhoneScreen = ({ state, f }: { state: PhoneState; f: number }) => {
   return (
     <Layer y={kbTop(kb)}>
       <Path d={panelPath(info.panelTop, 720, info.h, BOTTOM_RADIUS)} fill={PANEL} />
-      <Toolbar kb={kb} s={state} f={f} />
+      <Toolbar kb={kb} s={state} />
       {hasDraft && <DraftRow kb={kb} s={state} f={f} />}
       {kb === 'trackpad' ? <Rect x={pad.x} y={pad.y} width={pad.w} height={pad.h} radius={14} fill="#333333" /> : <Keys kb={kb} s={state} />}
       {kb === 'handwriting' && <Handwriting s={state} f={f} />}

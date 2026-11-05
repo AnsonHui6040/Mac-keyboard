@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CAM21, STAGE, bounds, cam21, cam30, forward, macPin, macPoint, phoneBody, phonePin, phonePoint, planeCorners, project, rotate, type Cam } from './project.ts';
+import { CAM21, HERO, LID_POS, LID_ROT, MAC_SCREEN_POS, PHONE_SCREEN_POS, STAGE, bounds, cam21, cam30, forward, heroCam, heroStage, macPin, macPoint, phoneBody, phonePin, phonePoint, planeCorners, project, rotate, type Cam } from './project.ts';
+import { TITLES } from './timeline.ts';
+import { textWidth } from './metrics.ts';
 import { CURSOR, PAD } from './layout.ts';
 
 const near = (a: number, b: number, d = 1e-6, msg = '') => assert.ok(Math.abs(a - b) <= d, `${msg} ${a} vs ${b}`);
@@ -90,7 +92,7 @@ test('shot 21 camera moves at one speed and stays inside the limits: push at mos
 test('shot 30 is the only pull back: the camera gets farther from what it looks at on every frame', () => {
   const dist = (c: Cam) => Math.hypot(c.position[0] - c.target[0], c.position[1] - c.target[1], c.position[2] - c.target[2]);
   let last = 0;
-  for (let f = 1515; f < 1620; f++) {
+  for (let f = 1230; f < 1335; f++) {
     const d = dist(cam30(f));
     assert.ok(d > last, `frame ${f}`);
     last = d;
@@ -110,7 +112,7 @@ test('the phone screen lies inside the phone body and the Mac screen is 16 to 10
 });
 
 test('shot 30 keeps both devices in the frame while it rises and pulls back, and the deck is seen from above at 8 degrees or more', () => {
-  for (const f of [1515, 1567, 1619]) {
+  for (const f of [1230, 1282, 1334]) {
     const cam = cam30(f);
     const m = bounds(macPin(cam, STAGE));
     const p = bounds(phoneBody(cam, STAGE));
@@ -125,6 +127,73 @@ test('shot 30 keeps both devices in the frame while it rises and pulls back, and
   // the camera rises and backs off at one speed: no jump
   for (const i of [0, 1, 2]) {
     const step = (f: number) => cam30(f + 1).position[i] - cam30(f).position[i];
-    near(step(1520), step(1600), 1e-9, `axis ${i}`);
+    near(step(1235), step(1315), 1e-9, `axis ${i}`);
+  }
+});
+
+// --- shot 1: the phone ends truly facing the camera ---
+const edges = (f: number) => {
+  const c = phonePin(heroCam(f), heroStage(f));
+  return { c, left: Math.abs(c.topLeft[0] - c.bottomLeft[0]), right: Math.abs(c.topRight[0] - c.bottomRight[0]), top: Math.abs(c.topLeft[1] - c.topRight[1]), bottom: Math.abs(c.bottomLeft[1] - c.bottomRight[1]) };
+};
+
+test('shot 1: at frames 72 and 89 the phone screen is a rectangle on the frame, with 30 px of margin', () => {
+  for (const f of [72, 80, 89]) {
+    const e = edges(f);
+    assert.ok(e.left <= 2 && e.right <= 2, `vertical edges lean ${e.left.toFixed(2)} and ${e.right.toFixed(2)} px at ${f}`);
+    assert.ok(e.top <= 2 && e.bottom <= 2, `horizontal edges tilt ${e.top.toFixed(2)} and ${e.bottom.toFixed(2)} px at ${f}`);
+    for (const [x, y] of Object.values(e.c)) assert.ok(x >= 30 && x <= 1890 && y >= 30 && y <= 1050, `corner ${x.toFixed(0)},${y.toFixed(0)} at ${f}`);
+  }
+});
+
+test('shot 1: the yaw eases from -68 to exactly 0 by frame 70, never overshoots, and does not drift after', () => {
+  assert.equal(HERO.yaw[0], -68);
+  assert.equal(HERO.yaw[1], 0);
+  const yaw = (f: number) => heroStage(f).phoneRot[1];
+  assert.equal(yaw(0), -68);
+  for (let f = 1; f <= 70; f++) assert.ok(yaw(f) >= yaw(f - 1) && yaw(f) <= 0, `frame ${f}`);
+  for (let f = 70; f < 90; f++) assert.equal(yaw(f), 0, `frame ${f}`);
+  assert.ok(Math.abs(yaw(70) - yaw(69)) <= 0.2, 'it arrives softly');
+});
+
+test('shot 1: the opening move is still there, the phone is turned at frame 0 and 20', () => {
+  for (const f of [0, 20]) {
+    const e = edges(f);
+    assert.ok(Math.abs(heroStage(f).phoneRot[1]) > 20);
+    assert.ok(e.top > 4 && e.bottom > 4, `the screen is a trapezoid at ${f}: top ${e.top.toFixed(1)}, bottom ${e.bottom.toFixed(1)}`);
+  }
+});
+
+test('shot 1: the camera looks straight along -z, level with the middle of the phone, and still pushes in', () => {
+  const mid = heroStage(0).phonePos[1] + PHONE_SCREEN_POS[1];
+  for (const f of [0, 45, 89]) {
+    const c = heroCam(f);
+    assert.equal(c.position[0], c.target[0]);
+    assert.equal(c.position[1], c.target[1]);
+    near(c.position[1], mid, 1e-9, 'height');
+    const fw = forward(c);
+    near(fw[0], 0); near(fw[1], 0); near(fw[2], -1);
+  }
+  assert.ok(heroCam(89).position[2] < heroCam(0).position[2] - 0.5, 'the push in');
+});
+
+test('shot 1: the blurred Mac behind stays clear of the title (its screen plus 90 px of blur)', () => {
+  const t = TITLES.find((x) => x.id === 't1')!;
+  const box = { x0: t.x, x1: t.x + textWidth(t.text, t.size, 700), y0: t.y, y1: t.y + t.size * 1.12 };
+  for (const f of [t.from, 50, t.to - 1]) {
+    const m = bounds(planeCorners(heroCam(f), 3.04, 1.9, [[HERO.farMac.pos, HERO.farMac.rot], [LID_POS, LID_ROT], [MAC_SCREEN_POS, [0, 0, 0]]]));
+    const apart = m.x0 - 90 >= box.x1 || m.x1 + 90 <= box.x0 || m.y1 + 90 <= box.y0 || m.y0 - 90 >= box.y1;
+    assert.ok(apart, `the blurred Mac reaches the title at ${f}: ${JSON.stringify(m)}`);
+  }
+});
+
+test('shot 1: the title stays clear of the phone while it is on screen', () => {
+  const t = TITLES.find((x) => x.id === 't1')!;
+  const w = textWidth(t.text, t.size, 700);
+  const box = { x0: t.x, x1: t.x + w, y0: t.y, y1: t.y + t.size * 1.12 };
+  for (let f = t.from; f < t.to; f += 3) {
+    const b = bounds(phoneBody(heroCam(f), heroStage(f)));
+    const apart = b.x1 + 40 <= box.x0 || b.x0 - 40 >= box.x1 || b.y1 + 40 <= box.y0 || b.y0 - 40 >= box.y1;
+    assert.ok(apart, `title and phone are within 40 px at ${f}`);
   }
 });

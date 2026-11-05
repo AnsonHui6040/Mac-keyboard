@@ -4,16 +4,15 @@
  */
 import { QUICK_BAR, quickScrollFor } from '../intro/layout.ts';
 import { STROKES, partialStroke, strokePoint } from '../intro/ink.ts';
-import { CHAPTER_START, CONNECT_AT, CUTS, HW_CANDIDATES_AT, INK, LOGIN, MAC_DELAY, PAD_AT, PRESSES, SWIPES, actFrame, chapterOf, macDelayOf, type Chapter, type Fx, type Press } from './events.ts';
-import { centerOf, draftRect, hwCandidateRect, keyRect, kbTop, quickCandidateRect, toggleRect, type KbName, type R } from './layout.ts';
-import { LOGIN_FIELDS } from './layout.ts';
+import { CONNECT_AT, CUTS, HW_CANDIDATES_AT, INK, PAD_AT, PRESSES, SWIPES, actFrame, chapterOf, macDelayOf, type Chapter, type Fx, type Press } from './events.ts';
+import { DOC, DOC_BIG, DOC_LINE, centerOf, draftRect, hwCandidateRect, keyRect, kbTop, quickCandidateRect, toggleRect, type KbName, type R } from './layout.ts';
 import { textWidth } from './metrics.ts';
 import { trackAt, type TrackState } from './trackpad.ts';
 
 export const DRAFT_TEXT = { size: 31, weight: 400 as const, padLeft: 14 };
 
-type S = { ime: 'en' | 'hw' | 'quick' | 'pad'; mode: 'live' | 'draft'; shift: boolean; draft: string; caret: number; code: string; picked: boolean; blocked: boolean };
-const START: S = { ime: 'en', mode: 'live', shift: false, draft: '', caret: 0, code: '', picked: false, blocked: false };
+type S = { ime: 'en' | 'hw' | 'quick' | 'pad'; mode: 'live' | 'draft'; shift: boolean; draft: string; caret: number; code: string; picked: boolean };
+const START: S = { ime: 'en', mode: 'live', shift: false, draft: '', caret: 0, code: '', picked: false };
 
 const insert = (s: S, text: string): S => ({ ...s, draft: s.draft.slice(0, s.caret) + text + s.draft.slice(s.caret), caret: s.caret + text.length });
 
@@ -30,7 +29,7 @@ const apply = (s: S, fx: Fx): { s: S; add: string } => {
     case 'pick': n = insert(n, fx.text); n.code = ''; n.picked = true; break;
     case 'code': n.code += fx.c; break;
     case 'send': add = s.draft; n.draft = ''; n.caret = 0; break;
-    case 'cut': if (fx.ime) n.ime = fx.ime; if (fx.blocked) n.blocked = true; break;
+    case 'cut': n.ime = fx.ime; break;
     default: break;
   }
   return { s: n, add };
@@ -45,7 +44,7 @@ let opsCache: MacOp[] | null = null;
 export const macOps = (): MacOp[] => {
   if (opsCache) return opsCache;
   const out: MacOp[] = [];
-  const state: S[] = [START, START, START, START];
+  const state: S[] = [START, START];
   for (const it of ITEMS) {
     const c = chapterOf(it.t);
     const r = apply(state[c], it.fx);
@@ -56,7 +55,7 @@ export const macOps = (): MacOp[] => {
   return out;
 };
 
-/** The text of the document of a chapter (0 the first, 3 the empty one of shot 30) at a frame. */
+/** The text of the document of a chapter (0 the first, 1 the empty one of shot 30) at a frame. */
 export const macTextAt = (frame: number, chapter: Chapter = chapterOf(frame)): string =>
   macOps().filter((o) => o.chapter === chapter && o.frame <= frame).map((o) => o.add).join('');
 const lastMacChange = (frame: number, chapter: Chapter): number => {
@@ -87,9 +86,7 @@ export const quickScrollAt = (frame: number): number => {
 export type PhoneState = {
   chapter: Chapter;
   kb: KbName;
-  status: 'none' | 'connected' | 'blocked';
-  /** Frame the status last changed, for the fade. */
-  statusSince: number;
+  status: 'none' | 'connected';
   shift: boolean;
   draft: string;
   caret: number;
@@ -110,13 +107,12 @@ export const phoneAt = (frame: number): PhoneState => {
     if (chapterOf(it.t) !== chapter) continue;
     s = apply(s, it.fx).s;
   }
-  const kb: KbName = s.ime === 'pad' ? 'trackpad' : s.ime === 'hw' ? 'handwriting' : s.ime === 'quick' ? 'quick' : s.mode === 'live' ? (s.blocked ? 'blocked' : 'connected') : 'draft';
+  const kb: KbName = s.ime === 'pad' ? 'trackpad' : s.ime === 'hw' ? 'handwriting' : s.ime === 'quick' ? 'quick' : s.mode === 'live' ? 'connected' : 'draft';
   const inkOn = s.ime === 'hw' && !s.picked;
-  const status = chapter === 0 ? (frame < CONNECT_AT ? 'none' : 'connected') : s.blocked ? 'blocked' : 'connected';
-  const statusSince = chapter === 0 ? CONNECT_AT : s.blocked ? LOGIN.blocked : CHAPTER_START[chapter];
+  const status = chapter === 0 && frame < CONNECT_AT ? 'none' : 'connected';
   const pressed = PRESSES.find((p) => frame >= p.t && frame < p.t + p.hold && p.chapter === chapter) ?? null;
   return {
-    chapter, kb, status, statusSince, shift: s.shift, draft: s.draft, caret: s.caret, code: s.code,
+    chapter, kb, status, shift: s.shift, draft: s.draft, caret: s.caret, code: s.code,
     candidates: s.ime === 'quick' ? QUICK_CANDIDATES[s.code] ?? [] : [],
     scroll: s.ime === 'quick' && s.code === 'eu' ? quickScrollAt(frame) : 0,
     inkOn, hwCandidates: inkOn && frame >= HW_CANDIDATES_AT, pressed,
@@ -162,7 +158,7 @@ for (const p of PRESSES) SEGS.push({ t0: p.t, t1: p.t + p.hold, a: centerOf(pres
 SEGS.sort((a, b) => a.t0 - b.t0);
 const segEnd = (s: Seg): Pt => (s.path ? s.path(1) : s.a);
 const GLIDE = 8;
-const GROUPS = [0, 1, 2, 3].map((c) => {
+const GROUPS = [0, 1].map((c) => {
   const segs = SEGS.filter((s) => chapterOf(s.t0) === c);
   return { segs, from: segs[0].t0 - 6, to: segs[segs.length - 1].t1 + 6 };
 });
@@ -203,19 +199,13 @@ export const inkAt = (frame: number): Pt[][] => {
 };
 
 // --- the Mac ---
-const smooth = ease;
-export const LOGIN_CURSOR = { start: { x: 820, y: 560 }, target: { x: LOGIN_FIELDS.password.x + 300, y: LOGIN_FIELDS.password.y + 32 } } as const;
-
 export type MacState = {
-  screen: 'doc' | 'login' | 'remote' | 'doc2';
+  screen: 'doc' | 'doc2';
   lines: string[];
   caretOn: boolean;
   /** Mac pointer, or null when it is not on the screen. */
   cursor: { x: number; y: number; opacity: number; press: number } | null;
   track: TrackState | null;
-  loginFocused: boolean;
-  loginValue: string;
-  dots: number;
 };
 
 export const macAt = (frame: number): MacState => {
@@ -223,19 +213,15 @@ export const macAt = (frame: number): MacState => {
   const text = macTextAt(frame, chapter);
   const changed = lastMacChange(frame, chapter);
   const caretOn = frame - changed < 12 || Math.floor(frame / 15) % 2 === 0;
-  const screen = (['doc', 'login', 'remote', 'doc2'] as const)[chapter];
+  const screen = chapter === 0 ? 'doc' : 'doc2';
   const track = chapter === 0 && frame >= PAD_AT.fingersIn ? trackAt(frame) : null;
-  let cursor: MacState['cursor'] = null;
-  if (track) cursor = { x: track.cursor.x, y: track.cursor.y, opacity: track.cursorOpacity, press: track.cursorPress };
-  if (chapter === 1) {
-    const u = smooth((frame - LOGIN.cursorFrom) / (LOGIN.arrive - LOGIN.cursorFrom));
-    const p = frame - LOGIN.click;
-    cursor = {
-      x: LOGIN_CURSOR.start.x + (LOGIN_CURSOR.target.x - LOGIN_CURSOR.start.x) * u,
-      y: LOGIN_CURSOR.start.y + (LOGIN_CURSOR.target.y - LOGIN_CURSOR.start.y) * u,
-      opacity: 1, press: p >= 0 && p < 6 ? 1 - p / 6 : 0,
-    };
-  }
-  const dots = chapter === 2 ? PRESSES.filter((p) => p.chapter === 2 && p.t + MAC_DELAY <= frame).length : 0;
-  return { screen, lines: text.split('\n'), caretOn, cursor, track, loginFocused: chapter === 1 && frame >= LOGIN.focus, loginValue: '', dots };
+  const cursor: MacState['cursor'] = track ? { x: track.cursor.x, y: track.cursor.y, opacity: track.cursorOpacity, press: track.cursorPress } : null;
+  return { screen, lines: text.split('\n'), caretOn, cursor, track };
+};
+
+/** x and y of the caret of the last line of the document, on the Mac screen. */
+export const caretAt = (lines: string[], big = false): { x: number; y: number } => {
+  const size = big ? DOC_BIG : DOC.size;
+  const i = lines.length - 1;
+  return { x: DOC.textX + textWidth(lines[i], size, big ? 700 : 500), y: (big ? DOC.textY - 4 : DOC.textY) + i * size * DOC_LINE + (size * DOC_LINE) / 2 };
 };

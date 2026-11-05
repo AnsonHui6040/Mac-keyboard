@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { KB } from '../intro/layout.ts';
 import { PHONE } from './layout.ts';
-import { CONNECT_AT, HW_CANDIDATES_AT, INK, LOGIN, PRESSES } from './events.ts';
+import { CONNECT_AT, HW_CANDIDATES_AT, INK, PRESSES } from './events.ts';
 import { QUICK_CANDIDATES, QUICK_SCROLL_TOTAL, fingerAt, macAt, macTextAt, phoneAt, pressRect } from './state.ts';
 
 const text = (f: number): string => macTextAt(f);
@@ -76,53 +76,19 @@ test('the keyboard page changes with the key that causes it, after the press sho
   assert.ok(pad.t + pad.hold <= 849 - 8, 'the grey pad shows a few frames before the 3D shot');
 });
 
-test('the status says nothing at first, connected from CONNECT_AT, and turns to blocked after the Mac focus moved into the password field', () => {
+test('the status says nothing at first and connected from CONNECT_AT; it never turns to anything else', () => {
   assert.equal(phoneAt(CONNECT_AT - 1).status, 'none');
-  assert.equal(phoneAt(CONNECT_AT).status, 'connected');
-  assert.equal(phoneAt(1229).status, 'connected');
-  assert.equal(phoneAt(1255).status, 'connected');
-  assert.equal(phoneAt(LOGIN.blocked - 1).status, 'connected');
-  assert.equal(phoneAt(LOGIN.blocked).status, 'blocked');
-  assert.equal(phoneAt(LOGIN.blocked).kb, 'blocked');
-  assert.ok(LOGIN.blocked >= LOGIN.focus + 8, 'the phone reacts after the focus, not with it');
-  assert.ok(LOGIN.blocked >= 1254, 'the red shows inside shot 23');
+  for (let f = CONNECT_AT; f < 1515; f += 5) assert.equal(phoneAt(f).status, 'connected', `frame ${f}`);
+  for (let f = 0; f < 1515; f += 5) assert.notEqual(phoneAt(f).kb, 'blocked', `frame ${f}`);
 });
 
-test('the password field is empty for the whole of shots 24 to 27 and the Mac text and dots do not change', () => {
-  assert.equal(macAt(LOGIN.focus - 1).loginFocused, false);
-  assert.equal(macAt(LOGIN.focus).loginFocused, true);
-  for (let f = 1296; f < 1362; f++) {
-    const m = macAt(f);
-    assert.equal(m.screen, 'login');
-    assert.equal(m.loginValue, '');
-    assert.equal(m.dots, 0);
-    assert.ok(m.loginFocused);
-  }
-  const keys = PRESSES.filter((p) => p.chapter === 1 && p.fx.k === 'blockedkey');
-  assert.equal(keys.length, 2, 'two keys');
-  for (const k of keys) for (let f = k.t - 2; f < k.t + 6; f++) assert.equal(macAt(f).loginValue, '');
-  assert.equal(phoneAt(1300).kb, 'blocked');
-});
-
-test('remote desktop: one dot two frames after each of four keys, the fourth is the last frame before the cut', () => {
-  const keys = PRESSES.filter((p) => p.chapter === 2);
-  assert.equal(keys.length, 4);
-  for (const k of keys) {
-    assert.equal(macAt(k.t + 1).dots, keys.indexOf(k));
-    assert.equal(macAt(k.t + 2).dots, keys.indexOf(k) + 1);
-  }
-  assert.equal(macAt(1362).screen, 'remote');
-  assert.equal(macAt(1362).dots, 0);
-  assert.equal(macAt(1448).dots, 4);
-  assert.ok(keys[3].t + 2 >= 1446 && keys[3].t + 2 <= 1448, 'the fourth dot shows in the last frames of shot 28');
-});
-
-test('the product name is typed into an empty document, letter by letter, finished at 53.0 s', () => {
-  assert.equal(macAt(1515).screen, 'doc2');
-  assert.deepEqual(macAt(1520).lines, ['']);
-  assert.equal(macAt(1589).lines[0], 'Remote Keyboar');
-  assert.equal(macAt(1590).lines[0], 'Remote Keyboard');
-  assert.equal(macAt(1799).lines[0], 'Remote Keyboard');
+test('the product name is typed into an empty document, letter by letter, finished at 43.5 s', () => {
+  assert.equal(macAt(1229).screen, 'doc');
+  assert.equal(macAt(1230).screen, 'doc2');
+  assert.deepEqual(macAt(1235).lines, ['']);
+  assert.equal(macAt(1304).lines[0], 'Remote Keyboar');
+  assert.equal(macAt(1305).lines[0], 'Remote Keyboard');
+  assert.equal(macAt(1514).lines[0], 'Remote Keyboard');
 });
 
 test('handwriting candidates appear after the strokes and only from shot 16; pick, new line and send follow', () => {

@@ -9,9 +9,9 @@ import { FRAMES } from './timeline.ts';
 import type { KbName } from './layout.ts';
 
 export const MAC_DELAY = 2;
-export type Chapter = 0 | 1 | 2 | 3;
-/** 0 the document (shots 1 to 21), 1 the login window, 2 the remote desktop window, 3 the empty document of shot 30. */
-export const CHAPTER_START = [0, 1230, 1362, 1515] as const;
+export type Chapter = 0 | 1;
+/** 0 the document (shots 1 to 21), 1 the empty document of shot 30. */
+export const CHAPTER_START = [0, 1230] as const;
 export const chapterOf = (t: number): Chapter => {
   let c: Chapter = 0;
   for (let i = 1; i < CHAPTER_START.length; i++) if (t >= CHAPTER_START[i]) c = i as Chapter;
@@ -28,9 +28,7 @@ export type Fx =
   | { k: 'pick'; text: string; index: number }
   | { k: 'code'; c: string }
   | { k: 'send' }
-  | { k: 'blockedkey' }
-  | { k: 'remotekey' }
-  | { k: 'cut'; ime?: 'quick'; blocked?: boolean };
+  | { k: 'cut'; ime: 'quick' };
 
 /** `macDelay` is set on one press only (see MAC_DELAY_EXCEPTION); every other press uses MAC_DELAY. */
 export type Press = { t: number; kb: KbName; key: string; label: string; snd: 'key' | 'tap'; fx: Fx; hold: number; chapter: Chapter; macDelay?: number };
@@ -88,14 +86,10 @@ one(797, 'quick', 'qcand:15', { k: 'pick', text: '港', index: 15 }, 'tap', '港
 one(805, 'quick', 'send', { k: 'send' }, 'tap', '傳送');
 // --- shot 20: 觸控板.
 one(833, 'quick', 'trackpadBtn', { k: 'ime', to: 'pad' }, 'tap', '觸控板');
-// --- shots 22 to 28: the password field. The phone is told 12 frames after the Mac focus moved.
-export const LOGIN = { cursorFrom: 1230, arrive: 1246, click: 1248, focus: 1250, blocked: 1262 } as const;
+/** The phone says it is connected from this frame. */
 export const CONNECT_AT = 42;
-one(1302, 'blocked', 'k', { k: 'blockedkey' }, 'key');
-one(1335, 'blocked', 'm', { k: 'blockedkey' }, 'key');
-['k', 'm', 'e', 't'].forEach((c, i) => one(1391 + 18 * i, 'connected', c, { k: 'remotekey' }, 'key'));
-// --- shot 30: the product name, 4 frames a key, the last Mac letter at 53.0 s.
-export const PRODUCT_START = 1524;
+// --- shot 30: the product name, 4 frames a key, the last Mac letter at 43.5 s.
+export const PRODUCT_START = 1239;
 place(tokens('Remote Keyboard', 'connected'), Array.from({ length: 17 }, (_, i) => PRODUCT_START + 4 * i));
 
 /** A press holds for 4 frames, less when the next one comes sooner. */
@@ -112,7 +106,6 @@ export const PRESSES: readonly Press[] = (() => {
 /** Things that happen on the phone without a finger. */
 export const CUTS: readonly { t: number; fx: Fx }[] = [
   { t: QUICK_AT, fx: { k: 'cut', ime: 'quick' } },
-  { t: LOGIN.blocked, fx: { k: 'cut', blocked: true } },
 ];
 
 /** The frame a press acts on the phone: page changes when the finger lifts. */
@@ -154,26 +147,24 @@ export const PAD_EVENTS: readonly { frame: number; what: PadWhat }[] = [
 ];
 
 // --- sound ---
-export type SoundKind = 'key' | 'tap' | 'click' | 'good' | 'bad' | 'success' | 'ink';
+export type SoundKind = 'key' | 'tap' | 'click' | 'good' | 'success' | 'ink';
 export type SoundEvent = { frame: number; kind: SoundKind };
 
 export const soundEvents = (): SoundEvent[] => {
   const out: SoundEvent[] = [];
   for (const p of PRESSES) {
     out.push({ frame: p.t, kind: p.snd });
-    if (p.fx.k === 'send' && p.chapter === 0) out.push({ frame: p.t + MAC_DELAY, kind: 'good' });
+    if (p.fx.k === 'send') out.push({ frame: p.t + MAC_DELAY, kind: 'good' });
   }
-  const product = PRESSES.filter((p) => p.chapter === 3);
+  const product = PRESSES.filter((p) => p.chapter === 1);
   out.push({ frame: product[product.length - 1].t + MAC_DELAY, kind: 'success' });
   for (const s of INK) out.push({ frame: s.from, kind: 'ink' });
   for (const e of PAD_EVENTS) {
     if (e.what === 'tap' || e.what === 'tap2' || e.what === 'tap3') out.push({ frame: e.frame, kind: 'tap' });
     else if (e.what === 'select' || e.what === 'lift' || e.what === 'drop' || e.what === 'open') out.push({ frame: e.frame, kind: 'click' });
   }
-  out.push({ frame: LOGIN.click, kind: 'click' });
-  out.push({ frame: LOGIN.blocked, kind: 'bad' });
   return out.filter((e) => e.frame >= 0 && e.frame < FRAMES).sort((a, b) => a.frame - b.frame);
 };
 
-/** The effects registry is global, so every callback asks whether the context is this film's: exactly 60 s (one sample either way). */
+/** The effects registry is global, so every callback asks whether the context is this film's: exactly 50.5 s (one sample either way). */
 export const isFilmContext = (length: number, sampleRate: number): boolean => Math.abs(length - Math.round((FRAMES / 30) * sampleRate)) <= 1;
