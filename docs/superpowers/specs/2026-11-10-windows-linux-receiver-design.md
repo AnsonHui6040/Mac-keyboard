@@ -1,6 +1,6 @@
 # Windows／Linux 接收端與多主機設計（D28）
 
-- 狀態：修訂 1，待使用者審閱（2026-11-10）。初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
+- 狀態：修訂 2，待使用者審閱（2026-11-10）。修訂 2 依使用者要求加入「接收端記多支手機」與 Android 預留（§5.7）。修訂 1：初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
 - 上層規格：`docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`（D1–D24）、`docs/superpowers/specs/2026-11-01-trackpad-design.md`（D25）
 - 實作計畫：設計批准後另寫 `docs/superpowers/plans/2026-11-10-windows-linux-receiver-implementation.md`
 - 驗收報告：`docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`（開工時建立）
@@ -19,6 +19,8 @@
 2. iPhone 可同時記住多台主機，使用者在鍵盤狀態格點一下輪替目前主機。
 3. Mac Receiver 升到同一版協定，功能不退步。
 4. 三個平台的接收端附在同一個 GitHub Release。
+5. 每個接收端可記住多支手機。
+6. 協定不含任何只有 iPhone 才做得到的假設，將來的 Android 鍵盤不需要改接收端與協定就能加入（§5.7）。
 
 非目標：
 
@@ -27,6 +29,7 @@
 - 修飾鍵與快速鍵（隨 D27 延後）。
 - 與舊版協定相容。
 - Windows 執行檔簽章、Linux 套件庫上架。
+- Android 鍵盤 App 本身。這次只做預留，不寫 Android 程式。
 
 反目標：
 
@@ -61,12 +64,12 @@ Rust 程式放在本 repo 的 `receiver/`，是一個 cargo workspace：
 
 | crate | 內容 | 平台相依 |
 |---|---|---|
-| `rk-core` | 協定：JSON 編解碼、分段重組、配對、握手、session 加密、計數器通道、去重、指標封包處理。純邏輯，不做 IO，不讀時鐘與亂數來源 | 無 |
+| `rk-core` | 協定的主機端與手機端：JSON 編解碼、分段與重組、配對、握手、session 加密、計數器通道、去重、指標封包處理。純邏輯，不做 IO，不讀時鐘與亂數來源 | 無 |
 | `rk-ble` | 用 `btleplug` 掃描、連線、訂閱 `event`、寫入 `control`，重連與退避 | Windows WinRT、Linux BlueZ |
 | `rk-inject` | 一個 `Injector` trait（文字、Backspace、Return、指標移動、按鍵、捲動），兩個實作 | Windows `SendInput`；Linux RemoteDesktop portal |
 | `rk-receiver` | 執行檔：系統匣、配對對話框、設定、金鑰儲存、自動啟動、log | 兩者 |
 
-`rk-core` 對應 `RemoteKeyboardCore` 中 Mac Receiver 實際用到的純邏輯。要移植的檔案清單由實作計畫逐檔列出，原則是「Mac Receiver 有 import 並呼叫的才移植」，iPhone 專用的鍵盤版面、中文輸入法、手勢判定不移植。
+`rk-core` 對應 `RemoteKeyboardCore` 中屬於協定的純邏輯，主機端與手機端都移植。要移植的檔案清單由實作計畫逐檔列出；鍵盤版面、中文輸入法、手勢判定這些屬於鍵盤 App 的邏輯不移植。
 
 ## 5. 協定 v4
 
@@ -87,7 +90,9 @@ Rust 程式放在本 repo 的 `receiver/`，是一個 cargo workspace：
 
 iPhone 配對完成並經使用者確認後，存入一筆 `{hostId, hostName, platform, pairKey}`，並把這台設為目前主機。iPhone 最多存 8 台，滿了要先刪一台才能再配對。同一個 `hostId` 再配對一次會覆蓋舊紀錄。
 
-每個接收端只記一支 iPhone，和現在的 Mac Receiver 相同。
+手機身分：每支手機的 App 第一次啟動時產生 16 bytes 亂數 `phoneId`，連同 `phoneName`（預設為裝置名稱，長度規則同 `hostName`）與 `phonePlatform`（`ios`、`android`）放在 `pairReveal` 裡送出。這三項也納入配對金鑰的 HKDF info（接在主機那幾項之後），被換掉時配對碼會不同。commitment 仍只涵蓋手機的公鑰。
+
+每個接收端最多記 8 支手機，每支一筆 `{phoneId, phoneName, phonePlatform, pairKey}`。同一個 `phoneId` 再配對一次會覆蓋舊紀錄。三個平台的接收端都提供已配對手機清單與個別刪除。
 
 ### 5.3 用廣播 UUID 區分主機
 
@@ -120,7 +125,9 @@ iPhone → helloReply(phoneNonce, phoneProof)
 - iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時，iPhone 不回覆（不洩漏哪些主機配對過）。
 - 這種情況只會在接收端的掃描快取過期時發生。接收端在握手逾時後中斷連線，10 秒（Provisional）後才再掃描，不顯示錯誤，也不把這支 iPhone 列入略過名單。這段退避是新邏輯，Mac 現有的 link 狀態機沒有，要新增。
 - proof 的 HMAC、session 金鑰與計數器通道的推導不變（金鑰本身已綁定 `hostId`）。
-- wire 上的欄位名稱（`macNonce`、`macProof`、標籤 `mac`）維持原樣，文件與 Rust 程式碼內以「主機」稱呼。
+- 接收端不知道連上來的是哪支手機，`helloReply` 也不帶 `phoneId`（避免在明文中出現可追蹤的固定識別碼）。接收端拿每一把已存的金鑰依序驗證 `phoneProof`，驗過的那把就是這支手機；最多 8 次 HMAC。全部不符才算驗證失敗。
+- 同一台主機同一時間只服務一支手機。兩支手機都選了同一台主機時，先連上的佔用，另一支顯示未連接，等前一支斷線後才連得上。
+- wire 上原本以 Mac 命名的欄位與標籤改為中性名稱：`macNonce` 改 `hostNonce`、`auth` 的 proof 標籤 `mac` 改 `host`、配對的 `macPublic` 改 `hostPublic`。既然 v4 本來就不相容，一次改完。
 
 ### 5.5 切換主機與版本不符
 
@@ -146,12 +153,28 @@ iPhone → helloReply(phoneNonce, phoneProof)
 | `inputBlocked` | 不送 |
 | `pointerGrant` | 與 Mac 相同：接收端的觸控板開關打開時才送 |
 
+### 5.7 Android 預留
+
+這次不做 Android，但下列幾點現在就定下來，讓將來的 Android 鍵盤只需要寫 App，不必動接收端與協定：
+
+| 項目 | 做法 |
+|---|---|
+| 協定文件 | 新增 `docs/protocol/v4.md`，用不依賴任何程式語言的方式寫明 GATT 結構、廣播、每種訊息的 JSON 形狀、分段格式、配對與握手步驟、金鑰推導的每個輸入、計數器通道封包。它是協定的依據，Swift 與 Rust 兩份實作都以它為準 |
+| 測試向量 | §11 的向量檔是純 JSON，第三種實作可以直接拿來驗證 |
+| 手機端協定邏輯 | `rk-core` 同時包含手機端的 reducer（配對、握手、事件封裝、分段、計數器通道）。現在的用途是讓 Rust 測試能在同一個程序內跑完整的「手機對主機」流程；將來 Android App 可以經 JNI 直接使用，不必用 Kotlin 再寫一份。JNI 綁定這次不做 |
+| 廣播大小 | 廣播封包只放一個 128-bit service UUID，不放裝置名稱或其他資料，Android 的 31 bytes 傳統廣播放得下 |
+| 手機身分 | `phonePlatform` 欄位已含 `android`，接收端清單可以區分 |
+| 平台特例 | 協定不依賴 iOS 的鍵盤延伸功能生命週期或 iCloud 配對連線。Mac Receiver 為了同一個 iCloud 帳號的系統連線所做的處理（sealed `bye`、appearance probe）留在 Mac 的轉接層，不進協定 |
+
+沒有驗證過的部分：Android 的輸入法服務在背景維持 BLE peripheral 的行為、各廠牌的廣播限制。這些要等真的做 Android 時才測，這次不列入 spike。
+
 ## 6. iPhone 端變更
 
 | 位置 | 變更 |
 |---|---|
 | `iOS/Shared/PairingStore.swift` | 改為多筆紀錄。每台主機一個 Keychain 項目（account 為 `pairKey.<hostId 十六進位>`）；主機清單（`hostId`、名稱、順序）與目前主機存在 App Group。首次啟動時刪除舊的 `pairKey` 項目 |
-| `PhoneHandshake`、`PhonePairing` | 依 §5.2、§5.3 修改，維持純 reducer，金鑰查找由呼叫端注入 |
+| `PhoneHandshake`、`PhonePairing` | 依 §5.2、§5.4 修改，維持純 reducer，金鑰查找由呼叫端注入 |
+| 手機身分 | 產生並儲存 `phoneId`（App Group）；`phoneName` 取裝置名稱 |
 | 鍵盤廣播（`KeyboardBLEPeripheral`） | 改廣播目前主機的選定 UUID；沒有配對時不廣播 |
 | 主 App 配對（`PairingPeripheral`） | 改廣播配對 UUID |
 | 鍵盤狀態格（`TopAreaView`、`StatusLine`） | 現況只顯示短狀態（已連接、未連接、尚未配對），格寬約 68–71 pt，約六個中文字。已配對兩台以上時改為兩行：第一行主機名稱（放不下時尾端省略），第二行現有的短狀態；只配對一台時維持現在的單行。已配對兩台以上時點一下輪替到清單中的下一台，立即顯示新主機名稱與未連接狀態；只有一台時點擊沒有作用。完成後要在 402 pt 與 375 pt 兩種寬度截圖給使用者確認 |
@@ -164,6 +187,7 @@ iPhone → helloReply(phoneNonce, phoneProof)
 ## 7. Mac Receiver 變更
 
 - 產生並儲存 `hostId`、`hostName`，`MacHandshake`、`MacPairing` 依 §5 修改。
+- 配對紀錄改為多筆（最多 8 支手機），握手時逐把金鑰驗證；面板的配對區塊改為手機清單，每支可個別刪除。
 - 掃描對象改為自己的選定 UUID；配對時段開著時另外掃描配對 UUID。掃描時機不變（接收工作階段啟動後）。
 - 新增握手逾時後的 10 秒退避（§5.4）。
 - `hostId`、`hostName` 與配對金鑰放在一起：Mac 現況刻意把金鑰存成權限 0600 的檔案而不是 Keychain（`MacPairingStore`），維持這個做法。
@@ -219,8 +243,8 @@ Mac 端的指標播放邏輯（補間、加速度曲線）在 `rk-core` 重寫�
 | 項目 | Windows | Linux |
 |---|---|---|
 | 系統匣 | 通知區域圖示 | StatusNotifierItem（Ubuntu 預設已啟用 AppIndicator 擴充套件） |
-| 選單 | 連線狀態、主機名稱、配對新 iPhone、解除配對、允許觸控板控制、開機自動啟動、（Linux）非 ASCII 改用貼上、（Linux）重新授權、結束 | 同左 |
-| 配對 | 選「配對新 iPhone」後開啟 120 秒配對時段；收到配對請求時跳出原生對話框顯示 6 位數配對碼與「相符」「不相符」兩個按鈕 | 同左 |
+| 選單 | 連線狀態（含目前連線的手機名稱）、主機名稱、配對新手機、已配對手機清單（每支可刪除）、允許觸控板控制、開機自動啟動、（Linux）非 ASCII 改用貼上、（Linux）重新授權、結束 | 同左 |
+| 配對 | 選「配對新手機」後開啟 120 秒配對時段；收到配對請求時跳出原生對話框顯示手機名稱、6 位數配對碼與「相符」「不相符」兩個按鈕 | 同左 |
 | 金鑰儲存 | Windows 認證管理員 | Secret Service（GNOME Keyring） |
 | 設定與 `hostId` | `%APPDATA%\RemoteKeyboard\config.json` | `~/.config/remote-keyboard/config.json` |
 | 自動啟動 | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | `~/.config/autostart/remote-keyboard.desktop` |
@@ -234,10 +258,12 @@ Mac 端的指標播放邏輯（補間、加速度曲線）在 `rk-core` 重寫�
 ## 11. 跨語言一致性
 
 1. `rk-core` 的 JSON 輸出必須與 Swift 的 `JSONEncoder`（`.sortedKeys`）逐位元組相同：鍵的順序、`Data` 用 base64、`UUID` 用大寫字串、enum 帶關聯值的巢狀形狀。
-2. Swift 測試以固定的金鑰與 nonce 產生測試向量檔 `receiver/testdata/swift-vectors-v4.json`，內容涵蓋：每種訊息的編碼、配對金鑰與配對碼、兩個方向的 proof、session 金鑰密文、計數器通道封包、分段。檔案提交進 repo，另有一個 Swift 測試檢查提交的檔案與重新產生的結果相同。
-3. Rust 測試讀這個檔案，逐項比對編碼並解開密文。
-4. 反方向：Rust 測試產生 `receiver/testdata/rust-vectors-v4.json`（Rust 封裝的密文與封包），Swift 測試負責解開。
-5. GitHub Actions 新增 workflow，在 `windows-latest` 與 `ubuntu-latest` 跑 `cargo build`、`cargo test`、`cargo clippy`，並在發佈時產生兩個平台的執行檔。
+2. `docs/protocol/v4.md` 是協定的依據（§5.7）。兩份實作不一致時，以文件為準修正程式；文件有錯則先改文件。
+3. Swift 測試以固定的金鑰與 nonce 產生測試向量檔 `receiver/testdata/swift-vectors-v4.json`，內容涵蓋：每種訊息的編碼、配對金鑰與配對碼、兩個方向的 proof、session 金鑰密文、計數器通道封包、分段。檔案提交進 repo，另有一個 Swift 測試檢查提交的檔案與重新產生的結果相同。
+4. Rust 測試讀這個檔案，逐項比對編碼並解開密文。
+5. `rk-core` 內部另有不經 BLE 的端到端測試：Rust 的手機端 reducer 對 Rust 的主機端 reducer 跑完配對、握手、送事件、觸控板封包。
+6. 反方向：Rust 測試產生 `receiver/testdata/rust-vectors-v4.json`（Rust 封裝的密文與封包），Swift 測試負責解開。
+7. GitHub Actions 新增 workflow，在 `windows-latest` 與 `ubuntu-latest` 跑 `cargo build`、`cargo test`、`cargo clippy`，並在發佈時產生兩個平台的執行檔。
 
 ## 12. Spike（與設計並行，程式用完即丟）
 
@@ -265,7 +291,7 @@ spike 用現行 v3 協定與現有 iPhone App，不需要重新配對：只驗�
 
 ## 13. 實作順序
 
-1. 協定 v4 與多主機：iPhone 與 Mac（Swift），含測試向量產生。完成後 Mac 單機可用。
+1. 協定文件 `docs/protocol/v4.md`，接著協定 v4、多主機與多手機：iPhone 與 Mac（Swift），含測試向量產生。完成後 Mac 單機可用。
 2. `rk-core`，以測試向量對拍。
 3. Windows 接收端：`rk-ble`、Windows 注入、外殼、觸控板。
 4. Linux 接收端：Linux 注入、外殼、觸控板。
@@ -278,7 +304,7 @@ spike S8 要在第 1 步開始前完成，因為它決定協定的形狀。S1、
 | 類別 | 項目 |
 |---|---|
 | 自動 | `swift test --package-path Packages/RemoteKeyboardCore`；Mac 與 iOS 的 Xcode 測試；`cargo test`、`cargo clippy`（本機與 CI）；雙向測試向量 |
-| 實機（使用者親手，標 TBD 至測完） | 三台主機各自配對、打字（英文、中文、語音聽寫、手寫）、觸控板；鍵盤上輪替三台主機；刪除一台主機後其餘不受影響；開機自動啟動；Linux 重新授權；Windows 管理員視窗收不到的限制如手冊所述 |
+| 實機（使用者親手，標 TBD 至測完） | 同一台主機配對兩支手機並分別打字、刪除其中一支後另一支不受影響（需要第二支 iPhone 或 iPad；沒有的話這項維持 TBD）；三台主機各自配對、打字（英文、中文、語音聽寫、手寫）、觸控板；鍵盤上輪替三台主機；刪除一台主機後其餘不受影響；開機自動啟動；Linux 重新授權；Windows 管理員視窗收不到的限制如手冊所述 |
 
 BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 
@@ -307,8 +333,8 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 
 1. 主機身分用隨機 `hostId` 加可改名稱，並綁進配對金鑰推導。
 2. 用廣播的 service UUID 區分主機與配對，未被選定的主機不連線；鍵盤維持一次只服務一個 central。
-3. iPhone 最多 8 台主機；每個接收端只記一支 iPhone。
-4. wire 欄位名稱維持 `mac…`，不改名。
+3. iPhone 最多 8 台主機；每個接收端最多 8 支手機。
+4. wire 上以 Mac 命名的欄位與標籤改為中性的 `host…`。
 5. 接收端不做設定視窗，只有系統匣選單與原生對話框。
 6. Windows 與 Linux 的金鑰放系統的憑證儲存（Windows 認證管理員、GNOME Keyring）；Mac 維持現有的 0600 檔案。
 7. Windows 接收端不以系統管理員身分執行。
@@ -321,6 +347,9 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 14. Windows 與 Linux 接收端執行期間持續掃描；Mac 維持「啟動接收工作階段後才掃描」。
 15. 狀態格在多主機時改為兩行（主機名稱加短狀態）。
 16. 配對時多帶 `platform`，iPhone 的提示文字依平台取字。
+17. 接收端用逐把金鑰驗證來認手機，握手明文不帶 `phoneId`。
+18. 同一台主機同一時間只服務一支手機，先連先用。
+19. Android 預留的範圍如 §5.7：協定文件、手機端邏輯進 `rk-core`、廣播只放一個 UUID；不做 JNI 綁定與任何 Android 程式。
 
 ## 17. 留給實作者
 
@@ -335,4 +364,5 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 - repo 名稱與產品文案是否不再只提 Mac。
 - 教學影片與產品影片是否重拍。
 - 修飾鍵與快速鍵（D27）。
-- 一個接收端記住多支 iPhone。
+- Android 鍵盤 App（版面、輸入法、觸控板手勢、配對畫面都要另寫）。
+- 兩支手機同時操作同一台主機。
