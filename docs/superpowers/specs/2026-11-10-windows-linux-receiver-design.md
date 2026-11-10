@@ -84,7 +84,7 @@ Rust 程式放在本 repo 的 `receiver/`，是一個 cargo workspace：
 沿用 commit-then-reveal 三步驟，改兩處：
 
 1. `pairAccept` 多帶 `hostId` 與 `hostName`。
-2. 配對金鑰的 HKDF 改為 salt `rk-pair-v2`，info = `macPublic ‖ phonePublic ‖ hostId ‖ SHA-256(hostName 的 UTF-8)`。主機身分或名稱被中間人換掉時，兩邊的 6 位數配對碼會不同。
+2. 配對金鑰的 HKDF 改為 salt `rk-pair-v2`，info = `hostPublic ‖ phonePublic ‖ hostId ‖ SHA-256(hostName 的 UTF-8)`。主機身分或名稱被中間人換掉時，兩邊的 6 位數配對碼會不同。
 
 `pairAccept` 另帶 `platform`（`mac`、`windows`、`linux`），同樣納入上述 info 的雜湊輸入（接在 `hostName` 之後一起雜湊），iPhone 用它決定提示文字。
 
@@ -117,9 +117,9 @@ GATT 資料庫裡的 service 與 characteristic UUID 不變，改的只有廣播
 `hello` 多帶 `hostId`：
 
 ```
-主機   → hello(hostId, macNonce)
+主機   → hello(hostId, hostNonce)
 iPhone → helloReply(phoneNonce, phoneProof)
-主機   → auth(macProof)
+主機   → auth(hostProof)
 ```
 
 - iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時，iPhone 不回覆（不洩漏哪些主機配對過）。
