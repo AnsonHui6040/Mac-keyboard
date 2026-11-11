@@ -55,7 +55,7 @@
 **Files:**
 - Create: `iOS/RemoteKeyboardApp/Debug/AdvertProbeView.swift`（整個檔案包在 `#if DEBUG`）
 - Modify: `iOS/RemoteKeyboardApp/HomeView.swift`（`#if DEBUG` 區塊內加一個進入 `AdvertProbeView` 的列）
-- Create（不進 repo）：scratchpad 下的 `spike-scan/`（Rust，btleplug）與一支 macOS 用的 Swift 指令稿
+- Create（不進 repo）：scratchpad 下的 `spike-scan/`（Rust；第一輪用 btleplug，S8b 改用原生介面）與一支 macOS 用的 Swift 指令稿
 - Modify: `docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`（新建，寫入 S8 結果）
 
 **Interfaces:**
@@ -80,7 +80,7 @@ git commit -m "test: debug screen that alternates the advertised service UUID (S
 ### Task WL1: S1–S7、S9 連線與注入 spike
 
 **Files:**
-- Create（不進 repo）：scratchpad 下的 `spike-link/`（btleplug 連線）、`spike-win-input/`（`SendInput`）、`spike-portal/`（ashpd）
+- Create（不進 repo）：scratchpad 下的 `spike-link/`（Windows 用 WinRT、Linux 用 bluer）、`spike-win-input/`（`SendInput`）、`spike-portal/`（ashpd）
 - Modify: `docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`
 
 **Interfaces:**

@@ -285,7 +285,7 @@ spike 用現行 v3 協定與現有 iPhone App，不需要重新配對：只驗�
 
 | 編號 | 平台 | 驗證內容 | 通過條件（Provisional） |
 |---|---|---|---|
-| S1 | Windows | `btleplug` 掃描到鍵盤、連線、訂閱 `event`、寫入 `control`、收到 `helloReply`；記錄協商後的 MTU | 連續 20 次「鍵盤收起再叫出」都能在 3 秒內重連 |
+| S1 | Windows | 以原生介面（WinRT；Linux 的 S3 用 bluer）掃描到鍵盤、連線、訂閱 `event`、寫入 `control`、收到 `helloReply`；記錄協商後的 MTU | 連續 20 次「鍵盤收起再叫出」都能在 3 秒內重連 |
 | S2 | Windows | `SendInput` 送英文、中文、表情符號到記事本、瀏覽器網址列、Word 或同類編輯器；注音輸入法開與關各測一次 | 每個目標 200 字無漏字、無亂序 |
 | S3 | Linux | 同 S1，後端為 BlueZ | 同 S1 |
 | S4 | Linux | portal keysym 送英文、中文、表情符號到文字編輯器、Firefox、終端機；IBus 中文輸入法開與關各測一次 | 每個目標 200 字無漏字、無亂序 |
