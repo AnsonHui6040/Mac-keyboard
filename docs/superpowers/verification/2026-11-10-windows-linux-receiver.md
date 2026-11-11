@@ -8,6 +8,7 @@
 | Task | 自動驗證 | 實機驗證 | 結論 |
 |---|---|---|---|
 | WL0（S8、S8b 廣播 UUID 切換） | iOS Debug 與 Release 建置成功；Release 產物不含測試畫面 | 2026-11-11 量測完成 | 三個平台皆通過。Windows 需用系統原生監看介面；Linux 需定時重啟探索並清除裝置快取 |
+| WL2（協定文件 `docs/protocol/v4.md`） | 舊欄位名稱搜尋 0 筆；18 個 JSON 範例全部可解析；文件內的範例值以獨立腳本重算相符，加密範例以 CryptoKit 與現有程式解開相符 | 不適用（只有文件） | 文件完成，待使用者審閱 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -148,3 +149,58 @@ BlueZ 的探索讓晶片過濾重複廣播：同一個裝置回報過一次後�
 ### 尚未解釋
 
 - 先前「看到裝置就 `RemoveDevice`」的 spike 程式有兩輪 200 秒完全沒有任何回報。依上述原因應該每 10.8 秒有一筆。推測是該程式只處理「裝置新增」事件，裝置已在清單內時不會觸發；未驗證。
+
+## WL2：協定文件 v4（2026-11-11）
+
+只新增 `docs/protocol/v4.md`，沒有更動任何程式。
+
+### 完成條件的檢查
+
+舊欄位名稱：
+
+```
+$ grep -n "macNonce\|macPublic\|macProof" docs/protocol/v4.md
+$ echo "exit=$?"
+exit=1
+```
+
+沒有任何輸出，`grep` 以 1 結束，表示 0 筆。
+
+JSON 範例：
+
+```
+$ python3 - <<'EOF'
+import re, subprocess
+blocks = re.findall(r"```json\n(.*?)\n```", open("docs/protocol/v4.md", encoding="utf-8").read(), re.S)
+failed = [i for i, b in enumerate(blocks, 1)
+          if subprocess.run(["python3", "-m", "json.tool"], input=b.encode(), capture_output=True).returncode]
+print(f"blocks={len(blocks)} ok={len(blocks) - len(failed)} failed={failed}")
+EOF
+blocks=18 ok=18 failed=[]
+```
+
+用字與格式（各樣式在文件中的出現次數）：
+
+| 樣式 | 次數 |
+|---|---|
+| ` · ` 分隔符號 | 0 |
+| 廣東話用字（`嘅唔咗喺嚟冇佢啲畀嗰咁噉乜嘢`） | 0 |
+| 樣本數標記（`[nN]\s*=\s*\d`） | 0 |
+
+### 範例值的核對
+
+核對用的程式是用完即丟的腳本，不在 repo 內。
+
+| 項目 | 方法 | 結果 |
+|---|---|---|
+| 現行訊息的 JSON 形狀、跳脫與鍵的順序 | 以現有的 `ControlCodec`、`PeripheralCodec` 實際編碼每一種訊息後對照 | `/` 輸出為 `\/`；鍵依位元組值排序；控制字元為小寫 `\u00xx` |
+| v4 沒有改形狀的 7 個控制訊息範例 | 現有 `ControlCodec` 解碼後再編碼 | 7／7 逐位元組相同 |
+| 表格中的 18 個範例值（公鑰、commitment、共享點、身分雜湊、`pairKey`、配對碼、兩個 proof、兩把 session 金鑰、選定 UUID 等） | Python 標準函式庫獨立重算後在文件中搜尋 | 18／18 相符 |
+| `pairKey` 與配對碼 | CryptoKit 以同一組私鑰、salt `rk-pair-v2` 與 226 bytes 的 `info` 計算 | 與 Python 結果相同（`412eab3b…2b20`、`947102`） |
+| 兩個 `sealed` 範例 | CryptoKit 以文件的金鑰解開 | 明文分別等於文件中的文字事件範例（186 bytes）與 `ack` 範例（83 bytes） |
+| 指標封包範例 | 現有 `ChannelSet` 的 opener 解開；另以現有 sealer 重新封裝 | 解出的明文與文件相同；sealer 的輸出與文件的 41 bytes 逐位元組相同 |
+
+### 尚未驗證
+
+- v4 新增或改形狀的訊息（`pairAccept`、`hello`、`pairReveal`、`notSelected`）還沒有實作可以對照，範例由腳本依文件的規則產生。WL3 的測試向量完成後才有程式端的核對。
+- 名稱截斷的範例只以位元組長度計算，沒有實作可以對照。
