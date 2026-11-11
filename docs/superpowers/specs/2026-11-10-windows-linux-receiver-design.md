@@ -1,6 +1,6 @@
 # Windows／Linux 接收端與多主機設計（D28）
 
-- 狀態：修訂 3，待使用者審閱（2026-11-11）。修訂 3 依 S8 量測結果（驗收報告 WL0 各節）改掃描技術、加入握手時的 `notSelected` 後備與 Linux 控制器選擇。修訂 2（2026-11-10）：修訂 2 依使用者要求加入「接收端記多支手機」與 Android 預留（§5.7）。修訂 1：初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
+- 狀態：修訂 4（2026-11-11）。修訂 4 依協定文件 `docs/protocol/v4.md`（WL2）整理出的 16 項待確認定案，使用者於 2026-11-11 批准：名稱規則改以 Unicode 碼位定義、身分雜湊的分隔位元組、握手與配對的邊界情況、驗證失敗與版本不符後的處理（§5.1、§5.2、§5.4、§5.5、§15、§16、§18）。修訂 3 依 S8 量測結果（驗收報告 WL0 各節）改掃描技術、加入握手時的 `notSelected` 後備與 Linux 控制器選擇。修訂 2（2026-11-10）：修訂 2 依使用者要求加入「接收端記多支手機」與 Android 預留（§5.7）。修訂 1：初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
 - 上層規格：`docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`（D1–D24）、`docs/superpowers/specs/2026-11-01-trackpad-design.md`（D25）
 - 實作計畫：設計批准後另寫 `docs/superpowers/plans/2026-11-10-windows-linux-receiver-implementation.md`
 - 驗收報告：`docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`（開工時建立）
@@ -77,20 +77,29 @@ Rust 程式放在本 repo 的 `receiver/`，是一個 cargo workspace：
 
 ### 5.1 主機身分
 
-每個接收端第一次啟動時產生 16 bytes 亂數 `hostId`，連同使用者可改的顯示名稱 `hostName`（預設為電腦名稱，上限 32 個 UTF-8 bytes，超過則截斷到完整字元）一起存在本機。`hostId` 重裝接收端後會重新產生，等同一台新主機。
+每個接收端第一次啟動時產生 16 bytes 亂數 `hostId`，連同使用者可改的顯示名稱 `hostName`（預設為電腦名稱）一起存在本機。`hostId` 重裝接收端後會重新產生，等同一台新主機。
+
+名稱規則（`hostName` 與 §5.2 的 `phoneName` 相同）：
+
+- 不得為空，UTF-8 長度不得超過 32 bytes。
+- 超過時截斷：從頭逐一累加 Unicode 碼位（scalar value），保留累計 UTF-8 長度不超過 32 bytes 的最長開頭。截斷點一定落在碼位的邊界，結果是合法的 UTF-8；由多個碼位組成的字（例如以 U+200D 連接的表情符號）可以被切開。不以字素為單位，因為字素的切分依 Unicode 版本而異，兩種實作可能切出不同結果。
+- 截斷由持有該名稱的一端在存入本機時進行；名稱被清空時改用預設名稱。
+- 收到空的或超過 32 bytes 的名稱時，收到的一端不自行修正，配對失敗。
 
 ### 5.2 配對
 
 沿用 commit-then-reveal 三步驟，改兩處：
 
 1. `pairAccept` 多帶 `hostId` 與 `hostName`。
-2. 配對金鑰的 HKDF 改為 salt `rk-pair-v2`，info = `hostPublic ‖ phonePublic ‖ hostId ‖ SHA-256(hostName 的 UTF-8)`。主機身分或名稱被中間人換掉時，兩邊的 6 位數配對碼會不同。
+2. 配對金鑰的 HKDF 改為 salt `rk-pair-v2`，info = `hostPublic ‖ phonePublic ‖ hostId ‖ SHA-256(hostName 的 UTF-8 ‖ 0x00 ‖ platform 的 UTF-8) ‖ phoneId ‖ SHA-256(phoneName 的 UTF-8 ‖ 0x00 ‖ phonePlatform 的 UTF-8)`。主機或手機的身分、名稱被中間人換掉時，兩邊的 6 位數配對碼會不同。
 
-`pairAccept` 另帶 `platform`（`mac`、`windows`、`linux`），同樣納入上述 info 的雜湊輸入（接在 `hostName` 之後一起雜湊），iPhone 用它決定提示文字。
+`pairAccept` 另帶 `platform`（`mac`、`windows`、`linux`），同樣納入上述 info 的雜湊輸入（接在 `hostName` 之後，中間隔一個 `0x00` 位元組），iPhone 用它決定提示文字。`hostId`、`hostName`、`platform` 與 `publicKey` 在 `pairAccept` 裡是同一層的欄位，不另包一層物件；`pairReveal` 的 `phoneId`、`phoneName`、`phonePlatform` 也一樣。
 
 iPhone 配對完成並經使用者確認後，存入一筆 `{hostId, hostName, platform, pairKey}`，並把這台設為目前主機。iPhone 最多存 8 台，滿了要先刪一台才能再配對。同一個 `hostId` 再配對一次會覆蓋舊紀錄。
 
-手機身分：每支手機的 App 第一次啟動時產生 16 bytes 亂數 `phoneId`，連同 `phoneName`（預設為裝置名稱，長度規則同 `hostName`）與 `phonePlatform`（`ios`、`android`）放在 `pairReveal` 裡送出。這三項也納入配對金鑰的 HKDF info（接在主機那幾項之後），被換掉時配對碼會不同。commitment 仍只涵蓋手機的公鑰。
+手機身分：每支手機的 App 第一次啟動時產生 16 bytes 亂數 `phoneId`，連同 `phoneName`（預設為裝置名稱，長度規則同 `hostName`）與 `phonePlatform`（`ios`、`android`）放在 `pairReveal` 裡送出。這三項也納入配對金鑰的 HKDF info（接在主機那幾項之後，組成方式與主機相同），被換掉時配對碼會不同。commitment 仍只涵蓋手機的公鑰。
+
+接收端對經配對 UUID（§5.3）找到的連線不寫入 `hello`，只等待 `pairOffer`。
 
 每個接收端最多記 8 支手機，每支一筆 `{phoneId, phoneName, phonePlatform, pairKey}`。同一個 `phoneId` 再配對一次會覆蓋舊紀錄。三個平台的接收端都提供已配對手機清單與個別刪除。
 
@@ -132,9 +141,13 @@ iPhone → helloReply(phoneNonce, phoneProof)
 主機   → auth(hostProof)
 ```
 
-- iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時，iPhone 只對送出這則 `hello` 的 central 回一則明文 `notSelected`（新的 `PeripheralMessage`，不帶任何內容）。不論該 `hostId` 有沒有配對過都回同一則，不洩漏配對清單。
+- 只有經選定 UUID 找到的連線才寫入 `hello`。
+- iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時（包括 iPhone 沒有目前主機的情況），iPhone 只對送出這則 `hello` 的 central 回一則明文 `notSelected`（新的 `PeripheralMessage`，不帶任何內容）。不論該 `hostId` 有沒有配對過都回同一則，不洩漏配對清單。
+- `hello` 的 `hostId` 長度不是 16 bytes 屬於格式錯誤，和 `hostNonce` 長度不對同樣處理：握手失敗，不回 `notSelected`。
 - 這則回覆不保存任何狀態，也不影響目前已驗證的連線：鍵盤仍只和一個 central 做握手與收發事件，對其他 central 唯一會做的事就是回 `notSelected`。若送錯 `hostId` 的正是目前綁定的 central，回覆後解除綁定。
-- 接收端收到 `notSelected` 後中斷連線，10 秒（Provisional）內不再連這個裝置，之後要重新在廣播中看到自己的選定 UUID 才連。不顯示錯誤，不列入略過名單。握手逾時（沒有任何回覆）也走同一段退避。這段退避是新邏輯，Mac 現有的 link 狀態機沒有，要新增。
+- 非綁定的 central 送來 `hostId` 相符的 `hello` 時：目前綁定的連線已驗證則忽略；尚未驗證則改由這個 central 接手，重新開始握手（沿用現有「已驗證的連線不可被取代」的規則）。
+- 接收端收到 `notSelected` 後中斷連線，10 秒（Provisional）內不再連這個裝置，之後要重新在廣播中看到自己的選定 UUID 才連。不顯示錯誤，不列入略過名單。握手逾時維持 5 秒（Mac 現值）；逾時只中斷連線並走同一段退避，不寫入 `authFailed`。這段退避是新邏輯，Mac 現有的 link 狀態機沒有，要新增。
+- 驗證失敗（寫入 `authFailed`）之後：Mac 維持現況，到接收工作階段結束為止不再連線該裝置；Windows 與 Linux 沒有接收工作階段，60 秒（Provisional）內不再連線該裝置，系統匣顯示需要重新配對。
 - 接收端在連線期間停止掃描（Linux 停止定時重啟探索），斷線後才恢復。
 - proof 的 HMAC、session 金鑰與計數器通道的推導不變（金鑰本身已綁定 `hostId`）。
 - 接收端不知道連上來的是哪支手機，`helloReply` 也不帶 `phoneId`（避免在明文中出現可追蹤的固定識別碼）。接收端拿每一把已存的金鑰依序驗證 `phoneProof`，驗過的那把就是這支手機；最多 8 次 HMAC。全部不符才算驗證失敗。
@@ -151,7 +164,7 @@ iPhone → helloReply(phoneNonce, phoneProof)
 |---|---|
 | v4 iPhone 遇到 v3 接收端 | 不會發生連線：v3 接收端掃描的是舊 UUID，v4 鍵盤不再廣播它。主 App 首頁與手冊提示要更新電腦上的接收端 |
 | v3 iPhone 遇到 v4 接收端 | 同上，v4 接收端不掃描舊 UUID。接收端的未配對畫面提示要更新 iPhone App |
-| 版本欄位不符的訊息（防禦用） | `PeripheralCodec.decode` 會立即拒絕。接收端要新增一個分支，顯示「請更新 iPhone App」而不是靜默略過 |
+| 版本欄位不符的訊息（防禦用） | `PeripheralCodec.decode` 會立即拒絕。接收端要新增一個分支：顯示「請更新 iPhone App」而不是靜默略過，中斷連線，60 秒（Provisional）內不再連線該裝置 |
 
 ### 5.6 `ReceiverStatus` 在 Windows／Linux 的值
 
@@ -328,6 +341,9 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 |---|---|
 | 握手逾時後的退避 | 10 秒 |
 | `notSelected` 後的退避 | 10 秒 |
+| Windows、Linux 驗證失敗後不再連線該裝置的時間 | 60 秒，沒有量測依據 |
+| 收到版本不符的訊息後不再連線該裝置的時間 | 60 秒，沒有量測依據 |
+| Mac 以選定 UUID 為過濾條件並允許重複回報的掃描 | 假設仍逐筆反映目前的 UUID；S8 量的是不帶過濾條件的情況 |
 | Linux 重啟探索的間隔 | 1.5 秒（S8 只驗證過這個值，且只跑一輪） |
 | Linux 定時重啟探索對其他藍牙程式與耗電的影響 | 未量測 |
 | portal 指標移動的更新率足夠 | 未知，S9 |
@@ -367,6 +383,9 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 18. 同一台主機同一時間只服務一支手機，先連先用。
 19. Linux 可選擇藍牙控制器，連線期間停止掃描。
 20. Android 預留的範圍如 §5.7：協定文件、手機端邏輯進 `rk-core`、廣播只放一個 UUID；不做 JNI 綁定與任何 Android 程式。
+21. 名稱截斷以 Unicode 碼位為單位，不以字素為單位（§5.1）。使用者於 2026-11-11 批准。
+22. Windows 與 Linux 驗證失敗後 60 秒內不再連線該裝置，系統匣顯示需要重新配對（§5.4）。使用者於 2026-11-11 批准。
+23. 收到版本不符的訊息時顯示更新提示、中斷連線，60 秒內不再連線該裝置（§5.5）。使用者於 2026-11-11 批准。
 
 ## 17. 留給實作者
 
@@ -383,3 +402,4 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 - 修飾鍵與快速鍵（D27）。
 - Android 鍵盤 App（版面、輸入法、觸控板手勢、配對畫面都要另寫）。
 - 兩支手機同時操作同一台主機。
+- 觸控板設計文件（`2026-11-01-trackpad-design.md` §5、§6）與已出貨行為不一致，待更新。協定文件 `docs/protocol/v4.md` 以已出貨的程式為準。
