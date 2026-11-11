@@ -7,7 +7,7 @@
 
 | Task | 自動驗證 | 實機驗證 | 結論 |
 |---|---|---|---|
-| WL0（S8 廣播 UUID 切換） | iOS Debug 與 Release 建置成功；Release 產物不含測試畫面 | 2026-11-11 量測完成 | Mac 通過；Windows 與 Linux 以 btleplug 掃描時不通過，待 S8b |
+| WL0（S8、S8b 廣播 UUID 切換） | iOS Debug 與 Release 建置成功；Release 產物不含測試畫面 | 2026-11-11 量測完成 | Mac 通過；Windows 改用系統原生監看介面後通過；Linux 未通過，原因未查明 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -60,3 +60,50 @@ Windows 與 Linux 的無線電都收得到新的廣播（新 UUID 在 0 到 1 �
 - Linux 改用 BlueZ 的 AdvertisementMonitor 介面，或在斷線後移除裝置快取，是否能分辨目前的 UUID。
 - 正式版 Windows 11 的行為是否與預覽版相同。
 - iPhone 換了藍牙隨機位址之後，各平台是否把它當成新裝置。
+
+## WL0：S8b 以原生介面重測（2026-11-11）
+
+### 改動
+
+| 項目 | 內容 |
+|---|---|
+| iPhone 測試畫面 | 一次自動切換 20 次（每 6 秒），開始時以 SNTP 對時，紀錄寫入 App 的 `Documents/advert-probe.log`；可用啟動參數 `-rkAdvertProbeAuto` 經傳輸線直接開始，不需手動操作 |
+| Windows 掃描 | 改用 WinRT `BluetoothLEAdvertisementWatcher`（主動掃描），逐筆廣播回報 |
+| Linux 掃描 | 試三種做法，見下表 |
+| 對時 | 三端各自以 SNTP 量測與標準時間的差距並寫入紀錄；延遲以校正後的時間計算 |
+
+### Windows
+
+| 輪次 | 看到的切換 | 延遲中位數 | 延遲最大值 | 切換 1 秒後仍出現舊 UUID | 同時帶 A 與 B 的廣播 | 每 6 秒收到的廣播數（最少） |
+|---|---|---|---|---|---|---|
+| 第一輪 | 21／21 | 0.22 秒 | 1.06 秒 | 0 | 0 | 15 |
+| 第二輪 | 21／21 | 0.25 秒 | 1.00 秒 | 0 | 0 | 12 |
+
+Windows 時鐘比標準時間快 1.66 秒，已由程式自動校正。iPhone 的校正值為 +0.012 與 +0.016 秒。判定：通過（3 秒內看到新 UUID、無殘留）。系統為預覽版 build 26300，正式版未驗證。
+
+### Linux
+
+| 做法 | 結果 |
+|---|---|
+| BlueZ AdvertisementMonitor | 無法使用：這台機器的 `bluetoothd`（5.85）沒有以實驗模式啟動，`org.bluez.AdvertisementMonitorManager1` 介面不存在。未更動系統設定 |
+| 原始 HCI socket | 無法使用：沒有 root 權限時核心會過濾掉 LE 廣播事件 |
+| 一般探索，每次看到裝置就 `RemoveDevice` 清快取 | 不穩定，見下 |
+
+「清快取」做法的三次執行：
+
+| 執行 | 掃描與廣播的先後 | 結果 |
+|---|---|---|
+| 第一輪（200 秒） | 掃描先開始，6 秒後 iPhone 才開始廣播 | 0 筆 |
+| 臨時試跑（約 15 秒） | iPhone 已在廣播時才開始掃描 | 收到 5 筆，A、B 交替，每筆只帶單一 UUID |
+| 第二輪（200 秒） | 掃描開始時收到 2 筆前一次殘留的廣播，之後 iPhone App 重新啟動並廣播 | 之後 0 筆 |
+
+另外以 `dbus-monitor` 側錄 BlueZ 的訊號，確認 BlueZ 的裝置物件會把 UUID 累加（先 A，之後變成 A 與 B）。這台機器有兩個藍牙控制器（hci0 為 Realtek USB，hci1 為預設控制器），側錄時裝置出現在 hci1，掃描程式用的是 hci0。
+
+判定：未通過。「清快取」在收得到廣播時能分辨目前的 UUID，但有兩次整段收不到任何廣播，原因未查明（可能與控制器的重複過濾、兩個控制器並存有關，需要 root 權限的 `btmon` 才能確認）。
+
+### 尚未驗證
+
+- Linux 為何有時完全收不到廣播。
+- 正式版 Windows 11 的行為。
+- iPhone 更換藍牙隨機位址後各平台的行為。
+- Windows 被動掃描模式。
