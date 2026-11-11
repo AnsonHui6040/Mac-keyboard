@@ -52,6 +52,11 @@ struct HomeView: View {
                 } footer: {
                     Text(AppAbout.copyright)
                 }
+                #if DEBUG
+                Section {
+                    NavigationLink("廣播測試（Debug）") { AdvertProbeView() }
+                }
+                #endif
             }
             .navigationTitle("Remote Keyboard")
             .onAppear {
