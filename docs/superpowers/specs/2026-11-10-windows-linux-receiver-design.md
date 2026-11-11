@@ -1,6 +1,6 @@
 # Windows／Linux 接收端與多主機設計（D28）
 
-- 狀態：修訂 2，待使用者審閱（2026-11-10）。修訂 2 依使用者要求加入「接收端記多支手機」與 Android 預留（§5.7）。修訂 1：初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
+- 狀態：修訂 3，待使用者審閱（2026-11-11）。修訂 3 依 S8 量測結果（驗收報告 WL0 各節）改掃描技術、加入握手時的 `notSelected` 後備與 Linux 控制器選擇。修訂 2（2026-11-10）：修訂 2 依使用者要求加入「接收端記多支手機」與 Android 預留（§5.7）。修訂 1：初稿經獨立審查對照程式碼後，改用廣播 UUID 區分主機，並修正狀態格、Mac 掃描時機與版本不符的描述
 - 上層規格：`docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`（D1–D24）、`docs/superpowers/specs/2026-11-01-trackpad-design.md`（D25）
 - 實作計畫：設計批准後另寫 `docs/superpowers/plans/2026-11-10-windows-linux-receiver-implementation.md`
 - 驗收報告：`docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`（開工時建立）
@@ -65,7 +65,7 @@ Rust 程式放在本 repo 的 `receiver/`，是一個 cargo workspace：
 | crate | 內容 | 平台相依 |
 |---|---|---|
 | `rk-core` | 協定的主機端與手機端：JSON 編解碼、分段與重組、配對、握手、session 加密、計數器通道、去重、指標封包處理。純邏輯，不做 IO，不讀時鐘與亂數來源 | 無 |
-| `rk-ble` | 用 `btleplug` 掃描、連線、訂閱 `event`、寫入 `control`，重連與退避 | Windows WinRT、Linux BlueZ |
+| `rk-ble` | 掃描、連線、訂閱 `event`、寫入 `control`、重連。不使用 btleplug（S8 證實它會把同一裝置看過的 service UUID 累加，分不出目前廣播的是哪一個）。Windows 用 `windows` crate 的 WinRT `BluetoothLEAdvertisementWatcher` 與 GATT API；Linux 用 `bluer`（BlueZ D-Bus） | Windows WinRT、Linux BlueZ |
 | `rk-inject` | 一個 `Injector` trait（文字、Backspace、Return、指標移動、按鍵、捲動），兩個實作 | Windows `SendInput`；Linux RemoteDesktop portal |
 | `rk-receiver` | 執行檔：系統匣、配對對話框、設定、金鑰儲存、自動啟動、log | 兩者 |
 
@@ -103,7 +103,17 @@ iPhone 配對完成並經使用者確認後，存入一筆 `{hostId, hostName, p
 | 鍵盤（已選定主機） | 選定 UUID：`SHA-256("rk-select" ‖ hostId)` 的前 16 bytes，套上 UUID v4 的版本與變體位元 | 只有該主機 |
 | 主 App 配對畫面 | 固定的配對 UUID（新增一個常數，寫入 `GATTServiceSpec`） | 只有配對時段開著的接收端 |
 
-GATT 資料庫裡的 service 與 characteristic UUID 不變，改的只有廣播封包。未被選定的主機看不到自己的選定 UUID，不會連線，因此不需要拒絕訊息，鍵盤也不需要同時處理多個 central。
+GATT 資料庫裡的 service 與 characteristic UUID 不變，改的只有廣播封包。未被選定的主機看不到自己的選定 UUID，正常情況下不會連線。這是第一層過濾；掃描層偶爾看到過期內容時由 §5.4 的 `notSelected` 接手。
+
+S8 實測（2026-11-11，每個平台 21 次切換）：
+
+| 平台 | 掃描方式 | 看到新 UUID 的延遲（中位數／最大） |
+|---|---|---|
+| Mac | CoreBluetooth，允許重複回報 | 0.05／0.24 秒 |
+| Windows | WinRT 廣播監看，主動掃描 | 0.23／1.0 秒 |
+| Linux | BlueZ 探索，每 1.5 秒 `StopDiscovery`＋`StartDiscovery` 並對該裝置 `RemoveDevice` | 1.24／1.56 秒 |
+
+Linux 必須這樣做的原因：核心的掃描帶重複過濾，晶片對同一裝置只回報一次，要到核心每 10.8 秒重啟掃描才再回報；BlueZ 的裝置物件又會累加 UUID。Linux 在切換後約 1.5 秒內可能同時看到新舊兩個 UUID。
 
 各平台的掃描時機：
 
@@ -122,8 +132,10 @@ iPhone → helloReply(phoneNonce, phoneProof)
 主機   → auth(hostProof)
 ```
 
-- iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時，iPhone 不回覆（不洩漏哪些主機配對過）。
-- 這種情況只會在接收端的掃描快取過期時發生。接收端在握手逾時後中斷連線，10 秒（Provisional）後才再掃描，不顯示錯誤，也不把這支 iPhone 列入略過名單。這段退避是新邏輯，Mac 現有的 link 狀態機沒有，要新增。
+- iPhone 只用目前主機的金鑰。`hello` 的 `hostId` 不是目前主機時，iPhone 只對送出這則 `hello` 的 central 回一則明文 `notSelected`（新的 `PeripheralMessage`，不帶任何內容）。不論該 `hostId` 有沒有配對過都回同一則，不洩漏配對清單。
+- 這則回覆不保存任何狀態，也不影響目前已驗證的連線：鍵盤仍只和一個 central 做握手與收發事件，對其他 central 唯一會做的事就是回 `notSelected`。若送錯 `hostId` 的正是目前綁定的 central，回覆後解除綁定。
+- 接收端收到 `notSelected` 後中斷連線，10 秒（Provisional）內不再連這個裝置，之後要重新在廣播中看到自己的選定 UUID 才連。不顯示錯誤，不列入略過名單。握手逾時（沒有任何回覆）也走同一段退避。這段退避是新邏輯，Mac 現有的 link 狀態機沒有，要新增。
+- 接收端在連線期間停止掃描（Linux 停止定時重啟探索），斷線後才恢復。
 - proof 的 HMAC、session 金鑰與計數器通道的推導不變（金鑰本身已綁定 `hostId`）。
 - 接收端不知道連上來的是哪支手機，`helloReply` 也不帶 `phoneId`（避免在明文中出現可追蹤的固定識別碼）。接收端拿每一把已存的金鑰依序驗證 `phoneProof`，驗過的那把就是這支手機；最多 8 次 HMAC。全部不符才算驗證失敗。
 - 同一台主機同一時間只服務一支手機。兩支手機都選了同一台主機時，先連上的佔用，另一支顯示未連接，等前一支斷線後才連得上。
@@ -253,7 +265,9 @@ Mac 端的指標播放邏輯（補間、加速度曲線）在 `rk-core` 重寫�
 
 介面語言為繁體中文與英文，依系統語言選擇。不做獨立的設定視窗，所有操作都在系統匣選單與原生對話框完成。
 
-連線行為：執行期間持續掃描自己的選定 UUID，看到廣播就連線；配對時段開著時另外掃描配對 UUID。斷線後立即重新掃描，握手逾時則依 §5.4 退避。
+連線行為：未連線時持續掃描自己的選定 UUID，看到廣播就連線；配對時段開著時另外掃描配對 UUID。連線期間不掃描。斷線後立即重新掃描；收到 `notSelected` 或握手逾時則依 §5.4 退避。
+
+Linux 接收端的系統匣選單可選擇藍牙控制器（機器上有多個時才顯示），選擇存入設定檔；預設用 BlueZ 的預設控制器。
 
 ## 11. 跨語言一致性
 
@@ -278,7 +292,7 @@ spike 用現行 v3 協定與現有 iPhone App，不需要重新配對：只驗�
 | S5 | Linux | portal Clipboard 寫入、送 Ctrl+V、還原 | 文字編輯器與 Firefox 各 50 次無錯字，原剪貼簿內容還原 |
 | S6 | Linux | RustDesk 連線中時，接收端的 portal 工作階段是否仍可注入 | 記錄結果；不通過時 Linux 的打字驗證改由使用者在本機確認 |
 | S7 | 兩者 | 主機收到 notify 到注入呼叫返回的時間 | 記錄中位數與 p95，不設門檻 |
-| S8 | Windows、Linux、Mac | 用一個小型 iOS 測試畫面輪流廣播兩個不同的 service UUID，觀察各平台的掃描何時看到新 UUID、是否還把舊 UUID 算在同一個裝置上（掃描快取） | 換 UUID 後 3 秒內看到新的；舊 UUID 殘留的情況有紀錄 |
+| S8（已完成，三平台通過，見驗收報告） | Windows、Linux、Mac | 用一個小型 iOS 測試畫面輪流廣播兩個不同的 service UUID，觀察各平台的掃描何時看到新 UUID、是否還把舊 UUID 算在同一個裝置上（掃描快取） | 換 UUID 後 3 秒內看到新的；舊 UUID 殘留的情況有紀錄 |
 | S9 | Linux | portal 的指標移動（每秒 60 次以上）、左右鍵、捲動 | 游標移動連續、點擊與捲動正確；記錄可用的最高更新率 |
 
 決策：
@@ -313,7 +327,9 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 | 項目 | 起始值或假設 |
 |---|---|
 | 握手逾時後的退避 | 10 秒 |
-| 各平台掃描能在 3 秒內看到廣播 UUID 的變化 | 假設成立，S8 |
+| `notSelected` 後的退避 | 10 秒 |
+| Linux 重啟探索的間隔 | 1.5 秒（S8 只驗證過這個值，且只跑一輪） |
+| Linux 定時重啟探索對其他藍牙程式與耗電的影響 | 未量測 |
 | portal 指標移動的更新率足夠 | 未知，S9 |
 | 切換主機到可打字 | 5 秒內 |
 | Windows／BlueZ 連 iPhone 鍵盤延伸功能的穩定度 | 假設可行，S1、S3 |
@@ -332,7 +348,7 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 以下不是使用者說的，是我為了讓設計完整而定的：
 
 1. 主機身分用隨機 `hostId` 加可改名稱，並綁進配對金鑰推導。
-2. 用廣播的 service UUID 區分主機與配對，未被選定的主機不連線；鍵盤維持一次只服務一個 central。
+2. 用廣播的 service UUID 區分主機與配對，未被選定的主機不連線；鍵盤維持一次只和一個 central 握手。握手時的 `notSelected` 後備是使用者在 2026-11-11 決定加入的。
 3. iPhone 最多 8 台主機；每個接收端最多 8 支手機。
 4. wire 上以 Mac 命名的欄位與標籤改為中性的 `host…`。
 5. 接收端不做設定視窗，只有系統匣選單與原生對話框。
@@ -342,14 +358,15 @@ BLE、注入與系統匣在 CI 上無法測，只能在實機驗收。
 9. spike 只做到 `helloReply`，沿用 v3，不動現有配對。
 10. 實作順序把協定 v4 與多主機（Swift 端）排在最前面，Windows 其次，Linux 最後；Linux 的 spike 提前到 Windows 實作開始前。
 11. 支援範圍只寫 Windows 11 與 Ubuntu 26.04 GNOME。
-12. Rust 分成四個 crate。
+12. Rust 分成四個 crate；BLE 不用 btleplug，Windows 用 `windows` crate、Linux 用 `bluer`。
 13. 在兩台測試機上用 rustup 安裝 Rust 工具鏈直接建置；Windows 另需安裝 MSVC Build Tools，安裝前會先徵得使用者同意。
 14. Windows 與 Linux 接收端執行期間持續掃描；Mac 維持「啟動接收工作階段後才掃描」。
 15. 狀態格在多主機時改為兩行（主機名稱加短狀態）。
 16. 配對時多帶 `platform`，iPhone 的提示文字依平台取字。
 17. 接收端用逐把金鑰驗證來認手機，握手明文不帶 `phoneId`。
 18. 同一台主機同一時間只服務一支手機，先連先用。
-19. Android 預留的範圍如 §5.7：協定文件、手機端邏輯進 `rk-core`、廣播只放一個 UUID；不做 JNI 綁定與任何 Android 程式。
+19. Linux 可選擇藍牙控制器，連線期間停止掃描。
+20. Android 預留的範圍如 §5.7：協定文件、手機端邏輯進 `rk-core`、廣播只放一個 UUID；不做 JNI 綁定與任何 Android 程式。
 
 ## 17. 留給實作者
 
