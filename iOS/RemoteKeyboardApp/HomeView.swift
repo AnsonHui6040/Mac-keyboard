@@ -7,14 +7,24 @@ struct HomeView: View {
     static let skipOnboardingArgument = "-rkSkipOnboarding"
 
     @AppStorage("rk.onboardingDone") private var onboardingDone = false
-    @State private var showsOnboarding = !UserDefaults.standard.bool(forKey: "rk.onboardingDone")
-        && !ProcessInfo.processInfo.arguments.contains(HomeView.skipOnboardingArgument)
+    @State private var showsOnboarding = HomeView.initialShowsOnboarding
     @State private var isPaired = PairingStore.loadPairKey() != nil
     @State private var keyboardReady = KeyboardReadyMarker.isReady
     @State private var lastLink = LastLinkStore.current
     @State private var showsSetupRows = false
     @StateObject private var bluetooth = BluetoothPermission()
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    @State private var showsAutoProbe = AdvertProbe.launchedForAutoRun
+    #endif
+
+    private static var initialShowsOnboarding: Bool {
+        #if DEBUG
+        if AdvertProbe.launchedForAutoRun { return false }
+        #endif
+        return !UserDefaults.standard.bool(forKey: "rk.onboardingDone")
+            && !ProcessInfo.processInfo.arguments.contains(HomeView.skipOnboardingArgument)
+    }
 
     private var progress: SetupProgress {
         SetupProgress(bluetoothAllowed: bluetooth.isAllowed, isPaired: isPaired, keyboardReady: keyboardReady, lastLink: lastLink)
@@ -52,8 +62,16 @@ struct HomeView: View {
                 } footer: {
                     Text(AppAbout.copyright)
                 }
+                #if DEBUG
+                Section {
+                    NavigationLink("廣播測試（Debug）") { AdvertProbeView() }
+                }
+                #endif
             }
             .navigationTitle("Remote Keyboard")
+            #if DEBUG
+            .navigationDestination(isPresented: $showsAutoProbe) { AdvertProbeView() }
+            #endif
             .onAppear {
                 refresh()
             }

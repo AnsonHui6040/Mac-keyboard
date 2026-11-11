@@ -4,9 +4,9 @@
 
 **Goal:** 把協定升到 v4（多主機、多手機、以廣播 UUID 選主機），並新增 Windows 11 與 Ubuntu 26.04 的 Rust 接收端，達到可日常使用的 Alpha。
 
-**Architecture:** iPhone 鍵盤仍是 GATT peripheral，三種主機都是 central。協定邏輯有兩份實作：Swift 的 `RemoteKeyboardCore`（iPhone、Mac）與 Rust 的 `rk-core`（Windows、Linux，含手機端 reducer），以 `docs/protocol/v4.md` 為依據，用雙向測試向量對拍。Rust 接收端分四個 crate：`rk-core`（純邏輯）、`rk-ble`（btleplug）、`rk-inject`（Windows `SendInput`、Linux RemoteDesktop portal）、`rk-receiver`（系統匣與外殼）。
+**Architecture:** iPhone 鍵盤仍是 GATT peripheral，三種主機都是 central。協定邏輯有兩份實作：Swift 的 `RemoteKeyboardCore`（iPhone、Mac）與 Rust 的 `rk-core`（Windows、Linux，含手機端 reducer），以 `docs/protocol/v4.md` 為依據，用雙向測試向量對拍。Rust 接收端分四個 crate：`rk-core`（純邏輯）、`rk-ble`（Windows 用 WinRT、Linux 用 BlueZ D-Bus，不用 btleplug）、`rk-inject`（Windows `SendInput`、Linux RemoteDesktop portal）、`rk-receiver`（系統匣與外殼）。
 
-**Tech Stack:** Swift 6（CryptoKit、CoreBluetooth、UIKit、SwiftUI、XCTest、XcodeGen、CocoaPods）；Rust stable（btleplug、serde、serde_json、p256、hkdf、hmac、sha2、chacha20poly1305、ashpd、windows crate）；GitHub Actions。
+**Tech Stack:** Swift 6（CryptoKit、CoreBluetooth、UIKit、SwiftUI、XCTest、XcodeGen、CocoaPods）；Rust stable（`windows` crate、bluer、serde、serde_json、p256、hkdf、hmac、sha2、chacha20poly1305、ashpd、windows crate）；GitHub Actions。
 
 **Spec:** `docs/superpowers/specs/2026-11-10-windows-linux-receiver-design.md`（D28 修訂 2）；上層 `docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`、`docs/superpowers/specs/2026-11-01-trackpad-design.md`。
 
@@ -19,7 +19,8 @@
 - `hostId`、`phoneId`：16 bytes 亂數。名稱上限 32 個 UTF-8 bytes，超過時截到完整字元。
 - 主機平台字串 `mac`、`windows`、`linux`；手機平台字串 `ios`、`android`。
 - iPhone 最多 8 台主機；每個接收端最多 8 支手機。
-- 配對時段 120 秒；握手逾時後退避 10 秒（Provisional）。
+- 配對時段 120 秒；收到 `notSelected` 或握手逾時後退避 10 秒（Provisional）。
+- 掃描：Windows 用 `BluetoothLEAdvertisementWatcher`（主動掃描）；Linux 用 BlueZ 探索，未連線時每 1.5 秒 `StopDiscovery`＋`StartDiscovery` 並對目標裝置 `RemoveDevice`；連線期間不掃描。
 - wire 欄位用中性名稱：`hostNonce`、`hostPublic`；proof 標籤 `phone`、`host`。
 - JSON 一律 `.sortedKeys`；`Data` 為 base64；`UUID` 為大寫字串。Rust 輸出必須與 Swift 逐位元組相同。
 - log 只記事件種類、長度、時間與結果；不得含文字內容、金鑰、nonce、proof、配對碼、App 名稱、指標位移。
@@ -42,7 +43,7 @@
 ## Review Focus
 
 1. **兩台已配對主機同時在旁邊**：只有被選定的那台連線；另一台不連、不顯示錯誤、不干擾連線中的主機。由 WL0 的 S8、WL3 `testSelectUUIDDiffersPerHost`、WL11 實機覆蓋。
-2. **接收端掃描快取過期而連上不屬於它的鍵盤**：iPhone 不回覆，接收端握手逾時後退避 10 秒，不列入略過名單。由 WL3 `testHelloForOtherHostGetsNoReply`、WL5 `testHandshakeTimeoutBacksOffWithoutSkipping` 覆蓋。
+2. **接收端掃描看到過期內容而連上不屬於它的鍵盤**：iPhone 回 `notSelected`，已驗證的另一條連線不受影響；接收端退避 10 秒，不列入略過名單。由 WL3 `testHelloForOtherHostRepliesNotSelected`、`testNotSelectedDoesNotDisturbAuthenticatedCentral`、`testNotSelectedBacksOffWithoutSkipping` 覆蓋。
 3. **第二支手機配對後，第一支仍能連**：逐把金鑰驗證，順序不影響結果。由 WL3 `testHostFindsKeyAmongSeveralPhones`、`testUnknownPhoneFailsAfterAllKeys` 覆蓋。
 4. **名稱含表情符號或超過 32 bytes**：截到完整字元，兩端算出相同的金鑰與配對碼。由 WL3 `testNameClampKeepsWholeCharacters`、測試向量覆蓋。
 5. **補充平面字元與組合字元的文字事件**：Windows 送代理對、Linux 送單一 keysym，不拆壞。由 WL8 `utf16_units_for_supplementary_plane`、WL9 `keysym_for_supplementary_plane` 覆蓋。
@@ -54,7 +55,7 @@
 **Files:**
 - Create: `iOS/RemoteKeyboardApp/Debug/AdvertProbeView.swift`（整個檔案包在 `#if DEBUG`）
 - Modify: `iOS/RemoteKeyboardApp/HomeView.swift`（`#if DEBUG` 區塊內加一個進入 `AdvertProbeView` 的列）
-- Create（不進 repo）：scratchpad 下的 `spike-scan/`（Rust，btleplug）與一支 macOS 用的 Swift 指令稿
+- Create（不進 repo）：scratchpad 下的 `spike-scan/`（Rust；第一輪用 btleplug，S8b 改用原生介面）與一支 macOS 用的 Swift 指令稿
 - Modify: `docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`（新建，寫入 S8 結果）
 
 **Interfaces:**
@@ -79,14 +80,14 @@ git commit -m "test: debug screen that alternates the advertised service UUID (S
 ### Task WL1: S1–S7、S9 連線與注入 spike
 
 **Files:**
-- Create（不進 repo）：scratchpad 下的 `spike-link/`（btleplug 連線）、`spike-win-input/`（`SendInput`）、`spike-portal/`（ashpd）
+- Create（不進 repo）：scratchpad 下的 `spike-link/`（Windows 用 WinRT、Linux 用 bluer）、`spike-win-input/`（`SendInput`）、`spike-portal/`（ashpd）
 - Modify: `docs/superpowers/verification/2026-11-10-windows-linux-receiver.md`
 
 **Interfaces:**
 - Consumes: 現行 v3 的 iPhone App 與既有配對（不重新配對）；WL0 安裝的工具鏈。
 - Produces: S1–S7、S9 的結論；Linux「非 ASCII 改用貼上」的預設值；WL7–WL10 是否需要修訂。
 
-- [ ] **Step 1：`spike-link`。** 掃描 service `706AA642-…`，連線，訂閱 `event`，寫入 `{"hello":{"macNonce":"<16 bytes base64>"}}` 到 `control`，等待一則經 `FrameCodec` 分段、`type` 為 `helloReply` 的訊息；印出協商後的 MTU 與每一步的耗時。測試前先結束 Mac Receiver。
+- [ ] **Step 1：`spike-link`。** Windows 用 WinRT、Linux 用 bluer（不用 btleplug），Linux 指定 hci1。掃描 service `706AA642-…`，連線，訂閱 `event`，寫入 `{"hello":{"macNonce":"<16 bytes base64>"}}` 到 `control`，等待一則經 `FrameCodec` 分段、`type` 為 `helloReply` 的訊息；印出協商後的 MTU 與每一步的耗時。測試前先結束 Mac Receiver。
 - [ ] **Step 2：S1（Windows）與 S3（Linux）。** 各做 20 次「鍵盤收起再叫出」，記錄每次從看到廣播到收到 `helloReply` 的時間。通過條件：20 次都在 3 秒內。
 - [ ] **Step 3：`spike-win-input` 與 S2。** 讀一個 UTF-8 檔案，啟動後倒數 5 秒，用 `SendInput` + `KEYEVENTF_UNICODE` 逐個 UTF-16 code unit 送出。測試文字 200 字，含英文、繁體中文、表情符號（補充平面）。目標：記事本、瀏覽器網址列、WordPad 或同類編輯器；注音輸入法開與關各一次。以目標內容與原文逐字比對。
 - [ ] **Step 4：`spike-portal` 與 S4。** 建立 RemoteDesktop 工作階段（keyboard + pointer，`persist_mode` 持續），同樣的 200 字用 `NotifyKeyboardKeysym` 送出。目標：文字編輯器、Firefox、終端機；IBus 中文輸入法開與關各一次。
@@ -153,6 +154,9 @@ case pairAccept(publicKey: Data, host: HostIdentity)
 case hello(hostId: Data, hostNonce: Data)
 // PeripheralMessage
 case pairReveal(publicKey: Data, phone: PhoneIdentity)
+case notSelected                                          // wire: {"protocolVersion":4,"type":"notSelected"}
+// CentralBinding 新增：func helloDisposition(from: UUID, hostIdMatches: Bool, locked: Bool) -> .handshake | .replyNotSelected | .ignore
+// MacHandshakeOutput 新增 .notSelected；ReceiverLinkStateMachine 新增事件 .notSelected(UUID)
 
 Pairing.sharedKey(myPrivate:peerPublic:hostPublic:phonePublic:host:phone:) throws -> SymmetricKey
 Pairing.phoneProof(key:hostNonce:phoneNonce:) / hostProof(key:hostNonce:phoneNonce:) 與對應的 verify
@@ -192,7 +196,10 @@ func testProofLabelsAreDistinct()                 // phoneProof != hostProof（�
 func testPairingCarriesBothIdentities()           // 兩端完成後 host、phone 互相看到對方的身分，pairKey 與 sas 相同
 func testTamperedHostNameGivesDifferentSAS()
 // AuthHandshakeTests
-func testHelloForOtherHostGetsNoReply()           // PhoneHandshake.receive(.hello(其他 hostId)) == .none，progress 仍為 .inProgress
+func testHelloForOtherHostRepliesNotSelected()    // PhoneHandshake.receive(.hello(其他 hostId)) == .send(.notSelected)，沒配對過的 hostId 也一樣
+func testNotSelectedDoesNotDisturbAuthenticatedCentral()   // CentralBinding：已驗證時，另一個 central 的 hello 得到 .replyNotSelected，綁定不變
+func testHelloFromBoundCentralWithWrongHostReleasesBinding()
+func testHostTreatsNotSelectedAsBackoff()         // MacHandshake.receive(.notSelected) == .notSelected，不是 .authFailed
 func testHelloForSelectedHostReplies()
 func testHostFindsKeyAmongSeveralPhones()         // 8 支手機，目標在第 1、第 8 位都回 .authenticated 且 phoneId 正確
 func testUnknownPhoneFailsAfterAllKeys()          // 回 .authFailed
@@ -205,6 +212,7 @@ func testHelloWireShape()                         // {"hello":{"hostId":"…","h
 func testPairRevealWireShape(); func testVersion3MessageIsUnsupportedVersion()
 // ReceiverLinkStateMachine（既有測試檔）
 func testHandshakeTimeoutBacksOffWithoutSkipping()   // .handshakeTimeout(id) 於 .ready(id) → [.cancel(id), .startScanAfter(seconds: 10)]
+func testNotSelectedBacksOffWithoutSkipping()        // .notSelected(id) 同上
 ```
 
 - [ ] **Step 2：實作到全綠。** `IdentityName.clamp` 以字素為單位累加 UTF-8 長度。`MacHandshake` 依清單順序驗證 proof，每把都用常數時間比較。把所有 `mac…` 參數與欄位名稱改為 `host…`，`macLabel` 改為 `"host"`，`pairSalt` 改為 `"rk-pair-v2"`。
@@ -330,17 +338,17 @@ pub struct PairedPhone { pub identity: PhoneIdentity, pub pair_key: [u8; 32] }
 pub fn select_uuid(host_id: &[u8; 16]) -> uuid::Uuid;
 pub fn clamp_name(name: &str) -> String;
 pub enum ControlMessage { Ack(Ack), Status(ReceiverStatus), PairAccept{..}, Hello{..}, Auth{..}, AuthFailed, Bye, Sealed(Vec<u8>) }
-pub enum PeripheralMessage { Event(KeyboardEvent), PairOffer{..}, PairReveal{..}, HelloReply{..}, Sealed(Vec<u8>) }
+pub enum PeripheralMessage { Event(KeyboardEvent), PairOffer{..}, PairReveal{..}, HelloReply{..}, NotSelected, Sealed(Vec<u8>) }
 pub fn encode_control(&ControlMessage) -> Vec<u8>;  pub fn decode_peripheral(&[u8]) -> Result<PeripheralMessage, CodecError>;
 pub struct FrameReassembler;  pub fn split_frames(payload: &[u8], message_id: u16, max_frame: usize) -> Result<Vec<Vec<u8>>, FrameError>;
 pub struct HostPairing;  pub struct PhonePairing;       // 亂數與金鑰由呼叫端注入
 pub struct HostHandshake; pub struct PhoneHandshake;    // HostHandshake::new(host_id, phones, host_nonce)
-pub enum HostOutput { None, Send(ControlMessage), Authenticated { reply: ControlMessage, phone_id: [u8; 16] }, PairOffer(..), PairReveal(..), Event(KeyboardEvent), MalformedPayload, AuthFailed, UnsupportedVersion(i64) }
+pub enum HostOutput { None, Send(ControlMessage), Authenticated { reply: ControlMessage, phone_id: [u8; 16] }, PairOffer(..), PairReveal(..), Event(KeyboardEvent), MalformedPayload, AuthFailed, NotSelected, UnsupportedVersion(i64) }
 pub struct ChannelSet;  pub struct EventDeduplicator;  pub struct PointerPlayout;
 ```
 
 - [ ] **Step 1：`swift_vectors.rs`（RED）。** 逐項讀向量檔：`encodes_every_message_byte_for_byte`、`derives_pair_key_and_sas`、`verifies_both_proofs`、`opens_swift_session_ciphertext_both_directions`、`opens_swift_pointer_packet`、`splits_and_reassembles_frames`、`select_uuid_matches`、`clamp_name_matches`。
-- [ ] **Step 2：`loopback.rs`（RED）。** `pair_then_handshake_then_event`、`eight_phones_last_one_authenticates`、`unknown_phone_fails`、`hello_for_other_host_gets_no_reply`、`version_3_message_is_unsupported_version`、`tampered_frame_fails_auth`、`replayed_pointer_packet_is_dropped`。
+- [ ] **Step 2：`loopback.rs`（RED）。** `pair_then_handshake_then_event`、`eight_phones_last_one_authenticates`、`unknown_phone_fails`、`hello_for_other_host_replies_not_selected`、`version_3_message_is_unsupported_version`、`tampered_frame_fails_auth`、`replayed_pointer_packet_is_dropped`。
 - [ ] **Step 3：實作到全綠。** JSON 用手寫的 `Serialize`／`Deserialize`，輸出鍵依字典序、base64 用標準字母表含填充、UUID 大寫。不讀時鐘與亂數。
 - [ ] **Step 4：反向向量。** `cargo test -p rk-core write_rust_vectors -- --ignored` 產生 `rust-vectors-v4.json`（Rust 封裝的 session 密文、指標封包、分段）；`RustVectorTests.testSwiftOpensRustVectors()` 解開並比對明文。
 - [ ] **Step 5：CI。** `receiver.yml` 在 `pull_request` 且路徑含 `receiver/**` 時於 `windows-latest`、`ubuntu-latest` 跑 `cargo build --workspace`、`cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`；Ubuntu 先 `apt-get install -y libdbus-1-dev pkg-config`。
@@ -356,7 +364,7 @@ WL1 完成後細化。先定下：
 **Files:** `receiver/rk-ble/src/{lib,link,scan}.rs`、`receiver/rk-receiver/src/{main,app,config,store,tray,pairing_dialog,autostart,log,i18n}.rs`、`receiver/rk-receiver/src/platform/windows.rs`
 
 **Interfaces:**
-- Consumes: `rk_core` 全部；WL1 的 S1 數據（重連行為、MTU）。
+- Consumes: `rk_core` 全部；WL0 的 S8 結論（掃描方式）；WL1 的 S1 數據（重連行為、MTU）。`rk-ble` 分 `windows.rs`（WinRT）與 `linux.rs`（bluer，含 `--adapter` 選擇）兩個後端，對上層是同一組 `LinkEvent`／`LinkCommand`。
 - Produces:
 
 ```rust
@@ -369,7 +377,7 @@ pub trait PhoneStore { fn host(&self) -> HostIdentity; fn phones(&self) -> Vec<P
 pub trait Injector { fn text(&mut self, s: &str) -> Result<(), InjectError>; fn backspace(&mut self) -> ..; fn enter(&mut self) -> ..; fn pointer_move(&mut self, dx: f64, dy: f64) -> ..; fn button(&mut self, b: Button, down: bool) -> ..; fn scroll(&mut self, dx: f64, dy: f64) -> ..; fn ready(&self) -> bool; }
 ```
 
-**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
+**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s`、`not_selected_backs_off_10_s_without_error`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
 
 **實機（TBD）：** Windows 上配對、開機自動啟動、系統匣選單各項。
 
