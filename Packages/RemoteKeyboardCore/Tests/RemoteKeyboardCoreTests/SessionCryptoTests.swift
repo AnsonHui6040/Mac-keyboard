@@ -4,11 +4,11 @@ import XCTest
 
 final class SessionCryptoTests: XCTestCase {
     private let pairKey = SymmetricKey(data: Data(repeating: 5, count: 32))
-    private let macNonce = Data(repeating: 1, count: 16)
+    private let hostNonce = Data(repeating: 1, count: 16)
     private let phoneNonce = Data(repeating: 2, count: 16)
 
     private func session(_ key: SymmetricKey? = nil, mac: Data? = nil, phone: Data? = nil, direction: SessionCrypto.Direction = .phoneToMac) -> SessionCrypto {
-        SessionCrypto(pairKey: key ?? pairKey, macNonce: mac ?? macNonce, phoneNonce: phone ?? phoneNonce, direction: direction)
+        SessionCrypto(pairKey: key ?? pairKey, hostNonce: mac ?? hostNonce, phoneNonce: phone ?? phoneNonce, direction: direction)
     }
 
     func testSealOpenRoundTripAndTamperFails() throws {
@@ -39,7 +39,7 @@ final class SessionCryptoTests: XCTestCase {
 
     func testSwappedNonceRolesGiveADifferentSession() throws {
         let sealed = try session().seal(Data("x".utf8))
-        XCTAssertThrowsError(try session(mac: phoneNonce, phone: macNonce).open(sealed))
+        XCTAssertThrowsError(try session(mac: phoneNonce, phone: hostNonce).open(sealed))
     }
 
     func testOtherPairKeyCannotOpen() throws {
@@ -68,14 +68,14 @@ final class SessionCryptoTests: XCTestCase {
 
     func testSessionKeyDerivationMatchesSpec() throws {
         let expected = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-p2m".utf8) + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-p2m".utf8) + hostNonce + phoneNonce, outputByteCount: 32)
         let box = try ChaChaPoly.seal(Data("probe".utf8), using: expected)
         XCTAssertEqual(try session().open(box.combined), Data("probe".utf8))
     }
 
     func testControlDirectionKeyDerivationMatchesSpec() throws {
         let expected = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-m2p".utf8) + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: Data("rk-session-m2p".utf8) + hostNonce + phoneNonce, outputByteCount: 32)
         let box = try ChaChaPoly.seal(Data("probe".utf8), using: expected)
         XCTAssertEqual(try session(direction: .macToPhone).open(box.combined), Data("probe".utf8))
     }

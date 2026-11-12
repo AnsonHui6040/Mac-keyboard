@@ -40,6 +40,14 @@ public enum ReceiverLinkInput: Equatable {
     case connectTimeout
     /// The backoff delay requested by `startScanAfter` has elapsed.
     case rescanTimer
+    /// The handshake of the ready connection did not finish in time. Disconnects it and holds that device off for
+    /// `handshakeBackoffSeconds`; the search for other devices goes on.
+    case handshakeTimeout(UUID)
+    /// The keyboard answered `hello` with `notSelected`: it types to another host. Same treatment as a handshake timeout.
+    case notSelected(UUID)
+    /// The keyboard speaks another protocol version. Disconnects it and holds that device off for
+    /// `unsupportedVersionHoldSeconds`; the search for other devices goes on.
+    case unsupportedVersion(UUID)
 }
 
 public enum ReceiverLinkEffect: Equatable {
@@ -50,8 +58,16 @@ public enum ReceiverLinkEffect: Equatable {
 }
 
 /// Keeps looking for the keyboard while started. Only `stop` or an unusable radio ends the search.
+///
+/// A device that must not be reconnected right away (it answered `notSelected`, its handshake timed out, or it speaks
+/// another protocol version) goes on one list of held devices with an expiry. Only that device is skipped when it is
+/// discovered again; the scan is neither delayed nor stopped for anyone else. The list needs a clock, which is injected.
 public struct ReceiverLinkStateMachine {
     public static let connectTimeoutSeconds = 5.0
+    /// How long a device is left alone after `notSelected` or a handshake timeout (Provisional, docs/protocol/v4.md §6.4).
+    public static let handshakeBackoffSeconds = 10.0
+    /// How long a device is left alone after a protocol version mismatch (Provisional, docs/protocol/v4.md §10).
+    public static let unsupportedVersionHoldSeconds = 60.0
 
     public private(set) var state: ReceiverLinkState = .idle
     private var power: CentralPower = .unknown
@@ -59,8 +75,14 @@ public struct ReceiverLinkStateMachine {
     /// Consecutive failed handshakes; a ready link, stop or an unusable radio start the count over.
     private var handshakeFailures = 0
     private var rescanPending = false
+    /// Held devices and the time (on the injected clock) until which each is left alone.
+    private var holds: [UUID: Double] = [:]
+    private let now: () -> Double
 
-    public init() {}
+    /// - Parameter now: seconds on a monotonic clock. The default is the system uptime; tests pass their own.
+    public init(now: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }) {
+        self.now = now
+    }
 
     /// The first failure rescans at once (it already cost the connect timeout); later ones wait 0.5, 1, then 2 seconds.
     public static func backoffSeconds(afterFailures failures: Int) -> Double {
@@ -81,7 +103,7 @@ public struct ReceiverLinkStateMachine {
             guard started else { return [] }
             return evaluate()
         case .discovered(let id):
-            guard state == .scanning, !rescanPending else { return [] }
+            guard state == .scanning, !rescanPending, !isHeld(id) else { return [] }
             state = .connecting(id)
             return [.stopScan, .connect(id), .startConnectTimeout(seconds: Self.connectTimeoutSeconds)]
         case .connected(let id):
@@ -109,7 +131,27 @@ public struct ReceiverLinkStateMachine {
             guard rescanPending, state == .scanning else { return [] }
             rescanPending = false
             return [.startScan]
+        case .handshakeTimeout(let id), .notSelected(let id):
+            return hold(id, seconds: Self.handshakeBackoffSeconds)
+        case .unsupportedVersion(let id):
+            return hold(id, seconds: Self.unsupportedVersionHoldSeconds)
         }
+    }
+
+    /// Disconnects the ready connection `id` and leaves that device alone for `seconds`. The state stays `.ready(id)` until the
+    /// adapter reports the disconnect, which then restarts the scan at once (it is not a failed handshake attempt). A longer
+    /// hold already in place is kept.
+    private mutating func hold(_ id: UUID, seconds: Double) -> [ReceiverLinkEffect] {
+        guard state == .ready(id) else { return [] }
+        holds[id] = max(holds[id] ?? 0, now() + seconds)
+        return [.cancel(id)]
+    }
+
+    private mutating func isHeld(_ id: UUID) -> Bool {
+        guard let until = holds[id] else { return false }
+        if now() < until { return true }
+        holds[id] = nil
+        return false
     }
 
     private var current: UUID? {
@@ -166,6 +208,7 @@ public struct ReceiverLinkStateMachine {
         state = target
         rescanPending = false
         handshakeFailures = 0
+        if target == .idle { holds = [:] }
         return effects
     }
 }

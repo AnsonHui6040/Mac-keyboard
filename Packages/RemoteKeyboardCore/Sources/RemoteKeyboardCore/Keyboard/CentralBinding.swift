@@ -15,6 +15,16 @@ public struct CentralBinding: Sendable {
         case refused
     }
 
+    /// What to do with a `hello` written to `control` (docs/protocol/v4.md §6.3).
+    public enum HelloDisposition: Equatable, Sendable {
+        /// Feed it to the handshake reducer of the bound central.
+        case handshake
+        /// Notify one plain `notSelected` to the central that wrote it, keep no state.
+        case replyNotSelected
+        /// Do nothing.
+        case ignore
+    }
+
     public private(set) var subscribed: UUID?
 
     public init() {}
@@ -36,6 +46,40 @@ public struct CentralBinding: Sendable {
         guard subscribed == central else { return false }
         subscribed = nil
         return true
+    }
+
+    /// Decides what a `hello` from `central` means. A `hello` is the one write that a central other than the bound one may
+    /// make, so this is where it is kept away from the bound connection.
+    ///
+    /// - A host that is not the current host (`hostIdMatches` is false): `.replyNotSelected`. When the writer is the bound
+    ///   central the binding is released at the same time (that central has to try again for the right host); a different
+    ///   central changes nothing, in particular not an authenticated connection.
+    /// - The current host, from the bound central: `.handshake`.
+    /// - The current host, from another central: `.ignore` while the bound connection is `locked` (authenticated); otherwise
+    ///   the binding moves to it and the answer is `.handshake`, so the adapter starts a fresh handshake for the new central.
+    public mutating func helloDisposition(from central: UUID, hostIdMatches: Bool, locked: Bool) -> HelloDisposition {
+        guard hostIdMatches else {
+            if subscribed == central { subscribed = nil }
+            return .replyNotSelected
+        }
+        if subscribed == central { return .handshake }
+        guard !locked else { return .ignore }
+        subscribed = central
+        return .handshake
+    }
+
+    /// The same decision from the message itself. A `hello` whose `hostId` or `hostNonce` is not 16 bytes is malformed: from
+    /// the bound central it goes to the handshake reducer (which fails the connection), from any other central it is ignored,
+    /// and in neither case is it answered with `notSelected`. `currentHostId` is the id of the host the keyboard types to,
+    /// `nil` when it has none. Anything that is not a `hello` is `.ignore`.
+    public mutating func helloDisposition(
+        from central: UUID, hello: ControlMessage, currentHostId: Data?, locked: Bool
+    ) -> HelloDisposition {
+        guard case .hello(let hostId, let hostNonce) = hello else { return .ignore }
+        guard hostId.count == IdentityName.idLength, hostNonce.count == Pairing.nonceLength else {
+            return subscribed == central ? .handshake : .ignore
+        }
+        return helloDisposition(from: central, hostIdMatches: hostId == currentHostId, locked: locked)
     }
 
     /// A write is fed to the handshake or pairing reducer only when it comes from the bound central.

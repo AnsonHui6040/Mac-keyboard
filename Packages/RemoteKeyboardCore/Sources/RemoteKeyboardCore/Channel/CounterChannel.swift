@@ -85,9 +85,9 @@ public enum CounterChannel {
         }
     }
 
-    static func deriveKey(_ kind: Kind, pairKey: SymmetricKey, macNonce: Data, phoneNonce: Data) -> SymmetricKey {
+    static func deriveKey(_ kind: Kind, pairKey: SymmetricKey, hostNonce: Data, phoneNonce: Data) -> SymmetricKey {
         HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: Data(kind.info.utf8) + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: Data(kind.info.utf8) + hostNonce + phoneNonce, outputByteCount: 32)
     }
 
     static func counterBytes(_ counter: UInt64) -> [UInt8] {

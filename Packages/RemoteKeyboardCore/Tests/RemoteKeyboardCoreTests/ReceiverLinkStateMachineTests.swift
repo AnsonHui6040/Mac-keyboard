@@ -194,3 +194,107 @@ final class ReceiverLinkReasonTests: XCTestCase {
         }
     }
 }
+
+/// A clock the tests move by hand.
+private final class ManualClock {
+    var now = 1_000.0
+}
+
+/// Per-device holds: a notSelected, a handshake timeout or a version mismatch blocks only that device, and the search for
+/// every other device goes on (docs/protocol/v4.md §6.4 and §10).
+final class ReceiverLinkHoldTests: XCTestCase {
+    let p = UUID()
+    let q = UUID()
+
+    private func ready(_ id: UUID, clock: ManualClock) -> ReceiverLinkStateMachine {
+        var m = ReceiverLinkStateMachine(now: { clock.now })
+        _ = m.handle(.power(.poweredOn))
+        _ = m.handle(.start)
+        _ = m.handle(.discovered(id))
+        _ = m.handle(.connected(id))
+        _ = m.handle(.linkReady(id))
+        return m
+    }
+
+    func testConstants() {
+        XCTAssertEqual(ReceiverLinkStateMachine.handshakeBackoffSeconds, 10.0)
+        XCTAssertEqual(ReceiverLinkStateMachine.unsupportedVersionHoldSeconds, 60.0)
+    }
+
+    private func assertBacksOffWithoutSkipping(_ event: ReceiverLinkInput, file: StaticString = #filePath, line: UInt = #line) {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        let effects = m.handle(event)
+        XCTAssertEqual(effects, [.cancel(p)], file: file, line: line)
+        XCTAssertFalse(effects.contains { if case .startScanAfter = $0 { true } else { false } }, file: file, line: line)
+        // The adapter reports the disconnect that the cancel causes; the search resumes at once, not after a backoff.
+        XCTAssertEqual(m.handle(.disconnected(p)), [.startScan], file: file, line: line)
+        XCTAssertEqual(m.state, .scanning, file: file, line: line)
+        // The same device within 10 seconds: not connected, state unchanged.
+        clock.now += 9.9
+        XCTAssertEqual(m.handle(.discovered(p)), [], file: file, line: line)
+        XCTAssertEqual(m.state, .scanning, file: file, line: line)
+        // Another device is connected as usual.
+        XCTAssertEqual(m.handle(.discovered(q)), [.stopScan, .connect(q), .startConnectTimeout(seconds: 5.0)], file: file, line: line)
+    }
+
+    func testHandshakeTimeoutBacksOffWithoutSkipping() { assertBacksOffWithoutSkipping(.handshakeTimeout(p)) }
+
+    func testNotSelectedBacksOffWithoutSkipping() { assertBacksOffWithoutSkipping(.notSelected(p)) }
+
+    func testBackoffEndsAfterTenSeconds() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        _ = m.handle(.notSelected(p))
+        _ = m.handle(.disconnected(p))
+        clock.now += 10
+        XCTAssertEqual(m.handle(.discovered(p)), [.stopScan, .connect(p), .startConnectTimeout(seconds: 5.0)])
+    }
+
+    func testUnsupportedVersionHoldsOnlyThatDeviceFor60Seconds() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        XCTAssertEqual(m.handle(.unsupportedVersion(p)), [.cancel(p)])
+        XCTAssertEqual(m.handle(.disconnected(p)), [.startScan])
+        clock.now += 59.9
+        XCTAssertEqual(m.handle(.discovered(p)), [])
+        // The other device connects at once, and the held one is still held after it let go.
+        XCTAssertEqual(m.handle(.discovered(q)), [.stopScan, .connect(q), .startConnectTimeout(seconds: 5.0)])
+        _ = m.handle(.connectTimeout)
+        _ = m.handle(.rescanTimer)
+        XCTAssertEqual(m.handle(.discovered(p)), [])
+        clock.now += 0.1
+        XCTAssertEqual(m.handle(.discovered(p)), [.stopScan, .connect(p), .startConnectTimeout(seconds: 5.0)])
+    }
+
+    func testEventsForAnotherOrNoConnectionDoNothing() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        for event in [ReceiverLinkInput.handshakeTimeout(q), .notSelected(q), .unsupportedVersion(q)] {
+            XCTAssertEqual(m.handle(event), [])
+            XCTAssertEqual(m.state, .ready(p))
+        }
+        // q was not held by those events.
+        _ = m.handle(.disconnected(p))
+        XCTAssertEqual(m.handle(.discovered(q)), [.stopScan, .connect(q), .startConnectTimeout(seconds: 5.0)])
+        var scanning = ReceiverLinkStateMachine(now: { clock.now })
+        _ = scanning.handle(.power(.poweredOn)); _ = scanning.handle(.start)
+        XCTAssertEqual(scanning.handle(.notSelected(p)), [])
+    }
+
+    func testStopClearsTheHolds() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        _ = m.handle(.unsupportedVersion(p))
+        _ = m.handle(.stop)
+        _ = m.handle(.start)
+        XCTAssertEqual(m.handle(.discovered(p)), [.stopScan, .connect(p), .startConnectTimeout(seconds: 5.0)])
+    }
+
+    func testPlainDisconnectsAreNeverHeld() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        _ = m.handle(.disconnected(p))
+        XCTAssertEqual(m.handle(.discovered(p)), [.stopScan, .connect(p), .startConnectTimeout(seconds: 5.0)])
+    }
+}

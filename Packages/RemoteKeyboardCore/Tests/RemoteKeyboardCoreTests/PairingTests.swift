@@ -16,11 +16,11 @@ final class PairingTests: XCTestCase {
     private let attackerB = fixedPrivateKey(0x44)
 
     private func macKey() throws -> SymmetricKey {
-        try Pairing.sharedKey(myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(mac), phonePublic: publicData(phone))
+        try Pairing.sharedKey(myPrivate: mac, peerPublic: publicData(phone), hostPublic: publicData(mac), phonePublic: publicData(phone))
     }
 
     private func phoneKey() throws -> SymmetricKey {
-        try Pairing.sharedKey(myPrivate: phone, peerPublic: publicData(mac), macPublic: publicData(mac), phonePublic: publicData(phone))
+        try Pairing.sharedKey(myPrivate: phone, peerPublic: publicData(mac), hostPublic: publicData(mac), phonePublic: publicData(phone))
     }
 
     private func bytes(_ key: SymmetricKey) -> Data { key.withUnsafeBytes { Data($0) } }
@@ -39,9 +39,9 @@ final class PairingTests: XCTestCase {
     func testSASDiffersWhenPublicKeySwapped() throws {
         // The Mac believes the attacker's key A is the phone; the phone believes the attacker's key B is the Mac.
         let macSide = try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(attackerA), macPublic: publicData(mac), phonePublic: publicData(attackerA))
+            myPrivate: mac, peerPublic: publicData(attackerA), hostPublic: publicData(mac), phonePublic: publicData(attackerA))
         let phoneSide = try Pairing.sharedKey(
-            myPrivate: phone, peerPublic: publicData(attackerB), macPublic: publicData(attackerB), phonePublic: publicData(phone))
+            myPrivate: phone, peerPublic: publicData(attackerB), hostPublic: publicData(attackerB), phonePublic: publicData(phone))
         XCTAssertNotEqual(bytes(macSide), bytes(phoneSide))
         XCTAssertNotEqual(Pairing.sas(macSide), Pairing.sas(phoneSide))
     }
@@ -49,19 +49,19 @@ final class PairingTests: XCTestCase {
     func testSharedKeyRejectsATranscriptThatDoesNotContainMyOwnKey() {
         // Same ECDH secret, but the transcript names the attacker's key instead of mine.
         XCTAssertThrowsError(try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(attackerA), phonePublic: publicData(phone))) {
+            myPrivate: mac, peerPublic: publicData(phone), hostPublic: publicData(attackerA), phonePublic: publicData(phone))) {
             XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
         }
         // The transcript must be exactly {mine, peer}: a third key in either slot is rejected.
         XCTAssertThrowsError(try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(mac), phonePublic: publicData(attackerA))) {
+            myPrivate: mac, peerPublic: publicData(phone), hostPublic: publicData(mac), phonePublic: publicData(attackerA))) {
             XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
         }
     }
 
     func testSharedKeyRejectsReflectedOwnKeyAsPeer() {
         XCTAssertThrowsError(try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(mac), macPublic: publicData(mac), phonePublic: publicData(mac))) {
+            myPrivate: mac, peerPublic: publicData(mac), hostPublic: publicData(mac), phonePublic: publicData(mac))) {
             XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
         }
     }
@@ -112,7 +112,7 @@ final class PairingTests: XCTestCase {
     func testMalformedPeerPublicKeyThrows() {
         for bad in [Data(), Data(repeating: 4, count: 64), Data(repeating: 4, count: 65), Data(repeating: 0, count: 33)] {
             XCTAssertThrowsError(try Pairing.sharedKey(
-                myPrivate: mac, peerPublic: bad, macPublic: publicData(mac), phonePublic: publicData(phone))) {
+                myPrivate: mac, peerPublic: bad, hostPublic: publicData(mac), phonePublic: publicData(phone))) {
                 XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
             }
         }
@@ -120,66 +120,122 @@ final class PairingTests: XCTestCase {
 
     func testMalformedTranscriptKeysThrow() {
         XCTAssertThrowsError(try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(phone), macPublic: Data([1, 2, 3]), phonePublic: publicData(phone))) {
+            myPrivate: mac, peerPublic: publicData(phone), hostPublic: Data([1, 2, 3]), phonePublic: publicData(phone))) {
             XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
         }
         XCTAssertThrowsError(try Pairing.sharedKey(
-            myPrivate: mac, peerPublic: publicData(phone), macPublic: publicData(mac), phonePublic: Data())) {
+            myPrivate: mac, peerPublic: publicData(phone), hostPublic: publicData(mac), phonePublic: Data())) {
             XCTAssertEqual($0 as? PairingError, .invalidPublicKey)
         }
     }
 
     func testProofsAre32BytesAndDomainSeparated() throws {
         let key = try macKey()
-        let macNonce = Data(repeating: 1, count: 16)
+        let hostNonce = Data(repeating: 1, count: 16)
         let phoneNonce = Data(repeating: 2, count: 16)
-        let phoneProof = Pairing.phoneProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce)
-        let macProof = Pairing.macProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce)
+        let phoneProof = Pairing.phoneProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        let hostProof = Pairing.hostProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce)
         XCTAssertEqual(phoneProof.count, 32)
-        XCTAssertEqual(macProof.count, 32)
-        XCTAssertNotEqual(phoneProof, macProof)
+        XCTAssertEqual(hostProof.count, 32)
+        XCTAssertNotEqual(phoneProof, hostProof)
+    }
+
+    func testProofLabelsAreDistinct() throws {
+        let key = try macKey()
+        let h = Data(repeating: 1, count: 16), p = Data(repeating: 2, count: 16)
+        XCTAssertNotEqual(Pairing.phoneProof(key: key, hostNonce: h, phoneNonce: p), Pairing.hostProof(key: key, hostNonce: h, phoneNonce: p))
+        XCTAssertEqual(
+            Pairing.hostProof(key: key, hostNonce: h, phoneNonce: p),
+            Data(HMAC<SHA256>.authenticationCode(for: Data("host".utf8) + h + p, using: key)))
+    }
+
+    // MARK: Identities enter the key
+
+    private func derive(host: HostIdentity = Fixture.hostIdentity, phoneId: PhoneIdentity = Fixture.phoneIdentity) throws -> Data {
+        bytes(try Pairing.sharedKey(
+            myPrivate: mac, peerPublic: publicData(phone), hostPublic: publicData(mac), phonePublic: publicData(phone),
+            host: host, phone: phoneId))
+    }
+
+    func testSharedKeyChangesWhenHostNameChanges() throws {
+        let base = try derive()
+        let renamed = HostIdentity(id: Fixture.hostId, name: "書房的 Mac ", platform: .mac)
+        XCTAssertNotEqual(base, try derive(host: renamed))
+        XCTAssertEqual(base, try derive(host: Fixture.hostIdentity), "same input, same key")
+    }
+
+    func testSharedKeyChangesWhenHostPlatformChanges() throws {
+        XCTAssertNotEqual(
+            try derive(), try derive(host: HostIdentity(id: Fixture.hostId, name: Fixture.hostIdentity.name, platform: .linux)))
+        XCTAssertNotEqual(
+            try derive(), try derive(host: HostIdentity(id: Data(repeating: 9, count: 16), name: Fixture.hostIdentity.name, platform: .mac)))
+    }
+
+    func testSharedKeyChangesWhenPhoneIdentityChanges() throws {
+        let base = try derive()
+        XCTAssertNotEqual(base, try derive(phoneId: PhoneIdentity(id: Fixture.phoneId, name: "Anson", platform: .ios)))
+        XCTAssertNotEqual(base, try derive(phoneId: PhoneIdentity(id: Fixture.phoneId, name: Fixture.phoneIdentity.name, platform: .android)))
+        XCTAssertNotEqual(base, try derive(phoneId: PhoneIdentity(id: Data(repeating: 9, count: 16), name: Fixture.phoneIdentity.name, platform: .ios)))
+    }
+
+    func testSharedKeyRejectsWrongIdLengths() {
+        let badHost = HostIdentity(id: Data(repeating: 1, count: 15), name: "H", platform: .mac)
+        XCTAssertThrowsError(try derive(host: badHost)) { XCTAssertEqual($0 as? PairingError, .invalidIdentity) }
+    }
+
+    func testPairSaltIsV2() throws {
+        // The info and salt are fixed by docs/protocol/v4.md §5.3; recompute the key by hand.
+        let z = try mac.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: publicData(phone)))
+        func digest(_ identity: (String, String)) -> Data {
+            Data(SHA256.hash(data: Data(identity.0.utf8) + [0] + Data(identity.1.utf8)))
+        }
+        let info = publicData(mac) + publicData(phone) + Fixture.hostId + digest(("書房的 Mac", "mac"))
+            + Fixture.phoneId + digest(("Anson 的 iPhone", "ios"))
+        XCTAssertEqual(info.count, 226)
+        let expected = z.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data("rk-pair-v2".utf8), sharedInfo: info, outputByteCount: 32)
+        XCTAssertEqual(bytes(expected), try derive())
     }
 
     func testProofMatchesSpecFormula() throws {
         let key = try macKey()
-        let macNonce = Data(repeating: 1, count: 16)
+        let hostNonce = Data(repeating: 1, count: 16)
         let phoneNonce = Data(repeating: 2, count: 16)
         let expected = Data(HMAC<SHA256>.authenticationCode(
-            for: Data("phone".utf8) + macNonce + phoneNonce, using: key))
-        XCTAssertEqual(Pairing.phoneProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce), expected)
+            for: Data("phone".utf8) + hostNonce + phoneNonce, using: key))
+        XCTAssertEqual(Pairing.phoneProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce), expected)
         let expectedMac = Data(HMAC<SHA256>.authenticationCode(
-            for: Data("mac".utf8) + macNonce + phoneNonce, using: key))
-        XCTAssertEqual(Pairing.macProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce), expectedMac)
+            for: Data("host".utf8) + hostNonce + phoneNonce, using: key))
+        XCTAssertEqual(Pairing.hostProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce), expectedMac)
     }
 
     func testProofChangesWithEitherNonceOrKey() throws {
         let key = try macKey()
         let other = SymmetricKey(data: Data(repeating: 9, count: 32))
         let n1 = Data(repeating: 1, count: 16), n2 = Data(repeating: 2, count: 16), n3 = Data(repeating: 3, count: 16)
-        let base = Pairing.phoneProof(key: key, macNonce: n1, phoneNonce: n2)
-        XCTAssertNotEqual(base, Pairing.phoneProof(key: key, macNonce: n3, phoneNonce: n2))
-        XCTAssertNotEqual(base, Pairing.phoneProof(key: key, macNonce: n1, phoneNonce: n3))
-        XCTAssertNotEqual(base, Pairing.phoneProof(key: other, macNonce: n1, phoneNonce: n2))
+        let base = Pairing.phoneProof(key: key, hostNonce: n1, phoneNonce: n2)
+        XCTAssertNotEqual(base, Pairing.phoneProof(key: key, hostNonce: n3, phoneNonce: n2))
+        XCTAssertNotEqual(base, Pairing.phoneProof(key: key, hostNonce: n1, phoneNonce: n3))
+        XCTAssertNotEqual(base, Pairing.phoneProof(key: other, hostNonce: n1, phoneNonce: n2))
     }
 
     func testVerifyAcceptsRightProofAndRejectsEverythingElse() throws {
         let key = try macKey()
-        let macNonce = Data(repeating: 1, count: 16), phoneNonce = Data(repeating: 2, count: 16)
-        let good = Pairing.phoneProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce)
-        XCTAssertTrue(Pairing.verifyPhoneProof(good, key: key, macNonce: macNonce, phoneNonce: phoneNonce))
+        let hostNonce = Data(repeating: 1, count: 16), phoneNonce = Data(repeating: 2, count: 16)
+        let good = Pairing.phoneProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        XCTAssertTrue(Pairing.verifyPhoneProof(good, key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
         // Role confusion: a mac proof is not a phone proof.
         XCTAssertFalse(Pairing.verifyPhoneProof(
-            Pairing.macProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce), key: key, macNonce: macNonce, phoneNonce: phoneNonce))
-        XCTAssertFalse(Pairing.verifyPhoneProof(good.dropLast(), key: key, macNonce: macNonce, phoneNonce: phoneNonce))
-        XCTAssertFalse(Pairing.verifyPhoneProof(Data(), key: key, macNonce: macNonce, phoneNonce: phoneNonce))
-        XCTAssertFalse(Pairing.verifyPhoneProof(good + [0], key: key, macNonce: macNonce, phoneNonce: phoneNonce))
+            Pairing.hostProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce), key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
+        XCTAssertFalse(Pairing.verifyPhoneProof(good.dropLast(), key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
+        XCTAssertFalse(Pairing.verifyPhoneProof(Data(), key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
+        XCTAssertFalse(Pairing.verifyPhoneProof(good + [0], key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
         // Wrong nonce lengths never verify, even when the HMAC over those bytes would match.
         let shortNonce = Data(repeating: 1, count: 15)
-        let shortProof = Pairing.phoneProof(key: key, macNonce: shortNonce, phoneNonce: phoneNonce)
-        XCTAssertFalse(Pairing.verifyPhoneProof(shortProof, key: key, macNonce: shortNonce, phoneNonce: phoneNonce))
-        let macGood = Pairing.macProof(key: key, macNonce: macNonce, phoneNonce: phoneNonce)
-        XCTAssertTrue(Pairing.verifyMacProof(macGood, key: key, macNonce: macNonce, phoneNonce: phoneNonce))
-        XCTAssertFalse(Pairing.verifyMacProof(good, key: key, macNonce: macNonce, phoneNonce: phoneNonce))
+        let shortProof = Pairing.phoneProof(key: key, hostNonce: shortNonce, phoneNonce: phoneNonce)
+        XCTAssertFalse(Pairing.verifyPhoneProof(shortProof, key: key, hostNonce: shortNonce, phoneNonce: phoneNonce))
+        let macGood = Pairing.hostProof(key: key, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        XCTAssertTrue(Pairing.verifyHostProof(macGood, key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
+        XCTAssertFalse(Pairing.verifyHostProof(good, key: key, hostNonce: hostNonce, phoneNonce: phoneNonce))
     }
 
     func testRandomNonceIs16BytesAndFresh() {

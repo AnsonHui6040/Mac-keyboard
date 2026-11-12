@@ -76,9 +76,9 @@ final class PointerPayloadTests: XCTestCase {
 
     func testPayloadTravelsThroughTheEncryptedPointerChannel() throws {
         let pairKey = SymmetricKey(data: Data(repeating: 9, count: 32))
-        let macNonce = Data(repeating: 1, count: 16), phoneNonce = Data(repeating: 2, count: 16)
-        let phone = ChannelSet(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
-        let mac = ChannelSet(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+        let hostNonce = Data(repeating: 1, count: 16), phoneNonce = Data(repeating: 2, count: 16)
+        let phone = ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        let mac = ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
         let payload = PointerPayload(opcode: .move, buttons: 1, dx: 321, dy: -123, dt: 160, buttonSeq: 3)
         let packet = try phone.sealer(.pointer).seal(payload.encode())
         XCTAssertEqual(packet.count, 41)
