@@ -251,6 +251,21 @@ final class ReceiverLinkHoldTests: XCTestCase {
         XCTAssertEqual(m.handle(.discovered(p)), [.stopScan, .connect(p), .startConnectTimeout(seconds: 5.0)])
     }
 
+    func testNewHoldDropsHoldsThatAlreadyExpired() {
+        let clock = ManualClock()
+        var m = ready(p, clock: clock)
+        _ = m.handle(.notSelected(p))
+        _ = m.handle(.disconnected(p))
+        XCTAssertEqual(m.heldDeviceCount, 1)
+        // p is never seen again; its hold lapses unnoticed. A later hold of another device sweeps it out.
+        clock.now += 30
+        _ = m.handle(.discovered(q))
+        _ = m.handle(.connected(q))
+        _ = m.handle(.linkReady(q))
+        _ = m.handle(.notSelected(q))
+        XCTAssertEqual(m.heldDeviceCount, 1, "only q is still held")
+    }
+
     func testUnsupportedVersionHoldsOnlyThatDeviceFor60Seconds() {
         let clock = ManualClock()
         var m = ready(p, clock: clock)

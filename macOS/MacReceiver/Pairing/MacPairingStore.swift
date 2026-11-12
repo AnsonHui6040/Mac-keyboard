@@ -1,6 +1,7 @@
 import CryptoKit
 import Darwin
 import Foundation
+import OSLog
 import RemoteKeyboardCore
 import Security
 
@@ -11,12 +12,18 @@ protocol PairingStoring: AnyObject {
     func loadHost() -> HostIdentity
     /// Every phone that is stored in full (identity and key), oldest first, at most eight.
     func loadPhones() -> [PairedPhone]
+    /// When each stored phone was added, by phone id. A phone without a date is left out.
+    func loadAddedDates() -> [Data: Date]
     /// Stores a phone. One with the same id is replaced and keeps its place; a ninth phone throws `.full`.
     func save(_ phone: PairedPhone) throws
     /// Removing a phone that is not there is not an error.
     func delete(phoneId: Data)
     /// Removes the pair key of protocol v3, which cannot be used any more (docs/protocol/v4.md §10).
     func removeLegacyKey()
+}
+
+extension PairingStoring {
+    func loadAddedDates() -> [Data: Date] { [:] }
 }
 
 enum PairingStoreError: Error, Equatable {
@@ -52,6 +59,7 @@ final class MacPairingStore: PairingStoring {
     /// A record file is a few hundred bytes; anything larger is not one of ours.
     private static let maxRecordBytes = 4096
     static let fallbackHostName = "Mac"
+    private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "pairing-store")
 
     static var defaultDirectory: URL {
         FileManager.default
@@ -99,8 +107,14 @@ final class MacPairingStore: PairingStoring {
             cachedHost = host
             return host
         }
-        // None yet, or one that cannot be read: a new identity. Stored when possible; a Mac whose directory cannot be written
-        // keeps this one for the life of the process.
+        // No file at all is a first run. A file that is there but cannot be used (damaged, a symlink, too large, unreadable)
+        // is replaced only together with the phones: they were paired with the identity it held and can never connect to a new
+        // one, so they are removed and the panel starts from "not paired" instead of listing phones that cannot connect.
+        var info = stat()
+        if lstat(hostFile.path, &info) == 0 || errno != ENOENT {
+            Self.log.error("host identity file unusable, new identity and no paired phones")
+            clearPhones()
+        }
         var id = [UInt8](repeating: 0, count: IdentityName.idLength)
         if SecRandomCopyBytes(kSecRandomDefault, id.count, &id) != errSecSuccess {
             id = (0..<id.count).map { _ in UInt8.random(in: 0...255) }
@@ -109,6 +123,17 @@ final class MacPairingStore: PairingStoring {
         cachedHost = host
         if let data = try? JSONEncoder().encode(host) { try? writeAtomically(data, to: hostFile, directory: directory) }
         return host
+    }
+
+    /// Removes every stored phone. Only plain `.key` and `.json` files of a real directory; a symlink in place of the directory
+    /// is left alone.
+    private func clearPhones() {
+        var info = stat()
+        guard lstat(phonesDirectory.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFDIR,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: phonesDirectory.path) else { return }
+        for file in names where file.hasSuffix(".key") || file.hasSuffix(".json") {
+            unlink(phonesDirectory.appendingPathComponent(file).path)
+        }
     }
 
     private func initialHostName() -> String {
@@ -134,6 +159,16 @@ final class MacPairingStore: PairingStoring {
         }
         found.sort { ($0.added, name($0.phone.identity.id)) < ($1.added, name($1.phone.identity.id)) }
         return PairedList(entries: found.map(\.phone)).entries
+    }
+
+    func loadAddedDates() -> [Data: Date] {
+        var dates: [Data: Date] = [:]
+        for phone in loadPhones() {
+            if let added = previousAdded(phone.identity.id), added > 0 {
+                dates[phone.identity.id] = Date(timeIntervalSince1970: added / 1000)
+            }
+        }
+        return dates
     }
 
     func save(_ phone: PairedPhone) throws {

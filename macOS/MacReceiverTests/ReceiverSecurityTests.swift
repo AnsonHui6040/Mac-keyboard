@@ -440,6 +440,11 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertEqual(PairingSheet.resultText(.full), "已配對 8 支手機，請先刪除一支")
     }
 
+    func testAddedDateIsWrittenTheTaiwanWay() {
+        let date = Date(timeIntervalSince1970: 1_794_000_000) // 2026-11-07 05:20 in Taipei
+        XCTAssertEqual(PairingSheet.addedText(date, timeZone: TimeZone(identifier: "Asia/Taipei")!), "配對於 2026/11/07")
+    }
+
     func testPairingScanConditionFollowsTheWindow() {
         let rig = SecurityRig(pairKey: nil)
         let select = SelectUUID.make(hostId: TestIdentity.hostId)

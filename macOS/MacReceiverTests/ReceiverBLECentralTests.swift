@@ -497,6 +497,45 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertEqual(driver.calls, [.startScan])
     }
 
+    func testSelectedDiscoveryIsIgnoredWhileThePairingWindowIsOpen() {
+        let central = make()
+        let selected = UUID(), pairing = UUID()
+        let selectUUID = SelectUUID.make(hostId: TestIdentity.hostId)
+        let pairingUUID = UUID(uuidString: GATTServiceSpec.Link.pairingAdvertUUID)!
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.setPairingScan(true)
+        driver.calls.removeAll()
+        central.peripheralDiscovered(selected, advertisedServices: [selectUUID])
+        XCTAssertEqual(central.linkState, .scanning, "the phone that was just cut off must not take the window")
+        XCTAssertEqual(driver.calls, [])
+        central.peripheralDiscovered(pairing, advertisedServices: [pairingUUID])
+        XCTAssertEqual(central.linkState, .connecting(pairing))
+        XCTAssertEqual(central.connectionRoute, .pairing)
+        central.handleLink(.disconnected(pairing))
+        central.setPairingScan(false)
+        central.peripheralDiscovered(selected, advertisedServices: [selectUUID])
+        XCTAssertEqual(central.linkState, .connecting(selected), "once the window is closed the selected UUID connects again")
+        XCTAssertEqual(central.connectionRoute, .selected)
+    }
+
+    func testTogglingPairingScanDuringBackoffDoesNotScanEarly() {
+        let central = make()
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        for _ in 0..<2 {
+            central.handleLink(.discovered(p))
+            central.handleLink(.connectTimeout)
+        }
+        driver.calls.removeAll()
+        central.setPairingScan(true)
+        XCTAssertEqual(driver.calls, [], "the backoff is still running; no scan yet")
+        central.handleLink(.rescanTimer)
+        XCTAssertEqual(driver.calls, [.startScan])
+        XCTAssertEqual(driver.scans.last?.count, 2, "the scan that follows the backoff already has the pairing UUID")
+    }
+
     func testStopCancelsAPendingBackoff() {
         let central = make()
         let p = UUID()

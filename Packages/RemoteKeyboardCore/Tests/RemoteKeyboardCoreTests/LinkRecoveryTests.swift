@@ -55,4 +55,15 @@ final class LinkRecoveryTests: XCTestCase {
     func testFailureWithoutAPairKeyDoesNotReset() {
         XCTAssertFalse(LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: false))
     }
+
+    func testHostChangedUnderALiveHandshakeResetsTheLink() {
+        let a = Data([1]), b = Data([2])
+        XCTAssertTrue(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: b, hasHandshake: true))
+        XCTAssertTrue(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: nil, hasHandshake: true),
+                      "the host was deleted in the App")
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: a, hasHandshake: true))
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: b, hasHandshake: false),
+                       "no connection, nothing to reset")
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: nil, currentHostId: nil, hasHandshake: true))
+    }
 }

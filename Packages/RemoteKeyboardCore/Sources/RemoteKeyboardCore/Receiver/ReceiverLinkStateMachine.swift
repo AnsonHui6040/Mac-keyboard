@@ -75,8 +75,12 @@ public struct ReceiverLinkStateMachine {
     /// Consecutive failed handshakes; a ready link, stop or an unusable radio start the count over.
     private var handshakeFailures = 0
     private var rescanPending = false
+    /// True while the scan waits out a backoff after failed handshakes; a scan started now would skip it.
+    public var isBackingOff: Bool { rescanPending }
     /// Held devices and the time (on the injected clock) until which each is left alone.
     private var holds: [UUID: Double] = [:]
+    /// How many devices are held now, expired ones not yet swept included.
+    var heldDeviceCount: Int { holds.count }
     private let now: () -> Double
 
     /// - Parameter now: seconds on a monotonic clock. The default is the system uptime; tests pass their own.
@@ -143,7 +147,9 @@ public struct ReceiverLinkStateMachine {
     /// hold already in place is kept.
     private mutating func hold(_ id: UUID, seconds: Double) -> [ReceiverLinkEffect] {
         guard state == .ready(id) else { return [] }
-        holds[id] = max(holds[id] ?? 0, now() + seconds)
+        let current = now()
+        holds = holds.filter { $0.value > current }
+        holds[id] = max(holds[id] ?? 0, current + seconds)
         return [.cancel(id)]
     }
 

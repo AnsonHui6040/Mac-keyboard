@@ -114,9 +114,13 @@ final class KeyboardViewController: UIInputViewController {
         view = input
     }
 
+    /// The v3 key is removed once per process: the keyboard view controller is made on every appearance, and the Keychain call
+    /// has nothing left to do after the first.
+    private static let legacyKeyRemoved: Void = PairingStore.removeLegacyKey()
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        PairingStore.removeLegacyKey()
+        _ = Self.legacyKeyRemoved
         let defaults = UserDefaults.standard
         savedMode = ModeResolver.saved(rawValue: defaults.string(forKey: Self.modeDefaultsKey))
         transmit = TransmitMode.stored(rawValue: defaults.string(forKey: Self.transmitDefaultsKey))

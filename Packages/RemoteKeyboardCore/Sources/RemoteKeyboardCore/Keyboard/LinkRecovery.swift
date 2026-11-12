@@ -1,3 +1,5 @@
+import Foundation
+
 /// When the keyboard publishes its service again because a "connected" link cannot work.
 ///
 /// After the Mac drops a connection for an authentication failure (it says nothing sealed, correctly), iOS may keep the
@@ -12,6 +14,12 @@ public enum LinkRecovery {
         linkConnected: Bool, handshake: PhoneHandshake.Progress?, hasPairKey: Bool
     ) -> Bool {
         linkConnected && handshake == .failed && hasPairKey
+    }
+
+    /// A keyboard appears on a connection that was set up for one host while the host list now says another (a host deleted or
+    /// selected in the App since). The connection belongs to the old host and must go.
+    public static func shouldResetForHostChange(connectionHostId: Data?, currentHostId: Data?, hasHandshake: Bool) -> Bool {
+        hasHandshake && connectionHostId != currentHostId
     }
 
     /// The handshake has just failed on this connection (the Mac sent `authFailed`, or the proof did not verify).

@@ -93,6 +93,47 @@ final class MacPairingStoreTests: XCTestCase {
         XCTAssertEqual(makeStore().loadHost(), again, "and the new one is stored")
     }
 
+    func testMissingHostFileMakesANewIdentityAndKeepsThePhones() throws {
+        try store.save(phone(1))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hostFile.path))
+        let host = makeStore().loadHost()
+        XCTAssertTrue(host.isValid)
+        XCTAssertEqual(makeStore().loadPhones().count, 1, "a missing file is a first run, not damage")
+        XCTAssertEqual(makeStore().loadHost(), host)
+    }
+
+    func testDamagedHostFileMakesANewIdentityAndClearsThePhones() throws {
+        let first = store.loadHost()
+        try store.save(phone(1))
+        try store.save(phone(2))
+        try Data("not json".utf8).write(to: hostFile)
+        let fresh = makeStore()
+        let again = fresh.loadHost()
+        XCTAssertNotEqual(again.id, first.id)
+        XCTAssertEqual(fresh.loadPhones(), [], "phones paired with the old identity can never connect again")
+        XCTAssertEqual(makeStore().loadPhones(), [])
+        XCTAssertEqual(makeStore().loadHost(), again)
+    }
+
+    func testSymlinkHostFileMakesANewIdentityAndClearsThePhones() throws {
+        let first = store.loadHost()
+        try store.save(phone(1))
+        let target = root.appendingPathComponent("elsewhere.json")
+        try FileManager.default.moveItem(at: hostFile, to: target)
+        try FileManager.default.createSymbolicLink(at: hostFile, withDestinationURL: target)
+        let fresh = makeStore()
+        XCTAssertNotEqual(fresh.loadHost().id, first.id)
+        XCTAssertEqual(fresh.loadPhones(), [])
+    }
+
+    func testIntactHostFileLeavesThePhonesAlone() throws {
+        let host = store.loadHost()
+        try store.save(phone(1))
+        let fresh = makeStore()
+        XCTAssertEqual(fresh.loadHost(), host)
+        XCTAssertEqual(fresh.loadPhones().count, 1)
+    }
+
     // MARK: Phones
 
     func testSecondPhoneDoesNotReplaceFirst() throws {
@@ -103,6 +144,16 @@ final class MacPairingStoreTests: XCTestCase {
         XCTAssertEqual(loaded.map(\.identity), [first.identity, second.identity], "kept in the order they were added")
         XCTAssertEqual(bytes(loaded[0].pairKey), bytes(first.pairKey))
         XCTAssertEqual(bytes(loaded[1].pairKey), bytes(second.pairKey))
+    }
+
+    func testAddedDatesAreReadBackAndSurviveAnOverwrite() throws {
+        let before = Date()
+        try store.save(phone(1))
+        let first = try XCTUnwrap(store.loadAddedDates()[TestIdentity.phone(1).id])
+        XCTAssertLessThan(abs(first.timeIntervalSince(before)), 5)
+        try store.save(phone(1))
+        XCTAssertEqual(store.loadAddedDates()[TestIdentity.phone(1).id], first, "an overwrite keeps the original date")
+        XCTAssertNil(store.loadAddedDates()[TestIdentity.phone(2).id])
     }
 
     func testSamePhoneIdOverwrites() throws {

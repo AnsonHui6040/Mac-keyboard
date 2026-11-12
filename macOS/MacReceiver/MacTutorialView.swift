@@ -13,7 +13,7 @@ struct MacTutorialView: View {
             VStack(alignment: .leading, spacing: 16) {
                 section("三步開始") {
                     Text("1 在 Mac 允許輔助使用與藍牙，按選單列面板的「開始接收」。")
-                    Text("2 在 iPhone 開啟 Remote Keyboard App，到「已配對 Mac」按「配對 Mac」。Mac 按「配對新 iPhone」，兩邊核對配對碼後按確認。")
+                    Text("2 在 iPhone 開啟 Remote Keyboard App，到「已配對電腦」按「新增電腦」。Mac 按「配對新 iPhone」，兩邊核對配對碼後按確認。")
                     Text("3 在 iPhone 任一個輸入框切換到 Remote Keyboard，選「遠端」，Mac 目前的文字欄位就會收到文字。")
                 }
                 section("功能簡介") {

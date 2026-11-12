@@ -50,6 +50,8 @@ final class ReceiverSecurity: ObservableObject {
     @Published private(set) var phase: PairingPhase = .idle
     /// The stored phones, oldest first. Identities only: no key is held here.
     @Published private(set) var phones: [PhoneIdentity] = []
+    /// When each stored phone was added, by phone id, to tell phones of the same name apart.
+    @Published private(set) var phoneAdded: [Data: Date] = [:]
     @Published private(set) var lastResult: PairingResult?
     /// The name of the phone that is connected and verified; `nil` otherwise.
     @Published private(set) var connectedPhoneName: String?
@@ -121,7 +123,10 @@ final class ReceiverSecurity: ObservableObject {
         central.goodbye = { [weak self] in self?.goodbyeMessage() }
     }
 
-    func refreshPairedState() { phones = store.loadPhones().map(\.identity) }
+    func refreshPairedState() {
+        phones = store.loadPhones().map(\.identity)
+        phoneAdded = store.loadAddedDates()
+    }
 
     var isAuthenticated: Bool { handshake?.isAuthenticated ?? false }
 

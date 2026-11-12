@@ -55,9 +55,14 @@ final class KeyboardBLEPeripheral: NSObject {
     /// One per Mac connection, with its own nonce. Events leave only once it `canSendEvents`, and only sealed.
     private var handshake: PhoneHandshake? {
         didSet {
-            if handshake == nil { connectionEnded() }
+            if handshake == nil {
+                handshakeHostId = nil
+                connectionEnded()
+            }
         }
     }
+    /// The host the handshake above was built for. The host list is read again at each appearance and can differ by then.
+    private var handshakeHostId: Data?
 
     /// The counter channels of the authenticated connection, kept until it ends. One set per connection: the touchpad and
     /// (Debug builds) the measurement both use its sealers, so no key ever sees a counter that starts at 1 twice.
@@ -465,6 +470,11 @@ final class KeyboardBLEPeripheral: NSObject {
         // in the host App since the last time is picked up. Without Full Access the read fails and the keyboard is simply
         // unpaired.
         loadHosts()
+        // The App deleted or selected another host while a connection to the old one was still up.
+        if LinkRecovery.shouldResetForHostChange(
+            connectionHostId: handshakeHostId, currentHostId: hostSelection.selected?.id, hasHandshake: handshake != nil) {
+            resetLink()
+        }
         feed(.appeared(hasFullAccess: hasFullAccess))
         // The link machine has torn the service down by now; a manager an earlier controller created must not outlive it.
         if !hasFullAccess { releaseManager() }
@@ -951,6 +961,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         reconcileLatency()
         handshake = PhoneHandshake(
             selected: selectedPair.map { (hostId: $0.host.id, pairKey: $0.pairKey) }, phoneNonce: Pairing.randomNonce())
+        handshakeHostId = selectedPair?.host.id
         KeyboardLifecycleLog.note(.handshakeStarted)
         feed(.subscribed)
     }

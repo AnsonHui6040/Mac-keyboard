@@ -295,19 +295,25 @@ final class ReceiverBLECentral: ObservableObject {
         guard pairingScanEnabled != enabled else { return }
         pairingScanEnabled = enabled
         guard case .scanning = link.state else { return }
+        // A backoff after failed handshakes is still running: the scan that ends it reads the new conditions, and one started
+        // now would skip the wait.
+        guard !link.isBackingOff else { return }
         if power == .poweredOn { driver?.stopScan() }
         driver?.startScan(services: scanServices)
     }
 
     /// The driver saw a peripheral. The route comes from the service UUIDs of this one packet and from nothing else: the
     /// system may remember more for the same device (docs/protocol/v4.md §1.4). A packet that names neither UUID this Mac is
-    /// scanning for is ignored, and so is a pairing UUID that arrives after the window closed.
+    /// scanning for is ignored, and so is a pairing UUID that arrives after the window closed. While the window is open the
+    /// selected UUID is ignored too: the phone that was just cut off to make room would otherwise reconnect first and the phone
+    /// that is pairing would never get a connection.
     func peripheralDiscovered(_ id: UUID, advertisedServices: [UUID]) {
         let route: MacHandshake.Route
-        if advertisedServices.contains(selectUUID) {
-            route = .selected
-        } else if pairingScanEnabled, advertisedServices.contains(pairingUUID) {
+        if pairingScanEnabled {
+            guard advertisedServices.contains(pairingUUID) else { return }
             route = .pairing
+        } else if advertisedServices.contains(selectUUID) {
+            route = .selected
         } else {
             return
         }
