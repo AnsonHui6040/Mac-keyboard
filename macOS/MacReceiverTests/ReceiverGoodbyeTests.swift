@@ -100,7 +100,7 @@ final class ReceiverGoodbyeTests: XCTestCase {
         let rig = SecurityRig(pairKey: key)
         rig.connect()
         _ = rig.newWrites()
-        rig.security.unpair()
+        rig.security.removePhone(id: TestIdentity.phone().id)
         XCTAssertEqual(rig.newWrites(), [])
         XCTAssertEqual(rig.cancels, [rig.peripheral])
     }
@@ -109,7 +109,7 @@ final class ReceiverGoodbyeTests: XCTestCase {
         let rig = SecurityRig(pairKey: key)
         rig.connect()
         try rig.authenticate(TestPhone(pairKey: SymmetricKey(data: Data(repeating: 0x22, count: 32))))
-        XCTAssertEqual(rig.newWrites().filter { $0 != .authFailed && $0 != .hello(macNonce: rig.lastMacNonce) }.count, 0)
+        XCTAssertEqual(rig.newWrites().filter { $0 != .authFailed && $0 != .hello(hostId: TestIdentity.hostId, hostNonce: rig.lastHostNonce) }.count, 0)
         XCTAssertEqual(rig.cancels, [rig.peripheral])
     }
 
@@ -130,11 +130,11 @@ final class ReceiverGoodbyeTests: XCTestCase {
 
         // Unpair.
         let (unpair, unpairPhone) = try authenticatedRig()
-        unpair.security.unpair()
+        unpair.security.removePhone(id: TestIdentity.phone().id)
         let unpairWrites = unpair.newWrites()
         XCTAssertEqual(unpairWrites.count, 1)
         XCTAssertEqual(try delivered(unpairWrites[0], to: unpairPhone), .deliver(.bye))
-        XCTAssertNil(unpair.store.load())
+        XCTAssertTrue(unpair.store.loadPhones().isEmpty)
         XCTAssertFalse(unpair.security.isAuthenticated)
         XCTAssertTrue(unpair.cancels.isEmpty)
         unpair.central.controlWriteCompleted()

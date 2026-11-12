@@ -4,11 +4,11 @@ import XCTest
 
 final class CounterChannelTests: XCTestCase {
     private let pairKey = SymmetricKey(data: Data(repeating: 5, count: 32))
-    private let macNonce = Data(repeating: 1, count: 16)
+    private let hostNonce = Data(repeating: 1, count: 16)
     private let phoneNonce = Data(repeating: 2, count: 16)
 
     private func makeSet(mac: UInt8 = 1, phone: UInt8 = 2) -> ChannelSet {
-        ChannelSet(pairKey: pairKey, macNonce: Data(repeating: mac, count: 16), phoneNonce: Data(repeating: phone, count: 16))
+        ChannelSet(pairKey: pairKey, hostNonce: Data(repeating: mac, count: 16), phoneNonce: Data(repeating: phone, count: 16))
     }
 
     private func counterBytes(_ counter: UInt64) -> Data {
@@ -66,7 +66,7 @@ final class CounterChannelTests: XCTestCase {
         let set = makeSet()
         for expected in expectedKinds {
             let key = HKDF<SHA256>.deriveKey(
-                inputKeyMaterial: pairKey, salt: Data(), info: Data(expected.info.utf8) + macNonce + phoneNonce, outputByteCount: 32)
+                inputKeyMaterial: pairKey, salt: Data(), info: Data(expected.info.utf8) + hostNonce + phoneNonce, outputByteCount: 32)
             let sealer = set.sealer(expected.kind)
             let plain = plaintext(length: standardLength(expected.kind), fill: expected.magic)
             for counter in UInt64(1)...3 {
@@ -98,7 +98,7 @@ final class CounterChannelTests: XCTestCase {
         #endif
         for (kind, length) in cases {
             let phone = ChannelSet(
-                pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, startingCounter: 1000)
+                pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce, startingCounter: 1000)
             let packet = try phone.sealer(kind).seal(plaintext(length: length))
             XCTAssertEqual(packet.count, length + 25)
             for index in 0..<packet.count {
@@ -148,7 +148,7 @@ final class CounterChannelTests: XCTestCase {
         for direction in [SessionCrypto.Direction.phoneToMac, .macToPhone] {
             let info = direction == .phoneToMac ? "rk-session-p2m" : "rk-session-m2p"
             let session = HKDF<SHA256>.deriveKey(
-                inputKeyMaterial: pairKey, salt: Data(), info: Data(info.utf8) + macNonce + phoneNonce, outputByteCount: 32)
+                inputKeyMaterial: pairKey, salt: Data(), info: Data(info.utf8) + hostNonce + phoneNonce, outputByteCount: 32)
             keys.append(session.withUnsafeBytes { Data($0) })
         }
         XCTAssertEqual(Set(keys).count, keys.count, "no channel key equals another channel key or a session key")
@@ -165,12 +165,12 @@ final class CounterChannelTests: XCTestCase {
     // MARK: ChannelSet lifetime
 
     func testChannelSetTakenOnlyOnce() {
-        var mac = MacHandshake(pairKey: pairKey, macNonce: macNonce)
-        var phone = PhoneHandshake(pairKey: pairKey, phoneNonce: phoneNonce)
+        var mac = makeMac(pairKey, nonce: hostNonce)
+        var phone = makePhone(pairKey, nonce: phoneNonce)
         XCTAssertNil(mac.takeChannelSet())
         XCTAssertNil(phone.takeChannelSet())
         guard case .send(let hello) = mac.begin(), case .send(let reply) = phone.receive(hello),
-              case .authenticated(let auth) = mac.receive(reply), phone.receive(auth) == .authenticated
+              case .authenticated(let auth, _) = mac.receive(reply), phone.receive(auth) == .authenticated
         else { return XCTFail("handshake") }
         XCTAssertNotNil(mac.takeChannelSet())
         XCTAssertNil(mac.takeChannelSet(), "the second take is refused")
@@ -228,7 +228,7 @@ final class CounterChannelTests: XCTestCase {
     }
 
     func testCounterMaxThrows() throws {
-        let set = ChannelSet(pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce, startingCounter: UInt64.max - 1)
+        let set = ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce, startingCounter: UInt64.max - 1)
         let sealer = set.sealer(.pointer)
         XCTAssertNoThrow(try sealer.seal(plaintext(length: 16)))
         XCTAssertEqual(sealer.lastCounter, UInt64.max)

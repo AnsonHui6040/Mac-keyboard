@@ -4,28 +4,28 @@ import XCTest
 
 final class LinkRecoveryTests: XCTestCase {
     private let pairKey = SymmetricKey(data: Data(repeating: 5, count: 32))
-    private let macNonce = Data(repeating: 1, count: 16)
+    private let hostNonce = Data(repeating: 1, count: 16)
     private let phoneNonce = Data(repeating: 2, count: 16)
 
     // MARK: HandshakeProgress as the phone reports it
 
     func testProgressFollowsTheHandshake() {
-        var phone = PhoneHandshake(pairKey: pairKey, phoneNonce: phoneNonce)
+        var phone = makePhone(pairKey, nonce: phoneNonce)
         XCTAssertEqual(phone.progress, .inProgress)
-        _ = phone.receive(.hello(macNonce: macNonce))
+        _ = phone.receive(helloMessage(hostNonce))
         XCTAssertEqual(phone.progress, .inProgress, "waiting for the Mac's proof is still in progress")
-        let proof = Pairing.macProof(key: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+        let proof = Pairing.hostProof(key: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
         XCTAssertEqual(phone.receive(.auth(proof: proof)), .authenticated)
         XCTAssertEqual(phone.progress, .authenticated)
         XCTAssertEqual(phone.receive(.authFailed), .failed)
         XCTAssertEqual(phone.progress, .failed)
     }
 
-    func testUnpairedPhoneFailsOnTheFirstHello() {
-        var phone = PhoneHandshake(pairKey: nil, phoneNonce: phoneNonce)
+    func testPhoneWithoutACurrentHostAnswersNotSelectedAndKeepsNoState() {
+        var phone = makePhone(nil, nonce: phoneNonce)
         XCTAssertEqual(phone.progress, .inProgress)
-        _ = phone.receive(.hello(macNonce: macNonce))
-        XCTAssertEqual(phone.progress, .failed)
+        XCTAssertEqual(phone.receive(helloMessage(hostNonce)), .send(.notSelected))
+        XCTAssertEqual(phone.progress, .inProgress, "a notSelected reply keeps no state; the adapter releases the binding")
     }
 
     // MARK: Reset on appearance
@@ -54,5 +54,16 @@ final class LinkRecoveryTests: XCTestCase {
 
     func testFailureWithoutAPairKeyDoesNotReset() {
         XCTAssertFalse(LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: false))
+    }
+
+    func testHostChangedUnderALiveHandshakeResetsTheLink() {
+        let a = Data([1]), b = Data([2])
+        XCTAssertTrue(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: b, hasHandshake: true))
+        XCTAssertTrue(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: nil, hasHandshake: true),
+                      "the host was deleted in the App")
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: a, hasHandshake: true))
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: a, currentHostId: b, hasHandshake: false),
+                       "no connection, nothing to reset")
+        XCTAssertFalse(LinkRecovery.shouldResetForHostChange(connectionHostId: nil, currentHostId: nil, hasHandshake: true))
     }
 }

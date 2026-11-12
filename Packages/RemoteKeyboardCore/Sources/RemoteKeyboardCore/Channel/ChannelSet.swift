@@ -13,12 +13,12 @@ public final class ChannelSet {
     private let sealers: [CounterChannel.Kind: ChannelSealer]
     private let openers: [CounterChannel.Kind: ChannelOpener]
 
-    init(pairKey: SymmetricKey, macNonce: Data, phoneNonce: Data, startingCounter: UInt64 = 0) {
+    init(pairKey: SymmetricKey, hostNonce: Data, phoneNonce: Data, startingCounter: UInt64 = 0) {
         var keys: [CounterChannel.Kind: SymmetricKey] = [:]
         var sealers: [CounterChannel.Kind: ChannelSealer] = [:]
         var openers: [CounterChannel.Kind: ChannelOpener] = [:]
         for kind in CounterChannel.Kind.allCases {
-            let key = CounterChannel.deriveKey(kind, pairKey: pairKey, macNonce: macNonce, phoneNonce: phoneNonce)
+            let key = CounterChannel.deriveKey(kind, pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
             keys[kind] = key
             sealers[kind] = ChannelSealer(kind: kind, key: key, startingCounter: startingCounter)
             openers[kind] = ChannelOpener(kind: kind, key: key)

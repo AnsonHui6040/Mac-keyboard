@@ -9,6 +9,7 @@ import XCTest
 final class ReceiverSecurityTests: XCTestCase {
     private let key = SymmetricKey(data: Data(repeating: 0x11, count: 32))
     private let otherKey = SymmetricKey(data: Data(repeating: 0x22, count: 32))
+    private let otherHostId = Data(repeating: 0xEE, count: 16)
 
     private func status(_ epoch: UInt64 = 3) -> ControlMessage {
         .status(ReceiverStatus(ready: true, appName: "Notes", focusEpoch: epoch))
@@ -65,6 +66,7 @@ final class ReceiverSecurityTests: XCTestCase {
         rig.connect()
         let outputs = try rig.authenticate(phone)
         XCTAssertEqual(outputs, [.authenticated])
+        XCTAssertEqual(rig.security.connectedPhoneName, TestIdentity.phone().name, "the panel shows who is connected")
         XCTAssertEqual(rig.authenticatedCount, 1)
         XCTAssertTrue(rig.security.isAuthenticated)
 
@@ -78,13 +80,13 @@ final class ReceiverSecurityTests: XCTestCase {
     func testEachConnectionOpensWithAFreshNonce() throws {
         let rig = SecurityRig(pairKey: key)
         rig.connect()
-        guard case .hello(let first)? = rig.newWrites().first else { return XCTFail("no hello") }
+        guard case .hello(_, let first)? = rig.newWrites().first else { return XCTFail("no hello") }
         rig.central.handleLink(.disconnected(rig.peripheral))
         rig.central.handleLink(.rescanTimer)
         rig.central.handleLink(.discovered(rig.peripheral))
         rig.central.handleLink(.connected(rig.peripheral))
         rig.central.handleLink(.linkReady(rig.peripheral))
-        guard case .hello(let second)? = rig.newWrites().first else { return XCTFail("no second hello") }
+        guard case .hello(_, let second)? = rig.newWrites().first else { return XCTFail("no second hello") }
         XCTAssertEqual(first.count, Pairing.nonceLength)
         XCTAssertNotEqual(first, second)
     }
@@ -182,7 +184,7 @@ final class ReceiverSecurityTests: XCTestCase {
         rig.connect()
         try rig.authenticate(phone)
         // A sealed payload that opens but is not a PeripheralMessage.
-        let crypto = SessionCrypto(pairKey: key, macNonce: rig.lastMacNonce, phoneNonce: phone.nonce, direction: .phoneToMac)
+        let crypto = SessionCrypto(pairKey: key, hostNonce: rig.lastHostNonce, phoneNonce: phone.nonce, direction: .phoneToMac)
         try rig.deliver(.sealed(try crypto.seal(Data("{}".utf8))), from: phone)
         XCTAssertEqual(rig.malformed, 1)
         XCTAssertTrue(rig.cancels.isEmpty, "a decrypted but malformed payload is not an authentication failure")
@@ -194,7 +196,266 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertTrue(rig.cancels.isEmpty)
         try await Task.sleep(for: .milliseconds(300))
         XCTAssertEqual(rig.cancels, [rig.peripheral], "a peripheral that never answers hello is dropped")
-        XCTAssertEqual(rig.newWrites().last, .authFailed)
+    }
+
+    func testHandshakeTimeoutWritesNoAuthFailed() {
+        let rig = SecurityRig(pairKey: key)
+        rig.connect()
+        XCTAssertEqual(rig.newWrites().count, 1, "only the hello")
+        rig.security.handshakeTimerFired()
+        XCTAssertEqual(rig.cancels, [rig.peripheral], "the connection is dropped")
+        XCTAssertTrue(rig.newWrites().isEmpty, "and nothing is written to the control characteristic: no authFailed")
+        XCTAssertNil(rig.security.updatePhoneNote)
+        XCTAssertEqual(rig.linkLostCount, 1)
+    }
+
+    func testHandshakeTimeoutDoesNotSkipPeripheral() {
+        let rig = SecurityRig(pairKey: key)
+        rig.connect()
+        rig.security.handshakeTimerFired()
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "held off for 10 seconds, only this device")
+        let another = UUID()
+        rig.central.handleLink(.discovered(another))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(another)), "the search for others goes on")
+        rig.central.handleLink(.disconnected(another))
+
+        rig.now = rig.now.addingTimeInterval(ReceiverLinkStateMachine.handshakeBackoffSeconds + 1)
+        rig.central.handleLink(.rescanTimer)
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "seen again after the back-off: connected again, not skipped for the session")
+    }
+
+    func testAuthenticatedLinkIsNotTimedOutByTheTimerEither() throws {
+        let rig = SecurityRig(pairKey: key)
+        rig.connect()
+        try rig.authenticate(TestPhone(pairKey: key))
+        rig.security.handshakeTimerFired()
+        XCTAssertTrue(rig.cancels.isEmpty)
+    }
+
+    func testNotSelectedBacksOffWithoutErrorAndWithoutSkipping() throws {
+        let rig = SecurityRig(pairKey: key)
+        let elsewhere = TestPhone(pairKey: key, hostId: otherHostId)
+        rig.connect()
+        let hello = try XCTUnwrap(rig.newWrites().first)
+        guard case .send(let reply) = elsewhere.handshake.receive(hello) else { return XCTFail("the phone must answer notSelected") }
+        XCTAssertEqual(reply, .notSelected)
+        try rig.deliver(reply, from: elsewhere)
+
+        XCTAssertEqual(rig.cancels, [rig.peripheral], "the connection ends")
+        XCTAssertTrue(rig.newWrites().isEmpty, "no authFailed")
+        XCTAssertNil(rig.security.updatePhoneNote)
+        XCTAssertNil(rig.security.lastResult, "no error is shown")
+        XCTAssertEqual(rig.authenticatedCount, 0)
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "10 seconds off for this device")
+        rig.now = rig.now.addingTimeInterval(ReceiverLinkStateMachine.handshakeBackoffSeconds + 1)
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "then it is connectable again")
+    }
+
+    // MARK: Protocol version
+
+    private func v3Bytes() -> Data { Data(#"{"protocolVersion":3,"type":"pairOffer","commitment":"AAAA"}"#.utf8) }
+
+    func testUnsupportedVersionShowsUpdatePhoneNote() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        rig.connect()
+        XCTAssertNil(rig.security.updatePhoneNote)
+        for frame in try phone.frames(raw: v3Bytes()) { rig.central.receive(eventData: frame) }
+        XCTAssertEqual(rig.security.updatePhoneNote, "請更新 iPhone App")
+        XCTAssertFalse(rig.newWrites().contains(.authFailed), "a version mismatch is not an authentication failure")
+    }
+
+    func testUnsupportedVersionDisconnectsAndHoldsFor60Seconds() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        rig.connect()
+        for frame in try phone.frames(raw: v3Bytes()) { rig.central.receive(eventData: frame) }
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertEqual(rig.linkLostCount, 1)
+
+        rig.driver.calls.removeAll()
+        rig.now = rig.now.addingTimeInterval(ReceiverLinkStateMachine.unsupportedVersionHoldSeconds - 1)
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "not within 60 seconds")
+        let another = UUID()
+        rig.central.handleLink(.discovered(another))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(another)), "only this device is held")
+        rig.central.handleLink(.disconnected(another))
+
+        rig.now = rig.now.addingTimeInterval(2)
+        rig.central.handleLink(.rescanTimer)
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "after 60 seconds it may connect again")
+    }
+
+    func testUnsupportedVersionInsideThePairingWindowIsNotHeld() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        rig.security.openPairingWindow()
+        rig.connect(route: .pairing)
+        for frame in try phone.frames(raw: v3Bytes()) { rig.central.receive(eventData: frame) }
+        XCTAssertEqual(rig.security.updatePhoneNote, "請更新 iPhone App", "the note is shown all the same")
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertEqual(rig.security.phase, .waiting, "the window stays open")
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral), route: .pairing)
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "it may be the phone the user is about to pair (docs/protocol/v4.md §6.2)")
+    }
+
+    func testTheUpdateNoteGoesAwayOnceAPhoneAuthenticates() throws {
+        let rig = SecurityRig(pairKey: key)
+        let phone = TestPhone(pairKey: key)
+        rig.connect()
+        for frame in try phone.frames(raw: v3Bytes()) { rig.central.receive(eventData: frame) }
+        XCTAssertNotNil(rig.security.updatePhoneNote)
+        _ = rig.newWrites()
+        rig.central.handleLink(.disconnected(rig.peripheral))
+        rig.now = rig.now.addingTimeInterval(ReceiverLinkStateMachine.unsupportedVersionHoldSeconds + 1)
+        rig.central.handleLink(.discovered(rig.peripheral))
+        rig.central.handleLink(.connected(rig.peripheral))
+        rig.central.handleLink(.linkReady(rig.peripheral))
+        try rig.authenticate(TestPhone(pairKey: key))
+        XCTAssertNil(rig.security.updatePhoneNote)
+    }
+
+    // MARK: Several phones
+
+    func testSecondPairedPhoneAuthenticates() throws {
+        let first = PairedPhone(identity: TestIdentity.phone(1), pairKey: key)
+        let second = PairedPhone(identity: TestIdentity.phone(2), pairKey: otherKey)
+        let rig = SecurityRig(phones: [first, second])
+        let phone = TestPhone(pairKey: otherKey, identity: second.identity)
+        rig.connect()
+        let outputs = try rig.authenticate(phone)
+        XCTAssertEqual(outputs, [.authenticated], "the host does not know who answers; it tries every key")
+        XCTAssertEqual(rig.authenticatedCount, 1)
+        XCTAssertEqual(rig.security.connectedPhoneName, second.identity.name)
+        XCTAssertTrue(rig.cancels.isEmpty)
+        try rig.deliver(try phone.sealed(.text("A"), session: UUID()), from: phone)
+        XCTAssertEqual(rig.events.first?.kind, .text("A"), "events open under the second phone's key")
+    }
+
+    func testPairingAdvertConnectionSendsNoHello() throws {
+        let rig = SecurityRig(pairKey: key)
+        rig.security.openPairingWindow()
+        rig.connect(route: .pairing)
+        XCTAssertTrue(rig.newWrites().isEmpty, "a connection found through the pairing UUID waits for pairOffer, even with a key stored")
+        XCTAssertTrue(rig.cancels.isEmpty)
+        // The phone speaks first.
+        let p = PairingPhone()
+        try rig.deliver(p.pairing.offer, from: p.phone)
+        guard case .pairAccept(_, let host)? = rig.newWrites().first else { return XCTFail("no pairAccept") }
+        XCTAssertEqual(host, TestIdentity.host)
+    }
+
+    func testPairingRouteConnectionOutsideTheWindowIsDropped() {
+        let rig = SecurityRig(pairKey: key)
+        rig.connect(route: .pairing)
+        XCTAssertTrue(rig.newWrites().isEmpty)
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertEqual(rig.security.phase, .idle)
+    }
+
+    func testPairingRouteConnectionThatSaysNothingTimesOutLikeAHandshake() {
+        let rig = SecurityRig(pairKey: key)
+        rig.security.openPairingWindow()
+        rig.connect(route: .pairing)
+        rig.security.handshakeTimerFired()
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertTrue(rig.newWrites().isEmpty, "no authFailed")
+        XCTAssertEqual(rig.security.phase, .waiting)
+    }
+
+    func testPairingRouteRefusesHelloReplyAndSelectedRouteRefusesPairOffer() throws {
+        let rig = SecurityRig(pairKey: key)
+        rig.security.openPairingWindow()
+        rig.connect(route: .pairing)
+        let phone = TestPhone(pairKey: key)
+        try rig.deliver(.helloReply(phoneNonce: phone.nonce, proof: Data(repeating: 0, count: 32)), from: phone)
+        XCTAssertEqual(rig.newWrites(), [.authFailed], "a helloReply on a pairing connection is an authentication failure")
+
+        let second = SecurityRig(pairKey: key)
+        second.security.openPairingWindow()
+        second.connect()
+        _ = second.newWrites()
+        let p = PairingPhone()
+        try second.deliver(p.pairing.offer, from: p.phone)
+        XCTAssertEqual(second.newWrites(), [.authFailed], "a pairOffer on a connection found through the selected UUID is too")
+        XCTAssertEqual(second.security.phase, .waiting)
+    }
+
+    func testRemovingTheConnectedPhoneSaysByeAndDisconnects() throws {
+        let first = PairedPhone(identity: TestIdentity.phone(1), pairKey: key)
+        let second = PairedPhone(identity: TestIdentity.phone(2), pairKey: otherKey)
+        let rig = SecurityRig(phones: [first, second])
+        let phone = TestPhone(pairKey: otherKey, identity: second.identity)
+        rig.connect()
+        try rig.authenticate(phone)
+        rig.answerOutstandingWrites()
+        _ = rig.newWrites()
+
+        rig.security.removePhone(id: second.identity.id)
+        XCTAssertEqual(rig.store.phones.map(\.identity), [first.identity])
+        XCTAssertEqual(rig.security.phones, [first.identity])
+        XCTAssertNil(rig.security.connectedPhoneName)
+        let writes = rig.newWrites()
+        XCTAssertEqual(writes.count, 1)
+        XCTAssertEqual(phone.handshake.receive(writes[0]), .deliver(.bye), "protocol §7.4: a sealed bye before the disconnect")
+        rig.answerOutstandingWrites()
+        XCTAssertEqual(rig.cancels, [rig.peripheral])
+    }
+
+    func testRemovingAnotherPhoneLeavesTheConnectionAlone() throws {
+        let first = PairedPhone(identity: TestIdentity.phone(1), pairKey: key)
+        let second = PairedPhone(identity: TestIdentity.phone(2), pairKey: otherKey)
+        let rig = SecurityRig(phones: [first, second])
+        let phone = TestPhone(pairKey: key, identity: first.identity)
+        rig.connect()
+        try rig.authenticate(phone)
+        rig.answerOutstandingWrites()
+        _ = rig.newWrites()
+        rig.security.removePhone(id: second.identity.id)
+        XCTAssertEqual(rig.store.phones.map(\.identity), [first.identity])
+        XCTAssertTrue(rig.newWrites().isEmpty)
+        XCTAssertTrue(rig.cancels.isEmpty)
+        XCTAssertTrue(rig.security.isAuthenticated)
+        XCTAssertEqual(rig.security.connectedPhoneName, first.identity.name)
+    }
+
+    func testOpeningTheWindowWithEightPhonesIsRefusedBeforeAnythingStarts() {
+        let phones = (1...8).map { PairedPhone(identity: TestIdentity.phone(UInt8($0)), pairKey: SymmetricKey(size: .bits256)) }
+        let rig = SecurityRig(phones: phones)
+        rig.security.openPairingWindow()
+        XCTAssertEqual(rig.security.phase, .idle, "no window")
+        XCTAssertEqual(rig.security.lastResult, .full)
+        XCTAssertFalse(rig.central.isArmed, "receiving was not turned on for it")
+        XCTAssertEqual(PairingSheet.resultText(.full), "已配對 8 支手機，請先刪除一支")
+    }
+
+    func testAddedDateIsWrittenTheTaiwanWay() {
+        let date = Date(timeIntervalSince1970: 1_794_000_000) // 2026-11-07 05:20 in Taipei
+        XCTAssertEqual(PairingSheet.addedText(date, timeZone: TimeZone(identifier: "Asia/Taipei")!), "配對於 2026/11/07")
+    }
+
+    func testPairingScanConditionFollowsTheWindow() {
+        let rig = SecurityRig(pairKey: nil)
+        let select = SelectUUID.make(hostId: TestIdentity.hostId)
+        let pairing = UUID(uuidString: GATTServiceSpec.Link.pairingAdvertUUID)!
+        rig.central.startReceiving()
+        rig.central.handleLink(.power(.poweredOn))
+        XCTAssertEqual(rig.driver.scans.last, [select])
+        rig.security.openPairingWindow()
+        XCTAssertEqual(rig.driver.scans.last, [select, pairing], "the pairing UUID is scanned while the window is open")
+        rig.security.cancelPairing()
+        XCTAssertEqual(rig.driver.scans.last, [select], "and the condition is reset the moment the window closes")
     }
 
     func testAuthenticatedLinkIsNotTimedOut() async throws {
@@ -246,19 +507,20 @@ final class ReceiverSecurityTests: XCTestCase {
         rig.connect()
         try rig.authenticate(phone)
         rig.security.send(.authFailed)
-        rig.security.send(.hello(macNonce: Data(count: 16)))
+        rig.security.send(.hello(hostId: TestIdentity.hostId, hostNonce: Data(count: 16)))
         XCTAssertTrue(rig.newWrites().isEmpty, "only ack and status go through send, and only sealed")
     }
 
     // MARK: Pairing
 
+    /// A pairing connection: the window is open and the peripheral was found through the pairing UUID.
     private func openWindowAndConnect(_ rig: SecurityRig) {
         rig.security.openPairingWindow()
-        rig.connect()
+        rig.connect(route: .pairing)
     }
 
     @MainActor private struct PairingPhone {
-        var pairing = PhonePairing(privateKey: P256.KeyAgreement.PrivateKey())
+        var pairing = PhonePairing(privateKey: P256.KeyAgreement.PrivateKey(), phone: TestIdentity.phone(5))
         let phone = TestPhone(pairKey: nil)
     }
 
@@ -276,31 +538,20 @@ final class ReceiverSecurityTests: XCTestCase {
         try rig.deliver(reveal, from: p.phone)
     }
 
-    func testPairOfferIgnoredOutsidePairingWindow() throws {
-        let rig = SecurityRig(pairKey: key)
-        let p = PairingPhone()
-        rig.connect()
-        _ = rig.newWrites()
-        try rig.deliver(p.pairing.offer, from: p.phone)
-        XCTAssertTrue(rig.newWrites().isEmpty, "no pairAccept is written")
-        XCTAssertEqual(rig.cancels, [rig.peripheral], "the peripheral is disconnected")
-        XCTAssertEqual(rig.security.phase, .idle)
-        XCTAssertEqual(rig.store.saves, 0)
-        rig.driver.calls.removeAll()
-        rig.central.handleLink(.discovered(rig.peripheral))
-        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "and not reconnected in a loop")
-    }
-
     func testPairOfferIgnoredAfterTheWindowExpired() throws {
         let rig = SecurityRig(pairKey: key)
         let p = PairingPhone()
         rig.security.openPairingWindow()
-        rig.connect()
+        rig.connect(route: .pairing)
         _ = rig.newWrites()
         rig.now = rig.now.addingTimeInterval(PairingWindow.duration + 1)
         try rig.deliver(p.pairing.offer, from: p.phone)
         XCTAssertTrue(rig.newWrites().isEmpty)
         XCTAssertEqual(rig.cancels, [rig.peripheral])
+        XCTAssertEqual(rig.store.saves, 0)
+        rig.driver.calls.removeAll()
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "a phone that keeps offering is not connected in a loop")
     }
 
     func testPairKeyStoredOnlyAfterConfirm() throws {
@@ -313,11 +564,13 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertEqual(sas, p.pairing.sas, "both sides show the same six digits")
         XCTAssertEqual(sas.count, 6)
         XCTAssertEqual(rig.store.saves, 0, "nothing is stored while the prompt is open")
-        XCTAssertNil(rig.store.load())
+        XCTAssertTrue(rig.store.loadPhones().isEmpty)
+        XCTAssertEqual(rig.security.pairingPhoneName, TestIdentity.phone(5).name, "the prompt says whose pairing it is")
 
         rig.security.confirmPairing()
         XCTAssertEqual(rig.store.saves, 1)
-        XCTAssertNotNil(rig.store.load())
+        XCTAssertEqual(rig.store.loadPhones().first?.identity, TestIdentity.phone(5), "the phone is stored with the identity it revealed")
+        XCTAssertEqual(rig.security.phones, [TestIdentity.phone(5)])
         XCTAssertEqual(rig.security.phase, .confirmed)
         XCTAssertTrue(rig.security.isPaired)
         XCTAssertEqual(rig.security.lastResult, .paired)
@@ -363,7 +616,7 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertEqual(rig.security.phase, .idle)
         XCTAssertEqual(rig.security.lastResult, .paired, "not a failure: the key was stored and stays stored")
         XCTAssertEqual(rig.store.saves, 1)
-        XCTAssertNotNil(rig.store.load())
+        XCTAssertEqual(rig.store.loadPhones().count, 1)
     }
 
     func testWindowExpiryAfterConfirmKeepsTheStoredKey() throws {
@@ -376,7 +629,7 @@ final class ReceiverSecurityTests: XCTestCase {
         rig.security.windowTimerFired()
         XCTAssertEqual(rig.security.phase, .idle)
         XCTAssertEqual(rig.security.lastResult, .paired)
-        XCTAssertNotNil(rig.store.load())
+        XCTAssertEqual(rig.store.loadPhones().count, 1)
     }
 
     func testStoredPairKeyIsTheOneBothSidesDerived() throws {
@@ -385,11 +638,11 @@ final class ReceiverSecurityTests: XCTestCase {
         openWindowAndConnect(rig)
         try runPairingUntilSAS(rig, &p)
         rig.security.confirmPairing()
-        let stored = try XCTUnwrap(rig.store.load())
+        let stored = try XCTUnwrap(rig.store.loadPhones().first).pairKey
         let phoneKey = try XCTUnwrap(p.pairing.pairKey)
         let probe = Data(repeating: 7, count: 16)
-        XCTAssertEqual(Pairing.phoneProof(key: stored, macNonce: probe, phoneNonce: probe),
-                       Pairing.phoneProof(key: phoneKey, macNonce: probe, phoneNonce: probe))
+        XCTAssertEqual(Pairing.phoneProof(key: stored, hostNonce: probe, phoneNonce: probe),
+                       Pairing.phoneProof(key: phoneKey, hostNonce: probe, phoneNonce: probe))
     }
 
     func testCancelStoresNothingAndDisconnects() throws {
@@ -399,7 +652,7 @@ final class ReceiverSecurityTests: XCTestCase {
         try runPairingUntilSAS(rig, &p)
         rig.security.cancelPairing()
         XCTAssertEqual(rig.store.saves, 0)
-        XCTAssertNil(rig.store.load())
+        XCTAssertTrue(rig.store.loadPhones().isEmpty)
         XCTAssertEqual(rig.security.phase, .idle)
         XCTAssertEqual(rig.security.lastResult, .cancelled)
         XCTAssertFalse(rig.cancels.isEmpty)
@@ -418,19 +671,18 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertEqual(rig.security.phase, .idle)
     }
 
-    func testStoreFailureShowsTheStateOfTheStoreEvenWhenItLostTheOldKey() throws {
+    func testStoreFailureKeepsTheOtherPhonesAndShowsTheStoreAsItIs() throws {
         let rig = SecurityRig(pairKey: key)
         var p = PairingPhone()
         rig.store.failSave = true
         rig.security.openPairingWindow()
-        rig.connect()
-        _ = rig.newWrites()
+        rig.connect(route: .pairing)
         try runPairingUntilSAS(rig, &p)
         XCTAssertTrue(rig.security.isPaired)
         rig.security.confirmPairing()
         XCTAssertEqual(rig.security.lastResult, .storeFailed)
-        XCTAssertNil(rig.store.load(), "a failed save left no key (the real store deletes the old one first)")
-        XCTAssertFalse(rig.security.isPaired, "the panel must not claim a pairing the store no longer has")
+        XCTAssertEqual(rig.store.loadPhones().count, 1, "the phone that was paired before is untouched")
+        XCTAssertEqual(rig.security.phones.count, 1, "the panel lists what the store holds")
     }
 
     func testWindowExpiryDoesNotDropAnAuthenticatedKeyboard() throws {
@@ -500,7 +752,7 @@ final class ReceiverSecurityTests: XCTestCase {
         try rig.deliver(p.pairing.offer, from: p.phone)
         _ = rig.newWrites()
         let attacker = Pairing.publicKeyData(P256.KeyAgreement.PrivateKey())
-        try rig.deliver(.pairReveal(publicKey: attacker), from: p.phone)
+        try rig.deliver(.pairReveal(publicKey: attacker, phone: TestIdentity.phone(5)), from: p.phone)
         XCTAssertEqual(rig.security.phase, .idle)
         XCTAssertEqual(rig.security.lastResult, .failed)
         XCTAssertEqual(rig.store.saves, 0)
@@ -515,7 +767,7 @@ final class ReceiverSecurityTests: XCTestCase {
             let p = PairingPhone()
             openWindowAndConnect(rig)
             try rig.deliver(p.pairing.offer, from: p.phone)
-            guard case .pairAccept(let publicKey)? = rig.newWrites().first else { return XCTFail("no pairAccept") }
+            guard case .pairAccept(let publicKey, _)? = rig.newWrites().first else { return XCTFail("no pairAccept") }
             accepted.append(publicKey)
         }
         // Two attempts on one security object, without reopening everything.
@@ -523,7 +775,7 @@ final class ReceiverSecurityTests: XCTestCase {
         openWindowAndConnect(rig)
         let first = PairingPhone()
         try rig.deliver(first.pairing.offer, from: first.phone)
-        guard case .pairAccept(let a)? = rig.newWrites().first else { return XCTFail("no pairAccept") }
+        guard case .pairAccept(let a, _)? = rig.newWrites().first else { return XCTFail("no pairAccept") }
         rig.security.cancelPairing()
         rig.central.handleLink(.disconnected(rig.peripheral))
         rig.central.handleLink(.rescanTimer)
@@ -531,7 +783,7 @@ final class ReceiverSecurityTests: XCTestCase {
         openWindowAndConnect(rig)
         let second = PairingPhone()
         try rig.deliver(second.pairing.offer, from: second.phone)
-        guard case .pairAccept(let b)? = rig.newWrites().first else { return XCTFail("no second pairAccept") }
+        guard case .pairAccept(let b, _)? = rig.newWrites().first else { return XCTFail("no second pairAccept") }
         accepted += [a, b]
         XCTAssertEqual(Set(accepted).count, 4, "no Mac key is ever offered twice")
     }
@@ -573,15 +825,19 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "the same iPhone can still pair inside the window")
     }
 
-    func testSilentPeripheralIsDroppedInsideTheWaitingWindowAndMayTryAgain() {
+    func testSilentPeripheralIsDroppedInsideTheWaitingWindowAndMayTryAgainAfterTheBackOff() {
         let rig = SecurityRig(pairKey: nil)
         openWindowAndConnect(rig)
         rig.security.handshakeTimerFired()
         XCTAssertEqual(rig.cancels, [rig.peripheral], "a peripheral that never offers does not hold the only connection")
         XCTAssertEqual(rig.security.phase, .waiting, "the window stays open")
+        XCTAssertTrue(rig.newWrites().isEmpty, "and nothing is written to it")
         rig.driver.calls.removeAll()
-        rig.central.handleLink(.discovered(rig.peripheral))
-        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "and is not skipped")
+        rig.central.handleLink(.discovered(rig.peripheral), route: .pairing)
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "10 seconds off, like any handshake timeout")
+        rig.now = rig.now.addingTimeInterval(ReceiverLinkStateMachine.handshakeBackoffSeconds + 1)
+        rig.central.handleLink(.discovered(rig.peripheral), route: .pairing)
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "and then it is not skipped")
     }
 
     func testHandshakeTimerLeavesAnAttemptInProgressAlone() throws {
@@ -635,7 +891,7 @@ final class ReceiverSecurityTests: XCTestCase {
 
     // MARK: Unpair
 
-    func testUnpairDeletesTheKeyAndDropsTheLink() throws {
+    func testRemovingThePhoneDeletesTheKeyAndDropsTheLink() throws {
         let rig = SecurityRig(pairKey: key)
         let phone = TestPhone(pairKey: key)
         rig.connect()
@@ -643,8 +899,8 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertTrue(rig.security.isPaired)
         rig.answerOutstandingWrites()
         _ = rig.newWrites()
-        rig.security.unpair()
-        XCTAssertNil(rig.store.load())
+        rig.security.removePhone(id: TestIdentity.phone().id)
+        XCTAssertTrue(rig.store.loadPhones().isEmpty)
         XCTAssertFalse(rig.security.isPaired)
         XCTAssertFalse(rig.security.isAuthenticated)
         XCTAssertEqual(rig.newWrites().count, 1, "the goodbye, sealed, is the last thing the keyboard hears")
@@ -659,7 +915,7 @@ final class ReceiverSecurityTests: XCTestCase {
         let phone = TestPhone(pairKey: key)
         rig.connect()
         try rig.authenticate(phone)
-        rig.security.unpair()
+        rig.security.removePhone(id: TestIdentity.phone().id)
         rig.answerOutstandingWrites()
         rig.central.handleLink(.rescanTimer)
         rig.central.handleLink(.discovered(rig.peripheral))

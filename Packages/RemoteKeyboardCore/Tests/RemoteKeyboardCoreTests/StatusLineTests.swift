@@ -72,7 +72,7 @@ final class StatusLineTests: XCTestCase {
     }
 
     func testRemoteWithoutAPairKeyAsksForPairingWhateverTheLink() {
-        let line = "尚未配對 Mac，請開啟主 App 配對"
+        let line = "尚未配對"
         XCTAssertEqual(StatusLine.unpairedText, line)
         for link in [KeyboardLinkState.advertising, .connected, .publishing] {
             XCTAssertEqual(StatusLine.text(mode: .remote, link: link, receiver: status(), paired: false), line)
@@ -206,5 +206,87 @@ final class StatusLineTests: XCTestCase {
             StatusLine.text(mode: .remote, link: .connected, receiver: blocked(app: nil), connectedMs: 80), "Mac（密碼欄，不能輸入） (80 ms)")
         XCTAssertEqual(
             StatusLine.text(mode: .remote, link: .connected, receiver: status(ready: false, app: "Finder")), "Mac → Finder（無輸入欄位）")
+    }
+
+    // MARK: Several hosts (WL4): the host name as a title, wording by platform
+
+    private func host(_ name: String = "書房的 Mac", _ platform: HostPlatform = .mac) -> HostIdentity {
+        HostIdentity(id: Data(repeating: 7, count: 16), name: name, platform: platform)
+    }
+
+    private func display(
+        host: HostIdentity?, hostCount: Int, _ link: KeyboardLinkState = .connected, mode: KeyboardMode = .remote,
+        receiver: ReceiverStatus? = nil, paired: Bool = true, note: String? = nil
+    ) -> StatusLine.Display? {
+        StatusLine.display(
+            mode: mode, link: link, receiver: receiver, paired: paired, note: note, host: host, hostCount: hostCount)
+    }
+
+    func testSingleHostHasNoTitle() {
+        let shown = display(host: host(), hostCount: 1, receiver: status())
+        XCTAssertNil(shown?.title)
+        XCTAssertEqual(shown, StatusLine.Display(text: "已連接", tone: .connected))
+        XCTAssertEqual(display(host: host(), hostCount: 1, .advertising), StatusLine.Display(text: "未連接", tone: .problem))
+    }
+
+    func testTwoHostsShowHostNameAsTitle() {
+        let shown = display(host: host("書房的 Mac"), hostCount: 2, receiver: status())
+        XCTAssertEqual(shown?.title, "書房的 Mac")
+        XCTAssertEqual(shown?.text, "已連接")
+        XCTAssertEqual(display(host: host("書房的 Mac"), hostCount: 2, .advertising)?.title, "書房的 Mac")
+        XCTAssertEqual(display(host: host("客廳"), hostCount: 8, receiver: status(), note: "Mac 輸入失敗")?.title, "客廳")
+        XCTAssertEqual(display(host: host("客廳"), hostCount: 2, receiver: status(), paired: false)?.title, "客廳")
+    }
+
+    func testTitleNeedsAHostRemoteModeAndMoreThanOneHost() {
+        XCTAssertNil(display(host: nil, hostCount: 2, receiver: status())?.title)
+        XCTAssertNil(display(host: host(), hostCount: 0, receiver: status())?.title)
+        XCTAssertNil(display(host: host(), hostCount: 2, mode: .local))
+        XCTAssertNil(display(host: host(), hostCount: 2, mode: .local, note: "2 個按鍵未確認是否送達")?.title)
+    }
+
+    func testLinuxUntrustedSaysComputerNotAuthorized() {
+        let untrusted = ReceiverStatus(ready: false, appName: nil, focusEpoch: 1, trusted: false)
+        XCTAssertEqual(display(host: host("Ubuntu", .linux), hostCount: 1, receiver: untrusted),
+                       StatusLine.Display(text: "電腦未授權", tone: .problem))
+        XCTAssertEqual(display(host: host("Ubuntu", .linux), hostCount: 2, .advertising, receiver: untrusted)?.text, "未連接")
+    }
+
+    func testMacUntrustedKeepsExistingText() {
+        let untrusted = ReceiverStatus(ready: false, appName: "Finder", focusEpoch: 2, trusted: false)
+        XCTAssertEqual(display(host: host(), hostCount: 1, receiver: untrusted),
+                       StatusLine.Display(text: "Mac 未授權輔助使用", tone: .problem))
+        XCTAssertEqual(display(host: nil, hostCount: 1, receiver: untrusted)?.text, "Mac 未授權輔助使用")
+    }
+
+    func testWindowsNeverShowsInputBlocked() {
+        let blockedStatus = ReceiverStatus(ready: false, appName: nil, focusEpoch: 1, inputBlocked: true)
+        for platform in [HostPlatform.windows, .linux] {
+            XCTAssertEqual(display(host: host("PC", platform), hostCount: 1, receiver: blockedStatus),
+                           StatusLine.Display(text: "已連接", tone: .connected))
+        }
+        XCTAssertEqual(display(host: host(), hostCount: 1, receiver: blockedStatus)?.text, "密碼不能輸入")
+    }
+
+    func testOtherPlatformsSayComputerInsteadOfMac() {
+        let ready = ReceiverStatus(ready: true, appName: nil, focusEpoch: 1)
+        let notReady = ReceiverStatus(ready: false, appName: nil, focusEpoch: 1)
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: ready, platform: .windows), "電腦")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: nil, platform: .linux), "電腦（等待狀態）")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: notReady, platform: .windows), "電腦（無法輸入）")
+        XCTAssertEqual(StatusLine.text(mode: .remote, link: .connected, receiver: ready, platform: .mac), "Mac")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .advertising, receiver: nil, platform: .linux), "電腦未連接，未輸入")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .connected, receiver: notReady, platform: .windows), "電腦尚未就緒，未輸入")
+        XCTAssertEqual(StatusLine.droppedKeyNote(link: .connected, receiver: notReady, platform: .mac), "Mac 沒有輸入欄位，未輸入")
+        XCTAssertEqual(StatusLine.ackText(.notAuthorized, platform: .linux), "電腦未授權")
+        XCTAssertEqual(StatusLine.ackText(.injectFailed, platform: .windows), "電腦輸入失敗")
+        XCTAssertEqual(StatusLine.ackText(.injectFailed, platform: .mac), "Mac 輸入失敗")
+        XCTAssertNil(StatusLine.ackText(.pong, platform: .windows))
+    }
+
+    func testPostedNoteOfAnyPlatformCountsAsNoNote() {
+        let posted = StatusLine.ackText(.posted, platform: .windows)
+        XCTAssertEqual(display(host: host("PC", .windows), hostCount: 1, receiver: status(), note: posted)?.text, "已連接")
+        XCTAssertEqual(display(host: host("PC", .windows), hostCount: 1, receiver: status(), note: StatusLine.ackText(.posted))?.text, "已連接")
     }
 }

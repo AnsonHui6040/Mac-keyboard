@@ -70,24 +70,114 @@ public struct Ack: Codable, Equatable, Sendable {
     }
 }
 
-/// Carried by the `control` characteristic (write with response), Receiver to keyboard.
+/// Carried by the `control` characteristic (write with response), host to keyboard.
+///
+/// On the wire every message is an object with exactly one recognised key, the message name, whose value is the content
+/// object (`{}` when there is none, `_0` for a single unnamed value); see docs/protocol/v4.md §3.2. The coding is written by
+/// hand so that the identity fields of `pairAccept` sit beside `publicKey` instead of in a nested object, and so that an
+/// object with zero or several recognised names is a format error.
 public enum ControlMessage: Codable, Equatable, Sendable {
     case ack(Ack)
     case status(ReceiverStatus)
-    /// Pairing step 2: the Mac's ephemeral public key (x9.63, 65 bytes), the answer to `pairOffer`.
-    case pairAccept(publicKey: Data)
-    /// Start of the challenge: the Mac's nonce (16 bytes).
-    case hello(macNonce: Data)
-    /// The Mac's proof (32 bytes) after it verified the iPhone's `helloReply`.
+    /// Pairing step 2: the host's ephemeral public key (x9.63, 65 bytes) and its identity, the answer to `pairOffer`.
+    case pairAccept(publicKey: Data, host: HostIdentity)
+    /// Start of the challenge: the host the write is meant for (16 bytes) and its nonce (16 bytes).
+    case hello(hostId: Data, hostNonce: Data)
+    /// The host's proof (32 bytes) after it verified the iPhone's `helloReply`.
     case auth(proof: Data)
-    /// The Mac rejected the iPhone and is about to disconnect.
+    /// The host rejected the iPhone and is about to disconnect.
     case authFailed
-    /// The Mac is about to end this connection on purpose (stop receiving, idle timeout, unpair, quit). Only ever sent
+    /// The host is about to end this connection on purpose (stop receiving, idle timeout, unpair, quit). Only ever sent
     /// inside `sealed`, so a bystander cannot make a keyboard drop its link. The keyboard answers with a full link reset.
     case bye
     /// After authentication every `ack`, `status` and `bye` travels here: `SessionCrypto` (`.macToPhone`) over the encoded
     /// inner message. Only those three are allowed inside.
     case sealed(Data)
+
+    private enum Name: String, CaseIterable {
+        case ack, status, pairAccept, hello, auth, authFailed, bye, sealed
+    }
+
+    private struct AnyKey: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init(_ string: String) { stringValue = string }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    private enum Single: String, CodingKey { case value = "_0" }
+    private enum AcceptKeys: String, CodingKey { case hostId, hostName, platform, publicKey }
+    private enum HelloKeys: String, CodingKey { case hostId, hostNonce }
+    private enum AuthKeys: String, CodingKey { case proof }
+
+    public init(from decoder: Decoder) throws {
+        let outer = try decoder.container(keyedBy: AnyKey.self)
+        let names = Name.allCases.filter { outer.contains(AnyKey($0.rawValue)) }
+        guard names.count == 1, let name = names.first else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "exactly one recognised message name is required"))
+        }
+        let key = AnyKey(name.rawValue)
+        switch name {
+        case .ack:
+            self = .ack(try outer.nestedContainer(keyedBy: Single.self, forKey: key).decode(Ack.self, forKey: .value))
+        case .status:
+            self = .status(try outer.nestedContainer(keyedBy: Single.self, forKey: key).decode(ReceiverStatus.self, forKey: .value))
+        case .pairAccept:
+            let c = try outer.nestedContainer(keyedBy: AcceptKeys.self, forKey: key)
+            self = .pairAccept(
+                publicKey: try c.decode(Data.self, forKey: .publicKey),
+                host: HostIdentity(
+                    id: try c.decode(Data.self, forKey: .hostId), name: try c.decode(String.self, forKey: .hostName),
+                    platform: try c.decode(HostPlatform.self, forKey: .platform)))
+        case .hello:
+            let c = try outer.nestedContainer(keyedBy: HelloKeys.self, forKey: key)
+            self = .hello(hostId: try c.decode(Data.self, forKey: .hostId), hostNonce: try c.decode(Data.self, forKey: .hostNonce))
+        case .auth:
+            self = .auth(proof: try outer.nestedContainer(keyedBy: AuthKeys.self, forKey: key).decode(Data.self, forKey: .proof))
+        case .authFailed:
+            _ = try outer.nestedContainer(keyedBy: AnyKey.self, forKey: key)
+            self = .authFailed
+        case .bye:
+            _ = try outer.nestedContainer(keyedBy: AnyKey.self, forKey: key)
+            self = .bye
+        case .sealed:
+            self = .sealed(try outer.nestedContainer(keyedBy: Single.self, forKey: key).decode(Data.self, forKey: .value))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var outer = encoder.container(keyedBy: AnyKey.self)
+        switch self {
+        case .ack(let ack):
+            var c = outer.nestedContainer(keyedBy: Single.self, forKey: AnyKey(Name.ack.rawValue))
+            try c.encode(ack, forKey: .value)
+        case .status(let status):
+            var c = outer.nestedContainer(keyedBy: Single.self, forKey: AnyKey(Name.status.rawValue))
+            try c.encode(status, forKey: .value)
+        case .pairAccept(let publicKey, let host):
+            var c = outer.nestedContainer(keyedBy: AcceptKeys.self, forKey: AnyKey(Name.pairAccept.rawValue))
+            try c.encode(host.id, forKey: .hostId)
+            try c.encode(host.name, forKey: .hostName)
+            try c.encode(host.platform, forKey: .platform)
+            try c.encode(publicKey, forKey: .publicKey)
+        case .hello(let hostId, let hostNonce):
+            var c = outer.nestedContainer(keyedBy: HelloKeys.self, forKey: AnyKey(Name.hello.rawValue))
+            try c.encode(hostId, forKey: .hostId)
+            try c.encode(hostNonce, forKey: .hostNonce)
+        case .auth(let proof):
+            var c = outer.nestedContainer(keyedBy: AuthKeys.self, forKey: AnyKey(Name.auth.rawValue))
+            try c.encode(proof, forKey: .proof)
+        case .authFailed:
+            _ = outer.nestedContainer(keyedBy: AnyKey.self, forKey: AnyKey(Name.authFailed.rawValue))
+        case .bye:
+            _ = outer.nestedContainer(keyedBy: AnyKey.self, forKey: AnyKey(Name.bye.rawValue))
+        case .sealed(let payload):
+            var c = outer.nestedContainer(keyedBy: Single.self, forKey: AnyKey(Name.sealed.rawValue))
+            try c.encode(payload, forKey: .value)
+        }
+    }
 }
 
 public enum ControlCodec {

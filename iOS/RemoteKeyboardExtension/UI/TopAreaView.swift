@@ -69,6 +69,75 @@ final class SegmentToggle: UIControl {
     }
 }
 
+/// The status cell. Normally one label with the short status. While two or more hosts are paired it has two lines, the
+/// current host's name (one line, cut at the end when too long) over the short status, and a tap anywhere on it asks for the
+/// next host. Without a host name it is not a control: it takes no touch and plays no click.
+final class StatusCell: UIControl {
+    let titleLabel = UILabel()
+    let statusLabel = UILabel()
+    private let stack = UIStackView()
+    /// Whether a tap switches the host (a host name is shown).
+    private(set) var switchesHost = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        titleLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.isHidden = true
+        titleLabel.isAccessibilityElement = false
+        titleLabel.accessibilityIdentifier = "rk.hostName"
+        statusLabel.isAccessibilityElement = true
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.distribution = .fill
+        stack.isUserInteractionEnabled = false
+        stack.addArrangedSubview(titleLabel)
+        stack.addArrangedSubview(statusLabel)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        layer.cornerRadius = 8
+        addAction(UIAction { [weak self] _ in if self?.switchesHost == true { KeyFeedback.touchDown() } }, for: .touchDown)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// - Parameters:
+    ///   - title: the current host's name; `nil` keeps the single-line cell that takes no touch.
+    ///   - twoLines: the status is short enough to sit under the name. A longer note takes the whole cell for itself, and the
+    ///     cell still switches the host.
+    func setTitle(_ title: String?, twoLines: Bool, accessibilityValue value: String) {
+        switchesHost = title != nil
+        titleLabel.text = title
+        titleLabel.isHidden = !(title != nil && twoLines)
+        // A cell that switches the host reads as one control (a tap target) and shows its state as a soft fill like the toggles.
+        backgroundColor = switchesHost ? .tertiarySystemFill : .clear
+        isAccessibilityElement = switchesHost
+        if let title {
+            accessibilityLabel = "\(title)，\(statusLabel.text ?? "")"
+            accessibilityHint = "輕點切換到下一台電腦"
+            accessibilityTraits = .button
+            accessibilityIdentifier = "rk.status"
+            accessibilityValue = value
+        }
+        statusLabel.isAccessibilityElement = !switchesHost
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard switchesHost else { return false }
+        sendActions(for: .touchUpInside)
+        return true
+    }
+}
+
 /// The top area, one to three rows of 36 pt:
 /// row 1 mode toggle, status, touchpad key, dismiss key, transmit toggle in five equal cells; then the draft (cursor
 /// keys, text, send) when shown; then the candidates on the Quick page. The stack divides its height equally, so every
@@ -93,7 +162,8 @@ final class TopAreaView: UIView {
     /// 觸控板 on the keyboard (usable only on a connected Remote link), 鍵盤 on the touchpad page (always usable).
     private let trackpadKey = KeyButton(
         style: .function, title: "觸控板", label: "觸控板", identifier: "rk.trackpad.toggle")
-    private let statusLabel = UILabel()
+    private let statusCell = StatusCell()
+    private var statusLabel: UILabel { statusCell.statusLabel }
     private let statusRow = UIStackView()
 
     private let draftRow = UIView()
@@ -165,17 +235,21 @@ final class TopAreaView: UIView {
 
     private func applyStatus(_ state: KeyboardViewState, visible: Bool) {
         guard visible, let display = state.status else {
-            statusLabel.isHidden = true
+            statusCell.isHidden = true
             return
         }
-        statusLabel.isHidden = false
+        statusCell.isHidden = false
         statusLabel.text = display.text
         // A short state such as 密碼不能輸入 stays on one line and shrinks to fit rather than breaking in the middle.
-        statusLabel.numberOfLines = display.text.count <= Self.singleLineStatusLimit ? 1 : 2
+        let isShort = display.text.count <= Self.singleLineStatusLimit
+        statusLabel.numberOfLines = isShort ? 1 : 2
         statusLabel.textColor = display.tone == .connected ? .systemGreen : .systemRed
-        // The three plain states are short; a note or a warning is longer and gets the smaller size.
-        statusLabel.font = Self.standardStatusTexts.contains(display.text)
+        // With a host name above it the short status shares the 28 pt cell and takes the smaller size too. The three plain
+        // states are short; a note or a warning is longer and gets the smaller size.
+        let underName = display.title != nil && isShort
+        statusLabel.font = Self.standardStatusTexts.contains(display.text) && !underName
             ? .systemFont(ofSize: 13, weight: .medium) : .systemFont(ofSize: 11)
+        statusCell.setTitle(display.title, twoLines: isShort, accessibilityValue: state.linkName)
         #if DEBUG
         // The UI tests read the long line (app name, latency, note) from the label.
         statusLabel.accessibilityLabel = state.statusDetail
@@ -184,6 +258,9 @@ final class TopAreaView: UIView {
         #endif
         // `rk.status` keeps the BLE link state name as its value, which the UI tests read.
         statusLabel.accessibilityValue = state.linkName
+        #if DEBUG
+        if let title = display.title { statusCell.accessibilityLabel = "\(title)，\(state.statusDetail)" }
+        #endif
     }
 
     // MARK: Rows
@@ -199,11 +276,14 @@ final class TopAreaView: UIView {
         statusLabel.accessibilityValue = KeyboardLinkState.idle.name
         statusLabel.text = StatusLine.disconnectedText
         #if DEBUG
-        statusLabel.isUserInteractionEnabled = true
         let press = UILongPressGestureRecognizer(target: self, action: #selector(statusLongPressed(_:)))
         press.minimumPressDuration = 2
-        statusLabel.addGestureRecognizer(press)
+        statusCell.addGestureRecognizer(press)
         #endif
+        statusCell.addAction(UIAction { [weak self] _ in
+            guard self?.statusCell.switchesHost == true else { return }
+            self?.onAction?(.cycleHost)
+        }, for: .touchUpInside)
         modeToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleMode) }, for: .touchUpInside)
         transmitToggle.addAction(UIAction { [weak self] _ in self?.onAction?(.toggleTransmit) }, for: .touchUpInside)
         trackpadKey.titleLabel?.font = .systemFont(ofSize: 14)
@@ -220,7 +300,7 @@ final class TopAreaView: UIView {
         statusRow.spacing = 6
         statusRow.isLayoutMarginsRelativeArrangement = true
         statusRow.layoutMargins = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: 6)
-        for control in [modeToggle, statusLabel, trackpadKey, dismissKey, transmitToggle] {
+        for control in [modeToggle, statusCell, trackpadKey, dismissKey, transmitToggle] {
             statusRow.addArrangedSubview(Self.cell(holding: control))
         }
     }

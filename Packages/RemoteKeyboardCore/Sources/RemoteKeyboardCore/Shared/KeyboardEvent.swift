@@ -33,7 +33,7 @@ public enum EventKind: Codable, Equatable, Sendable {
 
 /// One semantic event sent from the keyboard to the Receiver over the `event` notification.
 public struct KeyboardEvent: Codable, Equatable, Sendable {
-    public static let currentVersion = 3
+    public static let currentVersion = 4
 
     public let protocolVersion: Int
     public let eventId: UUID
@@ -92,27 +92,31 @@ public enum EventCodec {
     }
 }
 
-/// Everything the keyboard sends to the Receiver over `event`.
+/// Everything the keyboard sends to the receiver over `event`.
 ///
 /// On the wire every message is one flat JSON object with a `type` key and a top-level `protocolVersion`, so the version
-/// is readable before anything else is decoded. A plaintext `.event` is what v2 sent; from v3 on, once a Mac is paired,
-/// it only travels inside `.sealed` and the Receiver treats a bare `.event` as a protocol violation.
+/// is readable before anything else is decoded. Once a host is paired a `.event` only travels inside `.sealed` and the
+/// receiver treats a bare `.event` as a protocol violation.
 public enum PeripheralMessage: Codable, Equatable, Sendable {
     case event(KeyboardEvent)
     /// Pairing step 1: `Pairing.commitment` of the iPhone's ephemeral public key (32 bytes); the key itself follows later.
     case pairOffer(commitment: Data)
-    /// Pairing step 3, after the Mac's `pairAccept`: the iPhone's public key (x9.63, 65 bytes) the commitment covers.
-    case pairReveal(publicKey: Data)
-    /// Answer to the Mac's `hello`: the iPhone's nonce (16 bytes) and its proof (32 bytes).
+    /// Pairing step 3, after the host's `pairAccept`: the iPhone's public key (x9.63, 65 bytes) the commitment covers, and
+    /// its identity. On the wire the identity fields sit beside the key (`phoneId`, `phoneName`, `phonePlatform`).
+    case pairReveal(publicKey: Data, phone: PhoneIdentity)
+    /// Answer to the host's `hello`: the iPhone's nonce (16 bytes) and its proof (32 bytes).
     case helloReply(phoneNonce: Data, proof: Data)
+    /// Answer to a `hello` meant for another host: this keyboard is not typing to the host that wrote it. Plain, keeps no
+    /// state, and the same whether or not the iPhone was ever paired with that host.
+    case notSelected
     /// `SessionCrypto.seal` output over a `PeripheralCodec`-encoded `.event`.
     case sealed(Data)
 
     private enum CodingKeys: String, CodingKey {
-        case type, protocolVersion, commitment, publicKey, phoneNonce, proof, payload
+        case type, protocolVersion, commitment, publicKey, phoneNonce, proof, payload, phoneId, phoneName, phonePlatform
     }
     private enum WireType: String {
-        case event, pairOffer, pairReveal, helloReply, sealed
+        case event, pairOffer, pairReveal, helloReply, notSelected, sealed
     }
 
     public init(from decoder: Decoder) throws {
@@ -126,10 +130,16 @@ public enum PeripheralMessage: Codable, Equatable, Sendable {
         case .pairOffer:
             self = .pairOffer(commitment: try container.decode(Data.self, forKey: .commitment))
         case .pairReveal:
-            self = .pairReveal(publicKey: try container.decode(Data.self, forKey: .publicKey))
+            self = .pairReveal(
+                publicKey: try container.decode(Data.self, forKey: .publicKey),
+                phone: PhoneIdentity(
+                    id: try container.decode(Data.self, forKey: .phoneId), name: try container.decode(String.self, forKey: .phoneName),
+                    platform: try container.decode(PhonePlatform.self, forKey: .phonePlatform)))
         case .helloReply:
             self = .helloReply(
                 phoneNonce: try container.decode(Data.self, forKey: .phoneNonce), proof: try container.decode(Data.self, forKey: .proof))
+        case .notSelected:
+            self = .notSelected
         case .sealed:
             self = .sealed(try container.decode(Data.self, forKey: .payload))
         }
@@ -145,15 +155,21 @@ public enum PeripheralMessage: Codable, Equatable, Sendable {
             try container.encode(WireType.pairOffer.rawValue, forKey: .type)
             try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
             try container.encode(commitment, forKey: .commitment)
-        case .pairReveal(let publicKey):
+        case .pairReveal(let publicKey, let phone):
             try container.encode(WireType.pairReveal.rawValue, forKey: .type)
             try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
             try container.encode(publicKey, forKey: .publicKey)
+            try container.encode(phone.id, forKey: .phoneId)
+            try container.encode(phone.name, forKey: .phoneName)
+            try container.encode(phone.platform, forKey: .phonePlatform)
         case .helloReply(let phoneNonce, let proof):
             try container.encode(WireType.helloReply.rawValue, forKey: .type)
             try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
             try container.encode(phoneNonce, forKey: .phoneNonce)
             try container.encode(proof, forKey: .proof)
+        case .notSelected:
+            try container.encode(WireType.notSelected.rawValue, forKey: .type)
+            try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
         case .sealed(let payload):
             try container.encode(WireType.sealed.rawValue, forKey: .type)
             try container.encode(KeyboardEvent.currentVersion, forKey: .protocolVersion)
@@ -162,7 +178,7 @@ public enum PeripheralMessage: Codable, Equatable, Sendable {
     }
 }
 
-/// Protocol v3 message codec. The size limit is `FrameCodec.maxMessageBytes`; the BLE payload size is not its concern.
+/// Protocol v4 message codec. The size limit is `FrameCodec.maxMessageBytes`; the BLE payload size is not its concern.
 public enum PeripheralCodec {
     private struct Header: Decodable { let protocolVersion: Int }
 

@@ -16,5 +16,8 @@ extension GATTServiceSpec {
         public static let eventUUID = "C7FC0313-53E7-4DCD-B75F-2AE66FE9C586"
         /// Write with response.
         public static let controlUUID = "320468E2-53B6-4B6A-88EC-AE2752415818"
+        /// What the pairing screen of the iPhone advertises while a pairing window is open. Hosts scan for it only while their
+        /// own pairing window is open (docs/protocol/v4.md §1.2). The GATT database does not change; only the advert does.
+        public static let pairingAdvertUUID = "6BA36ECB-1BF9-49C1-B98D-37402247F356"
     }
 }

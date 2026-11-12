@@ -8,7 +8,7 @@ struct HomeView: View {
 
     @AppStorage("rk.onboardingDone") private var onboardingDone = false
     @State private var showsOnboarding = HomeView.initialShowsOnboarding
-    @State private var isPaired = PairingStore.loadPairKey() != nil
+    @State private var isPaired = PairingStore.hasHost
     @State private var keyboardReady = KeyboardReadyMarker.isReady
     @State private var lastLink = LastLinkStore.current
     @State private var showsSetupRows = false
@@ -96,7 +96,7 @@ struct HomeView: View {
 
     private func refresh() {
         bluetooth.refresh()
-        isPaired = PairingStore.loadPairKey() != nil
+        isPaired = PairingStore.hasHost
         keyboardReady = KeyboardReadyMarker.isReady
         lastLink = LastLinkStore.current
         // A problem opens the section each time it is read; the user can still close it by hand.
@@ -152,7 +152,7 @@ struct HomeView: View {
         switch problem {
         case .authFailed:
             NavigationLink {
-                MacPairingPage(isPaired: $isPaired)
+                HostListPage(isPaired: $isPaired)
             } label: {
                 problemLabel("配對驗證失敗，請重新配對")
             }
@@ -161,7 +161,7 @@ struct HomeView: View {
             NavigationLink {
                 ConnectionHelpView(isPaired: $isPaired)
             } label: {
-                problemLabel("鍵盤上次連不上 Mac")
+                problemLabel("鍵盤上次連不上電腦")
             }
             .accessibilityIdentifier("rk.home.connectionProblem")
         }
@@ -184,9 +184,9 @@ struct HomeView: View {
                 bluetoothRow(done: item.isDone)
             case .pairing:
                 NavigationLink {
-                    MacPairingPage(isPaired: $isPaired)
+                    HostListPage(isPaired: $isPaired)
                 } label: {
-                    setupLabel("已配對 Mac", done: item.isDone, detail: isPaired ? "已配對" : "尚未配對")
+                    setupLabel("已配對電腦", done: item.isDone, detail: isPaired ? "已配對" : "尚未配對")
                 }
                 .accessibilityIdentifier("rk.home.pairing")
             case .keyboard:
@@ -237,31 +237,100 @@ struct HomeView: View {
     }
 }
 
-/// 「已配對 Mac」: the pairing status, the pairing screen, and 解除配對.
-struct MacPairingPage: View {
+/// 「已配對電腦」: the paired hosts, one row each (name and platform, a check mark on the current one), and 新增電腦.
+/// Tapping a row makes that host the current one; swiping a row left asks to delete it (its pair key goes too).
+struct HostListPage: View {
     @Binding var isPaired: Bool
+    @State private var selection = PairingStore.loadHosts()
+    @State private var pendingDelete: HostIdentity?
+
+    private var isFull: Bool { selection.hosts.count >= PairedList<PairedHost>.capacity }
 
     var body: some View {
         Form {
             Section {
-                Text(isPaired ? "已配對 Mac" : "尚未配對")
-                    .accessibilityIdentifier("rk.home.pairingStatus")
-                NavigationLink("配對 Mac") {
-                    PairingView(onFinish: { isPaired = PairingStore.loadPairKey() != nil })
+                if selection.hosts.isEmpty {
+                    Text("尚未配對")
+                        .accessibilityIdentifier("rk.home.pairingStatus")
                 }
+                ForEach(selection.hosts, id: \.id) { host in
+                    row(host)
+                }
+            } header: {
+                if !selection.hosts.isEmpty { Text("電腦") }
+            }
+            Section {
+                NavigationLink("新增電腦") {
+                    PairingView(onFinish: reload)
+                }
+                .disabled(isFull)
                 .accessibilityIdentifier("rk.home.pairMac")
-                if isPaired {
-                    Button("解除配對", role: .destructive) {
-                        PairingStore.deletePairKey()
-                        LastLinkStore.clear()
-                        isPaired = PairingStore.loadPairKey() != nil
-                    }
-                    .accessibilityIdentifier("rk.home.unpair")
-                }
             } footer: {
-                Text("在 Mac 的選單列 App 按「配對新 iPhone」，再回到這裡按「配對 Mac」。")
+                if isFull {
+                    Text("已達 8 台上限，請先刪除一台")
+                } else {
+                    Text("在電腦的接收端選單按「配對新 iPhone」（Windows、Linux 為「配對新手機」），再回到這裡按「新增電腦」。")
+                }
             }
         }
-        .navigationTitle("已配對 Mac")
+        .navigationTitle("已配對電腦")
+        .onAppear(perform: reload)
+        .confirmationDialog(
+            pendingDelete.map { "刪除「\($0.name)」？" } ?? "", isPresented: Binding(
+                get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("刪除", role: .destructive) {
+                if let host = pendingDelete { delete(host) }
+                pendingDelete = nil
+            }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("刪除後，這支 iPhone 不再連到這台電腦，要用的話需重新配對。")
+        }
+    }
+
+    private func row(_ host: HostIdentity) -> some View {
+        let isCurrent = host.id == selection.selectedId
+        return Button {
+            choose(host)
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(host.name).foregroundStyle(.primary)
+                    Text(host.platform.displayName).font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isCurrent {
+                    Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityHidden(true)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isCurrent ? "目前使用" : "")
+        .accessibilityIdentifier("rk.home.host")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("刪除", role: .destructive) { pendingDelete = host }
+        }
+    }
+
+    private func choose(_ host: HostIdentity) {
+        var updated = PairingStore.loadHosts()
+        guard updated.selectedId != host.id, updated.select(id: host.id) else { return }
+        PairingStore.saveHosts(updated)
+        LastLinkStore.clear()
+        reload()
+    }
+
+    private func delete(_ host: HostIdentity) {
+        PairingStore.deleteHost(id: host.id)
+        LastLinkStore.clear()
+        reload()
+    }
+
+    private func reload() {
+        selection = PairingStore.loadHosts()
+        isPaired = PairingStore.hasHost
     }
 }

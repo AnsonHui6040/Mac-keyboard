@@ -185,6 +185,11 @@ struct ReceiverPanel: View {
                 .foregroundStyle(.red)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        if let note = security.updatePhoneNote {
+            Text(note)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Green when connected, orange while looking or connecting, grey when not receiving, red when the radio is unusable.

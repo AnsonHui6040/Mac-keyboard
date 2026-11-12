@@ -61,10 +61,10 @@ final class MeasurePayloadTests: XCTestCase {
 
     func testSealedEchoIsFortyNineBytesAndATamperedOneIsRefused() throws {
         let pairKey = SymmetricKey(data: Data(repeating: 7, count: 32))
-        var mac = MacHandshake(pairKey: pairKey, macNonce: Data(repeating: 1, count: 16))
-        var phone = PhoneHandshake(pairKey: pairKey, phoneNonce: Data(repeating: 2, count: 16))
+        var mac = makeMac(pairKey, nonce: Data(repeating: 1, count: 16))
+        var phone = makePhone(pairKey, nonce: Data(repeating: 2, count: 16))
         guard case .send(let hello) = mac.begin(), case .send(let reply) = phone.receive(hello),
-              case .authenticated(let auth) = mac.receive(reply), phone.receive(auth) == .authenticated,
+              case .authenticated(let auth, _) = mac.receive(reply), phone.receive(auth) == .authenticated,
               let macChannels = mac.takeChannelSet(), let phoneChannels = phone.takeChannelSet()
         else { return XCTFail("handshake") }
         let echo = MeasureEchoPayload(seq: 9, phoneTimeMicros: 11, macHoldMicros: 13, macTimeMicros: 17)

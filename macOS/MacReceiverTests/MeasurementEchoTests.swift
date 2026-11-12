@@ -46,10 +46,13 @@ final class MeasurementEchoTests: XCTestCase {
 
         init() {
             let pairKey = SymmetricKey(data: Data(repeating: 5, count: 32))
-            var macHandshake = MacHandshake(pairKey: pairKey, macNonce: Data(repeating: 1, count: 16))
-            var phoneHandshake = PhoneHandshake(pairKey: pairKey, phoneNonce: Data(repeating: 2, count: 16))
+            var macHandshake = MacHandshake(
+                hostId: TestIdentity.hostId, phones: [PairedPhone(identity: TestIdentity.phone(), pairKey: pairKey)],
+                hostNonce: Data(repeating: 1, count: 16))
+            var phoneHandshake = PhoneHandshake(
+                selected: (hostId: TestIdentity.hostId, pairKey: pairKey), phoneNonce: Data(repeating: 2, count: 16))
             guard case .send(let hello) = macHandshake.begin(), case .send(let reply) = phoneHandshake.receive(hello),
-                  case .authenticated(let auth) = macHandshake.receive(reply), phoneHandshake.receive(auth) == .authenticated,
+                  case .authenticated(let auth, _) = macHandshake.receive(reply), phoneHandshake.receive(auth) == .authenticated,
                   let mac = macHandshake.takeChannelSet(), let phone = phoneHandshake.takeChannelSet()
             else { fatalError("handshake") }
             self.mac = mac

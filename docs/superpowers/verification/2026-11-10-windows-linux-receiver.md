@@ -9,6 +9,9 @@
 |---|---|---|---|
 | WL0（S8、S8b 廣播 UUID 切換） | iOS Debug 與 Release 建置成功；Release 產物不含測試畫面 | 2026-11-11 量測完成 | 三個平台皆通過。Windows 需用系統原生監看介面；Linux 需定時重啟探索並清除裝置快取 |
 | WL2（協定文件 `docs/protocol/v4.md`） | 舊欄位名稱搜尋 0 筆；18 個 JSON 範例全部可解析；文件內的範例值以獨立腳本重算相符，加密範例以 CryptoKit 與現有程式解開相符 | 不適用（只有文件） | 文件完成；16 項待確認於 2026-11-11 定案，補充細節 A–G 於 2026-11-13 批准，已寫入文件、設計與計畫 |
+| WL3（Core 協定 v4） | `swift test` 1102 個測試 0 失敗；測試向量檔與協定文件的範例值 95／95 相符 | 不適用（純邏輯） | 完成。iOS 與 Mac 的轉接層在 WL4、WL5 修復 |
+| WL4（iPhone 多主機） | `swift test` 1111 個測試 0 失敗；iOS 模擬器建置成功；402 與 375 pt 截圖 4 張 | TBD | 程式完成；截圖待使用者確認，實機項目未測 |
+| WL5（Mac Receiver v4 與多手機） | `MacReceiverTests` 349 個測試 0 失敗；Mac、iOS 模擬器建置成功；真機 build-for-testing 成功 | TBD | 程式完成；實機項目未測 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -238,3 +241,215 @@ blocks=18 ok=18 failed=[]
 - v4 新增或改形狀的訊息（`pairAccept`、`hello`、`pairReveal`、`notSelected`）還沒有實作可以對照，範例由腳本依文件的規則產生。WL3 的測試向量完成後才有程式端的核對。
 - 名稱截斷只以腳本核對，產品程式（`IdentityName.clamp`）要到 WL3 才有。
 - 修訂加入的 Provisional 值沒有量測依據：Windows 與 Linux 驗證失敗後 60 秒不再連線、版本不符後 60 秒不再連線、Mac 帶過濾條件並允許重複回報的掃描。
+
+## WL3：Core 協定 v4（2026-11-13）
+
+branch `protocol-v4`，commit `2ae2ac4`。只改 `Packages/RemoteKeyboardCore` 與新增 `receiver/testdata/swift-vectors-v4.json`。
+
+### 自動驗證
+
+RED：新測試寫好、尚未實作時，測試目標編譯失敗（27 個錯誤，例如找不到 `HostIdentity`、`PeripheralMessage` 沒有 `notSelected`、`Pairing` 沒有 `hostProof`）。
+
+GREEN：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1102 tests, with 0 failures (0 unexpected) in 0.467 (0.517) seconds
+```
+
+計畫 WL3 Step 1 列出的測試全部存在。`CentralBinding` 的四個測試放在 `CentralBindingTests.swift`，不在計畫寫的 `AuthHandshakeTests.swift`。
+
+測試向量：`ProtocolVectorTests.testVectorsFileIsCurrent` 在不設 `RK_WRITE_VECTORS` 時通過，表示提交的向量檔與目前程式的輸出逐位元組相同。位元組一律寫成小寫十六進位字串。
+
+向量檔與協定文件範例值的比對（一次性腳本，從 `docs/protocol/v4.md` 抽出範例值，不在 repo 內）：
+
+```
+$ python3 -I check_vectors.py | tail -1
+TOTAL 95  OK 95  MISMATCH 0
+```
+
+| 比對範圍 | 項目 |
+|---|---|
+| 固定輸入 | `hostId`、`phoneId`、兩個 nonce、兩個名稱、兩個私鑰純量 |
+| §1.2、§1.3 | 配對 UUID；選定 UUID、雜湊前 16 bytes、版本與變體位元 |
+| §3.2–§3.4 | 18 個 JSON 範例逐位元組相同 |
+| §4 | 截斷表三列（13→13、33→30、145→30） |
+| §5.5 | 兩把公鑰、`commitment`、`Z`、兩個身分雜湊、`pairKey`、配對碼 |
+| §6.1 | `phoneProof`、`hostProof` |
+| §7.3 | `K_p2m`、`K_m2p`、兩則 `sealed` |
+| §8.1 | `K_ptr`、指標封包 |
+| §2.2 | 600 bytes 以 185 分段的四個標頭、資料長度與重組 |
+
+舊名稱：
+
+```
+$ grep -rn "macNonce\|macPublic\|macProof\|macLabel\|rk-pair-v1" Packages/RemoteKeyboardCore
+（0 筆）
+```
+
+### 與計畫的差異
+
+| 項目 | 做法 | 原因 |
+|---|---|---|
+| `MacHandshake.init` 多一個 `route:`（預設 `.selected`） | 經配對 UUID 的連線傳 `.pairing`：不寫 `hello`；選定 UUID 連線上的配對訊息、配對 UUID 連線上的 `helloReply`、`sealed`、`notSelected` 一律驗證失敗 | 協定 §1.5、§6.2；設計 §16 第 30 項。計畫的簽名沒有地方表達連線來源 |
+| `begin()` 在沒有任何手機時回驗證失敗 | 不寫 `hello` | 協定 §6.2；設計 §16 第 25 項 |
+| `CentralBinding.helloDisposition` 多一個收整則 `hello` 的版本 | 格式錯誤的 `hello` 來自綁定的 central 時交給握手而失敗，來自其他 central 時不理會 | 協定 §6.3 第 1 列；設計 §16 第 24 項 |
+| `MacHandshake` 逐把驗證時不提早停止 | 全部算完，第一個相符者為該手機 | 處理時間不透露手機在清單中的位置 |
+| `SessionCrypto`、`ChannelSet`、`CounterChannel` 也改了 | 參數 `macNonce` 改名 `hostNonce`；`SessionCrypto` 另加只供測試的固定 nonce 封裝 | 舊名稱搜尋要 0 筆；向量需要可重現的 AEAD nonce，正式路徑仍用亂數 |
+| `ReceiverLinkStateMachine` 用 `init(now:)` 注入時間 | 三個新事件只在 `.ready(id)` 時有效，回 `[.cancel(id)]` 並把該裝置放進同一份暫擋名單；`.stop` 清空名單 | 測試 10 秒與 60 秒不需真的等待 |
+
+### 實機驗證
+
+不適用。協定在實機上的行為由 WL4、WL5 的實機項目涵蓋。
+
+## WL4：iPhone 多主機（2026-11-13）
+
+branch `protocol-v4`，commit `50fbd08`。
+
+### 自動驗證
+
+RED：`StatusLineTests` 編譯失敗（`display` 還沒有 `host`、`hostCount` 參數；`StatusLine.Display` 沒有 `title`）。
+
+GREEN：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1111 tests, with 0 failures (0 unexpected) in 0.484 (0.536) seconds
+```
+
+計畫的 5 個 `StatusLine` 測試之外，另加標題條件、Windows 與 Linux 的用字、各平台不顯示已送出提示 3 個測試，以及 `InputRouter` 的 `.cycleHost` 路由測試 1 個。
+
+```
+$ xcodebuild -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp \
+    -destination 'platform=iOS Simulator,name=iPhone 18 Pro' build
+** BUILD SUCCEEDED **
+```
+
+App 與鍵盤延伸功能都建置成功，沒有錯誤。
+
+### 截圖（`-rkPreview`）
+
+| 狀態 | 402 pt（iPhone 18 Pro） | 375 pt（iPhone SE 3） |
+|---|---|---|
+| `twoHosts` | `evidence/WL4-twoHosts-402.png` | `evidence/WL4-twoHosts-375.png` |
+| `twoHostsLongName`（名稱 32 bytes） | `evidence/WL4-twoHostsLongName-402.png` | `evidence/WL4-twoHostsLongName-375.png` |
+
+狀態格兩行：第一行主機名稱，第二行短狀態。32 bytes 的名稱在 402 pt 顯示為「我的辦公室…」，在 375 pt 顯示為「我的辦公…」；第二行完整，其他按鍵的寬度不受影響。402 pt 的模擬器是深色模式。
+
+### 與計畫的差異
+
+| 項目 | 做法 |
+|---|---|
+| `InputRouter` 新增 `RouteOutcome.cycleHost` | 計畫只寫 `KeyAction.cycleHost`；控制器需要對應的路由結果才接得上 |
+| 多主機時出現長提示（例如「2 個按鍵未確認是否送達」） | 長提示暫時佔滿整格、不顯示主機名稱，格子仍可點 |
+| 兩行時的外觀 | 加淺灰圓角底色表示可點，第二行 11 pt |
+| 綁定的 central 送來其他主機的 `hello` | 回 `notSelected` 後丟棄該連線的握手與 session 狀態，鍵盤回到廣播 |
+| 刪除主機 | 左滑後再跳確認對話框，避免誤刪 |
+| 用字 | 首頁、配對頁、連不上頁、Onboarding 配對頁改為「電腦」 |
+
+### 未做
+
+- `StatusLine` 的未配對、觸控板拒絕與離線提示仍寫「Mac」：沒有目前主機時不知道平台；觸控板文字屬 WL8。
+- 教學頁與 Onboarding 前兩頁（在 Mac 安裝 Receiver）仍以 Mac 為主：Windows、Linux 的安裝說明在 WL12 才有。
+- 首頁主機清單與新的配對畫面沒有截圖。
+
+### 實機驗證（TBD）
+
+| 項目 | 結果 |
+|---|---|
+| 點狀態格輪替後，廣播換成新主機的選定 UUID；舊主機不再連線，新主機連上並完成握手 | TBD |
+| 沒有目前主機時不廣播 | TBD |
+| 配對畫面廣播配對 UUID，只有配對時段開著的接收端連線 | TBD |
+| 鍵盤延伸功能讀得到各主機的 Keychain 項目與 App Group 的主機清單 | TBD |
+| 升級後第一次啟動刪除 v3 的舊金鑰 | TBD |
+| 新增電腦：確認畫面顯示主機名稱與配對碼；確認後設為目前主機；8 台已滿時開始前就擋下 | TBD |
+| 首頁主機清單：點選設為目前主機、左滑刪除 | TBD |
+| 狀態格好不好點、切換的手感 | TBD |
+
+## WL5：Mac Receiver v4 與多手機（2026-11-13）
+
+branch `protocol-v4`，commit `436b115`（審查修正見下節）。
+
+### 自動驗證
+
+RED：測試先寫好時 `build-for-testing` 失敗，`ReceiverSecurity.swift` 仍用 WL3 之前的介面（`MacHandshake`、`MacPairing` 的建構子，`.authenticated` 的形狀，缺 `.notSelected`）；新測試用到的 `PairingStoring`、`loadHost` 等都不存在。
+
+GREEN（主代理重跑）：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1111 tests, with 0 failures (0 unexpected) in 0.478 (0.529) seconds
+
+$ xcodebuild test -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS'
+Executed 349 tests, with 0 failures (0 unexpected) in 12.639 (12.729) seconds
+** TEST SUCCEEDED **
+
+$ xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS'
+** BUILD SUCCEEDED **
+
+$ xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'platform=iOS Simulator,name=iPhone 18 Pro'
+** BUILD SUCCEEDED **
+
+$ xcodebuild build-for-testing -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'id=<iPhone 17 Pro>'
+** TEST BUILD SUCCEEDED **
+```
+
+計畫 WL5 Step 1 的 15 個測試都存在且通過。掃描條件的 3 個測試放在 `CoreBluetoothDriverWiringTests`，以假的 `CBCentralManager` 檢查實際傳給 `scanForPeripherals` 的 UUID 與選項。
+
+### 與計畫的差異
+
+| 項目 | 做法 |
+|---|---|
+| 暫擋事件之後的 `.disconnected` | 狀態機收到 `.handshakeTimeout`、`.notSelected`、`.unsupportedVersion` 後停在 `.ready(id)` 等斷線；`cancel` 會先放掉連線，系統的斷線回呼因此被擋掉，所以轉接層在取消後自行補送一次 `.disconnected` |
+| 介面 | `ReceiverBLECentral.init` 多了 `hostId:` 與 `uptime:`；`CentralDriving.startScan(services:)` 取代 `startScan()` |
+| 判斷連線來源 | 只看這一筆廣播的 `ServiceUUIDs` 與 `OverflowServiceUUIDs`；兩個 UUID 都沒有時略過；配對時段已關閉時看到配對 UUID 也略過 |
+| 允許重複回報 | `linkState` 只有真的改變時才更新，避免每筆廣播都觸發畫面更新 |
+| 版本不符 | 面板顯示「請更新 iPhone App」，下次驗證成功時清除；配對時段開著時只中斷、不暫擋 |
+| 刪除手機 | 刪除連線中的手機時先送 `bye` 再中斷；刪除時若選定路線的握手尚未完成也中斷，避免刪掉的金鑰之後才完成握手 |
+| 8 支已滿 | 按「配對新 iPhone」時不開時段，面板顯示「已配對 8 支手機，請先刪除一支」 |
+| 檔案 | `phones/<id>.json` 另存 `id` 與加入時間，用來維持順序；主機名稱為空時用「Mac」 |
+
+### 實機驗證（TBD）
+
+重新安裝 Mac Receiver 後，需要在「系統設定」重新授權「輔助使用」與「藍牙」。v3 的配對作廢，iPhone 也要安裝這一版 App 後重新配對。
+
+| 項目 | 結果 |
+|---|---|
+| 升級後第一次啟動，舊配對消失，面板回到未配對 | TBD |
+| iPhone 與 Mac 重新配對；確認框顯示手機名稱與配對碼 | TBD |
+| 第二支手機配對後，兩支都能打字（一次一支） | TBD |
+| 打字、觸控板、焦點行為與延遲和升級前相同 | TBD |
+| 帶選定 UUID 過濾條件的掃描：iPhone 切換主機後 3 秒內跟上，且不會連上已改選其他主機的 iPhone（Provisional） | TBD |
+| 面板手機清單、刪除、目前連線的手機名稱 | TBD |
+| 握手逾時、`notSelected`、版本不符時的 10 秒與 60 秒暫擋 | TBD |
+
+## 開 PR 前的獨立審查（2026-11-13）
+
+reviewer 結論：沒有阻擋問題，可以開 PR；4 項建議修正、7 項細節。
+
+| # | 問題 | 處理 |
+|---|---|---|
+| 1 | `host.json` 讀不到時產生新 `hostId` 並覆蓋，已配對的手機全部失聯而面板沒有錯誤 | 修正：只有檔案不存在才產生；其他讀取失敗時產生新身分並清空手機清單 |
+| 2 | 開配對時段時剛被中斷的手機會經選定 UUID 搶先連回，另一支手機整個時段連不上 | 修正：配對時段開著時不連選定 UUID 的裝置 |
+| 3 | Mac 的說明文字仍是 iOS 的舊按鈕名稱 | 修正 |
+| 4 | Personal Team 簽名的 App 取不到裝置名稱，所有手機都叫「iPhone」 | 已知限制。Mac 清單加註配對日期以便分辨，刪除加確認 |
+| 5–10 | 退避中重新掃描、換手時沿用舊主機、舊金鑰刪除次數、Mac 刪除沒有確認、暫擋名單清理、重複通知 | 5–9 修正；10 未改（目前的觀察者不受重複通知影響） |
+| 11 | 驗收報告未 commit | 隨 PR 提交 |
+
+修正後主代理重跑：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1113 tests, with 0 failures (0 unexpected) in 0.470 (0.520) seconds
+$ xcodebuild test … -scheme MacReceiver -destination 'platform=macOS'
+Executed 357 tests, with 0 failures (0 unexpected) in 13.085 (13.183) seconds
+** TEST SUCCEEDED **
+$ xcodebuild build … -scheme MacReceiver                 → ** BUILD SUCCEEDED **
+$ xcodebuild build … -scheme RemoteKeyboardApp（模擬器）  → ** BUILD SUCCEEDED **
+$ xcodebuild build-for-testing …（iPhone 17 Pro 真機）   → ** TEST BUILD SUCCEEDED **
+```
+
+新增的測試：壞掉或為 symlink 的 `host.json` 會清空手機清單、配對時段開著時不連選定 UUID 的裝置、退避中切換配對掃描不重新開始掃描、換主機時重設連線、暫擋名單清掉已到期項目、配對日期的讀寫。Mac 的刪除確認框與 iOS 換手時的重設只有建置驗證，實機 TBD。
+
+鍵盤未配對時的提示依使用者要求改為「尚未配對」（2026-11-13），不再提到 Mac。
+

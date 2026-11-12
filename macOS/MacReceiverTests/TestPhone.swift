@@ -10,7 +10,12 @@ final class RecordingDriver: CentralDriving {
     enum Call: Equatable { case startScan, stopScan, connect(UUID), discover(UUID), cancel(UUID), forget(UUID) }
     var calls: [Call] = []
     var controlWrites: [Data] = []
-    func startScan() { calls.append(.startScan) }
+    /// The service UUIDs of every scan started, oldest first.
+    var scans: [[UUID]] = []
+    func startScan(services: [UUID]) {
+        scans.append(services)
+        calls.append(.startScan)
+    }
     func stopScan() { calls.append(.stopScan) }
     func connect(_ id: UUID) { calls.append(.connect(id)) }
     func discover(_ id: UUID) { calls.append(.discover(id)) }
@@ -21,23 +26,45 @@ final class RecordingDriver: CentralDriving {
     var writes: [ControlMessage] { controlWrites.compactMap { try? ControlCodec.decode($0) } }
 }
 
-/// In-memory pair key store; counts saves so a test can prove nothing was stored.
-final class FakePairKeyStore: PairKeyStoring {
-    private(set) var key: SymmetricKey?
-    private(set) var saves = 0
-    var failSave = false
-    init(key: SymmetricKey? = nil) { self.key = key }
-    func load() -> SymmetricKey? { key }
-    func save(_ key: SymmetricKey) throws {
-        if failSave {
-            // Like `MacPairingStore.save`, which deletes the old item before it adds the new one.
-            self.key = nil
-            throw CocoaError(.fileWriteUnknown)
-        }
-        saves += 1
-        self.key = key
+/// Fixed identities for the tests. Fixed bytes keep every run deterministic.
+enum TestIdentity {
+    static let hostId = Data((0..<16).map { UInt8($0) })
+    static let host = HostIdentity(id: hostId, name: "書房的 Mac", platform: .mac)
+
+    /// The nth test phone: its own id and name.
+    static func phone(_ n: UInt8 = 1) -> PhoneIdentity {
+        PhoneIdentity(id: Data((0..<16).map { $0 == 0 ? n : UInt8(0x20 + $0) }), name: "手機\(n)", platform: .ios)
     }
-    func delete() { key = nil }
+
+    static func key(_ n: UInt8) -> SymmetricKey { SymmetricKey(data: Data(repeating: 0x10 &* n &+ 0x01, count: 32)) }
+}
+
+/// In-memory pairing store; counts saves so a test can prove nothing was stored.
+final class FakePairingStore: PairingStoring {
+    private(set) var host: HostIdentity
+    private(set) var phones: [PairedPhone]
+    private(set) var saves = 0
+    private(set) var legacyRemovals = 0
+    var failSave = false
+
+    init(host: HostIdentity = TestIdentity.host, phones: [PairedPhone] = []) {
+        self.host = host
+        self.phones = phones
+    }
+
+    func loadHost() -> HostIdentity { host }
+    func loadPhones() -> [PairedPhone] { phones }
+
+    func save(_ phone: PairedPhone) throws {
+        if failSave { throw PairingStoreError.file("save: errno 5") }
+        var list = PairedList(entries: phones)
+        if list.add(phone) == .full { throw PairingStoreError.full }
+        phones = list.entries
+        saves += 1
+    }
+
+    func delete(phoneId: Data) { phones.removeAll { $0.identity.id == phoneId } }
+    func removeLegacyKey() { legacyRemovals += 1 }
 }
 
 /// The iPhone side of the handshake, built from the same Core reducers the keyboard uses.
@@ -45,17 +72,31 @@ final class FakePairKeyStore: PairKeyStoring {
 final class TestPhone {
     var handshake: PhoneHandshake
     let nonce: Data
+    let identity: PhoneIdentity
     private var messageId: UInt16 = 0
 
-    init(pairKey: SymmetricKey?, nonce: Data = Pairing.randomNonce()) {
+    /// - Parameters:
+    ///   - pairKey: the key shared with the host `hostId`; `nil` for a phone that has no current host.
+    ///   - hostId: the host this phone currently types to.
+    init(
+        pairKey: SymmetricKey?, identity: PhoneIdentity = TestIdentity.phone(), hostId: Data = TestIdentity.hostId,
+        nonce: Data = Pairing.randomNonce()
+    ) {
         self.nonce = nonce
-        handshake = PhoneHandshake(pairKey: pairKey, phoneNonce: nonce)
+        self.identity = identity
+        handshake = PhoneHandshake(selected: pairKey.map { (hostId: hostId, pairKey: $0) }, phoneNonce: nonce)
     }
 
     /// One message as the frames a notify would carry.
     func frames(_ message: PeripheralMessage) throws -> [Data] {
         defer { messageId &+= 1 }
         return try FrameCodec.split(try PeripheralCodec.encode(message), messageId: messageId, maxFrameBytes: 182)
+    }
+
+    /// Raw bytes as the frames a notify would carry.
+    func frames(raw: Data) throws -> [Data] {
+        defer { messageId &+= 1 }
+        return try FrameCodec.split(raw, messageId: messageId, maxFrameBytes: 182)
     }
 
     func receive(_ controlWrite: Data) -> PhoneHandshakeOutput {
@@ -82,7 +123,7 @@ final class TestClock {
 @MainActor
 final class SecurityRig {
     let driver = RecordingDriver()
-    let store: FakePairKeyStore
+    let store: FakePairingStore
     let central: ReceiverBLECentral
     let security: ReceiverSecurity
     let peripheral = UUID()
@@ -97,17 +138,26 @@ final class SecurityRig {
     private(set) var linkLostCount = 0
     private let nonces = NonceBox()
     /// The nonce the Mac used for its most recent `hello`.
-    var lastMacNonce: Data { nonces.last }
+    var lastHostNonce: Data { nonces.last }
     private var consumed = 0
 
-    init(pairKey: SymmetricKey?, handshakeTimeout: TimeInterval = 5) {
+    /// - Parameter pairKey: the key of one paired phone (`TestIdentity.phone()`); `nil` for a Mac with nobody paired.
+    convenience init(pairKey: SymmetricKey?, handshakeTimeout: TimeInterval = 5) {
+        self.init(
+            phones: pairKey.map { [PairedPhone(identity: TestIdentity.phone(), pairKey: $0)] } ?? [],
+            handshakeTimeout: handshakeTimeout)
+    }
+
+    init(phones: [PairedPhone], handshakeTimeout: TimeInterval = 5) {
         let name = "rk.tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
         let driver = driver
         let clock = clock
-        central = ReceiverBLECentral(defaults: defaults, clock: { clock.now }, makeDriver: { _ in driver })
-        store = FakePairKeyStore(key: pairKey)
+        central = ReceiverBLECentral(
+            hostId: TestIdentity.hostId, defaults: defaults, clock: { clock.now },
+            uptime: { clock.now.timeIntervalSince1970 }, makeDriver: { _ in driver })
+        store = FakePairingStore(phones: phones)
         security = ReceiverSecurity(
             central: central, store: store, clock: { clock.now },
             makeNonce: { [nonces] in
@@ -122,11 +172,12 @@ final class SecurityRig {
         security.refreshPairedState()
     }
 
-    /// Arms receiving and brings the link to ready, which starts the handshake on the Mac.
-    func connect() {
+    /// Arms receiving and brings the link to ready, which starts the handshake on the Mac. `route` is how the peripheral was
+    /// found: its advertisement carried the selected UUID or the pairing UUID.
+    func connect(route: MacHandshake.Route = .selected) {
         if !central.isArmed { central.startReceiving() }
         central.handleLink(.power(.poweredOn))
-        central.handleLink(.discovered(peripheral))
+        central.handleLink(.discovered(peripheral), route: route)
         central.handleLink(.connected(peripheral))
         central.handleLink(.linkReady(peripheral))
     }

@@ -30,9 +30,9 @@ public struct SessionCrypto: Sendable {
 
     private let key: SymmetricKey
 
-    public init(pairKey: SymmetricKey, macNonce: Data, phoneNonce: Data, direction: Direction) {
+    public init(pairKey: SymmetricKey, hostNonce: Data, phoneNonce: Data, direction: Direction) {
         key = HKDF<SHA256>.deriveKey(
-            inputKeyMaterial: pairKey, salt: Data(), info: direction.info + macNonce + phoneNonce, outputByteCount: 32)
+            inputKeyMaterial: pairKey, salt: Data(), info: direction.info + hostNonce + phoneNonce, outputByteCount: 32)
     }
 
     /// Returns `nonce(12) ‖ ciphertext ‖ tag(16)`; the nonce is fresh random for every call.
@@ -40,6 +40,16 @@ public struct SessionCrypto: Sendable {
         guard let box = try? ChaChaPoly.seal(plain, using: key) else { throw SessionCryptoError.sealFailed }
         return box.combined
     }
+
+    /// The same envelope with a chosen nonce, so the conformance vectors can be reproduced. Never used on a wire: a
+    /// repeated nonce under one key breaks ChaCha20-Poly1305.
+    func seal(_ plain: Data, nonce: ChaChaPoly.Nonce) throws -> Data {
+        guard let box = try? ChaChaPoly.seal(plain, using: key, nonce: nonce) else { throw SessionCryptoError.sealFailed }
+        return box.combined
+    }
+
+    /// The tests compare keys with the protocol document; nothing outside the module can read one.
+    var keyDataForTesting: Data { key.withUnsafeBytes { Data($0) } }
 
     public func open(_ sealed: Data) throws -> Data {
         guard let box = try? ChaChaPoly.SealedBox(combined: sealed), let plain = try? ChaChaPoly.open(box, using: key) else {
