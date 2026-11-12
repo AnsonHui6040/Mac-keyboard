@@ -8,7 +8,7 @@
 
 **Tech Stack:** Swift 6（CryptoKit、CoreBluetooth、UIKit、SwiftUI、XCTest、XcodeGen、CocoaPods）；Rust stable（`windows` crate、bluer、serde、serde_json、p256、hkdf、hmac、sha2、chacha20poly1305、ashpd、windows crate）；GitHub Actions。
 
-**Spec:** `docs/superpowers/specs/2026-11-10-windows-linux-receiver-design.md`（D28 修訂 2）；上層 `docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`、`docs/superpowers/specs/2026-11-01-trackpad-design.md`。
+**Spec:** `docs/superpowers/specs/2026-11-10-windows-linux-receiver-design.md`（D28 修訂 4）；上層 `docs/superpowers/specs/2026-10-29-remote-keyboard-design.md`、`docs/superpowers/specs/2026-11-01-trackpad-design.md`。
 
 ## Global Constraints
 
@@ -16,12 +16,14 @@
 - GATT 資料庫不變：service `706AA642-68A3-41FA-889D-24E30709B0D0`、`event` `C7FC0313-53E7-4DCD-B75F-2AE66FE9C586`、`control` `320468E2-53B6-4B6A-88EC-AE2752415818`。改的只有廣播封包。
 - 配對廣播 UUID：`6BA36ECB-1BF9-49C1-B98D-37402247F356`。
 - 選定 UUID：`SHA-256("rk-select" ‖ hostId)` 前 16 bytes，byte 6 高四位元設為 `0100`，byte 8 高兩位元設為 `10`。
-- `hostId`、`phoneId`：16 bytes 亂數。名稱上限 32 個 UTF-8 bytes，超過時截到完整字元。
+- `hostId`、`phoneId`：16 bytes 亂數。名稱不得為空，上限 32 個 UTF-8 bytes；超過時以 Unicode 碼位為單位截斷（保留不超過 32 bytes 的最長開頭，結果是合法的 UTF-8，不以字素為單位）；名稱被清空時改用預設名稱。收到空的或超過 32 bytes 的名稱時配對失敗。
 - 主機平台字串 `mac`、`windows`、`linux`；手機平台字串 `ios`、`android`。
 - iPhone 最多 8 台主機；每個接收端最多 8 支手機。
-- 配對時段 120 秒；收到 `notSelected` 或握手逾時後退避 10 秒（Provisional）。
-- 掃描：Windows 用 `BluetoothLEAdvertisementWatcher`（主動掃描）；Linux 用 BlueZ 探索，未連線時每 1.5 秒 `StopDiscovery`＋`StartDiscovery` 並對目標裝置 `RemoveDevice`；連線期間不掃描。
-- wire 欄位用中性名稱：`hostNonce`、`hostPublic`；proof 標籤 `phone`、`host`。
+- 配對時段 120 秒；握手逾時 5 秒，逾時只中斷連線，不寫入 `authFailed`；收到 `notSelected` 或握手逾時後退避 10 秒（Provisional）。
+- 驗證失敗（寫入 `authFailed`）後：Mac 到接收工作階段結束為止不再連線該裝置；Windows、Linux 60 秒（Provisional）內不再連線該裝置，系統匣顯示需要重新配對。收到版本不符的訊息：顯示更新提示、中斷連線、60 秒（Provisional）內不再連線該裝置。
+- 只有經選定 UUID 找到的連線才寫入 `hello`；經配對 UUID 找到的不寫，只等 `pairOffer`。
+- 掃描：Mac 用 CoreBluetooth，以選定 UUID 為過濾條件並允許重複回報（Provisional，S8 量的是不帶過濾條件的情況）；Windows 用 `BluetoothLEAdvertisementWatcher`（主動掃描）；Linux 用 BlueZ 探索，未連線時每 1.5 秒 `StopDiscovery`＋`StartDiscovery` 並對目標裝置 `RemoveDevice`；連線期間不掃描。
+- wire 欄位用中性名稱：`hostNonce`、`hostPublic`；proof 標籤 `phone`、`host`。`pairAccept` 的 `hostId`、`hostName`、`platform` 與 `pairReveal` 的 `phoneId`、`phoneName`、`phonePlatform` 都是訊息內同一層的欄位，不另包一層物件。身分雜湊為 `SHA-256(utf8(name) ‖ 0x00 ‖ utf8(platform))`。
 - JSON 一律 `.sortedKeys`；`Data` 為 base64；`UUID` 為大寫字串。Rust 輸出必須與 Swift 逐位元組相同。
 - log 只記事件種類、長度、時間與結果；不得含文字內容、金鑰、nonce、proof、配對碼、App 名稱、指標位移。
 - Windows 與 Linux 不做焦點安全檢查；Mac 的焦點安全、輸入法切換、觸控板行為不得改變。
@@ -45,7 +47,7 @@
 1. **兩台已配對主機同時在旁邊**：只有被選定的那台連線；另一台不連、不顯示錯誤、不干擾連線中的主機。由 WL0 的 S8、WL3 `testSelectUUIDDiffersPerHost`、WL11 實機覆蓋。
 2. **接收端掃描看到過期內容而連上不屬於它的鍵盤**：iPhone 回 `notSelected`，已驗證的另一條連線不受影響；接收端退避 10 秒，不列入略過名單。由 WL3 `testHelloForOtherHostRepliesNotSelected`、`testNotSelectedDoesNotDisturbAuthenticatedCentral`、`testNotSelectedBacksOffWithoutSkipping` 覆蓋。
 3. **第二支手機配對後，第一支仍能連**：逐把金鑰驗證，順序不影響結果。由 WL3 `testHostFindsKeyAmongSeveralPhones`、`testUnknownPhoneFailsAfterAllKeys` 覆蓋。
-4. **名稱含表情符號或超過 32 bytes**：截到完整字元，兩端算出相同的金鑰與配對碼。由 WL3 `testNameClampKeepsWholeCharacters`、測試向量覆蓋。
+4. **名稱含表情符號或超過 32 bytes**：以碼位為單位截斷，表情符號組合可以被切開，結果仍是合法的 UTF-8；兩端算出相同的金鑰與配對碼。收到空的或超過 32 bytes 的名稱時配對失敗。由 WL3 `testNameClampKeepsWholeCharacters`、`testEmptyOrOverlongPeerNameFailsPairing`、測試向量覆蓋。
 5. **補充平面字元與組合字元的文字事件**：Windows 送代理對、Linux 送單一 keysym，不拆壞。由 WL8 `utf16_units_for_supplementary_plane`、WL9 `keysym_for_supplementary_plane` 覆蓋。
 
 ---
@@ -143,19 +145,24 @@ hostProof  = HMAC-SHA256(pairKey, "host"  ‖ hostNonce ‖ phoneNonce)
 ```swift
 public enum HostPlatform: String, Codable, Sendable { case mac, windows, linux }
 public enum PhonePlatform: String, Codable, Sendable { case ios, android }
-public struct HostIdentity: Codable, Equatable, Sendable { public let id: Data; public let name: String; public let platform: HostPlatform }
+public struct HostIdentity: Codable, Equatable, Sendable { public let id: Data; public let name: String; public let platform: HostPlatform }    // Codable 只用於本機儲存，不是 wire 形狀
 public struct PhoneIdentity: Codable, Equatable, Sendable { public let id: Data; public let name: String; public let platform: PhonePlatform }
-public enum IdentityName { public static let maxBytes = 32; public static func clamp(_ name: String) -> String }
+public enum IdentityName { public static let maxBytes = 32
+    public static func clamp(_ name: String) -> String      // 以 Unicode 碼位為單位，保留不超過 32 bytes 的最長開頭
+    public static func isValid(_ name: String) -> Bool }    // 非空且不超過 32 bytes；收到的名稱不合格時配對失敗
 public enum SelectUUID { public static func make(hostId: Data) -> UUID }
 // GATTServiceSpec.Link.pairingAdvertUUID = "6BA36ECB-1BF9-49C1-B98D-37402247F356"
 
-// ControlMessage
-case pairAccept(publicKey: Data, host: HostIdentity)
+// ControlMessage：改為手寫 Codable（不用自動合成），其餘訊息的位元組不變
+case pairAccept(publicKey: Data, host: HostIdentity)     // wire 扁平：{"pairAccept":{"hostId":"…","hostName":"…","platform":"mac","publicKey":"…"}}
 case hello(hostId: Data, hostNonce: Data)
 // PeripheralMessage
-case pairReveal(publicKey: Data, phone: PhoneIdentity)
+case pairReveal(publicKey: Data, phone: PhoneIdentity)   // wire 扁平：{"phoneId":"…","phoneName":"…","phonePlatform":"ios","protocolVersion":4,"publicKey":"…","type":"pairReveal"}
 case notSelected                                          // wire: {"protocolVersion":4,"type":"notSelected"}
 // CentralBinding 新增：func helloDisposition(from: UUID, hostIdMatches: Bool, locked: Bool) -> .handshake | .replyNotSelected | .ignore
+//   不相符 → .replyNotSelected（來自綁定的 central 時回覆後解除綁定）；相符且來自綁定的 central → .handshake；
+//   相符、來自其他 central：locked（綁定的連線已驗證）→ .ignore，否則改綁定到它 → .handshake
+//   hostId 或 hostNonce 不是 16 bytes 屬於格式錯誤：綁定的 central 送來時握手失敗，其他 central 送來時忽略，不回 notSelected
 // MacHandshakeOutput 新增 .notSelected；ReceiverLinkStateMachine 新增事件 .notSelected(UUID)
 
 Pairing.sharedKey(myPrivate:peerPublic:hostPublic:phonePublic:host:phone:) throws -> SymmetricKey
@@ -174,15 +181,18 @@ PhoneHandshake.init(selected: (hostId: Data, pairKey: SymmetricKey)?, phoneNonce
 MacHandshake.init(hostId: Data, phones: [PairedPhone], hostNonce: Data)
 // MacHandshakeOutput.authenticated(reply: ControlMessage, phoneId: Data)
 
-ReceiverLinkStateMachine.handshakeBackoffSeconds = 10.0     // 新事件 .handshakeTimeout(UUID) → [.cancel(id), .startScanAfter(seconds: 10)]
+ReceiverLinkStateMachine.handshakeBackoffSeconds = 10.0     // 新事件 .handshakeTimeout(UUID)、.notSelected(UUID) → [.cancel(id)]，並把該裝置放進暫擋名單 10 秒；掃描照常，其他裝置不受影響（與 .unsupportedVersion 共用同一份暫擋名單）
+ReceiverLinkStateMachine.unsupportedVersionHoldSeconds = 60.0   // 新事件 .unsupportedVersion(UUID)：中斷該連線，60 秒內再發現同一個裝置時不連線，其他裝置不受影響
 ```
 
 - [ ] **Step 1：寫失敗的測試。** 名稱與斷言如下，全部先確認 RED。
 
 ```swift
 // IdentityTests
-func testNameClampKeepsWholeCharacters()      // 11 個「測」（33 bytes）→ 10 個；"a" + 8 個 👨‍👩‍👧 不拆開任何一個字素
+func testNameClampKeepsWholeCharacters()      // 11 個「測」（33 bytes）→ 10 個（30 bytes）；"a" + 8 個 👨‍👩‍👧（145 bytes）→ 30 bytes，結尾為 U+1F468、U+200D、U+1F469：
+                                              // 表情符號組合可以被切開，但截斷點在碼位邊界，Data(result.utf8) 能解回同一個字串
 func testNameClampLeavesShortNamesAlone()
+func testNameValidityRejectsEmptyAndOverlong()   // "" 與 33 bytes → false；32 bytes → true
 // SelectUUIDTests
 func testSelectUUIDIsDeterministicAndVersion4()   // 同 hostId 兩次相同；uuid.uuid.6 >> 4 == 4；uuid.uuid.8 >> 6 == 2
 func testSelectUUIDDiffersPerHost()
@@ -195,8 +205,13 @@ func testProofLabelsAreDistinct()                 // phoneProof != hostProof（�
 // PairingFlowTests
 func testPairingCarriesBothIdentities()           // 兩端完成後 host、phone 互相看到對方的身分，pairKey 與 sas 相同
 func testTamperedHostNameGivesDifferentSAS()
+func testEmptyOrOverlongPeerNameFailsPairing()    // pairAccept 的 hostName、pairReveal 的 phoneName 為空或 33 bytes → .failed，不自行截斷
+func testWrongIdLengthFailsPairing()              // hostId 或 phoneId 不是 16 bytes → .failed
 // AuthHandshakeTests
-func testHelloForOtherHostRepliesNotSelected()    // PhoneHandshake.receive(.hello(其他 hostId)) == .send(.notSelected)，沒配對過的 hostId 也一樣
+func testHelloForOtherHostRepliesNotSelected()    // PhoneHandshake.receive(.hello(其他 hostId)) == .send(.notSelected)，沒配對過的 hostId 也一樣；selected 為 nil 時也回 .notSelected
+func testHelloWithBadHostIdLengthFails()          // hostId 15 bytes → .failed，不是 .notSelected；與 hostNonce 15 bytes 相同
+func testMatchingHelloFromOtherCentralIsIgnoredWhenLocked()      // CentralBinding：綁定的連線已驗證 → .ignore，綁定不變
+func testMatchingHelloFromOtherCentralTakesOverWhenNotLocked()   // 綁定的連線未驗證 → 改綁定並 .handshake
 func testNotSelectedDoesNotDisturbAuthenticatedCentral()   // CentralBinding：已驗證時，另一個 central 的 hello 得到 .replyNotSelected，綁定不變
 func testHelloFromBoundCentralWithWrongHostReleasesBinding()
 func testHostTreatsNotSelectedAsBackoff()         // MacHandshake.receive(.notSelected) == .notSelected，不是 .authFailed
@@ -209,13 +224,17 @@ func testAddOverwritesSameId(); func testAddBeyondEightIsRefused(); func testRem
 func testCycleWrapsAround(); func testCycleWithOneHostReturnsNil()
 // ControlMessageTests / EventCodecTests
 func testHelloWireShape()                         // {"hello":{"hostId":"…","hostNonce":"…"}}
-func testPairRevealWireShape(); func testVersion3MessageIsUnsupportedVersion()
+func testPairAcceptWireShape()                    // 身分欄位與 publicKey 同一層，鍵依序為 hostId、hostName、platform、publicKey
+func testPairRevealWireShape()                    // 扁平：phoneId、phoneName、phonePlatform、protocolVersion、publicKey、type
+func testUnchangedControlMessagesKeepTheirBytes() // 手寫 Codable 後 ack、status、auth、authFailed、bye、sealed 的輸出與 docs/protocol/v4.md 的範例逐位元組相同
+func testVersion3MessageIsUnsupportedVersion()
 // ReceiverLinkStateMachine（既有測試檔）
-func testHandshakeTimeoutBacksOffWithoutSkipping()   // .handshakeTimeout(id) 於 .ready(id) → [.cancel(id), .startScanAfter(seconds: 10)]
+func testHandshakeTimeoutBacksOffWithoutSkipping()   // .handshakeTimeout(id) 於 .ready(id) → [.cancel(id)]；10 秒內再發現 id 不連線，再發現其他裝置照常連線；不產生 .startScanAfter
 func testNotSelectedBacksOffWithoutSkipping()        // .notSelected(id) 同上
+func testUnsupportedVersionHoldsOnlyThatDeviceFor60Seconds()   // 60 秒內同一個裝置再被發現時不連線，另一個裝置照常連線；60 秒後恢復
 ```
 
-- [ ] **Step 2：實作到全綠。** `IdentityName.clamp` 以字素為單位累加 UTF-8 長度。`MacHandshake` 依清單順序驗證 proof，每把都用常數時間比較。把所有 `mac…` 參數與欄位名稱改為 `host…`，`macLabel` 改為 `"host"`，`pairSalt` 改為 `"rk-pair-v2"`。
+- [ ] **Step 2：實作到全綠。** `IdentityName.clamp` 以 Unicode 碼位為單位累加 UTF-8 長度。`ControlMessage` 改為手寫 Codable，讓 `pairAccept` 的身分欄位扁平；`PhonePairing`、`MacPairing` 收到不合格的名稱或長度不對的識別碼時回 `.failed`。`MacHandshake` 依清單順序驗證 proof，每把都用常數時間比較。把所有 `mac…` 參數與欄位名稱改為 `host…`，`macLabel` 改為 `"host"`，`pairSalt` 改為 `"rk-pair-v2"`。
 - [ ] **Step 3：測試向量。** `ProtocolVectorTests.testVectorsFileIsCurrent()` 以固定輸入（私鑰、nonce、身分寫死在測試內）產生一份 JSON，與 `receiver/testdata/swift-vectors-v4.json` 比對；環境變數 `RK_WRITE_VECTORS=1` 時改為寫檔。內容：每種訊息的編碼位元組、`selectUUID`、名稱截斷前後、`pairKey`、`sas`、兩個 proof、兩個方向各一則 session 密文與其明文、指標通道一個封包與其明文、一則 600 bytes 訊息以 185 bytes 分段的結果。
 - [ ] **Step 4：驗證。** `swift test --package-path Packages/RemoteKeyboardCore` 全過。此時 iOS 與 Mac 的 adapter 會編譯失敗，屬預期，WL4、WL5 修復；本 Task 的 PR 與 WL4、WL5 一起合併前不單獨 merge 進 main。
 - [ ] **Step 5：Commit。** `git commit -m "feat(core): protocol v4 with host and phone identities"`
@@ -305,15 +324,19 @@ func testLegacyKeyFileIsRemoved()
 // ReceiverSecurityTests
 func testSecondPairedPhoneAuthenticates()
 func testHandshakeTimeoutDoesNotSkipPeripheral()        // 逾時後同一個 peripheral 再次被發現時仍會連線
+func testHandshakeTimeoutWritesNoAuthFailed()           // 逾時只中斷連線，control 上沒有寫入 authFailed
 func testUnsupportedVersionShowsUpdatePhoneNote()       // 收到 protocolVersion 3 → 面板狀態為「請更新 iPhone App」
+func testUnsupportedVersionDisconnectsAndHoldsFor60Seconds()   // 中斷連線；60 秒內同一個 peripheral 再被發現時不連線
+func testPairingAdvertConnectionSendsNoHello()          // 經配對 UUID 找到的連線即使已有配對金鑰也不寫入 hello，只等 pairOffer
 // ReceiverBLECentralTests
 func testScansSelectUUIDOnly(); func testScansPairingUUIDOnlyWhileWindowOpen()
+func testScanAllowsDuplicates()                         // 掃描選項帶 CBCentralManagerScanOptionAllowDuplicatesKey: true
 ```
 
-- [ ] **Step 2：實作。** 掃描改為 `[SelectUUID.make(hostId:)]`，配對時段開著時加上 `pairingAdvertUUID`，時段關閉時立刻重設掃描條件。`TestPhone` 改為 v4。
+- [ ] **Step 2：實作。** 掃描改為 `[SelectUUID.make(hostId:)]` 並允許重複回報，配對時段開著時加上 `pairingAdvertUUID`，時段關閉時立刻重設掃描條件。每次發現時依該筆廣播的 service UUID 記下是經選定 UUID 還是配對 UUID 找到的，經配對 UUID 的連線不寫入 `hello`。`TestPhone` 改為 v4。
 - [ ] **Step 3：面板。** 配對區塊改為手機清單（名稱、平台、刪除），上方顯示目前連線的手機名稱；配對確認框顯示手機名稱。
 - [ ] **Step 4：驗證。** `swift test`、`MacReceiverTests`、Mac build、iOS 模擬器 build、真機 build-for-testing 全過。安裝後執行 `scripts/install-mac-receiver.sh` 並用 `lsregister -u` 清掉 build 產物。
-- [ ] **Step 5：實機項目（TBD）。** iPhone 與 Mac 重新配對、打字、觸控板；Mac 的延遲與焦點行為與升級前相同。
+- [ ] **Step 5：實機項目（TBD）。** iPhone 與 Mac 重新配對、打字、觸控板；Mac 的延遲與焦點行為與升級前相同；帶選定 UUID 過濾條件的掃描在 iPhone 切換主機後 3 秒內跟上，且不會連上已改選其他主機的 iPhone（Provisional，S8 沒有量過帶過濾條件的情況）。
 - [ ] **Step 6：Commit、開 PR（含 WL3、WL4）。** `git commit -m "feat(mac): protocol v4, several paired phones"`
 
 ---
@@ -377,7 +400,7 @@ pub trait PhoneStore { fn host(&self) -> HostIdentity; fn phones(&self) -> Vec<P
 pub trait Injector { fn text(&mut self, s: &str) -> Result<(), InjectError>; fn backspace(&mut self) -> ..; fn enter(&mut self) -> ..; fn pointer_move(&mut self, dx: f64, dy: f64) -> ..; fn button(&mut self, b: Button, down: bool) -> ..; fn scroll(&mut self, dx: f64, dy: f64) -> ..; fn ready(&self) -> bool; }
 ```
 
-**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s`、`not_selected_backs_off_10_s_without_error`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
+**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
 
 **實機（TBD）：** Windows 上配對、開機自動啟動、系統匣選單各項。
 
