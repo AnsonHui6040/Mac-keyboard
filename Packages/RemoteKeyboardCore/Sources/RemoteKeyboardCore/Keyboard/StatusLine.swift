@@ -1,7 +1,7 @@
 /// Wording for the keyboard status line. Taiwan Traditional Chinese where it is not a state name.
 public enum StatusLine {
     /// Remote mode with no pair key: nothing is sent, and this is what the user is told to do.
-    public static let unpairedText = "尚未配對 Mac，請開啟主 App 配對"
+    public static let unpairedText = "尚未配對"
 
     /// How the status line names the computer: Mac keeps its own wording (focus, Accessibility, password field); a Windows
     /// or Linux receiver is just 「電腦」, and none of the Mac-only states (focus, password field) exist for it.

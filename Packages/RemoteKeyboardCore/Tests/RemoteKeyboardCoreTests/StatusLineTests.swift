@@ -72,7 +72,7 @@ final class StatusLineTests: XCTestCase {
     }
 
     func testRemoteWithoutAPairKeyAsksForPairingWhateverTheLink() {
-        let line = "尚未配對 Mac，請開啟主 App 配對"
+        let line = "尚未配對"
         XCTAssertEqual(StatusLine.unpairedText, line)
         for link in [KeyboardLinkState.advertising, .connected, .publishing] {
             XCTAssertEqual(StatusLine.text(mode: .remote, link: link, receiver: status(), paired: false), line)
