@@ -13,7 +13,8 @@ import UIKit
 /// `trackpad` (the touchpad page, ready), `trackpadDenied` (the same with the Mac not allowing it), `remoteTrackpadKey`
 /// (the English page with the 觸控板 key usable), `connected` (green 已連接, 觸控板 usable), `disconnected` (red 未連接,
 /// 觸控板 grey), `unpaired` (尚未配對), `statusNote` (a two-line note in the status cell), `handwritingDisconnected` (the
-/// handwriting page with a disconnected link).
+/// handwriting page with a disconnected link), `twoHosts` (two paired hosts: the status cell has two lines, the host name
+/// 書房的 Mac over 已連接), `twoHostsLongName` (the same with a host name of exactly 32 UTF-8 bytes, cut at its end).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
 struct KeyboardPreviewView: View {
@@ -70,6 +71,9 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
+
+    /// Mixed Chinese and English, exactly `IdentityName.maxBytes` (32) UTF-8 bytes: the longest name a host can have.
+    private static let longHostName = "我的辦公室電腦 Windows 11"
 
     private static let sampleCandidates = ["禾", "乐", "木", "夭", "米", "未", "朱", "末", "林"]
 
@@ -171,6 +175,15 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
                 .off)
         case "statusNote":
             return (make(status: StatusLine.Display(text: StatusLine.unconfirmedText(2), tone: .problem)), .off)
+        case "twoHosts":
+            return (
+                make(status: StatusLine.Display(text: StatusLine.connectedText, tone: .connected, title: "書房的 Mac")), .off)
+        case "twoHostsLongName":
+            return (
+                make(
+                    status: StatusLine.Display(text: StatusLine.connectedText, tone: .connected, title: longHostName),
+                    detail: "電腦"),
+                .off)
         case "caps":
             return (make(), .capsLock)
         default:

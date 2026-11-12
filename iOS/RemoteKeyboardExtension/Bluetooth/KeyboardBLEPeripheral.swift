@@ -46,8 +46,11 @@ final class KeyboardBLEPeripheral: NSObject {
     private var binding = CentralBinding()
     private(set) var latestStatus: ReceiverStatus?
 
-    /// The pair key as of the last appearance or connection; `nil` when this iPhone is not paired (or the Extension has
-    /// no Full Access and cannot read the Keychain).
+    /// The hosts this iPhone has paired and the one the keyboard types to, as of the last appearance, connection or switch.
+    /// Empty when nothing is paired (or the Extension has no Full Access and cannot read the App Group).
+    private var hostSelection = HostSelection()
+    /// The current host's pair key as of the same moment; `nil` when there is no current host, or its key cannot be read
+    /// (the Extension has no Full Access).
     private var pairKey: SymmetricKey?
     /// One per Mac connection, with its own nonce. Events leave only once it `canSendEvents`, and only sealed.
     private var handshake: PhoneHandshake? {
@@ -398,8 +401,18 @@ final class KeyboardBLEPeripheral: NSObject {
     /// Nobody owns the peripheral; a controller that is still on screen may reclaim it.
     var isVacant: Bool { ownership.isVacant }
 
-    /// Whether this iPhone holds a pair key.
+    /// Whether this iPhone holds the pair key of its current host.
     var isPaired: Bool { pairKey != nil }
+
+    /// The host the keyboard types to, and how many hosts are paired. The status cell shows the name from two hosts on.
+    var currentHost: HostIdentity? { hostSelection.selected }
+    var hostCount: Int { hostSelection.hosts.count }
+
+    /// The current host with its key: what is advertised and what the handshake answers for. `nil` while nothing is paired.
+    private var selectedPair: (host: HostIdentity, pairKey: SymmetricKey)? {
+        guard let host = hostSelection.selected, let pairKey else { return nil }
+        return (host, pairKey)
+    }
 
     /// Remote keys are accepted only with a connected link, a subscribed central that proved the pair key, and a Receiver
     /// that says it is ready.
@@ -448,9 +461,10 @@ final class KeyboardBLEPeripheral: NSObject {
             manager = CBPeripheralManager(delegate: self, queue: nil)
             KeyboardLifecycleLog.note(.managerCreated)
         }
-        // The Keychain is read at each appearance (and again per connection) so a pairing made in the host App since the
-        // last time is picked up. Without Full Access the read fails and the keyboard is simply unpaired.
-        loadPairKey()
+        // The host list and the current host's key are read at each appearance (and again per connection) so a pairing made
+        // in the host App since the last time is picked up. Without Full Access the read fails and the keyboard is simply
+        // unpaired.
+        loadHosts()
         feed(.appeared(hasFullAccess: hasFullAccess))
         // The link machine has torn the service down by now; a manager an earlier controller created must not outlive it.
         if !hasFullAccess { releaseManager() }
@@ -490,9 +504,27 @@ final class KeyboardBLEPeripheral: NSObject {
         disappear(owner: owner)
     }
 
-    private func loadPairKey() {
-        pairKey = PairingStore.loadPairKey()
+    private func loadHosts() {
+        hostSelection = PairingStore.loadHosts()
+        pairKey = hostSelection.selected.flatMap { PairingStore.loadPairKey(hostId: $0.id) }
         if pairKey == nil { KeyboardLifecycleLog.note(.pairKeyMissing) }
+    }
+
+    /// The status cell was tapped: the keyboard types to the next paired host. The new current host is saved, the service is
+    /// published again so it advertises the new host's selected UUID, and the connection to the old host is dropped with
+    /// everything that belonged to it (docs/protocol/v4.md §1.2). Returns the new host, or `nil` (nothing changed) with fewer
+    /// than two hosts.
+    @discardableResult
+    func cycleHost() -> HostIdentity? {
+        // The App may have added or removed a host since the last read; the cycle starts from what is stored now.
+        var selection = PairingStore.loadHosts()
+        guard let next = selection.cycle() else { return nil }
+        PairingStore.saveHosts(selection)
+        hostSelection = selection
+        pairKey = PairingStore.loadPairKey(hostId: next.id)
+        if pairKey == nil { KeyboardLifecycleLog.note(.pairKeyMissing) }
+        resetLink()
+        return next
     }
 
     /// Tears down the peripheral manager and everything tied to it (used when Full Access is off).
@@ -819,7 +851,11 @@ final class KeyboardBLEPeripheral: NSObject {
             manager.add(service)
             KeyboardLifecycleLog.note(.addService)
         case .startAdvertising:
-            manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Self.serviceID]])
+            // Only the current host's selected UUID is advertised, so only that host connects. With no current host (nothing
+            // paired, or no readable key) nothing is advertised at all.
+            guard let pair = selectedPair else { return }
+            let selected = CBUUID(nsuuid: SelectUUID.make(hostId: pair.host.id))
+            manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [selected]])
         case .stopAdvertising:
             manager.stopAdvertising()
         case .removeServices:
@@ -888,6 +924,11 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // While the bound Mac is authenticated, another central can neither take its place nor reset its handshake.
         let outcome = binding.subscribe(central.identifier, locked: handshake?.canSendEvents == true)
         guard outcome == .bound else { return }
+        beginConnection(with: central)
+    }
+
+    /// `central` is now the bound one: nothing of an earlier connection carries over, and a fresh handshake starts.
+    private func beginConnection(with central: CBCentral) {
         // A subscription, even a repeat one from the same Mac, is a new connection: nothing of the old one carries over.
         cancelProbe()
         latestStatus = nil
@@ -895,8 +936,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         subscribedCentral = central
         DiagnosticEvent.centralSubscribed(maxUpdateLength: central.maximumUpdateValueLength).log()
         KeyboardLifecycleLog.note(.subscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
-        // Every Mac connection runs its own handshake with its own nonce; a recorded reply is useless on the next one.
-        loadPairKey()
+        // Every host connection runs its own handshake with its own nonce; a recorded reply is useless on the next one.
+        loadHosts()
         // A repeat subscription replaces the handshake without it ever being nil, so the old connection's channels go here.
         channels = nil
         pointerConnectionEnded()
@@ -908,7 +949,8 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // A new link counts as activity: it starts at the default interval and slows down after ten quiet seconds.
         latencyPolicy.noteActivity(atMs: MonotonicClock.nowMs())
         reconcileLatency()
-        handshake = PhoneHandshake(pairKey: pairKey, phoneNonce: Pairing.randomNonce())
+        handshake = PhoneHandshake(
+            selected: selectedPair.map { (hostId: $0.host.id, pairKey: $0.pairKey) }, phoneNonce: Pairing.randomNonce())
         KeyboardLifecycleLog.note(.handshakeStarted)
         feed(.subscribed)
     }
@@ -921,6 +963,12 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // A central that never was the bound one leaving changes nothing.
         guard binding.unsubscribe(central.identifier) else { return }
         KeyboardLifecycleLog.note(.unsubscribed(maxUpdateValueLength: central.maximumUpdateValueLength))
+        connectionLeft()
+    }
+
+    /// The bound central is gone (it unsubscribed, or a `hello` for another host released the binding): the connection's state
+    /// goes with it and the keyboard advertises again.
+    private func connectionLeft() {
         // Keys typed for the old connection are not replayed into a later one.
         cancelProbe()
         subscribedCentral = nil
@@ -965,9 +1013,12 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             return
         }
         peripheral.respond(to: first, withResult: .success)
+        if case .pairAccept = message { return }  // pairing happens in the host App, never in the keyboard
+        // A `hello` is the one write a central other than the bound one may make: whether it is for the current host decides
+        // who it is allowed to reach (docs/protocol/v4.md §6.3).
+        if case .hello = message, !routeHello(message, from: first.central) { return }
         // The ATT request is answered either way; only the bound central's bytes reach the handshake.
         guard binding.shouldAcceptWrite(from: first.central.identifier) else { return }
-        if case .pairAccept = message { return }  // pairing happens in the host App, never in the keyboard
         guard var current = handshake else { return }
         let output = current.receive(message)
         handshake = current
@@ -993,6 +1044,44 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
             // The Mac drops the connection, but iOS may keep the link and never report it. Publish the service again so
             // the keyboard does not sit "connected" forever. The Mac's skip list stops it from reconnecting meanwhile.
             if LinkRecovery.shouldResetAfterHandshakeFailure(hasPairKey: pairKey != nil) { resetLink() }
+        }
+    }
+
+    /// Applies the §6.3 table to a `hello`. `true` when it goes on to the handshake of the bound central; `false` when it was
+    /// answered with `notSelected` or ignored.
+    private func routeHello(_ hello: ControlMessage, from central: CBCentral) -> Bool {
+        let wasBound = binding.subscribed == central.identifier
+        let disposition = binding.helloDisposition(
+            from: central.identifier, hello: hello, currentHostId: selectedPair?.host.id,
+            locked: handshake?.canSendEvents == true)
+        switch disposition {
+        case .ignore:
+            return false
+        case .replyNotSelected:
+            // Plain, to this central only, nothing kept. This is the only thing any other central gets from the keyboard.
+            notify(.notSelected, to: central)
+            // The binding was released inside `helloDisposition` when the writer was the bound central: its handshake and
+            // session go with it, and the keyboard advertises again as if it had unsubscribed.
+            if wasBound { connectionLeft() }
+            return false
+        case .handshake:
+            // The binding moved to a central that had not subscribed through the usual path (the bound connection was not
+            // authenticated yet): it starts a fresh connection.
+            if !wasBound { beginConnection(with: central) }
+            return true
+        }
+    }
+
+    /// One plain message to one central, outside the bound connection's queue. Best effort: when the radio is full the
+    /// message is dropped and the host's handshake timeout takes over.
+    private func notify(_ message: PeripheralMessage, to central: CBCentral) {
+        guard let manager, let eventCharacteristic,
+              let payload = try? PeripheralCodec.encode(message),
+              let frames = try? FrameCodec.split(payload, messageId: messageId, maxFrameBytes: central.maximumUpdateValueLength)
+        else { return }
+        messageId &+= 1
+        for frame in frames where !manager.updateValue(frame, for: eventCharacteristic, onSubscribedCentrals: [central]) {
+            return
         }
     }
 

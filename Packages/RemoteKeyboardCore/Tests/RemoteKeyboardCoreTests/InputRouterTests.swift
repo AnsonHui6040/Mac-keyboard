@@ -321,6 +321,18 @@ final class InputRouterTests: XCTestCase {
         XCTAssertEqual(draft.text, "keep"); XCTAssertEqual(local.inserted, []); XCTAssertEqual(remote.events, [])
     }
 
+    func testCycleHostOnlyReportsTheSwitchAndKeepsTheDraft() {
+        var draft = DraftBuffer()
+        _ = draft.insert("keep")
+        let (router, local, remote) = makeRouter()
+        for mode in [KeyboardMode.local, .remote] {
+            for transmit in [TransmitMode.instant, .draft] {
+                XCTAssertEqual(router.route(.cycleHost, mode: mode, transmit: transmit, ready: true, draft: &draft), .cycleHost)
+            }
+        }
+        XCTAssertEqual(draft.text, "keep"); XCTAssertEqual(local.inserted, []); XCTAssertEqual(remote.events, [])
+    }
+
     func testReadinessIsDecidedPerKey() {
         var draft = DraftBuffer()
         let (router, _, remote) = makeRouter()

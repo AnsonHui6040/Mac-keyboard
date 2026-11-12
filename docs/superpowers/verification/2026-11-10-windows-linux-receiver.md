@@ -9,6 +9,7 @@
 |---|---|---|---|
 | WL0（S8、S8b 廣播 UUID 切換） | iOS Debug 與 Release 建置成功；Release 產物不含測試畫面 | 2026-11-11 量測完成 | 三個平台皆通過。Windows 需用系統原生監看介面；Linux 需定時重啟探索並清除裝置快取 |
 | WL2（協定文件 `docs/protocol/v4.md`） | 舊欄位名稱搜尋 0 筆；18 個 JSON 範例全部可解析；文件內的範例值以獨立腳本重算相符，加密範例以 CryptoKit 與現有程式解開相符 | 不適用（只有文件） | 文件完成；16 項待確認於 2026-11-11 定案，補充細節 A–G 於 2026-11-13 批准，已寫入文件、設計與計畫 |
+| WL3（Core 協定 v4） | `swift test` 1102 個測試 0 失敗；測試向量檔與協定文件的範例值 95／95 相符 | 不適用（純邏輯） | 完成。iOS 與 Mac 的轉接層在 WL4、WL5 修復 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -238,3 +239,64 @@ blocks=18 ok=18 failed=[]
 - v4 新增或改形狀的訊息（`pairAccept`、`hello`、`pairReveal`、`notSelected`）還沒有實作可以對照，範例由腳本依文件的規則產生。WL3 的測試向量完成後才有程式端的核對。
 - 名稱截斷只以腳本核對，產品程式（`IdentityName.clamp`）要到 WL3 才有。
 - 修訂加入的 Provisional 值沒有量測依據：Windows 與 Linux 驗證失敗後 60 秒不再連線、版本不符後 60 秒不再連線、Mac 帶過濾條件並允許重複回報的掃描。
+
+## WL3：Core 協定 v4（2026-11-13）
+
+branch `protocol-v4`，commit `2ae2ac4`。只改 `Packages/RemoteKeyboardCore` 與新增 `receiver/testdata/swift-vectors-v4.json`。
+
+### 自動驗證
+
+RED：新測試寫好、尚未實作時，測試目標編譯失敗（27 個錯誤，例如找不到 `HostIdentity`、`PeripheralMessage` 沒有 `notSelected`、`Pairing` 沒有 `hostProof`）。
+
+GREEN：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1102 tests, with 0 failures (0 unexpected) in 0.467 (0.517) seconds
+```
+
+計畫 WL3 Step 1 列出的測試全部存在。`CentralBinding` 的四個測試放在 `CentralBindingTests.swift`，不在計畫寫的 `AuthHandshakeTests.swift`。
+
+測試向量：`ProtocolVectorTests.testVectorsFileIsCurrent` 在不設 `RK_WRITE_VECTORS` 時通過，表示提交的向量檔與目前程式的輸出逐位元組相同。位元組一律寫成小寫十六進位字串。
+
+向量檔與協定文件範例值的比對（一次性腳本，從 `docs/protocol/v4.md` 抽出範例值，不在 repo 內）：
+
+```
+$ python3 -I check_vectors.py | tail -1
+TOTAL 95  OK 95  MISMATCH 0
+```
+
+| 比對範圍 | 項目 |
+|---|---|
+| 固定輸入 | `hostId`、`phoneId`、兩個 nonce、兩個名稱、兩個私鑰純量 |
+| §1.2、§1.3 | 配對 UUID；選定 UUID、雜湊前 16 bytes、版本與變體位元 |
+| §3.2–§3.4 | 18 個 JSON 範例逐位元組相同 |
+| §4 | 截斷表三列（13→13、33→30、145→30） |
+| §5.5 | 兩把公鑰、`commitment`、`Z`、兩個身分雜湊、`pairKey`、配對碼 |
+| §6.1 | `phoneProof`、`hostProof` |
+| §7.3 | `K_p2m`、`K_m2p`、兩則 `sealed` |
+| §8.1 | `K_ptr`、指標封包 |
+| §2.2 | 600 bytes 以 185 分段的四個標頭、資料長度與重組 |
+
+舊名稱：
+
+```
+$ grep -rn "macNonce\|macPublic\|macProof\|macLabel\|rk-pair-v1" Packages/RemoteKeyboardCore
+（0 筆）
+```
+
+### 與計畫的差異
+
+| 項目 | 做法 | 原因 |
+|---|---|---|
+| `MacHandshake.init` 多一個 `route:`（預設 `.selected`） | 經配對 UUID 的連線傳 `.pairing`：不寫 `hello`；選定 UUID 連線上的配對訊息、配對 UUID 連線上的 `helloReply`、`sealed`、`notSelected` 一律驗證失敗 | 協定 §1.5、§6.2；設計 §16 第 30 項。計畫的簽名沒有地方表達連線來源 |
+| `begin()` 在沒有任何手機時回驗證失敗 | 不寫 `hello` | 協定 §6.2；設計 §16 第 25 項 |
+| `CentralBinding.helloDisposition` 多一個收整則 `hello` 的版本 | 格式錯誤的 `hello` 來自綁定的 central 時交給握手而失敗，來自其他 central 時不理會 | 協定 §6.3 第 1 列；設計 §16 第 24 項 |
+| `MacHandshake` 逐把驗證時不提早停止 | 全部算完，第一個相符者為該手機 | 處理時間不透露手機在清單中的位置 |
+| `SessionCrypto`、`ChannelSet`、`CounterChannel` 也改了 | 參數 `macNonce` 改名 `hostNonce`；`SessionCrypto` 另加只供測試的固定 nonce 封裝 | 舊名稱搜尋要 0 筆；向量需要可重現的 AEAD nonce，正式路徑仍用亂數 |
+| `ReceiverLinkStateMachine` 用 `init(now:)` 注入時間 | 三個新事件只在 `.ready(id)` 時有效，回 `[.cancel(id)]` 並把該裝置放進同一份暫擋名單；`.stop` 清空名單 | 測試 10 秒與 60 秒不需真的等待 |
+
+### 實機驗證
+
+不適用。協定在實機上的行為由 WL4、WL5 的實機項目涵蓋。
+

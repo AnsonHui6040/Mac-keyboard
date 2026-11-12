@@ -41,8 +41,8 @@ struct OnboardingView: View {
                         .accessibilityIdentifier("rk.onboarding.openSettings")
                 }.tag(2)
                 pageView(
-                    symbol: "link", title: "配對 Mac",
-                    text: "1 在 Mac 的選單列按「配對新 iPhone」。\n2 在這個 App 首頁的「已配對 Mac」按「配對 Mac」。\n3 兩邊的配對碼相同時，各按確認。"
+                    symbol: "link", title: "配對電腦",
+                    text: "1 在電腦的接收端選單按「配對新 iPhone」（Windows、Linux 為「配對新手機」）。\n2 在這個 App 首頁的「已配對電腦」按「新增電腦」。\n3 兩邊的配對碼相同時，各按確認。"
                 ).tag(3)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))

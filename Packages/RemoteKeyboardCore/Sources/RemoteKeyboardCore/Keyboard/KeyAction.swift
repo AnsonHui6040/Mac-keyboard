@@ -29,6 +29,9 @@ public enum KeyAction: Equatable, Sendable {
     case switchSymbols
     /// Hides the keyboard. Touches neither the text nor the draft.
     case dismissKeyboard
+    /// The status cell was tapped while two or more hosts are paired: the keyboard types to the next host in the list.
+    /// Touches neither the text nor the draft.
+    case cycleHost
 }
 
 /// The keys that put text into something (the host field, the draft or the Mac). Everything else in `KeyAction` only
@@ -62,6 +65,8 @@ public enum RouteOutcome: Equatable {
     case advanceInputMode
     /// The dismiss key was pressed; the controller hides the keyboard.
     case dismissKeyboard
+    /// The status cell was tapped; the controller moves to the next host (it does nothing with fewer than two).
+    case cycleHost
     case modeToggled(KeyboardMode)
     case transmitToggled(TransmitMode)
     /// A page key was pressed; the controller applies it to its `PageNavigator`.

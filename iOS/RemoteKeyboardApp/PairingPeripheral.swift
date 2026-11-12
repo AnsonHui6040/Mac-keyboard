@@ -3,17 +3,21 @@ import CryptoKit
 import Foundation
 import RemoteKeyboardCore
 
-/// Publishes the keyboard's GATT service while the 「配對 Mac」 screen is visible, and runs one pairing attempt with the
-/// Mac that connects. Nothing is published before `start()` or after `stop()`.
+/// Publishes the keyboard's GATT service while the 「新增電腦」 screen is visible, advertising the pairing UUID, and runs one
+/// pairing attempt with the computer (Mac, Windows or Linux receiver) that connects. Nothing is published before `start()` or
+/// after `stop()`.
 ///
-/// - Every attempt begins when the Mac subscribes and uses a new `P256.KeyAgreement.PrivateKey`; no key is ever reused.
-/// - The pair key is stored only when the user taps 確認 here. Cancel, timeout, a mismatch, a lost connection or any
-///   failure discards the attempt and stores nothing.
+/// - Every attempt begins when the computer subscribes and uses a new `P256.KeyAgreement.PrivateKey`; no key is ever reused.
+/// - The pair key and the host are stored only when the user taps 確認 here. Cancel, timeout, a mismatch, a lost connection or
+///   any failure discards the attempt and stores nothing.
+/// - A full list (eight hosts) is refused before anything is published.
 /// - Nothing is logged: not keys, not the six digits.
 @MainActor
 final class PairingPeripheral: NSObject, ObservableObject {
     enum Failure: Equatable {
         case bluetoothOff, bluetoothDenied, timedOut, connectionLost, mismatch, storeFailed, publishFailed
+        /// Eight hosts are stored; one has to be deleted before another can be paired.
+        case hostListFull
     }
 
     enum Phase: Equatable {
@@ -22,8 +26,8 @@ final class PairingPeripheral: NSObject, ObservableObject {
         case preparing
         /// Advertising; waiting for the Mac to connect.
         case waiting
-        /// Keys exchanged; both people compare the digits.
-        case confirming(sas: String)
+        /// Keys exchanged; both people compare the digits. `host` is the computer as it described itself.
+        case confirming(sas: String, host: HostIdentity)
         /// This iPhone's key is stored. The connection stays up so the Mac's user can still confirm; it ends when the Mac
         /// leaves, when the user taps 完成, or when the window closes.
         case confirmed
@@ -36,6 +40,8 @@ final class PairingPeripheral: NSObject, ObservableObject {
     @Published private(set) var remainingSeconds: Int?
 
     private static let serviceID = CBUUID(string: GATTServiceSpec.Link.serviceUUID)
+    /// What the pairing screen advertises (docs/protocol/v4.md §1.2): only a receiver whose pairing window is open scans it.
+    private static let pairingAdvertID = CBUUID(string: GATTServiceSpec.Link.pairingAdvertUUID)
     private static let eventID = CBUUID(string: GATTServiceSpec.Link.eventUUID)
     private static let controlID = CBUUID(string: GATTServiceSpec.Link.controlUUID)
 
@@ -60,6 +66,11 @@ final class PairingPeripheral: NSObject, ObservableObject {
     /// The screen appeared: open the window and publish.
     func start() {
         guard manager == nil else { return }
+        // Checked before anything is published, so the user is told at once instead of after a whole pairing.
+        guard PairingStore.loadHosts().hosts.count < PairedList<PairedHost>.capacity else {
+            phase = .failed(.hostListFull)
+            return
+        }
         window.open(now: Date())
         phase = .preparing
         manager = CBPeripheralManager(delegate: self, queue: nil)
@@ -87,10 +98,19 @@ final class PairingPeripheral: NSObject, ObservableObject {
         if !finished { phase = .idle }
     }
 
-    /// 「確認」: stores the key. Only possible from the digits prompt.
+    /// 「確認」: stores the key and the host, and makes it the current host. Only possible from the digits prompt.
     func confirm() {
-        guard case .confirming = phase, let key = attempt?.pairKey, window.isOpen(at: Date()) else { return }
-        guard PairingStore.savePairKey(key) == errSecSuccess else { return end(.failed(.storeFailed)) }
+        guard case .confirming = phase, let key = attempt?.pairKey, let host = attempt?.host,
+              window.isOpen(at: Date()) else { return }
+        guard PairingStore.savePairKey(key, hostId: host.id) == errSecSuccess else { return end(.failed(.storeFailed)) }
+        // The list is read again: it may have changed since this screen opened. The same host paired again replaces its record.
+        var selection = PairingStore.loadHosts()
+        guard selection.add(host) != .full else {
+            PairingStore.deleteHost(id: host.id)
+            return end(.failed(.hostListFull))
+        }
+        selection.select(id: host.id)
+        PairingStore.saveHosts(selection)
         LastLinkStore.clear()
         // No message tells the Mac that this side confirmed, so the connection stays up until the Mac leaves.
         phase = .confirmed
@@ -176,7 +196,7 @@ final class PairingPeripheral: NSObject, ObservableObject {
             pendingService.begin(ObjectIdentifier(service))
             manager.add(service)
         case .startAdvertising:
-            manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Self.serviceID]])
+            manager.startAdvertising([CBAdvertisementDataServiceUUIDsKey: [Self.pairingAdvertID]])
         case .stopAdvertising:
             manager.stopAdvertising()
         case .removeServices:
@@ -263,7 +283,7 @@ extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         subscribedCentral = central
         feed(.subscribed)
         // A new attempt: a key nobody has seen, committed to before the Mac's key is known.
-        let pairing = PhonePairing(privateKey: P256.KeyAgreement.PrivateKey())
+        let pairing = PhonePairing(privateKey: P256.KeyAgreement.PrivateKey(), phone: PhoneIdentityStore.load())
         attempt = pairing
         transmit(pairing.offer)
     }
@@ -301,14 +321,14 @@ extension PairingPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         }
         peripheral.respond(to: first, withResult: .success)
         guard binding.shouldAcceptWrite(from: first.central.identifier) else { return }
-        // Only the Mac's `pairAccept` matters here. Its `hello` (it may hold an older pairing) is not for this screen.
+        // Only the computer's `pairAccept` matters here. Its `hello` (it may hold an older pairing) is not for this screen.
         guard phase != .confirmed, case .pairAccept = message, var pairing = attempt else { return }
         let output = pairing.receive(message)
         attempt = pairing
         switch output {
         case .send(let reveal):
             transmit(reveal)
-            if let sas = pairing.sas { phase = .confirming(sas: sas) }
+            if let sas = pairing.sas, let host = pairing.host { phase = .confirming(sas: sas, host: host) }
         case .failed:
             end(.failed(.mismatch))
         case .none:

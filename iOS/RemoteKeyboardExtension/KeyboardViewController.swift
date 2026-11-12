@@ -99,6 +99,8 @@ final class KeyboardViewController: UIInputViewController {
     /// Remote only counts with Full Access; without it the keyboard is Local and types as before.
     private var mode: KeyboardMode { ModeResolver.effectiveMode(saved: savedMode, hasFullAccess: hasFullAccess) }
     private var isReady: Bool { peripheral.isRemoteReady(for: lifecycle.token) }
+    /// The current host's platform, which words the status line and the notes (a Mac until a host is known).
+    private var hostPlatform: HostPlatform { peripheral.currentHost?.platform ?? .mac }
     /// The Mac says typing cannot go anywhere (password field, secure input, locked screen): text never enters the draft.
     private var isBlocked: Bool { mode == .remote && peripheral.latestStatus?.inputBlocked == true }
     /// The sync runs in Remote mode with 「聽寫同步到 Mac」 on (the same in Debug and Release).
@@ -114,6 +116,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        PairingStore.removeLegacyKey()
         let defaults = UserDefaults.standard
         savedMode = ModeResolver.saved(rawValue: defaults.string(forKey: Self.modeDefaultsKey))
         transmit = TransmitMode.stored(rawValue: defaults.string(forKey: Self.transmitDefaultsKey))
@@ -608,7 +611,8 @@ final class KeyboardViewController: UIInputViewController {
             case .rejected:
                 // Dropped, not drafted and not sent: the Mac has nowhere to type it. Every later key of this difference
                 // would be dropped the same way, so stop and say so once.
-                if let text = StatusLine.droppedKeyNote(link: peripheral.linkState, receiver: peripheral.latestStatus) { showNote(text) }
+                if let text = StatusLine.droppedKeyNote(
+                    link: peripheral.linkState, receiver: peripheral.latestStatus, platform: hostPlatform) { showNote(text) }
             default: break
             }
             if outcome == .draftFull || outcome == .rejected { break }
@@ -912,13 +916,19 @@ final class KeyboardViewController: UIInputViewController {
             // while the Mac is ready (the button is grey then anyway). A key dropped because the Mac is not ready says
             // why, unless the status line already does (a password field, a Mac without Accessibility).
             if mode == .remote, !isReady,
-                let text = StatusLine.droppedKeyNote(link: peripheral.linkState, receiver: peripheral.latestStatus) {
+                let text = StatusLine.droppedKeyNote(
+                    link: peripheral.linkState, receiver: peripheral.latestStatus, platform: hostPlatform) {
                 showNote(text)
             }
         case .draftEdited, .draftSent:
             refreshStatus()
         case .dismissKeyboard:
             dismissKeyboard()
+        case .cycleHost:
+            // The keyboard types to the next paired host. The old host's note says nothing about the new one, so it goes; the
+            // status cell then shows the new name with 未連接 until that host connects.
+            guard peripheral.cycleHost() != nil else { return }
+            showNote(nil)
         case .insertedLocally, .enqueuedRemote, .advanceInputMode:
             break
         }
@@ -926,7 +936,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func received(_ message: ControlMessage) {
         // A probe's answer has no wording, so it leaves the status line alone.
-        if case .ack(let ack) = message, let text = StatusLine.ackText(ack.result) { showNote(text) }
+        if case .ack(let ack) = message, let text = StatusLine.ackText(ack.result, platform: hostPlatform) { showNote(text) }
         #if DEBUG
         if case .ack(let ack) = message { dictationAcked(ack.eventId) }
         #endif
@@ -944,9 +954,10 @@ final class KeyboardViewController: UIInputViewController {
         let isQuick = activeChineseMethod == .quick
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
-            paired: peripheral.isPaired)
+            paired: peripheral.isPaired, platform: hostPlatform)
         let display = StatusLine.display(
-            mode: mode, link: link, receiver: peripheral.latestStatus, paired: peripheral.isPaired, note: note)
+            mode: mode, link: link, receiver: peripheral.latestStatus, paired: peripheral.isPaired, note: note,
+            host: peripheral.currentHost, hostCount: peripheral.hostCount)
         let built = KeyboardViewState(
             mode: mode,
             transmit: transmit,

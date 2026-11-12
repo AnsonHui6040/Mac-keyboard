@@ -26,6 +26,8 @@ public struct InputRouter {
             return .advanceInputMode
         case .dismissKeyboard:
             return .dismissKeyboard
+        case .cycleHost:
+            return .cycleHost
         case .switchChineseEnglish, .switchSymbols:
             return .pageChanged
         case .cursorLeft:
