@@ -181,7 +181,7 @@ PhoneHandshake.init(selected: (hostId: Data, pairKey: SymmetricKey)?, phoneNonce
 MacHandshake.init(hostId: Data, phones: [PairedPhone], hostNonce: Data)
 // MacHandshakeOutput.authenticated(reply: ControlMessage, phoneId: Data)
 
-ReceiverLinkStateMachine.handshakeBackoffSeconds = 10.0     // 新事件 .handshakeTimeout(UUID) → [.cancel(id), .startScanAfter(seconds: 10)]
+ReceiverLinkStateMachine.handshakeBackoffSeconds = 10.0     // 新事件 .handshakeTimeout(UUID)、.notSelected(UUID) → [.cancel(id)]，並把該裝置放進暫擋名單 10 秒；掃描照常，其他裝置不受影響（與 .unsupportedVersion 共用同一份暫擋名單）
 ReceiverLinkStateMachine.unsupportedVersionHoldSeconds = 60.0   // 新事件 .unsupportedVersion(UUID)：中斷該連線，60 秒內再發現同一個裝置時不連線，其他裝置不受影響
 ```
 
@@ -229,7 +229,7 @@ func testPairRevealWireShape()                    // 扁平：phoneId、phoneNam
 func testUnchangedControlMessagesKeepTheirBytes() // 手寫 Codable 後 ack、status、auth、authFailed、bye、sealed 的輸出與 docs/protocol/v4.md 的範例逐位元組相同
 func testVersion3MessageIsUnsupportedVersion()
 // ReceiverLinkStateMachine（既有測試檔）
-func testHandshakeTimeoutBacksOffWithoutSkipping()   // .handshakeTimeout(id) 於 .ready(id) → [.cancel(id), .startScanAfter(seconds: 10)]
+func testHandshakeTimeoutBacksOffWithoutSkipping()   // .handshakeTimeout(id) 於 .ready(id) → [.cancel(id)]；10 秒內再發現 id 不連線，再發現其他裝置照常連線；不產生 .startScanAfter
 func testNotSelectedBacksOffWithoutSkipping()        // .notSelected(id) 同上
 func testUnsupportedVersionHoldsOnlyThatDeviceFor60Seconds()   // 60 秒內同一個裝置再被發現時不連線，另一個裝置照常連線；60 秒後恢復
 ```
