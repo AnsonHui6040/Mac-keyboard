@@ -6,7 +6,9 @@ import RemoteKeyboardCore
 /// Seam over the CoreBluetooth side so session and link wiring can be tested without hardware.
 @MainActor
 protocol CentralDriving: AnyObject {
-    func startScan()
+    /// Scans for these advertised service UUIDs, reporting every packet (duplicates allowed). Starting again while a scan runs
+    /// replaces its conditions.
+    func startScan(services: [UUID])
     func stopScan()
     func connect(_ id: UUID)
     func discover(_ id: UUID)
@@ -20,6 +22,10 @@ protocol CentralDriving: AnyObject {
 }
 
 /// Resident BLE central. Idle until a receive session is armed, then looks for the keyboard peripheral.
+///
+/// It scans for this Mac's selected UUID (docs/protocol/v4.md §1.3) and, while a pairing window is open, for the pairing UUID.
+/// Which of the two a peripheral advertised in the packet that was just reported is the route of that connection
+/// (`connectionRoute`): the selected route walks the handshake, the pairing route only carries pairing.
 @MainActor
 final class ReceiverBLECentral: ObservableObject {
     static let idleTimeoutKey = "rk.idleTimeoutSeconds"
@@ -34,8 +40,14 @@ final class ReceiverBLECentral: ObservableObject {
     /// Refreshed once a second while armed so the countdown stays current.
     @Published private(set) var now = Date()
 
-    private var link = ReceiverLinkStateMachine()
+    private var link: ReceiverLinkStateMachine
     private var session: ReceiverSession
+    /// This Mac's selected UUID: the only service UUID scanned for outside a pairing window.
+    let selectUUID: UUID
+    private let pairingUUID = UUID(uuidString: GATTServiceSpec.Link.pairingAdvertUUID)!
+    private var pairingScanEnabled = false
+    /// How the peripheral of the connection in progress (or ready) was found. Set when it is accepted for connect.
+    private(set) var connectionRoute: MacHandshake.Route = .selected
     private let makeDriver: (ReceiverBLECentral) -> CentralDriving
     private let clock: () -> Date
     private var driver: CentralDriving?
@@ -90,14 +102,22 @@ final class ReceiverBLECentral: ObservableObject {
     /// deliberate disconnect of a ready link.
     var goodbye: (@MainActor () -> ControlMessage?)?
 
+    /// - Parameters:
+    ///   - hostId: this Mac's id; the selected UUID is made from it.
+    ///   - uptime: seconds on a monotonic clock, for how long a device stays held off after `notSelected`, a handshake timeout or
+    ///     a version mismatch. Tests pass their own.
     init(
+        hostId: Data,
         defaults: UserDefaults = .standard,
         clock: @escaping () -> Date = Date.init,
         monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs,
+        uptime: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
         makeDriver: @escaping (ReceiverBLECentral) -> CentralDriving = { CoreBluetoothDriver(owner: $0) }
     ) {
         let override = defaults.double(forKey: Self.idleTimeoutKey)
         session = ReceiverSession(idleTimeout: override > 0 ? override : ReceiverSession.idleTimeout)
+        link = ReceiverLinkStateMachine(now: uptime)
+        selectUUID = SelectUUID.make(hostId: hostId)
         self.clock = clock
         self.monotonicMs = monotonicMs
         self.makeDriver = makeDriver
@@ -264,6 +284,59 @@ final class ReceiverBLECentral: ObservableObject {
         }
     }
 
+    // MARK: Scan conditions
+
+    /// The service UUIDs scanned for now: the selected UUID, plus the pairing UUID while a pairing window is open.
+    var scanServices: [UUID] { pairingScanEnabled ? [selectUUID, pairingUUID] : [selectUUID] }
+
+    /// A pairing window opened or closed. A scan that is running is restarted at once with the new conditions; otherwise they
+    /// apply to the next scan.
+    func setPairingScan(_ enabled: Bool) {
+        guard pairingScanEnabled != enabled else { return }
+        pairingScanEnabled = enabled
+        guard case .scanning = link.state else { return }
+        if power == .poweredOn { driver?.stopScan() }
+        driver?.startScan(services: scanServices)
+    }
+
+    /// The driver saw a peripheral. The route comes from the service UUIDs of this one packet and from nothing else: the
+    /// system may remember more for the same device (docs/protocol/v4.md §1.4). A packet that names neither UUID this Mac is
+    /// scanning for is ignored, and so is a pairing UUID that arrives after the window closed.
+    func peripheralDiscovered(_ id: UUID, advertisedServices: [UUID]) {
+        let route: MacHandshake.Route
+        if advertisedServices.contains(selectUUID) {
+            route = .selected
+        } else if pairingScanEnabled, advertisedServices.contains(pairingUUID) {
+            route = .pairing
+        } else {
+            return
+        }
+        handleLink(.discovered(id), route: route)
+    }
+
+    // MARK: Ending a connection that did not authenticate
+
+    /// The handshake of the ready connection did not finish in time (5 seconds, docs/protocol/v4.md §6.2). Drops it without a
+    /// word to the peripheral and holds this device off for a few seconds; the search for others goes on.
+    func handshakeTimedOut() { endReadyLink { .handshakeTimeout($0) } }
+
+    /// The keyboard answered `notSelected`: it types to another host. Same treatment as a handshake timeout, and no error.
+    func peripheralNotSelected() { endReadyLink { .notSelected($0) } }
+
+    /// The keyboard speaks another protocol version. With `hold` it is not connected to again for 60 seconds; without, it is only
+    /// dropped (inside a pairing window it may be the phone about to pair, docs/protocol/v4.md §6.2).
+    func peripheralUnsupportedVersion(hold: Bool) {
+        if hold { endReadyLink { .unsupportedVersion($0) } } else { disconnectCurrent(skipForSession: false) }
+    }
+
+    private func endReadyLink(_ input: (UUID) -> ReceiverLinkInput) {
+        guard case .ready(let id) = link.state else { return }
+        endLinkDeliberately(input(id))
+        // The state machine now waits for the disconnect of `id`. The driver forgets a peripheral it cancels, so its own
+        // disconnect callback would be ignored; the disconnect is reported here instead, and the search starts again.
+        if case .ready(id) = link.state { handleLink(.disconnected(id)) }
+    }
+
     // MARK: Goodbye
 
     /// Ends a connection on this side's initiative. An authenticated keyboard is told first (a sealed `bye`) and the
@@ -306,7 +379,7 @@ final class ReceiverBLECentral: ObservableObject {
         // A phone reported inside the window was ignored; the scan is repeated so the driver reports it again.
         if discoveryDeferred {
             discoveryDeferred = false
-            if case .scanning = link.state { driver?.startScan() }
+            if case .scanning = link.state { driver?.startScan(services: scanServices) }
         }
     }
 
@@ -346,7 +419,8 @@ final class ReceiverBLECentral: ObservableObject {
 
     // MARK: Link
 
-    func handleLink(_ input: ReceiverLinkInput) {
+    /// - Parameter route: for `.discovered` only: how the peripheral was found (see `peripheralDiscovered`).
+    func handleLink(_ input: ReceiverLinkInput, route: MacHandshake.Route = .selected) {
         if case .discovered(let id) = input, skippedPeripherals.contains(id) { return }
         // The connection that said goodbye is still closing; connecting now could be undone by its pending cancel.
         if case .discovered = input, pendingGoodbye != nil {
@@ -357,9 +431,13 @@ final class ReceiverBLECentral: ObservableObject {
         let before = link.state
         let effects = link.handle(input)
         let after = link.state
-        linkState = after
+        // Every packet of a scan that reports duplicates comes through here; an unchanged state must not publish.
+        if linkState != after { linkState = after }
         // The clock starts only when the discovered peripheral was accepted for connect.
-        if case .discovered = input, before == .scanning, case .connecting = after { discoveredAtMs = monotonicMs() }
+        if case .discovered = input, before == .scanning, case .connecting = after {
+            discoveredAtMs = monotonicMs()
+            connectionRoute = route
+        }
         if after != before { record(after) }
         // Whatever the transition, a state with no connection in progress holds no start time.
         switch after {
@@ -401,7 +479,7 @@ final class ReceiverBLECentral: ObservableObject {
 
     private func apply(_ effect: ReceiverLinkEffect) {
         switch effect {
-        case .startScan: driver?.startScan()
+        case .startScan: driver?.startScan(services: scanServices)
         // CoreBluetooth is told to stop or cancel only while it is powered on; otherwise there is nothing to undo.
         case .stopScan: if power == .poweredOn { driver?.stopScan() }
         case .connect(let id): driver?.connect(id)
@@ -455,11 +533,14 @@ final class CoreBluetoothDriver: NSObject, CentralDriving {
         manager = makeManager(self)
     }
 
-    func startScan() {
+    func startScan(services: [UUID]) {
         guard let manager, manager.state == .poweredOn else { return }
         // Anything but the connection in flight is stale; a fresh scan finds what is really there.
         peripherals = peripherals.filter { $0.key == active }
-        manager.scanForPeripherals(withServices: [Self.service])
+        // Every packet is reported, so a keyboard that changes the UUID it advertises is seen at once (docs/protocol/v4.md §1.4).
+        manager.scanForPeripherals(
+            withServices: services.map { CBUUID(nsuuid: $0) },
+            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
     }
 
     func stopScan() {
@@ -532,8 +613,12 @@ extension CoreBluetoothDriver: @preconcurrency CBCentralManagerDelegate {
         _ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
         advertisementData: [String: Any], rssi RSSI: NSNumber
     ) {
+        // The UUIDs of this packet only. A UUID that does not fit in the packet is in the overflow area.
+        let listed = advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID] ?? []
+        let overflow = advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] as? [CBUUID] ?? []
+        let advertised = (listed + overflow).compactMap { UUID(uuidString: $0.uuidString) }
         peripherals[peripheral.identifier] = peripheral
-        owner?.handleLink(.discovered(peripheral.identifier))
+        owner?.peripheralDiscovered(peripheral.identifier, advertisedServices: advertised)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {

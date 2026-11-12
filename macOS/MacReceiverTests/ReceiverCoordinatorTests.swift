@@ -112,8 +112,10 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
             let defaults = UserDefaults(suiteName: name)!
             defaults.removePersistentDomain(forName: name)
             let driver = driver
-            central = ReceiverBLECentral(defaults: defaults, makeDriver: { _ in driver })
-            security = ReceiverSecurity(central: central, store: FakePairKeyStore(key: pairKey))
+            central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { _ in driver })
+            security = ReceiverSecurity(
+                central: central,
+                store: FakePairingStore(phones: [PairedPhone(identity: TestIdentity.phone(), pairKey: pairKey)]))
             focus = FocusMonitor()
             let poster = poster
             let current = ReceiverCoordinatorWiringTests.editable(epoch: 3)
@@ -409,7 +411,8 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         r.central.handleLink(.discovered(r.peripheral))
         r.central.handleLink(.connected(r.peripheral))
         r.central.handleLink(.linkReady(r.peripheral))
-        r.phone.handshake = PhoneHandshake(pairKey: r.pairKey, phoneNonce: Pairing.randomNonce())
+        r.phone.handshake = PhoneHandshake(
+            selected: (hostId: TestIdentity.hostId, pairKey: r.pairKey), phoneNonce: Pairing.randomNonce())
         try r.pump()
     }
 }

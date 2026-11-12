@@ -3,15 +3,23 @@ import Foundation
 import OSLog
 import RemoteKeyboardCore
 
-/// Everything about who may type on this Mac: the per-connection handshake, the pairing window and the pair key.
+/// Everything about who may type on this Mac: the per-connection handshake, the pairing window and the paired phones
+/// (docs/protocol/v4.md §5 to §7, §10).
 ///
-/// - Every keyboard connection starts with a fresh `MacHandshake` and a fresh nonce. Until the phone proved the pair key,
-///   nothing but `hello` is written; afterwards every `ack`, `status` and `bye` goes out sealed (`sealControl`), and events are
-///   accepted only as sealed payloads that open under this connection's session key.
-/// - A plaintext event, a failed proof, a failed open, bytes that are not a message, or a second keyboard session on the
-///   same connection ends in `authFailed`, a disconnect, and no reconnection to that peripheral in this receiving session.
+/// - Every connection starts with a fresh `MacHandshake` and a fresh nonce, and is told apart by how it was found. Through the
+///   selected UUID it walks the handshake: nothing but `hello` is written until a stored phone proved its key (which phone it
+///   is, is not known beforehand; every stored key is tried). Through the pairing UUID nothing is written; the phone speaks
+///   first with its pairing offer. After the handshake every `ack`, `status` and `bye` goes out sealed (`sealControl`), and
+///   events are accepted only as sealed payloads that open under this connection's session key.
+/// - A plaintext event, a failed proof, a failed open, bytes that are not a message, a message of the wrong route, or a second
+///   keyboard session on the same connection ends in `authFailed`, a disconnect, and no reconnection to that peripheral in this
+///   receiving session (inside a pairing window the peripheral is not skipped: it may be the phone the user is about to pair).
+/// - Three things end a connection without `authFailed`: the keyboard says `notSelected` (it types to another host), the
+///   handshake does not finish in 5 seconds, and a message of another protocol version arrives. The first two hold that device
+///   off for 10 seconds, the third for 60 (not inside a pairing window); no error is shown, except 「請更新 iPhone App」.
 /// - Pairing runs only inside the 120 second window the user opens from the menu. Each attempt uses a new private key.
-///   The pair key is stored only when the user taps 確認 on the Mac; cancel, timeout, mismatch and any failure discard it.
+///   The phone and its pair key are stored only when the user taps 確認 on the Mac; cancel, timeout, mismatch and any failure
+///   discard them. Up to eight phones are stored; the window is not opened when eight are.
 ///
 /// Nothing here logs keys, nonces, proofs, the SAS or typed text.
 @MainActor
@@ -32,11 +40,25 @@ final class ReceiverSecurity: ObservableObject {
 
     enum PairingResult: Equatable {
         case paired, cancelled, timedOut, failed, storeFailed
+        /// Eight phones are stored already.
+        case full
     }
 
+    /// What the panel says when a message of another protocol version arrived (docs/protocol/v4.md §10).
+    static let updatePhoneText = "請更新 iPhone App"
+
     @Published private(set) var phase: PairingPhase = .idle
-    @Published private(set) var isPaired = false
+    /// The stored phones, oldest first. Identities only: no key is held here.
+    @Published private(set) var phones: [PhoneIdentity] = []
     @Published private(set) var lastResult: PairingResult?
+    /// The name of the phone that is connected and verified; `nil` otherwise.
+    @Published private(set) var connectedPhoneName: String?
+    /// The name of the phone whose pairing is being confirmed, for the confirmation prompt.
+    @Published private(set) var pairingPhoneName: String?
+    /// 「請更新 iPhone App」 after a message of another protocol version, until a phone authenticates.
+    @Published private(set) var updatePhoneNote: String?
+
+    var isPaired: Bool { !phones.isEmpty }
 
     /// The phone proved the pair key; `auth` has been written. The first sealed status goes out from here.
     var onAuthenticated: (@MainActor () -> Void)?
@@ -63,13 +85,15 @@ final class ReceiverSecurity: ObservableObject {
     }
 
     private let central: ReceiverBLECentral
-    private let store: PairKeyStoring
+    private let store: PairingStoring
     private let clock: () -> Date
     private let makeNonce: @MainActor () -> Data
     private let handshakeTimeout: TimeInterval
 
     private var handshake: MacHandshake?
-    /// The goodbye `unpair()` sealed before it dropped the handshake, for whichever disconnect happens first.
+    /// The phone whose key the handshake of the authenticated connection matched.
+    private var connectedPhoneId: Data?
+    /// The goodbye `removePhone` sealed before it dropped the handshake, for whichever disconnect happens first.
     private var farewell: ControlMessage?
     private var pin = SessionPin()
     private var handshakeTimer: Timer?
@@ -82,7 +106,7 @@ final class ReceiverSecurity: ObservableObject {
 
     /// Wires itself to the central's callbacks. Reads nothing from the store until `refreshPairedState()`.
     init(
-        central: ReceiverBLECentral, store: PairKeyStoring, clock: @escaping () -> Date = Date.init,
+        central: ReceiverBLECentral, store: PairingStoring, clock: @escaping () -> Date = Date.init,
         makeNonce: @escaping @MainActor () -> Data = { Pairing.randomNonce() },
         handshakeTimeout: TimeInterval = ReceiverSecurity.defaultHandshakeTimeout
     ) {
@@ -97,7 +121,7 @@ final class ReceiverSecurity: ObservableObject {
         central.goodbye = { [weak self] in self?.goodbyeMessage() }
     }
 
-    func refreshPairedState() { isPaired = store.load() != nil }
+    func refreshPairedState() { phones = store.loadPhones().map(\.identity) }
 
     var isAuthenticated: Bool { handshake?.isAuthenticated ?? false }
 
@@ -124,24 +148,41 @@ final class ReceiverSecurity: ObservableObject {
 
     private func linkReady() {
         pin = SessionPin()
-        let key = store.load()
-        let windowOpen = window.isOpen(at: clock())
-        var next = MacHandshake(pairKey: key, macNonce: makeNonce())
-        // No pairing and no window: there is nobody to verify, so nobody is talked to.
-        guard key != nil || windowOpen else {
+        let route = central.connectionRoute
+        var next = MacHandshake(hostId: store.loadHost().id, phones: store.loadPhones(), hostNonce: makeNonce(), route: route)
+        switch route {
+        case .selected:
+            // Found through the selected UUID: `hello` if anybody is paired, a failure if nobody is (§6.2).
+            switch next.begin() {
+            case .send(let hello):
+                central.send(hello)
+                handshake = next
+                startHandshakeTimer()
+            case .authFailed:
+                handshake = next
+                failAuth()
+            case .none, .authenticated, .pairOffer, .pairReveal, .event, .malformedPayload, .notSelected:
+                handshake = next
+                startHandshakeTimer()
+            }
+        case .pairing:
+            // Found through the pairing UUID: nothing is written, the phone speaks first. Without a window there is nobody to
+            // pair with (it closed between the scan and the connection).
+            guard window.isOpen(at: clock()) else {
+                handshake = nil
+                central.disconnectCurrent(skipForSession: false)
+                return
+            }
             handshake = next
-            failAuth()
-            return
+            startHandshakeTimer()
         }
-        if key != nil, case .send(let hello) = next.begin() { central.send(hello) }
-        handshake = next
-        startHandshakeTimer()
     }
 
     private func linkLost() {
         handshakeTimer?.invalidate()
         handshakeTimer = nil
         handshake = nil
+        clearConnectedPhone()
         pin = SessionPin()
         notifyChannelSet(nil)
         // An attempt belongs to the connection it started on. A window that only waits survives a lost link. After this
@@ -159,6 +200,7 @@ final class ReceiverSecurity: ObservableObject {
         handshakeTimer?.invalidate()
         handshakeTimer = nil
         handshake = nil
+        clearConnectedPhone()
         notifyChannelSet(nil)
         central.send(.authFailed)
         Self.log.info("authentication failed, peripheral dropped")
@@ -174,30 +216,75 @@ final class ReceiverSecurity: ObservableObject {
         handshakeTimer = CommonModeTimer.make(handshakeTimeout, repeats: false) { [weak self] in self?.handshakeTimerFired() }
     }
 
-    /// A peripheral that has not authenticated in time is dropped. While a pairing window waits, that holds for a peripheral
-    /// that has made no offer too (the App sends its offer right on subscribe, so a silent one is not about to pair, and it
-    /// must not hold the only connection for the whole window). Once an attempt is on the connection, or this side is
-    /// confirming or has confirmed, only the window's own deadline bounds it.
+    /// A peripheral that has not authenticated in time is dropped, with no word to it and without `authFailed`, and held off for
+    /// 10 seconds (docs/protocol/v4.md §6.2, §6.4). While a pairing window waits, that holds for a peripheral that has made no
+    /// offer too (the App sends its offer right on subscribe, so a silent one is not about to pair, and it must not hold the
+    /// only connection for the whole window). Once an attempt is on the connection, or this side is confirming or has
+    /// confirmed, only the window's own deadline bounds it.
     func handshakeTimerFired() {
         guard let handshake, !handshake.isAuthenticated, attempt == nil else { return }
         guard phase == .idle || phase == .waiting else { return }
-        failAuth()
+        Self.log.info("handshake timed out, peripheral dropped")
+        dropConnectionState()
+        central.handshakeTimedOut()
+    }
+
+    /// The handshake, its timer and everything the connection handed out are gone; the connection itself is the caller's to end.
+    private func dropConnectionState() {
+        handshakeTimer?.invalidate()
+        handshakeTimer = nil
+        handshake = nil
+        clearConnectedPhone()
+        notifyChannelSet(nil)
+    }
+
+    private func clearConnectedPhone() {
+        connectedPhoneId = nil
+        connectedPhoneName = nil
+    }
+
+    /// A message of another protocol version: say so on the panel, drop the connection and, outside a pairing window, hold the
+    /// device off for 60 seconds. Inside the window it may be the phone the user is about to pair.
+    private func unsupportedVersion() {
+        updatePhoneNote = Self.updatePhoneText
+        Self.log.info("protocol version not supported, peripheral dropped")
+        dropConnectionState()
+        if attempt != nil { return endPairing(.failed) }
+        central.peripheralUnsupportedVersion(hold: phase == .idle)
+    }
+
+    /// The keyboard types to another host. Not an error: nothing is written, nothing is shown, the device is held off for
+    /// 10 seconds and is not on the skip list.
+    private func notSelected() {
+        Self.log.info("keyboard types to another host, peripheral dropped")
+        dropConnectionState()
+        central.peripheralNotSelected()
     }
 
     // MARK: Messages from the keyboard
 
     private func receive(_ data: Data) {
         guard var current = handshake else { return }
-        guard let message = try? PeripheralCodec.decode(data) else { return failAuth() }
+        let message: PeripheralMessage
+        do {
+            message = try PeripheralCodec.decode(data)
+        } catch EventCodecError.unsupportedVersion {
+            return unsupportedVersion()
+        } catch {
+            return failAuth()
+        }
         let output = current.receive(message)
         handshake = current
         switch output {
         case .none, .send:
             break
-        case .authenticated(let reply):
+        case .authenticated(let reply, let phoneId):
             handshakeTimer?.invalidate()
             handshakeTimer = nil
             central.send(reply)
+            connectedPhoneId = phoneId
+            connectedPhoneName = current.authenticatedPhone?.name
+            updatePhoneNote = nil
             if let channels = current.takeChannelSet() {
                 handshake = current
                 notifyChannelSet(channels)
@@ -210,6 +297,8 @@ final class ReceiverSecurity: ObservableObject {
             onEvent?(event)
         case .malformedPayload:
             onMalformed?()
+        case .notSelected:
+            notSelected()
         case .authFailed:
             failAuth()
         }
@@ -217,12 +306,18 @@ final class ReceiverSecurity: ObservableObject {
 
     // MARK: Pairing
 
-    /// Menu 「配對新 iPhone」. Opens the 120 second window, turns receiving on if it was off, and starts a fresh scan.
+    /// Menu 「配對新 iPhone」. Opens the 120 second window, turns receiving on if it was off, and starts a fresh scan that
+    /// includes the pairing UUID. Refused, with 「已配對 8 支手機」, when eight phones are stored.
     func openPairingWindow() {
         guard phase == .idle else { return }
         lastResult = nil
+        guard store.loadPhones().count < PairedList<PairedPhone>.capacity else {
+            lastResult = .full
+            return
+        }
         window.open(now: clock())
         phase = .waiting
+        central.setPairingScan(true)
         armedByPairing = !central.isArmed
         if armedByPairing { central.startReceiving() } else { central.restartScanning() }
         windowTimer?.invalidate()
@@ -236,18 +331,18 @@ final class ReceiverSecurity: ObservableObject {
         endPairing(phase == .confirmed ? .paired : .timedOut)
     }
 
-    /// 「確認」 on the Mac. Stores the pair key; only reachable from the SAS prompt, and only inside the window.
+    /// 「確認」 on the Mac. Stores the phone and its pair key; only reachable from the SAS prompt, and only inside the window.
     func confirmPairing() {
-        guard case .confirming = phase, let key = attempt?.pairKey else { return }
+        guard case .confirming = phase, let key = attempt?.pairKey, let identity = attempt?.phone else { return }
         guard window.isOpen(at: clock()) else { return endPairing(.timedOut) }
         do {
-            try store.save(key)
+            try store.save(PairedPhone(identity: identity, pairKey: key))
         } catch {
-            // A failed save may have removed the old key; show what the store really holds.
+            // Show what the store really holds.
             refreshPairedState()
-            return endPairing(.storeFailed)
+            return endPairing((error as? PairingStoreError) == .full ? .full : .storeFailed)
         }
-        isPaired = true
+        refreshPairedState()
         lastResult = .paired
         // The connection stays up: there is no message that tells the iPhone this side confirmed, and the iPhone's user may
         // not have tapped yet. Dropping it now would make the iPhone's attempt fail.
@@ -266,18 +361,19 @@ final class ReceiverSecurity: ObservableObject {
         endPairing(.cancelled)
     }
 
-    /// 「解除配對」: forgets the pair key and ends any connection, which may be authenticated.
-    func unpair() {
-        store.delete()
-        isPaired = false
+    /// 「刪除」 on a phone of the list: forgets its pair key. A connection that could still prove that key ends: the phone itself,
+    /// connected, is told goodbye first (a sealed `bye`, docs/protocol/v4.md §7.4); a handshake that is still running is dropped.
+    /// A different phone that is typing is left alone.
+    func removePhone(id: Data) {
+        let wasTyping = connectedPhoneId == id && handshake?.isAuthenticated == true
+        let handshaking = central.connectionRoute == .selected && handshake != nil && handshake?.isAuthenticated == false
+        store.delete(phoneId: id)
+        refreshPairedState()
+        guard wasTyping || handshaking else { return }
         // The goodbye is sealed while the handshake still exists; whichever disconnect comes first writes it.
         farewell = goodbyeMessage()
         defer { farewell = nil }
-        handshake = nil
-        notifyChannelSet(nil)
-        handshakeTimer?.invalidate()
-        handshakeTimer = nil
-        if phase != .idle { endPairing(.cancelled) }
+        dropConnectionState()
         central.disconnectCurrent(skipForSession: false)
     }
 
@@ -297,7 +393,7 @@ final class ReceiverSecurity: ObservableObject {
         if case .pairOffer = message {
             // One attempt per connection, and every attempt starts with a key nobody has seen.
             guard attempt == nil else { return failAuth() }
-            attempt = MacPairing(privateKey: P256.KeyAgreement.PrivateKey())
+            attempt = MacPairing(privateKey: P256.KeyAgreement.PrivateKey(), host: store.loadHost())
         }
         guard var current = attempt else { return failAuth() }
         let output = current.receive(message)
@@ -306,7 +402,10 @@ final class ReceiverSecurity: ObservableObject {
         case .send(let reply):
             central.send(reply)
         case .completed:
-            if let sas = current.sas { phase = .confirming(sas: sas) }
+            if let sas = current.sas {
+                pairingPhoneName = current.phone?.name
+                phase = .confirming(sas: sas)
+            }
         case .failed:
             endPairing(.failed)
         }
@@ -314,7 +413,10 @@ final class ReceiverSecurity: ObservableObject {
 
     private func discardAttempt(_ result: PairingResult) {
         attempt = nil
+        pairingPhoneName = nil
         window.close()
+        // The pairing UUID is not scanned any more, and a scan that is running stops looking for it at once.
+        central.setPairingScan(false)
         windowTimer?.invalidate()
         windowTimer = nil
         phase = .idle

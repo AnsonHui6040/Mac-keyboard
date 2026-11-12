@@ -36,9 +36,18 @@ struct MacReceiverApp: App {
             settle: { try? await Task.sleep(for: .seconds($0)) }
         )
         let notice = InputSourceNotice()
-        let central = ReceiverBLECentral()
-        // Reads the Keychain only when a keyboard connects, or from `refreshPairedState()` below.
-        let security = ReceiverSecurity(central: central, store: MacPairingStore())
+        // This Mac's identity decides which UUID is scanned for, so the store is read before the central exists. The pair key
+        // of protocol v3 cannot be used any more: it is removed on every launch (a no-op once it is gone), which is also
+        // what turns an upgraded Mac back to unpaired.
+        // The unit-test host keeps its identity in a temporary directory, so running the tests never writes to the real one.
+        let store = MacPairingStore(
+            directory: Self.isRunningUnitTests
+                ? FileManager.default.temporaryDirectory.appendingPathComponent("RemoteKeyboardReceiverTestHost", isDirectory: true)
+                : MacPairingStore.defaultDirectory)
+        if !Self.isRunningUnitTests { store.removeLegacyKey() }
+        let central = ReceiverBLECentral(hostId: store.loadHost().id)
+        // Reads the stored phones when a keyboard connects, or from `refreshPairedState()` below.
+        let security = ReceiverSecurity(central: central, store: store)
         // No file is touched until the first ping arrives; the unit-test host never receives one.
         let reconnectLog = ReconnectLog(fileURL: ReconnectLog.defaultFileURL)
         let pipeline = EventPipeline(

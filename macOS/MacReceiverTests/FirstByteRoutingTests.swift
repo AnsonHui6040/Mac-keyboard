@@ -17,7 +17,7 @@ final class FirstByteRoutingTests: XCTestCase {
     }
 
     private func readyCentral() -> ReceiverBLECentral {
-        let central = ReceiverBLECentral(defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
         let p = UUID()
         central.startReceiving()
         central.handleLink(.power(.poweredOn))
@@ -71,7 +71,7 @@ final class FirstByteRoutingTests: XCTestCase {
     }
 
     func testNothingIsRoutedUnlessTheLinkIsReady() {
-        let central = ReceiverBLECentral(defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
         var pointer = 0
         central.pointerHandler = { _ in pointer += 1 }
         central.receive(eventData: Data([0x03]) + Data(repeating: 9, count: 40))

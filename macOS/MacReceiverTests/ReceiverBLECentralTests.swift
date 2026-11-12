@@ -10,7 +10,11 @@ private final class FakeDriver: CentralDriving {
     var calls: [Call] = []
     var controlWrites: [Data] = []
     func writeControl(_ data: Data) -> Bool { controlWrites.append(data); return true }
-    func startScan() { calls.append(.startScan) }
+    var scans: [[UUID]] = []
+    func startScan(services: [UUID]) {
+        scans.append(services)
+        calls.append(.startScan)
+    }
     func stopScan() { calls.append(.stopScan) }
     func connect(_ id: UUID) { calls.append(.connect(id)) }
     func discover(_ id: UUID) { calls.append(.discover(id)) }
@@ -35,10 +39,12 @@ final class ReceiverBLECentralTests: XCTestCase {
     private func make(
         clock: @escaping () -> Date = Date.init, monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs
     ) -> ReceiverBLECentral {
-        ReceiverBLECentral(defaults: defaults, clock: clock, monotonicMs: monotonicMs) { [unowned self] _ in
-            madeDrivers += 1
-            return driver
-        }
+        ReceiverBLECentral(
+            hostId: TestIdentity.hostId, defaults: defaults, clock: clock, monotonicMs: monotonicMs,
+            makeDriver: { [unowned self] _ in
+                madeDrivers += 1
+                return driver
+            })
     }
 
     func testStaysIdleAndCreatesNoDriverUntilArmed() {
@@ -549,10 +555,16 @@ final class ReceiverBLECentralTests: XCTestCase {
 private final class FakeCBManager: CBCentralManager {
     var fakeState: CBManagerState = .poweredOn
     var scans = 0, stops = 0
+    var scanServices: [[CBUUID]?] = []
+    var scanOptions: [[String: Any]?] = []
     var connected: [UUID] = []
     var cancelled: [UUID] = []
     override var state: CBManagerState { fakeState }
-    override func scanForPeripherals(withServices serviceUUIDs: [CBUUID]?, options: [String: Any]? = nil) { scans += 1 }
+    override func scanForPeripherals(withServices serviceUUIDs: [CBUUID]?, options: [String: Any]? = nil) {
+        scans += 1
+        scanServices.append(serviceUUIDs)
+        scanOptions.append(options)
+    }
     override func stopScan() { stops += 1 }
     override func connect(_ peripheral: CBPeripheral, options: [String: Any]? = nil) { connected.append(peripheral.identifier) }
     override func cancelPeripheralConnection(_ peripheral: CBPeripheral) { cancelled.append(peripheral.identifier) }
@@ -564,6 +576,8 @@ private final class FakeCBManager: CBCentralManager {
         withUnsafeMutablePointer(to: &fake.fakeState) { $0.initialize(to: .poweredOn) }
         withUnsafeMutablePointer(to: &fake.scans) { $0.initialize(to: 0) }
         withUnsafeMutablePointer(to: &fake.stops) { $0.initialize(to: 0) }
+        withUnsafeMutablePointer(to: &fake.scanServices) { $0.initialize(to: []) }
+        withUnsafeMutablePointer(to: &fake.scanOptions) { $0.initialize(to: []) }
         withUnsafeMutablePointer(to: &fake.connected) { $0.initialize(to: []) }
         withUnsafeMutablePointer(to: &fake.cancelled) { $0.initialize(to: []) }
         keep.append(fake)
@@ -604,6 +618,11 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
         driver = FakeDriver()
     }
 
+    private let selectUUID = SelectUUID.make(hostId: TestIdentity.hostId)
+    private let pairingUUID = UUID(uuidString: GATTServiceSpec.Link.pairingAdvertUUID)!
+    private var selectAdvert: [String: Any] { [CBAdvertisementDataServiceUUIDsKey: [CBUUID(nsuuid: selectUUID)]] }
+    private var pairingAdvert: [String: Any] { [CBAdvertisementDataServiceUUIDsKey: [CBUUID(nsuuid: pairingUUID)]] }
+
     private struct Rig {
         let central: ReceiverBLECentral
         let cb: CoreBluetoothDriver
@@ -611,7 +630,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
     }
 
     private func rig() -> Rig {
-        let central = ReceiverBLECentral(defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
         let manager = FakeCBManager.make()
         let cb = CoreBluetoothDriver(owner: central) { _ in manager }
         central.startReceiving()
@@ -624,7 +643,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
         let peripheral = FakeCBPeripheral.make()
         XCTAssertEqual(r.central.linkState, .scanning, "the power callback reached the owner")
 
-        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: selectAdvert, rssi: -50)
         XCTAssertEqual(r.central.linkState, .connecting(peripheral.identifier), "didDiscover is forwarded as discovered")
 
         r.cb.connect(peripheral.identifier)
@@ -642,7 +661,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
     func testDidFailToConnectIsForwardedAsDisconnect() {
         let r = rig()
         let peripheral = FakeCBPeripheral.make()
-        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: selectAdvert, rssi: -50)
         r.cb.connect(peripheral.identifier)
         peripheral.fakeState = .disconnected
         r.cb.centralManager(r.manager, didFailToConnect: peripheral, error: nil)
@@ -653,7 +672,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
         let r = rig()
         let current = FakeCBPeripheral.make()
         let stale = FakeCBPeripheral.make()
-        r.cb.centralManager(r.manager, didDiscover: current, advertisementData: [:], rssi: -50)
+        r.cb.centralManager(r.manager, didDiscover: current, advertisementData: selectAdvert, rssi: -50)
         r.cb.connect(current.identifier)
         stale.fakeState = .disconnected
         r.cb.centralManager(r.manager, didDisconnectPeripheral: stale, error: nil)
@@ -662,14 +681,14 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
 
     func testScanStopAndCancelReachTheManagerOnlyWhilePoweredOn() {
         let r = rig()
-        r.cb.startScan()
+        r.cb.startScan(services: [selectUUID])
         r.cb.stopScan()
         XCTAssertEqual(r.manager.scans, 1)
         XCTAssertEqual(r.manager.stops, 1)
         let peripheral = FakeCBPeripheral.make()
-        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: selectAdvert, rssi: -50)
         r.manager.fakeState = .poweredOff
-        r.cb.startScan()
+        r.cb.startScan(services: [selectUUID])
         r.cb.stopScan()
         r.cb.cancel(peripheral.identifier)
         XCTAssertEqual(r.manager.scans, 1, "no scan with the radio off")
@@ -680,8 +699,101 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
     func testCancelOfAKnownPeripheralReachesTheManager() {
         let r = rig()
         let peripheral = FakeCBPeripheral.make()
-        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: selectAdvert, rssi: -50)
         r.cb.cancel(peripheral.identifier)
         XCTAssertEqual(r.manager.cancelled, [peripheral.identifier])
+    }
+
+    // MARK: Scan conditions (docs/protocol/v4.md §1.4)
+
+    /// A central whose real driver is the CoreBluetooth one, on a fake manager, so what reaches `scanForPeripherals` is seen.
+    private func scanRig() -> Rig {
+        let manager = FakeCBManager.make()
+        var driverBox: CoreBluetoothDriver?
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { owner in
+            let cb = CoreBluetoothDriver(owner: owner) { _ in manager }
+            driverBox = cb
+            return cb
+        })
+        central.startReceiving()
+        let cb = driverBox!
+        cb.centralManagerDidUpdateState(manager)
+        return Rig(central: central, cb: cb, manager: manager)
+    }
+
+    func testScansSelectUUIDOnly() {
+        let r = scanRig()
+        XCTAssertEqual(r.manager.scanServices.count, 1)
+        XCTAssertEqual(r.manager.scanServices.last ?? nil, [CBUUID(nsuuid: selectUUID)],
+                       "only this host's selected UUID; neither the old service UUID nor the pairing UUID")
+    }
+
+    func testScansPairingUUIDOnlyWhileWindowOpen() {
+        let r = scanRig()
+        r.central.setPairingScan(true)
+        XCTAssertEqual(r.manager.scanServices.last ?? nil, [CBUUID(nsuuid: selectUUID), CBUUID(nsuuid: pairingUUID)])
+        r.central.setPairingScan(false)
+        XCTAssertEqual(r.manager.scanServices.last ?? nil, [CBUUID(nsuuid: selectUUID)], "reset the moment the window closes")
+        XCTAssertEqual(r.manager.scans, 3)
+        XCTAssertGreaterThanOrEqual(r.manager.stops, 2, "each change restarts the scan, it does not stack")
+    }
+
+    func testScanAllowsDuplicates() {
+        let r = scanRig()
+        r.central.setPairingScan(true)
+        XCTAssertEqual(r.manager.scanOptions.count, 2)
+        for options in r.manager.scanOptions {
+            XCTAssertEqual(options?[CBCentralManagerScanOptionAllowDuplicatesKey] as? Bool, true)
+        }
+    }
+
+    func testTheRouteIsTakenFromThisPacketsAdvertisement() {
+        let r = scanRig()
+        let first = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: first, advertisementData: selectAdvert, rssi: -50)
+        XCTAssertEqual(r.central.linkState, .connecting(first.identifier))
+        XCTAssertEqual(r.central.connectionRoute, .selected)
+
+        // The same peripheral later advertises the pairing UUID while the window is open.
+        r.central.setPairingScan(true)
+        r.central.handleLink(.disconnected(first.identifier))
+        first.fakeState = .disconnected
+        let second = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: second, advertisementData: pairingAdvert, rssi: -50)
+        XCTAssertEqual(r.central.linkState, .connecting(second.identifier))
+        XCTAssertEqual(r.central.connectionRoute, .pairing)
+    }
+
+    func testAPairingAdvertIsIgnoredWhenNoWindowIsOpen() {
+        let r = scanRig()
+        let peripheral = FakeCBPeripheral.make()
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: pairingAdvert, rssi: -50)
+        XCTAssertEqual(r.central.linkState, .scanning, "a packet that arrives after the window closed is not connected to")
+    }
+
+    func testAPacketWithoutAKnownUUIDIsIgnored() {
+        let r = scanRig()
+        let peripheral = FakeCBPeripheral.make()
+        let stranger = [CBAdvertisementDataServiceUUIDsKey: [CBUUID(string: GATTServiceSpec.Link.serviceUUID)]]
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: stranger, rssi: -50)
+        XCTAssertEqual(r.central.linkState, .scanning, "the old GATT service UUID is not a reason to connect")
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: [:], rssi: -50)
+        XCTAssertEqual(r.central.linkState, .scanning, "and neither is a packet that names nothing: only this packet counts")
+    }
+
+    func testAUUIDInTheOverflowAreaCounts() {
+        let r = scanRig()
+        let peripheral = FakeCBPeripheral.make()
+        let overflow = [CBAdvertisementDataOverflowServiceUUIDsKey: [CBUUID(nsuuid: selectUUID)]]
+        r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: overflow, rssi: -50)
+        XCTAssertEqual(r.central.linkState, .connecting(peripheral.identifier))
+    }
+
+    func testRepeatedReportsOfTheSamePeripheralAreHarmless() {
+        let r = scanRig()
+        let peripheral = FakeCBPeripheral.make()
+        for _ in 0..<5 { r.cb.centralManager(r.manager, didDiscover: peripheral, advertisementData: selectAdvert, rssi: -50) }
+        XCTAssertEqual(r.central.linkState, .connecting(peripheral.identifier))
+        XCTAssertEqual(r.manager.scans, 1, "the repeats start no new scan")
     }
 }

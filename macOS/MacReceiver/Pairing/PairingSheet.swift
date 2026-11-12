@@ -1,7 +1,9 @@
+import RemoteKeyboardCore
 import SwiftUI
 
-/// The pairing block of the menu bar panel. It is inline rather than a modal sheet: the panel is a small window that
-/// closes with the menu, and the prompt must stay where the user is already looking.
+/// The pairing block of the menu bar panel: the phone that is connected, the list of paired phones (name, platform, delete) and
+/// the pairing prompt. It is inline rather than a modal sheet: the panel is a small window that closes with the menu, and the
+/// prompt must stay where the user is already looking.
 struct PairingSheet: View {
     @ObservedObject var security: ReceiverSecurity
     /// The central's once-a-second clock, so the countdown redraws.
@@ -11,17 +13,31 @@ struct PairingSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             switch security.phase {
             case .idle:
-                Text(security.isPaired ? "配對：已配對 iPhone" : "配對：尚未配對")
+                if let name = security.connectedPhoneName {
+                    Text("目前連線：\(name)")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Text(security.isPaired ? "已配對的手機" : "配對：尚未配對")
+                ForEach(security.phones, id: \.id) { phone in
+                    HStack(spacing: 6) {
+                        Text(phone.name)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Text(Self.platformName(phone.platform))
+                            .foregroundStyle(.secondary)
+                            .layoutPriority(1)
+                        Spacer(minLength: 0)
+                        Button("刪除") { security.removePhone(id: phone.id) }
+                            .accessibilityLabel("刪除 \(phone.name)")
+                    }
+                }
                 if let result = security.lastResult {
                     Text(Self.resultText(result))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: 8) {
-                    Button("配對新 iPhone") { security.openPairingWindow() }
-                    Button("解除配對") { security.unpair() }
-                        .disabled(!security.isPaired)
-                }
+                Button("配對新 iPhone") { security.openPairingWindow() }
             case .waiting:
                 Text("請在 iPhone 的 Remote Keyboard 開啟「配對 Mac」")
                     .fixedSize(horizontal: false, vertical: true)
@@ -32,6 +48,11 @@ struct PairingSheet: View {
                     Button("取消") { security.cancelPairing() }
                 }
             case .confirming(let sas):
+                if let name = security.pairingPhoneName {
+                    Text("手機：\(name)")
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Text("請核對 iPhone 上的配對碼")
                 Text(sas)
                     .font(.system(size: 28, weight: .semibold, design: .monospaced))
@@ -58,6 +79,13 @@ struct PairingSheet: View {
         }
     }
 
+    static func platformName(_ platform: PhonePlatform) -> String {
+        switch platform {
+        case .ios: "iPhone"
+        case .android: "Android"
+        }
+    }
+
     static func countdownText(_ seconds: TimeInterval?) -> String {
         guard let seconds else { return "" }
         let total = Int(seconds.rounded(.up))
@@ -71,6 +99,7 @@ struct PairingSheet: View {
         case .timedOut: "配對逾時，未儲存"
         case .failed: "配對失敗，未儲存"
         case .storeFailed: "無法儲存配對，請再試一次"
+        case .full: "已配對 8 支手機，請先刪除一支"
         }
     }
 }
