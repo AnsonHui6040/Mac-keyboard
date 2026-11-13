@@ -16,3 +16,6 @@ build/
 
 # SideStore 發佈產物
 release/
+
+# Rust receiver build output
+receiver/target/

@@ -12,6 +12,7 @@
 | WL3（Core 協定 v4） | `swift test` 1102 個測試 0 失敗；測試向量檔與協定文件的範例值 95／95 相符 | 不適用（純邏輯） | 完成。iOS 與 Mac 的轉接層在 WL4、WL5 修復 |
 | WL4（iPhone 多主機） | `swift test` 1111 個測試 0 失敗；iOS 模擬器建置成功；402 與 375 pt 截圖 4 張 | TBD | 程式完成；截圖待使用者確認，實機項目未測 |
 | WL5（Mac Receiver v4 與多手機） | `MacReceiverTests` 349 個測試 0 失敗；Mac、iOS 模擬器建置成功；真機 build-for-testing 成功 | TBD | 程式完成；實機項目未測 |
+| WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR 上 Windows 與 Ubuntu 的 CI：見下節 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -507,3 +508,58 @@ reviewer 結論：沒有阻擋問題。已修正：`refreshPairedState` 先讀�
 | 面板「電腦名稱」欄位實機操作（儲存、清空、超長） | TBD |
 | 只配一台時點擊狀態格沒有反應也沒有觸感 | TBD |
 | 既有 UI 測試（`KeyboardT10UITests`、`MeasurementUITests`）未執行，審查認為 `label.contains` 仍會通過 | TBD |
+
+## WL6：`rk-core`（Rust 協定核心）與 CI（2026-11-13）
+
+### 內容
+
+| 項目 | 說明 |
+|---|---|
+| `receiver/` | cargo workspace，目前只有 `rk-core`。`rk-core` 沒有 IO、時鐘、亂數與平台相依，`#![forbid(unsafe_code)]`；`cargo tree -i getrandom -p rk-core` 找不到 getrandom |
+| 模組 | `json`、`select_uuid`、`identity`、`frame`、`message`、`pairing`、`handshake`、`session`、`channel`、`dedup`、`pointer`，另有 `binding`（協定 §6.3 第 5、6 列）、`secret`（金鑰型別，`Debug` 遮蔽） |
+| 向量 | `receiver/testdata/swift-vectors-v4.json`（Swift 產生）由 `tests/swift_vectors.rs` 逐項比對；`receiver/testdata/rust-vectors-v4.json`（Rust 產生）由 `RustVectorTests` 在 Swift 端解開 |
+| CI | `.github/workflows/receiver.yml`：`pull_request`（路徑 `receiver/**`）在 `windows-latest` 與 `ubuntu-latest` 跑 build、test、clippy |
+
+### 自動驗證（主代理在 Mac 上重跑）
+
+```
+$ cd receiver && cargo test --workspace
+test result: ok. 230 passed; 0 failed; 1 ignored   （unit；ignored 是 write_rust_vectors）
+test result: ok. 7 passed; 0 failed                 （tests/loopback.rs）
+test result: ok. 9 passed; 0 failed                 （tests/swift_vectors.rs）
+$ cargo clippy --workspace --all-targets -- -D warnings   → Finished，無警告
+$ cargo test -p rk-core write_rust_vectors -- --ignored   → 1 passed；檔案重新產生後 rust_vectors_file_is_current 仍通過（輸出確定）
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1117 tests, with 0 failures (0 unexpected)
+```
+
+TDD：先寫 `swift_vectors.rs` 與 `loopback.rs`，以 `todo!()` 空殼跑出 16 個失敗（全是 `not yet implemented`），再實作到全綠。Rust 輸出與 Swift 向量逐位元組相同：18 則訊息（含 4 則帶 `\/`）、`pairKey` 與配對碼 `947102`、兩個 proof、兩個方向的 session 密文、指標封包、600 bytes 分段、4 個選定 UUID、3 個名稱截斷範例。反向：`RustVectorTests.testSwiftOpensRustVectors` 以 Swift 的 `SessionCrypto`、`CounterChannel`、`FrameCodec`、`FrameReassembler` 解開 Rust 封裝的 sealed（含 `/`、多位元組字元、跳脫字元）、2 個指標封包（含計數器 2^40+5）、2 組分段（`F` 為 185 與 23）。
+
+### 開 PR 前的獨立審查
+
+reviewer（Opus，唯讀，另在複本上做 40 個突變測試）結論：沒有 Critical；1 個阻擋問題與 1 個 Important，12 項 Minor。
+
+| # | 問題 | 處理 |
+|---|---|---|
+| I1 | Windows 的 checkout 預設把檔案轉成 CRLF，`rust_vectors_file_is_current` 在 Windows 必定失敗（macOS、Ubuntu 看不出來） | 修正：`.gitattributes` 加 `receiver/testdata/*.json text eol=lf`；測試比較前也容忍 CRLF，並有測試證明 CRLF 版本通過、內容不同仍失敗 |
+| I2 | proof、commitment 只比前 31 bytes 的突變沒有被任何測試抓到 | 修正：加測試（最後與第一個 byte 翻轉必須失敗，覆蓋配對、握手兩邊）；在複本上重做突變，3 個新測試變紅 |
+| m2 | 點擊 `arg` bit2–3 非零沒有測試 | 修正 |
+| m3 | 指標型別的 `Debug` 會印出位移 | 修正三個被點名的型別；`PointerEngine`、`PointerPlayout`、`PlayoutShare` 仍是 derive 的 `Debug`（內含位移），Windows／Linux 外殼不得以 `{:?}` 寫 log |
+| m7 | `chacha20poly1305` 的預設 feature 拉進 getrandom | 修正 |
+| m10、m11 | 缺鍵序（UTF-8 位元組序）與 `\b \f \r`、DEL、U+2028／2029 的回歸測試 | 修正；Swift 的期望值同步更新 |
+| m1、m4、m5、m6、m8、m9、m12 | 主機端 `ChannelSet` 帶有 sealer、`binding` 第 2 與第 6 列要由外殼對齊、`pairReveal` 的 `phoneId` 長度走 `HostPairing` 而不是握手、`protocolVersion` 超過 `i64::MAX` 回 Malformed、金鑰不在 drop 時清零、JSON 重複鍵取最後一個、格式 | 未改，留給 WL7 前後處理；m12：本機沒有 rustfmt，CI 不檢查格式 |
+
+### 偏離計畫與協定文件
+
+1. `HostHandshake::new(host_id, phones, host_nonce, route)` 多一個 `Route`（選定 UUID 或配對 UUID，協定 §1.5），`HostOutput` 多 `TimedOut`，`PairOffer`、`PairReveal` 帶具名欄位。
+2. `PairedPhone.pair_key` 是 `PairKey`（`SecretBytes<32>`），不是 `[u8; 32]`。
+3. 函式放在子模組（`rk_core::select_uuid::select_uuid`、`rk_core::identity::clamp_name`），`lib.rs` 沒有 `pub use`。
+4. `rk-core` 另含 `PointerReceiver`（開關、grant、open／close、連續 8 個失敗）與觸控板速度曲線（沿用 Mac 的常數；Windows 與 Linux 是否用同一條待決定，不在協定文件內）。
+5. 協定文件沒寫、實作自行決定：`notSelected` 在 `hello` 寫出前收到視為 `NotSelected`；JSON 重複鍵取最後一個；移動、按鍵狀態、心跳的 `arg` 與保留的 `actionId` 不檢查。這些都不影響與 Swift 的位元組一致。
+
+### 未驗證
+
+- `rk-win`、`rk-linux` 上的 `cargo test -p rk-core`（測試機未連線，延後）。
+- 時間與指標手感：watchdog 與 playout 只用模擬的微秒驗證，常數仍是 Provisional。
+- 常數時間只靠 `subtle` 與 `hmac` 的 `verify_slice`，沒有量過時間。
+- 沒有 fuzz、沒有壓力測試。

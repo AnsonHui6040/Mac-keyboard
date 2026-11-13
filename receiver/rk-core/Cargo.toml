@@ -1,0 +1,18 @@
+[package]
+name = "rk-core"
+version = "0.1.0"
+description = "Remote Keyboard protocol v4: pure logic shared by the Windows and Linux receivers"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64 = "0.23.1"
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }
+hkdf = "0.13.0"
+hmac = "0.13.0"
+p256 = { version = "0.14.0", default-features = false, features = ["arithmetic", "ecdh"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+subtle = "2.6.1"
+thiserror = "2.0.21"
+uuid = "1.29.2"
