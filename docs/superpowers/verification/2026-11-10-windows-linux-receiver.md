@@ -453,3 +453,57 @@ $ xcodebuild build-for-testing …（iPhone 17 Pro 真機）   → ** TEST BUILD
 
 鍵盤未配對時的提示依使用者要求改為「尚未配對」（2026-11-13），不再提到 Mac。
 
+## 狀態格永遠顯示主機名稱與預設名稱（2026-11-13）
+
+branch `host-name-always`。使用者於 2026-11-13 實機試用後決定：狀態格永遠顯示目前主機名稱；預設名稱改為系統名，可在接收端改名（設計 §16 第 34 項）。
+
+### 自動驗證
+
+RED：`StatusLineTests` 編譯失敗（`extra argument 'switchesHost'`）；`MacPairingStoreTests` 編譯失敗（`MacPairingStore` 沒有 `renameHost`）。
+
+GREEN（主代理重跑）：
+
+```
+$ swift test --package-path Packages/RemoteKeyboardCore
+Executed 1115 tests, with 0 failures (0 unexpected)
+
+$ xcodebuild test -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS'
+Executed 361 tests, with 0 failures (0 unexpected)
+** TEST SUCCEEDED **
+
+$ xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver -destination 'platform=macOS'
+** BUILD SUCCEEDED **
+
+$ xcodebuild build -workspace RemoteKeyboard.xcworkspace -scheme RemoteKeyboardApp -destination 'platform=iOS Simulator,name=iPhone 18 Pro'
+** BUILD SUCCEEDED **
+```
+
+### 改動
+
+| 項目 | 做法 |
+|---|---|
+| 狀態格 | 有目前主機且已配對時一律兩行（名稱加短狀態）；`Display.switchesHost` 只有配對兩台以上才為 true。一台時沒有底色、點擊回饋、按鈕角色，點擊不輪替；未配對維持單行「尚未配對」 |
+| Mac 預設名稱 | 新建的 `host.json` 名稱為「Mac」，不再取電腦名稱；既有 `host.json` 不改 |
+| 改名 | 面板新增「電腦名稱」欄位與「儲存」；去空白、32 bytes 截斷、清空改回「Mac」；id 與手機清單不變 |
+| 改名的影響 | 握手只用 `hostId` 與配對金鑰，名稱只在配對時綁進金鑰，所以改名不會讓已配對的 iPhone 斷線；iPhone 要重新配對才顯示新名稱 |
+| 文件 | 設計 §5.1、§6、§7、§10、§16 第 34 項；協定 §4；計畫 WL4、WL5、WL7、WL10 |
+
+### 截圖（`-rkPreview`）
+
+| 狀態 | 402 pt（iPhone 18 Pro） | 375 pt（iPhone SE 3） |
+|---|---|---|
+| `oneHost`（名稱「Mac」，無底色） | `evidence/HN-oneHost-402.png` | `evidence/HN-oneHost-375.png` |
+| `twoHosts`（有底色，可點） | `evidence/HN-twoHosts-402.png` | `evidence/HN-twoHosts-375.png` |
+| `twoHostsLongName`（32 bytes） | `evidence/HN-twoHostsLongName-402.png` | `evidence/HN-twoHostsLongName-375.png` |
+
+### 獨立審查
+
+reviewer 結論：沒有阻擋問題。已修正：`refreshPairedState` 先讀主機再讀手機清單；改名欄位儲存後同步顯示實際存入的名稱、輸入時清除錯誤、按鈕以去空白後的內容判斷；`StatusCell` 無名稱時清掉舊的 label 與 identifier；計畫文件兩處過時敘述。
+
+### 未驗證（TBD）
+
+| 項目 | 結果 |
+|---|---|
+| 面板「電腦名稱」欄位實機操作（儲存、清空、超長） | TBD |
+| 只配一台時點擊狀態格沒有反應也沒有觸感 | TBD |
+| 既有 UI 測試（`KeyboardT10UITests`、`MeasurementUITests`）未執行，審查認為 `label.contains` 仍會通過 | TBD |

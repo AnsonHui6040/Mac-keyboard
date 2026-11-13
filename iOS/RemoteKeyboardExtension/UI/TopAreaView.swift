@@ -69,14 +69,15 @@ final class SegmentToggle: UIControl {
     }
 }
 
-/// The status cell. Normally one label with the short status. While two or more hosts are paired it has two lines, the
-/// current host's name (one line, cut at the end when too long) over the short status, and a tap anywhere on it asks for the
-/// next host. Without a host name it is not a control: it takes no touch and plays no click.
+/// The status cell. Normally one label with the short status. With a current host it has two lines, the host's name (one
+/// line, cut at the end when too long) over the short status. Only while two or more hosts are paired is it a control: a
+/// tap anywhere on it asks for the next host. With one host it names that host and does nothing: no fill, no click, no
+/// button role. Without a host name it is the plain single-line label.
 final class StatusCell: UIControl {
     let titleLabel = UILabel()
     let statusLabel = UILabel()
     private let stack = UIStackView()
-    /// Whether a tap switches the host (a host name is shown).
+    /// Whether a tap switches the host (a host name is shown and two or more hosts are paired).
     private(set) var switchesHost = false
 
     override init(frame: CGRect) {
@@ -113,22 +114,34 @@ final class StatusCell: UIControl {
     /// - Parameters:
     ///   - title: the current host's name; `nil` keeps the single-line cell that takes no touch.
     ///   - twoLines: the status is short enough to sit under the name. A longer note takes the whole cell for itself, and the
-    ///     cell still switches the host.
-    func setTitle(_ title: String?, twoLines: Bool, accessibilityValue value: String) {
-        switchesHost = title != nil
+    ///     cell still switches the host when `switchesHost` is true.
+    ///   - switchesHost: two or more hosts are paired, so a tap switches to the next one. False with a single host.
+    func setTitle(_ title: String?, twoLines: Bool, switchesHost: Bool, accessibilityValue value: String) {
+        self.switchesHost = title != nil && switchesHost
         titleLabel.text = title
         titleLabel.isHidden = !(title != nil && twoLines)
         // A cell that switches the host reads as one control (a tap target) and shows its state as a soft fill like the toggles.
-        backgroundColor = switchesHost ? .tertiarySystemFill : .clear
-        isAccessibilityElement = switchesHost
+        backgroundColor = self.switchesHost ? .tertiarySystemFill : .clear
+        // With a name the cell is one accessibility element for both lines; with one host it is static text, not a button.
+        isAccessibilityElement = title != nil
+        accessibilityHint = nil
+        accessibilityTraits = .staticText
         if let title {
             accessibilityLabel = "\(title)，\(statusLabel.text ?? "")"
-            accessibilityHint = "輕點切換到下一台電腦"
-            accessibilityTraits = .button
             accessibilityIdentifier = "rk.status"
             accessibilityValue = value
+            if self.switchesHost {
+                accessibilityHint = "輕點切換到下一台電腦"
+                accessibilityTraits = .button
+            }
         }
-        statusLabel.isAccessibilityElement = !switchesHost
+        if title == nil {
+            // No stale name or identifier: the plain label carries `rk.status` on its own.
+            accessibilityLabel = nil
+            accessibilityValue = nil
+            accessibilityIdentifier = nil
+        }
+        statusLabel.isAccessibilityElement = title == nil
     }
 
     override func accessibilityActivate() -> Bool {
@@ -244,12 +257,13 @@ final class TopAreaView: UIView {
         let isShort = display.text.count <= Self.singleLineStatusLimit
         statusLabel.numberOfLines = isShort ? 1 : 2
         statusLabel.textColor = display.tone == .connected ? .systemGreen : .systemRed
-        // With a host name above it the short status shares the 28 pt cell and takes the smaller size too. The three plain
-        // states are short; a note or a warning is longer and gets the smaller size.
+        // With a host name above it the short status shares the 28 pt cell and takes the smaller size too. The 13 pt size is
+        // left for the unpaired 尚未配對, which has no name; a note or a warning is longer and gets the smaller size.
         let underName = display.title != nil && isShort
         statusLabel.font = Self.standardStatusTexts.contains(display.text) && !underName
             ? .systemFont(ofSize: 13, weight: .medium) : .systemFont(ofSize: 11)
-        statusCell.setTitle(display.title, twoLines: isShort, accessibilityValue: state.linkName)
+        statusCell.setTitle(
+            display.title, twoLines: isShort, switchesHost: display.switchesHost, accessibilityValue: state.linkName)
         #if DEBUG
         // The UI tests read the long line (app name, latency, note) from the label.
         statusLabel.accessibilityLabel = state.statusDetail

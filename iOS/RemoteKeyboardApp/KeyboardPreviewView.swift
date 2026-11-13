@@ -13,7 +13,8 @@ import UIKit
 /// `trackpad` (the touchpad page, ready), `trackpadDenied` (the same with the Mac not allowing it), `remoteTrackpadKey`
 /// (the English page with the 觸控板 key usable), `connected` (green 已連接, 觸控板 usable), `disconnected` (red 未連接,
 /// 觸控板 grey), `unpaired` (尚未配對), `statusNote` (a two-line note in the status cell), `handwritingDisconnected` (the
-/// handwriting page with a disconnected link), `twoHosts` (two paired hosts: the status cell has two lines, the host name
+/// handwriting page with a disconnected link), `oneHost` (one paired host: the status cell names it, Mac over 已連接, and a tap does nothing:
+/// no fill), `twoHosts` (two paired hosts: the same two lines with the soft fill, and a tap switches the host, the host name
 /// 書房的 Mac over 已連接), `twoHostsLongName` (the same with a host name of exactly 32 UTF-8 bytes, cut at its end).
 /// `-rkPreviewWidth 375` squeezes the keyboard to that width (centred) to check the narrowest iPhone on a wider
 /// simulator. Taps do nothing.
@@ -175,13 +176,22 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
                 .off)
         case "statusNote":
             return (make(status: StatusLine.Display(text: StatusLine.unconfirmedText(2), tone: .problem)), .off)
+        case "oneHost":
+            return (
+                make(
+                    status: StatusLine.Display(
+                        text: StatusLine.connectedText, tone: .connected, title: "Mac", switchesHost: false)),
+                .off)
         case "twoHosts":
             return (
-                make(status: StatusLine.Display(text: StatusLine.connectedText, tone: .connected, title: "書房的 Mac")), .off)
+                make(
+                    status: StatusLine.Display(
+                        text: StatusLine.connectedText, tone: .connected, title: "書房的 Mac", switchesHost: true)),
+                .off)
         case "twoHostsLongName":
             return (
                 make(
-                    status: StatusLine.Display(text: StatusLine.connectedText, tone: .connected, title: longHostName),
+                    status: StatusLine.Display(text: StatusLine.connectedText, tone: .connected, title: longHostName, switchesHost: true),
                     detail: "電腦"),
                 .off)
         case "caps":

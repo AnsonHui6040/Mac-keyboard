@@ -53,6 +53,11 @@ final class FakePairingStore: PairingStoring {
     }
 
     func loadHost() -> HostIdentity { host }
+    func renameHost(_ name: String) throws -> HostIdentity {
+        let trimmed = IdentityName.clamp(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        host = HostIdentity(id: host.id, name: trimmed.isEmpty ? "Mac" : trimmed, platform: host.platform)
+        return host
+    }
     func loadPhones() -> [PairedPhone] { phones }
 
     func save(_ phone: PairedPhone) throws {
