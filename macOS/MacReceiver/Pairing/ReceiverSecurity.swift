@@ -53,6 +53,8 @@ final class ReceiverSecurity: ObservableObject {
     /// When each stored phone was added, by phone id, to tell phones of the same name apart.
     @Published private(set) var phoneAdded: [Data: Date] = [:]
     @Published private(set) var lastResult: PairingResult?
+    /// This Mac's display name as stored, for the rename field. Empty until `refreshPairedState()`.
+    @Published private(set) var hostName = ""
     /// The name of the phone that is connected and verified; `nil` otherwise.
     @Published private(set) var connectedPhoneName: String?
     /// The name of the phone whose pairing is being confirmed, for the confirmation prompt.
@@ -124,8 +126,19 @@ final class ReceiverSecurity: ObservableObject {
     }
 
     func refreshPairedState() {
+        // The host first: an unusable host.json is replaced together with the phones, so they are read after it.
+        hostName = store.loadHost().name
         phones = store.loadPhones().map(\.identity)
         phoneAdded = store.loadAddedDates()
+    }
+
+    /// Renames this Mac. Pairing reads the name from the store when it starts, so a pairing in progress is not affected and
+    /// the next one uses the new name. Returns false when the file could not be written; the name then stays as it was.
+    @discardableResult
+    func renameHost(_ name: String) -> Bool {
+        guard let renamed = try? store.renameHost(name) else { return false }
+        hostName = renamed.name
+        return true
     }
 
     var isAuthenticated: Bool { handshake?.isAuthenticated ?? false }

@@ -267,7 +267,7 @@ enum PairingStore {
     static func removeLegacyKey()                             // 刪 account "pairKey"；App 與 Extension 啟動時各呼叫一次
 }
 enum PhoneIdentityStore { static func load() -> PhoneIdentity }   // 第一次呼叫時產生 phoneId，存 App Group；name = UIDevice.current.name
-// StatusLine.Display 多一個 title: String?（主機名稱；只配對一台時為 nil）
+// StatusLine.Display 多一個 title: String?（主機名稱；2026-11-13 起有目前主機就有值）與 switchesHost: Bool（兩台以上）
 // StatusLine.display(mode:link:receiver:paired:note:host: HostIdentity?, hostCount: Int)
 // KeyAction 新增 .cycleHost
 ```
@@ -275,7 +275,7 @@ enum PhoneIdentityStore { static func load() -> PhoneIdentity }   // 第一次�
 - [ ] **Step 1：StatusLine 測試（RED）。**
 
 ```swift
-func testSingleHostHasNoTitle()                  // hostCount 1 → title == nil，text 與現況相同
+func testSingleHostShowsItsNameButDoesNotSwitch()  // hostCount 1 → title == host.name、switchesHost == false
 func testTwoHostsShowHostNameAsTitle()           // title == host.name
 func testLinuxUntrustedSaysComputerNotAuthorized()   // platform .linux、trusted false → text == "電腦未授權"
 func testMacUntrustedKeepsExistingText()
@@ -305,7 +305,7 @@ func testWindowsNeverShowsInputBlocked()
 
 ```swift
 protocol PairingStoring: AnyObject {            // 取代 PairKeyStoring
-    func loadHost() -> HostIdentity             // 沒有就產生並存檔；name 預設 Host.current().localizedName
+    func loadHost() -> HostIdentity             // 沒有就產生並存檔；name 預設 "Mac"（不取電腦名稱）
     func loadPhones() -> [PairedPhone]
     func save(_ phone: PairedPhone) throws      // 同 phoneId 覆蓋；已 8 支且為新 id 時 throw .full
     func delete(phoneId: Data)
@@ -400,7 +400,9 @@ pub trait PhoneStore { fn host(&self) -> HostIdentity; fn phones(&self) -> Vec<P
 pub trait Injector { fn text(&mut self, s: &str) -> Result<(), InjectError>; fn backspace(&mut self) -> ..; fn enter(&mut self) -> ..; fn pointer_move(&mut self, dx: f64, dy: f64) -> ..; fn button(&mut self, b: Button, down: bool) -> ..; fn scroll(&mut self, dx: f64, dy: f64) -> ..; fn ready(&self) -> bool; }
 ```
 
-**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
+**主機名稱：** `config.json` 第一次產生時 `hostName` 預設為「Windows」（Linux 接收端為「Linux」，見 WL10），不取電腦名稱；系統匣選單可改名，改名只寫入設定檔，已配對的手機要重新配對才顯示新名稱（設計 §5.1、§16 第 34 項）。
+
+**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`default_host_name_is_windows`、`rename_keeps_host_id_and_phones`、`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
 
 **實機（TBD）：** Windows 上配對、開機自動啟動、系統匣選單各項。
 
@@ -434,7 +436,9 @@ WL1 完成後細化；S4、S5、S9 的結果決定預設值與是否包含觸控
 
 **Files:** `receiver/rk-receiver/src/platform/linux.rs`（系統匣、Secret Service、autostart、檔案鎖）
 
-**Tests:** `autostart_desktop_file_contents`、`config_paths_follow_xdg`。
+**主機名稱：** `config.json` 第一次產生時 `hostName` 預設為「Linux」，不取電腦名稱；改名規則同 WL7。
+
+**Tests:** `autostart_desktop_file_contents`、`config_paths_follow_xdg`、`default_host_name_is_linux`。
 
 **實機（TBD）：** 配對、開機自動啟動、系統匣選單各項。
 

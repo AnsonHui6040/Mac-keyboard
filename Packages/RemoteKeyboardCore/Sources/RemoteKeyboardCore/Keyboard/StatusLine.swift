@@ -41,14 +41,18 @@ public enum StatusLine {
         public enum Tone: Equatable, Sendable { case connected, problem }
         public let text: String
         public let tone: Tone
-        /// The current host's name, only while this iPhone holds two or more hosts (the cell then has two lines: this and
-        /// `text`) and the keyboard is in Remote mode. `nil` keeps the single-line cell.
+        /// The current host's name, whenever the keyboard is in Remote mode, this iPhone holds a pair key and there is a
+        /// current host (the cell then has two lines: this and `text`). `nil` keeps the single-line cell.
         public let title: String?
+        /// Whether a tap on the cell switches to the next host: only with a `title` and two or more paired hosts. With one
+        /// host the cell names it and does nothing.
+        public let switchesHost: Bool
 
-        public init(text: String, tone: Tone, title: String? = nil) {
+        public init(text: String, tone: Tone, title: String? = nil, switchesHost: Bool = false) {
             self.text = text
             self.tone = tone
             self.title = title
+            self.switchesHost = switchesHost
         }
     }
 
@@ -63,27 +67,28 @@ public enum StatusLine {
     /// connected, not connected. Local mode shows nothing while there is no note (`nil`).
     ///
     /// - Parameters:
-    ///   - host: the current host; its platform picks the wording (`nil` reads as a Mac) and, with `hostCount` of two or
-    ///     more, its name becomes the `title`.
-    ///   - hostCount: how many hosts this iPhone has paired.
+    ///   - host: the current host; its platform picks the wording (`nil` reads as a Mac) and, in Remote mode while paired,
+    ///     its name becomes the `title`, even when it is the only host.
+    ///   - hostCount: how many hosts this iPhone has paired; two or more make a tap on the cell switch the host.
     public static func display(
         mode: KeyboardMode, link: KeyboardLinkState, receiver: ReceiverStatus?, paired: Bool, note: String?,
         host: HostIdentity? = nil, hostCount: Int = 1
     ) -> Display? {
         let platform = host?.platform ?? .mac
-        let title = mode == .remote && hostCount >= 2 ? host?.name : nil
-        if mode == .remote, !paired { return Display(text: notPairedShortText, tone: .problem, title: title) }
-        if let note, !isPostedNote(note) { return Display(text: note, tone: .problem, title: title) }
+        let title = mode == .remote && paired ? host?.name : nil
+        let switches = title != nil && hostCount >= 2
+        if mode == .remote, !paired { return Display(text: notPairedShortText, tone: .problem) }
+        if let note, !isPostedNote(note) { return Display(text: note, tone: .problem, title: title, switchesHost: switches) }
         guard mode == .remote else { return nil }
         if link == .connected, let receiver, !receiver.trusted {
-            return Display(text: ackText(.notAuthorized, platform: platform) ?? "", tone: .problem, title: title)
+            return Display(text: ackText(.notAuthorized, platform: platform) ?? "", tone: .problem, title: title, switchesHost: switches)
         }
         // Windows and Linux have no password field to detect, so a status that claims one is not shown.
         if link == .connected, platform == .mac, receiver?.inputBlocked == true {
-            return Display(text: inputBlockedText, tone: .problem, title: title)
+            return Display(text: inputBlockedText, tone: .problem, title: title, switchesHost: switches)
         }
-        if link == .connected { return Display(text: connectedText, tone: .connected, title: title) }
-        return Display(text: disconnectedText, tone: .problem, title: title)
+        if link == .connected { return Display(text: connectedText, tone: .connected, title: title, switchesHost: switches) }
+        return Display(text: disconnectedText, tone: .problem, title: title, switchesHost: switches)
     }
 
     /// The posted note of any platform: it names a success and is not shown. A note made for one host may still be on screen

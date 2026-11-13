@@ -7,9 +7,13 @@ import Security
 
 /// Where the Mac keeps its own identity and the phones it is paired with.
 protocol PairingStoring: AnyObject {
-    /// This Mac's identity. The first call on a Mac that has none makes one (random id, the computer name as display name) and
-    /// stores it; later calls, and later launches, return the same identity.
+    /// This Mac's identity. The first call on a Mac that has none makes one (random id, the platform name 「Mac」 as display
+    /// name) and stores it; later calls, and later launches, return the same identity. An existing host.json keeps its name.
     func loadHost() -> HostIdentity
+    /// Gives this Mac another display name and returns the new identity. The name is trimmed, cut to 32 UTF-8 bytes, and an
+    /// empty one becomes 「Mac」; id and platform stay, and so do the phones. A phone shows the new name only after it is
+    /// paired again (the handshake uses the id and the key, not the name).
+    @discardableResult func renameHost(_ name: String) throws -> HostIdentity
     /// Every phone that is stored in full (identity and key), oldest first, at most eight.
     func loadPhones() -> [PairedPhone]
     /// When each stored phone was added, by phone id. A phone without a date is left out.
@@ -77,18 +81,15 @@ final class MacPairingStore: PairingStoring {
 
     private let directory: URL
     private let legacyKeychainService: String
-    private let defaultHostName: () -> String?
     private var cachedHost: HostIdentity?
 
-    /// Tests pass a temporary directory, their own Keychain service and a fixed computer name, so they never touch the real files.
+    /// Tests pass a temporary directory and their own Keychain service, so they never touch the real files.
     init(
         directory: URL = MacPairingStore.defaultDirectory,
-        legacyKeychainService: String = MacPairingStore.legacyService,
-        defaultHostName: @escaping () -> String? = { Host.current().localizedName }
+        legacyKeychainService: String = MacPairingStore.legacyService
     ) {
         self.directory = directory
         self.legacyKeychainService = legacyKeychainService
-        self.defaultHostName = defaultHostName
     }
 
     private var hostFile: URL { directory.appendingPathComponent(Self.hostFileName) }
@@ -119,7 +120,7 @@ final class MacPairingStore: PairingStoring {
         if SecRandomCopyBytes(kSecRandomDefault, id.count, &id) != errSecSuccess {
             id = (0..<id.count).map { _ in UInt8.random(in: 0...255) }
         }
-        let host = HostIdentity(id: Data(id), name: initialHostName(), platform: .mac)
+        let host = HostIdentity(id: Data(id), name: Self.fallbackHostName, platform: .mac)
         cachedHost = host
         if let data = try? JSONEncoder().encode(host) { try? writeAtomically(data, to: hostFile, directory: directory) }
         return host
@@ -136,9 +137,16 @@ final class MacPairingStore: PairingStoring {
         }
     }
 
-    private func initialHostName() -> String {
-        let clamped = IdentityName.clamp(defaultHostName() ?? "")
-        return clamped.isEmpty ? Self.fallbackHostName : clamped
+    @discardableResult
+    func renameHost(_ name: String) throws -> HostIdentity {
+        let current = loadHost()
+        let clamped = IdentityName.clamp(name.trimmingCharacters(in: .whitespacesAndNewlines))
+        let renamed = HostIdentity(
+            id: current.id, name: clamped.isEmpty ? Self.fallbackHostName : clamped, platform: current.platform)
+        guard let data = try? JSONEncoder().encode(renamed) else { throw PairingStoreError.file("encode") }
+        try writeAtomically(data, to: hostFile, directory: directory)
+        cachedHost = renamed
+        return renamed
     }
 
     // MARK: Phones

@@ -25,9 +25,8 @@ final class MacPairingStoreTests: XCTestCase {
         }
     }
 
-    private func makeStore(directory: URL? = nil, hostName: @escaping () -> String? = { "書房的 Mac" }) -> MacPairingStore {
-        MacPairingStore(
-            directory: directory ?? self.directory, legacyKeychainService: keychainService, defaultHostName: hostName)
+    private func makeStore(directory: URL? = nil) -> MacPairingStore {
+        MacPairingStore(directory: directory ?? self.directory, legacyKeychainService: keychainService)
     }
 
     private var phonesDirectory: URL { directory.appendingPathComponent("phones") }
@@ -66,22 +65,50 @@ final class MacPairingStoreTests: XCTestCase {
     func testHostIdentityIsStableAcrossLoads() throws {
         let first = store.loadHost()
         XCTAssertEqual(first.id.count, 16)
-        XCTAssertEqual(first.name, "書房的 Mac")
+        XCTAssertEqual(first.name, "Mac", "a new host.json is named after the platform, not the computer")
         XCTAssertEqual(first.platform, .mac)
         XCTAssertEqual(store.loadHost(), first, "the same object answers again")
-        XCTAssertEqual(makeStore(hostName: { "別的名字" }).loadHost(), first, "and so does a new launch: read back from host.json")
+        XCTAssertEqual(makeStore().loadHost(), first, "and so does a new launch: read back from host.json")
     }
 
-    func testHostNameIsClampedAndEmptyNameFallsBackToADefault() {
-        let long = String(repeating: "電", count: 30)
-        let other = root.appendingPathComponent("other")
-        let host = makeStore(directory: other, hostName: { long }).loadHost()
-        XCTAssertEqual(host.name, String(repeating: "電", count: 10), "10 characters of 3 bytes fill 30 of 32 bytes")
-        XCTAssertTrue(host.isValid)
-        let empty = makeStore(directory: root.appendingPathComponent("empty"), hostName: { "" }).loadHost()
-        XCTAssertEqual(empty.name, "Mac")
-        let missing = makeStore(directory: root.appendingPathComponent("missing"), hostName: { nil }).loadHost()
-        XCTAssertEqual(missing.name, "Mac")
+    func testExistingHostFileKeepsItsStoredName() throws {
+        let stored = HostIdentity(id: Data(repeating: 5, count: 16), name: "書房的 MacBook", platform: .mac)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try JSONEncoder().encode(stored).write(to: hostFile)
+        XCTAssertEqual(makeStore().loadHost(), stored, "an existing host.json is never renamed automatically")
+    }
+
+    // MARK: Rename
+
+    func testRenamePersistsAcrossANewStoreAndKeepsTheId() throws {
+        let first = store.loadHost()
+        let renamed = try store.renameHost("  書房  \n")
+        XCTAssertEqual(renamed.name, "書房", "whitespace and newlines around the name are trimmed")
+        XCTAssertEqual(renamed.id, first.id)
+        XCTAssertEqual(renamed.platform, first.platform)
+        XCTAssertEqual(store.loadHost(), renamed, "the cache is updated")
+        XCTAssertEqual(makeStore().loadHost(), renamed, "and host.json holds it")
+        XCTAssertEqual(try permissions(hostFile), 0o600)
+    }
+
+    func testRenameClampsToThirtyTwoBytesOnAScalarBoundary() throws {
+        let renamed = try store.renameHost(String(repeating: "測", count: 11))
+        XCTAssertEqual(renamed.name, String(repeating: "測", count: 10))
+        XCTAssertTrue(renamed.isValid)
+        XCTAssertEqual(makeStore().loadHost().name, String(repeating: "測", count: 10))
+    }
+
+    func testRenameToNothingFallsBackToMac() throws {
+        _ = try store.renameHost("書房")
+        XCTAssertEqual(try store.renameHost("   \n ").name, "Mac")
+        XCTAssertEqual(makeStore().loadHost().name, "Mac")
+    }
+
+    func testRenameLeavesThePhonesAlone() throws {
+        try store.save(phone(1))
+        try store.save(phone(2))
+        _ = try store.renameHost("客廳")
+        XCTAssertEqual(makeStore().loadPhones().map(\.identity), [TestIdentity.phone(1), TestIdentity.phone(2)])
     }
 
     func testUnreadableHostFileIsReplacedByANewIdentity() throws {

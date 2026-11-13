@@ -102,6 +102,8 @@ struct ReceiverPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
             Divider()
+            HostNameSection(security: security)
+            Divider()
             Toggle("允許觸控板控制", isOn: Binding(
                 get: { pointer.isEnabled },
                 set: { pointer.setEnabled($0) }
@@ -200,5 +202,43 @@ struct ReceiverPanel: View {
         case .idle: .gray
         case .unavailable: .red
         }
+    }
+}
+
+/// 「電腦名稱」: the name an iPhone shows for this Mac. The rules (trim, 32 bytes, empty means 「Mac」) live in the store.
+private struct HostNameSection: View {
+    @ObservedObject var security: ReceiverSecurity
+    @State private var draft = ""
+    @State private var saveFailed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("電腦名稱").font(.headline)
+            HStack(spacing: 6) {
+                TextField("Mac", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(save)
+                Button("儲存", action: save)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines) == security.hostName)
+            }
+            if saveFailed {
+                Text("無法儲存名稱")
+                    .foregroundStyle(.red)
+            }
+            Text("改名後，已配對的 iPhone 要重新配對才會顯示新名稱。最多 32 個位元組（約 10 個中文字）。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .onAppear { draft = security.hostName }
+        .onChange(of: security.hostName) { _, name in draft = name }
+        .onChange(of: draft) { _, _ in saveFailed = false }
+    }
+
+    private func save() {
+        guard draft.trimmingCharacters(in: .whitespacesAndNewlines) != security.hostName else { return }
+        saveFailed = !security.renameHost(draft)
+        // The stored name can differ from what was typed (trimmed, cut, or empty turned into 「Mac」) without changing.
+        if !saveFailed { draft = security.hostName }
     }
 }
