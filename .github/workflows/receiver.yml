@@ -1,0 +1,44 @@
+name: Receiver
+
+on:
+  pull_request:
+    paths:
+      - "receiver/**"
+      - ".github/workflows/receiver.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-lint:
+    name: Build, test and lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the stable Rust toolchain with clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install Linux build dependencies (D-Bus headers and pkg-config)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Build the workspace
+        working-directory: receiver
+        run: cargo build --workspace
+
+      - name: Run the workspace tests
+        working-directory: receiver
+        run: cargo test --workspace
+
+      - name: Run clippy with warnings as errors
+        working-directory: receiver
+        run: cargo clippy --workspace --all-targets -- -D warnings
