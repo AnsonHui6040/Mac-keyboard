@@ -12,7 +12,7 @@
 | WL3（Core 協定 v4） | `swift test` 1102 個測試 0 失敗；測試向量檔與協定文件的範例值 95／95 相符 | 不適用（純邏輯） | 完成。iOS 與 Mac 的轉接層在 WL4、WL5 修復 |
 | WL4（iPhone 多主機） | `swift test` 1111 個測試 0 失敗；iOS 模擬器建置成功；402 與 375 pt 截圖 4 張 | TBD | 程式完成；截圖待使用者確認，實機項目未測 |
 | WL5（Mac Receiver v4 與多手機） | `MacReceiverTests` 349 個測試 0 失敗；Mac、iOS 模擬器建置成功；真機 build-for-testing 成功 | TBD | 程式完成；實機項目未測 |
-| WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR 上 Windows 與 Ubuntu 的 CI：見下節 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
+| WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR #98 上 Windows 與 Ubuntu 的 CI 皆成功 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -534,6 +534,15 @@ Executed 1117 tests, with 0 failures (0 unexpected)
 ```
 
 TDD：先寫 `swift_vectors.rs` 與 `loopback.rs`，以 `todo!()` 空殼跑出 16 個失敗（全是 `not yet implemented`），再實作到全綠。Rust 輸出與 Swift 向量逐位元組相同：18 則訊息（含 4 則帶 `\/`）、`pairKey` 與配對碼 `947102`、兩個 proof、兩個方向的 session 密文、指標封包、600 bytes 分段、4 個選定 UUID、3 個名稱截斷範例。反向：`RustVectorTests.testSwiftOpensRustVectors` 以 Swift 的 `SessionCrypto`、`CounterChannel`、`FrameCodec`、`FrameReassembler` 解開 Rust 封裝的 sealed（含 `/`、多位元組字元、跳脫字元）、2 個指標封包（含計數器 2^40+5）、2 組分段（`F` 為 185 與 23）。
+
+### CI（PR #98，GitHub Actions run 43358896962，2026-11-13）
+
+| 平台 | build | test | clippy |
+|---|---|---|---|
+| `windows-latest` | 成功 | 230 + 7 + 9 通過，0 失敗，1 ignored | 成功 |
+| `ubuntu-latest`（先安裝 `libdbus-1-dev`、`pkg-config`） | 成功 | 同上 | 成功 |
+
+Windows 上的 `rust_vectors_file_is_current` 通過，即 I1 的換行修正有效。
 
 ### 開 PR 前的獨立審查
 
