@@ -751,3 +751,46 @@ Edge 的項目每個重複 4 次以上，結果一致。記事本在 0 毫秒時
 - 基準版有 3 次探索只花 0.2 秒以內的原因。
 - Linux 在 root 權限下調整連線參數後的探索時間。
 - iPhone 以外的手機（Android）。
+
+## WL1 除錯：S1 與 S3 的原因（2026-11-14）
+
+只做調查與量測，沒有改產品程式。探針程式不進 repo，Mac 上的副本在 `~/rk-spike-debug/`（Windows `win/`、Linux `linux/attprobe.py`、執行腳本與 `results/`）。
+
+### 根本原因
+
+| # | 原因 | 狀態 | 證據 |
+|---|---|---|---|
+| R1 | 每條新連線建立後，iPhone 約 40–46 個連線間隔內沒有任何 ATT 回應，所以耗時與連線間隔成正比 | 已證實 | Linux 自寫 ATT 追蹤：第一個回應在 1,800–2,026 毫秒到（44 次），間隔 45 毫秒。Windows 不調參初始間隔 60 毫秒，連上到第一次參數變更中位數 2,743 毫秒；調參後間隔 15 毫秒，中位數約 600 毫秒 |
+| R2 | 連線常在頭幾個間隔內失敗（Windows 的 Unreachable、Linux 的 `le-connection-abort-by-local`） | 現象已證實，原因未查 | Linux 原始 socket 在 372–485 毫秒回 `ENOSYS`；Windows 連上後 77–90 毫秒斷線。Windows 會自動重連，但不重跑進行中的探索呼叫，所以回 Unreachable |
+| S1 的 0.2 秒 | 接回還沒斷的舊連線，不是 cache | 已證實 | 這類嘗試沒有新連線事件；Windows 在 `Close()` 後約 3.3 秒才真的斷線 |
+| S3 的 5.5 秒 | R1 加上 BlueZ 全量探索（10 個 service、16 個 characteristic、15 個 descriptor，46 次往返） | 已證實 | 自寫 client 重現全量探索 5.40 秒（1 次） |
+| 掃描迴圈打斷連線 | 不是原因 | 已否定 | 先停探索、不做 `RemoveDevice`，失敗率與時機相同 |
+
+### 量測（從看到廣播到收到 `helloReply`，毫秒）
+
+| 平台與做法 | 嘗試 | 失敗 | 最小／中位／p95／最大 | 3 秒內 |
+|---|---|---|---|---|
+| Windows WC：調參、帶位址類型、同一裝置物件重查到 8 秒 | 40 | 0 | 209／520／1,335／2,361 | 40／40 |
+| Windows WC2：同上重跑 | 48 | 0 | 201／1,008／3,796／10,342 | 44／48 |
+| 其中全新連線 | 33 | 0 | 936／1,231／1,755／2,361 | 33／33 |
+| 其中舊連線失效 | 5 | 0 | 1,335／3,796／10,342／10,342 | 1／5 |
+| Linux L3：自寫 ATT（L2CAP CID 4）只探索本 service，handle 快取並核對 | 47 | 3 | 2,448／2,624／4,987／7,033 | 35／44 |
+
+Linux 一次連上的 34 次全部在 2,448–2,765 毫秒；需要重試的 9 次是 4,685–7,033 毫秒（重試固定多約 2 秒，原因未查）。
+
+### 對實作的要求
+
+- WL7（Windows）：探索前 `RequestPreferredConnectionParameters(ThroughputOptimized)` 並在連線期間保留回傳物件；`GattSession.MaintainConnection = true`；`GetGattServicesForUuidAsync(service, Uncached)` 在同一裝置物件上每 50 毫秒重查到成功或 8 秒，Unreachable 與 0 個 service 都重試，中途不 Close；位址類型取自廣播。舊連線失效（最多約 10 秒）要靠連線生命週期處理：收到 `bye` 立即釋放、看到新廣播而舊連線查不到 service 時改開新連線。
+- WL10（Linux）：不用 BlueZ GATT client，以 L2CAP ATT 固定通道（CID 4，hci1，對方 LE Random）自建最小 client：Exchange MTU 517、Find By Type Value、Read By Type、Find Information、寫 CCCD、Write Request 寫 `hello`；回應 iPhone 送來的 ATT 請求（Error Response）；快取 handle 但每次先核對；連線前 `StopDiscovery`，`ENOSYS` 立即重試最多 3 次。不用 root 的預期是約 2.6 秒。
+
+### 需要 root、都沒執行
+
+| 指令 | 用途 | 影響 |
+|---|---|---|
+| `sudo btmon -i hci1 -w ~/rk-hci1.btsnoop` | 查 R1、R2 的 HCI 原因 | 只側錄 |
+| `echo 6 \| sudo tee /sys/kernel/debug/bluetooth/hci1/conn_min_interval` 與 `echo 12 \| sudo tee …/conn_max_interval` | 縮短 hci1 連線間隔，預估約 1.1 秒（推算，未測） | 只影響 hci1，重開機失效 |
+
+### 其他
+
+- bluetoothd 在 2026-11-13 16:43:07 有一次 segfault（先前 spike 期間），原因未查。
+- UI 測試在 Safari 找不到 `rk.status`，主機端的嘗試數不等於鍵盤出現次數。
