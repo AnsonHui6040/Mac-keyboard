@@ -1,5 +1,5 @@
 [workspace]
-members = ["rk-core"]
+members = ["rk-core", "rk-ble", "rk-inject", "rk-receiver"]
 resolver = "2"
 
 [workspace.package]
