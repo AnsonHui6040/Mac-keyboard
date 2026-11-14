@@ -10,7 +10,7 @@
 //! talks to the Secret Service for the application's synchronous key store.
 
 use super::linux_logic::{
-    action_for, argb_from_rgba, autostart_file, data_file, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
+    action_for, argb_from_rgba, Begin, LoadSlot, autostart_file, data_file, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
     portal_token_file, pretty_name, question_args, restart_args, tooltip_text, write_autostart, Action, AdapterChoices, ChainedBackend, FilePhoneBackend, MenuEntry,
 };
 use super::{claim_instance, linux_paths, Instance, InstanceLock, Paths};
@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::runtime::Builder;
 use tokio::sync::{mpsc, oneshot};
@@ -47,8 +47,12 @@ use tokio::sync::{mpsc, oneshot};
 const DIALOG_TITLE: &str = "Remote Keyboard";
 /// How long the Secret Service gets to answer at start-up before the key file is used.
 const KEYSTORE_CONNECT_TIMEOUT: Duration = Duration::from_secs(4);
-/// A key store request that is still unanswered after this is given up (a locked keyring waiting for a password).
-const KEYSTORE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+/// A write to the keyring that is not done by then fails (the application thread waits for it).
+const KEYSTORE_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long the application thread waits for a read of the keyring it has just started: a moment, never more.
+const LOAD_WAIT: Duration = Duration::from_millis(200);
+/// How long the keyring thread waits for the user to answer the desktop's unlock prompt.
+const PROMPT_PATIENCE: Duration = Duration::from_secs(120);
 /// §1.5 of the plan: on exit the queued commands (the `bye`) get this long to reach the radio.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const ADAPTER_REFRESH: Duration = Duration::from_secs(15);
@@ -119,18 +123,23 @@ fn claim_lock(path: PathBuf) -> Option<FlockLock> {
 type Reply<T> = std_mpsc::Sender<T>;
 
 enum KeyRequest {
-    Load(Reply<Result<Vec<PairedPhone>, StoreError>>),
-    Put(PairedPhone, Reply<Result<(), StoreError>>),
-    Remove([u8; 16], Reply<Result<(), StoreError>>),
+    /// The answer goes to the `LoadSlot`; nobody waits for it.
+    Load { interactive: bool },
+    /// A request that a caller waited for only until `expires`: later it is not carried out any more.
+    Put(PairedPhone, Instant, Reply<Result<(), StoreError>>),
+    Remove([u8; 16], Instant, Reply<Result<(), StoreError>>),
 }
 
 /// The paired phones in the desktop's keyring: one item each, attributes `application=remote-keyboard` and
 /// `phone-id=<hex>`, the secret is the record of `store::encode_record`.
 ///
 /// The application's key store is synchronous and runs inside a tokio runtime, so the D-Bus conversation lives on a thread
-/// of its own and is asked through channels.
+/// of its own. The application thread never waits for the keyring for more than a moment: a read is handed over through a
+/// `LoadSlot` (one at a time; only the first one, and one the user asked for by starting to pair, may raise the unlock
+/// prompt), and a write that cannot be done at once fails.
 struct SecretServiceBackend {
     requests: std_mpsc::Sender<KeyRequest>,
+    loads: Arc<LoadSlot>,
 }
 
 fn keyring_error() -> StoreError {
@@ -141,13 +150,28 @@ const APPLICATION: &str = "application";
 const APPLICATION_NAME: &str = "remote-keyboard";
 const PHONE_ID: &str = "phone-id";
 
+/// A prompt that nobody answers must not keep the keyring thread for ever.
+async fn answered<T>(prompt: impl std::future::Future<Output = Result<T, secret_service::Error>>) -> Result<T, StoreError> {
+    tokio::time::timeout(PROMPT_PATIENCE, prompt).await.map_err(|_| keyring_error())?.map_err(|_| keyring_error())
+}
+
 /// Every phone of ours in the keyring. A keyring that is locked (and stays so) or does not answer is an error: that is not
-/// the same as having no phones, and the caller must not treat it so.
-async fn keyring_load(service: &SecretService<'_>) -> Result<Vec<PairedPhone>, StoreError> {
+/// the same as having no phones, and the caller must not treat it so. Only an `interactive` read opens a locked keyring
+/// (which raises the desktop's prompt); the others report it as locked at once.
+async fn keyring_load(service: &SecretService<'_>, interactive: bool) -> Result<Vec<PairedPhone>, StoreError> {
+    if interactive {
+        let collection = service.get_default_collection().await.map_err(|_| keyring_error())?;
+        if collection.is_locked().await.map_err(|_| keyring_error())? {
+            answered(collection.unlock()).await?;
+        }
+    }
     let found = service.search_items(HashMap::from([(APPLICATION, APPLICATION_NAME)])).await.map_err(|_| keyring_error())?;
-    let locked: Vec<_> = found.locked.iter().collect();
-    if !locked.is_empty() {
-        service.unlock_all(&locked).await.map_err(|_| keyring_error())?;
+    if !found.locked.is_empty() {
+        if !interactive {
+            return Err(keyring_error());
+        }
+        let locked: Vec<_> = found.locked.iter().collect();
+        answered(service.unlock_all(&locked)).await?;
     }
     let mut phones = Vec::new();
     for item in found.unlocked.iter().chain(found.locked.iter()) {
@@ -161,9 +185,12 @@ async fn keyring_load(service: &SecretService<'_>) -> Result<Vec<PairedPhone>, S
     Ok(phones)
 }
 
+/// Never raises a prompt: pairing has asked for the keyring to be unlocked before it gets here.
 async fn keyring_put(service: &SecretService<'_>, phone: &PairedPhone) -> Result<(), StoreError> {
     let collection = service.get_default_collection().await.map_err(|_| keyring_error())?;
-    collection.unlock().await.map_err(|_| keyring_error())?;
+    if collection.is_locked().await.map_err(|_| keyring_error())? {
+        return Err(keyring_error());
+    }
     let id = hex(&phone.identity.id);
     let attributes = HashMap::from([(APPLICATION, APPLICATION_NAME), (PHONE_ID, id.as_str())]);
     collection.create_item("Remote Keyboard phone key", attributes, &encode_record(phone), true, "application/json").await.map_err(|_| keyring_error())?;
@@ -173,11 +200,10 @@ async fn keyring_put(service: &SecretService<'_>, phone: &PairedPhone) -> Result
 async fn keyring_remove(service: &SecretService<'_>, id: &[u8; 16]) -> Result<(), StoreError> {
     let id = hex(id);
     let found = service.search_items(HashMap::from([(APPLICATION, APPLICATION_NAME), (PHONE_ID, id.as_str())])).await.map_err(|_| keyring_error())?;
-    let locked: Vec<_> = found.locked.iter().collect();
-    if !locked.is_empty() {
-        service.unlock_all(&locked).await.map_err(|_| keyring_error())?;
+    if !found.locked.is_empty() {
+        return Err(keyring_error());
     }
-    for item in found.unlocked.iter().chain(found.locked.iter()) {
+    for item in &found.unlocked {
         item.delete().await.map_err(|_| keyring_error())?;
     }
     Ok(())
@@ -188,6 +214,8 @@ impl SecretServiceBackend {
     fn connect(timeout: Duration) -> Option<Self> {
         let (ready_tx, ready_rx) = std_mpsc::channel();
         let (requests, inbox) = std_mpsc::channel::<KeyRequest>();
+        let loads = Arc::new(LoadSlot::new());
+        let slot = loads.clone();
         let spawned = std::thread::Builder::new().name("rk-keys".into()).spawn(move || {
             let Ok(runtime) = Builder::new_current_thread().enable_all().build() else {
                 let _ = ready_tx.send(false);
@@ -206,41 +234,55 @@ impl SecretServiceBackend {
                 // This thread has nothing else to do, so waiting on the channel is fine.
                 while let Ok(request) = inbox.recv() {
                     match request {
-                        KeyRequest::Load(reply) => {
-                            let _ = reply.send(keyring_load(&service).await);
-                        }
-                        KeyRequest::Put(phone, reply) => {
+                        KeyRequest::Load { interactive } => slot.finish(keyring_load(&service, interactive).await),
+                        KeyRequest::Put(phone, expires, reply) if Instant::now() < expires => {
                             let _ = reply.send(keyring_put(&service, &phone).await);
                         }
-                        KeyRequest::Remove(id, reply) => {
+                        KeyRequest::Remove(id, expires, reply) if Instant::now() < expires => {
                             let _ = reply.send(keyring_remove(&service, &id).await);
                         }
+                        // The caller has given up on it already; doing it now would contradict the answer it got.
+                        KeyRequest::Put(..) | KeyRequest::Remove(..) => {}
                     }
                 }
             });
         });
-        (spawned.is_ok() && ready_rx.recv_timeout(timeout) == Ok(true)).then_some(Self { requests })
+        (spawned.is_ok() && ready_rx.recv_timeout(timeout) == Ok(true)).then_some(Self { requests, loads })
     }
 
-    fn ask<T>(&self, make: impl FnOnce(Reply<T>) -> KeyRequest) -> Option<T> {
+    fn ask<T>(&self, make: impl FnOnce(Instant, Reply<T>) -> KeyRequest) -> Option<T> {
         let (reply, answer) = std_mpsc::channel();
-        self.requests.send(make(reply)).ok()?;
+        self.requests.send(make(Instant::now() + KEYSTORE_REQUEST_TIMEOUT, reply)).ok()?;
         answer.recv_timeout(KEYSTORE_REQUEST_TIMEOUT).ok()
     }
 }
 
 impl PhoneBackend for SecretServiceBackend {
     fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
-        self.ask(KeyRequest::Load).unwrap_or_else(|| Err(keyring_error()))
+        match self.loads.begin() {
+            Begin::Done(result) => result,
+            // The last read has not come back (a prompt nobody has answered): do not wait for it, do not start another.
+            Begin::Busy => Err(keyring_error()),
+            Begin::Start { interactive } => {
+                if self.requests.send(KeyRequest::Load { interactive }).is_err() {
+                    self.loads.finish(Err(keyring_error()));
+                }
+                self.loads.wait(LOAD_WAIT).unwrap_or_else(|| Err(keyring_error()))
+            }
+        }
+    }
+
+    fn unlock(&self) {
+        self.loads.want_interactive();
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
-        self.ask(|reply| KeyRequest::Put(phone.clone(), reply)).unwrap_or_else(|| Err(keyring_error()))
+        self.ask(|expires, reply| KeyRequest::Put(phone.clone(), expires, reply)).unwrap_or_else(|| Err(keyring_error()))
     }
 
     fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
         let id = *id;
-        self.ask(|reply| KeyRequest::Remove(id, reply)).unwrap_or_else(|| Err(keyring_error()))
+        self.ask(|expires, reply| KeyRequest::Remove(id, expires, reply)).unwrap_or_else(|| Err(keyring_error()))
     }
 }
 
@@ -812,12 +854,23 @@ mod tests {
             identity: PhoneIdentity { id: [0xEE; 16], name: "rk test phone".into(), platform: PhonePlatform::Ios },
             pair_key: PairKey::new([0x5A; 32]),
         };
+        // A read answers within a moment or says "not yet"; ask until it has.
+        let load = |backend: &SecretServiceBackend| {
+            for _ in 0..50 {
+                if let Ok(phones) = backend.load() {
+                    return phones;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            panic!("the keyring never answered");
+        };
+        load(&backend);
         backend.put(&phone).unwrap();
         backend.put(&phone).unwrap(); // the same phone again replaces, it does not add
-        let found: Vec<_> = backend.load().unwrap().into_iter().filter(|p| p.identity.id == [0xEE; 16]).collect();
+        let found: Vec<_> = load(&backend).into_iter().filter(|p| p.identity.id == [0xEE; 16]).collect();
         assert_eq!(found, vec![phone.clone()]);
         backend.remove(&phone.identity.id).unwrap();
-        assert!(backend.load().unwrap().iter().all(|p| p.identity.id != [0xEE; 16]));
+        assert!(load(&backend).iter().all(|p| p.identity.id != [0xEE; 16]));
         backend.remove(&phone.identity.id).unwrap(); // removing what is not there is fine
     }
 

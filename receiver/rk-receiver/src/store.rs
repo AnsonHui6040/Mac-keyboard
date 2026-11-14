@@ -24,6 +24,9 @@ pub trait PhoneStore: Send {
     fn unavailable(&self) -> bool {
         false
     }
+    /// The user asked for something that needs the keys (to pair): a key store that is locked may ask them to unlock it now,
+    /// and is read again at once. It never waits for the answer. Stores that cannot be locked keep the default.
+    fn unlock_keys(&self) {}
     /// Stores the phone; one with the same id is replaced (§4). A ninth phone is `Full`.
     fn save(&mut self, p: PairedPhone) -> Result<(), StoreError>;
     fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
@@ -144,6 +147,9 @@ impl ConfigStore for MemoryConfigStore {
 pub trait PhoneBackend: Send {
     /// An error means "could not be read", which is not the same as "no phones".
     fn load(&self) -> Result<Vec<PairedPhone>, StoreError>;
+    /// The next `load` may ask the user to unlock the key store; until this is called none does (a retry every few seconds
+    /// must never raise a prompt). Must not wait for the user.
+    fn unlock(&self) {}
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError>;
     fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
 }
@@ -201,6 +207,11 @@ impl<B: PhoneBackend> PhoneStore for CachedPhoneStore<B> {
 
     fn unavailable(&self) -> bool {
         self.cached().phones.is_none()
+    }
+
+    fn unlock_keys(&self) {
+        self.backend.unlock();
+        self.cache.lock().unwrap_or_else(|p| p.into_inner()).failed_at = None;
     }
 
     fn save(&mut self, p: PairedPhone) -> Result<(), StoreError> {
@@ -360,6 +371,39 @@ mod tests {
             assert!(store.unavailable());
         }
         assert_eq!(*locked.inner.loads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn the_user_asking_to_unlock_reaches_the_backend_and_ends_the_backoff() {
+        #[derive(Clone, Default)]
+        struct Counting {
+            unlocks: Arc<Mutex<u32>>,
+            loads: Arc<Mutex<u32>>,
+        }
+        impl PhoneBackend for Counting {
+            fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+                *self.loads.lock().unwrap() += 1;
+                Err(StoreError::Backend("locked".into()))
+            }
+            fn put(&mut self, _: &PairedPhone) -> Result<(), StoreError> {
+                Err(StoreError::Backend("locked".into()))
+            }
+            fn remove(&mut self, _: &[u8; 16]) -> Result<(), StoreError> {
+                Err(StoreError::Backend("locked".into()))
+            }
+            fn unlock(&self) {
+                *self.unlocks.lock().unwrap() += 1;
+            }
+        }
+        let backend = Counting::default();
+        let store = CachedPhoneStore::new(backend.clone()).with_retry_after(Duration::from_secs(3600));
+        assert!(store.unavailable());
+        assert!(store.unavailable());
+        assert_eq!(*backend.loads.lock().unwrap(), 1, "inside the back-off");
+        store.unlock_keys();
+        assert_eq!(*backend.unlocks.lock().unwrap(), 1);
+        assert!(store.unavailable());
+        assert_eq!(*backend.loads.lock().unwrap(), 2, "the next look reads again at once");
     }
 
     #[test]

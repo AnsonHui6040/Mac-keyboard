@@ -7,6 +7,8 @@ use crate::store::{decode_record, encode_record, upsert, PhoneBackend, StoreErro
 use crate::ui::{NoticeKind, TrayState, UiCommand};
 use rk_core::identity::PairedPhone;
 use std::io::Write;
+use std::sync::{Condvar, Mutex, MutexGuard};
+use std::time::Duration;
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -289,6 +291,83 @@ pub fn entered_name(exit_code: Option<i32>, stdout: &str) -> Option<String> {
     (exit_code == Some(0) && !name.is_empty()).then(|| name.to_string())
 }
 
+// ---------------------------------------------------------------- reading the keyring without waiting for it
+
+/// What `LoadSlot::begin` says.
+#[derive(Debug)]
+pub enum Begin {
+    /// The last read has finished: its answer.
+    Done(Result<Vec<PairedPhone>, StoreError>),
+    /// A read is going on (a prompt nobody has answered, a slow keyring): do not start another.
+    Busy,
+    /// Start a read now. `interactive` says whether it may ask the user to unlock the keyring.
+    Start { interactive: bool },
+}
+
+#[derive(Debug)]
+struct SlotState {
+    outstanding: bool,
+    result: Option<Result<Vec<PairedPhone>, StoreError>>,
+    interactive: bool,
+}
+
+/// The hand-over between the application thread, which must never wait for a keyring, and the thread that talks to it.
+/// One read at a time; only the very first one (and one the user asked for) may raise a prompt.
+#[derive(Debug)]
+pub struct LoadSlot {
+    state: Mutex<SlotState>,
+    done: Condvar,
+}
+
+impl Default for LoadSlot {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoadSlot {
+    /// The first read is the start-up one and may ask for the keyring to be unlocked.
+    pub fn new() -> Self {
+        Self { state: Mutex::new(SlotState { outstanding: false, result: None, interactive: true }), done: Condvar::new() }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, SlotState> {
+        self.state.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    pub fn begin(&self) -> Begin {
+        let mut state = self.lock();
+        if let Some(result) = state.result.take() {
+            return Begin::Done(result);
+        }
+        if state.outstanding {
+            return Begin::Busy;
+        }
+        state.outstanding = true;
+        Begin::Start { interactive: std::mem::replace(&mut state.interactive, false) }
+    }
+
+    /// The reading thread's answer.
+    pub fn finish(&self, result: Result<Vec<PairedPhone>, StoreError>) {
+        let mut state = self.lock();
+        state.outstanding = false;
+        state.result = Some(result);
+        self.done.notify_all();
+    }
+
+    /// Waits for the answer of the read that was just started, at most `timeout`.
+    pub fn wait(&self, timeout: Duration) -> Option<Result<Vec<PairedPhone>, StoreError>> {
+        let state = self.lock();
+        let (mut state, _) = self.done.wait_timeout_while(state, timeout, |s| s.result.is_none()).unwrap_or_else(|p| p.into_inner());
+        state.result.take()
+    }
+
+    /// The user asked for something that needs the keys: the next read may raise the unlock prompt.
+    pub fn want_interactive(&self) {
+        self.lock().interactive = true;
+    }
+}
+
 // ---------------------------------------------------------------- keys without Secret Service
 
 /// The paired phones in a file that only the user can read, for desktops without a Secret Service.
@@ -392,6 +471,12 @@ impl PhoneBackend for ChainedBackend {
             }
         }
         Ok(phones)
+    }
+
+    fn unlock(&self) {
+        if let Some(primary) = &self.primary {
+            primary.unlock();
+        }
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {

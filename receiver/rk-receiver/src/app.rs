@@ -39,8 +39,6 @@ const FRAME_TICK_MS: u64 = 8;
 const WATCHDOG_TICK_MS: u64 = 25;
 /// While authenticated, how often the injector's readiness is looked at.
 const STATUS_POLL_MS: u64 = 500;
-/// Without a phone and with the injector in order: how often the injector is still looked at.
-const IDLE_POLL_MS: u64 = 2_000;
 const POINTER_PACKET_MAGIC: u8 = 0x03;
 const FRAME_MAGIC: u8 = 0x02;
 
@@ -669,7 +667,11 @@ impl App {
     pub fn on_ui(&mut self, command: UiCommand) -> Vec<Effect> {
         let mut fx = Vec::new();
         match command {
-            UiCommand::StartPairing => self.start_pairing(&mut fx),
+            UiCommand::StartPairing => {
+                // Saving the phone's key needs the keyring open: this is the moment the user may be asked to unlock it.
+                self.store.unlock_keys();
+                self.start_pairing(&mut fx);
+            }
             UiCommand::ConfirmPairing(attempt, accepted) => self.confirm_pairing(attempt, accepted, &mut fx),
             UiCommand::Rename(name) => {
                 self.cfg.set_host_name(&name, self.platform);
@@ -797,10 +799,11 @@ impl App {
         if let Some(conn) = &self.conn {
             wakes.extend(conn.deadline_ms);
         }
-        // The injector can change under us (the portal grant is given or lost), connected or not: the phone and the tray
-        // are told. Quickly while a phone listens or an authorization is pending, slowly otherwise.
-        let quick = authenticated || !self.injector.trusted();
-        wakes.push(now + if quick { STATUS_POLL_MS } else { IDLE_POLL_MS });
+        // The injector can change under a phone that is listening, and an authorization that is pending ends by itself: look
+        // at it twice a second then. Otherwise (Windows is always trusted) no timer runs while nobody is connected.
+        if authenticated || !self.injector.trusted() {
+            wakes.push(now + STATUS_POLL_MS);
+        }
         if self.pointer.needs_frames() {
             wakes.push(now + FRAME_TICK_MS);
         }
@@ -817,7 +820,7 @@ impl App {
         let needs_authorization = !self.injector.trusted();
         let icon = if authenticated {
             IconState::Connected
-        } else if self.attention || self.scan_failure.is_some() || needs_authorization {
+        } else if self.attention || self.scan_failure.is_some() || needs_authorization || self.keystore_down {
             IconState::Attention
         } else {
             IconState::Disconnected

@@ -6,6 +6,7 @@ use rk_core::identity::{PairedPhone, PhoneIdentity, PhonePlatform};
 use rk_core::secret::PairKey;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 fn phone(n: u8) -> PairedPhone {
     PairedPhone {
@@ -419,6 +420,57 @@ fn a_damaged_phones_file_does_not_hide_the_key_store() {
     keystore.0.lock().unwrap().push(phone(1));
     let chain = ChainedBackend::new(Some(Box::new(keystore)), FilePhoneBackend::new(path));
     assert_eq!(chain.load().unwrap(), vec![phone(1)]);
+}
+
+// ---------------------------------------------------------------- reading the keyring without waiting for it
+
+#[test]
+fn only_the_first_read_may_ask_the_user_to_unlock() {
+    let slot = LoadSlot::new();
+    assert!(matches!(slot.begin(), Begin::Start { interactive: true }));
+    slot.finish(Err(StoreError::Backend("cancelled".into())));
+    assert!(matches!(slot.begin(), Begin::Done(Err(_))), "the answer of the last read comes first");
+    assert!(matches!(slot.begin(), Begin::Start { interactive: false }), "a retry never raises a prompt");
+}
+
+#[test]
+fn a_read_that_is_still_going_is_never_started_a_second_time() {
+    let slot = LoadSlot::new();
+    assert!(matches!(slot.begin(), Begin::Start { .. }));
+    for _ in 0..5 {
+        assert!(matches!(slot.begin(), Begin::Busy), "a prompt that nobody answers must not pile up requests");
+    }
+    slot.finish(Ok(vec![phone(1)]));
+    assert!(matches!(slot.begin(), Begin::Done(Ok(list)) if list == vec![phone(1)]));
+}
+
+#[test]
+fn waiting_gives_the_answer_when_it_comes_in_time_and_gives_up_otherwise() {
+    let slot = Arc::new(LoadSlot::new());
+    slot.begin();
+    assert_eq!(slot.wait(Duration::from_millis(20)), None, "no answer, no waiting beyond the bound");
+    assert!(matches!(slot.begin(), Begin::Busy), "the read is still going");
+    let worker = slot.clone();
+    let thread = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(30));
+        worker.finish(Ok(vec![phone(2)]));
+    });
+    assert_eq!(slot.wait(Duration::from_secs(5)), Some(Ok(vec![phone(2)])));
+    thread.join().unwrap();
+    assert!(matches!(slot.begin(), Begin::Start { .. }), "the answer was taken, the slot is free");
+}
+
+#[test]
+fn the_user_asking_to_unlock_makes_the_next_read_interactive() {
+    let slot = LoadSlot::new();
+    slot.begin();
+    slot.finish(Err(StoreError::Backend("locked".into())));
+    slot.begin(); // takes the answer
+    slot.want_interactive();
+    assert!(matches!(slot.begin(), Begin::Start { interactive: true }));
+    slot.finish(Err(StoreError::Backend("cancelled".into())));
+    slot.begin();
+    assert!(matches!(slot.begin(), Begin::Start { interactive: false }));
 }
 
 #[test]

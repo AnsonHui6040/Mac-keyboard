@@ -322,6 +322,7 @@ fn choosing_a_bluetooth_controller_is_saved_and_the_link_config_follows() {
 struct LockableStore {
     inner: MemoryPhoneStore,
     locked: Arc<AtomicBool>,
+    unlocks: Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl PhoneStore for LockableStore {
@@ -330,6 +331,9 @@ impl PhoneStore for LockableStore {
     }
     fn unavailable(&self) -> bool {
         self.locked.load(Ordering::SeqCst)
+    }
+    fn unlock_keys(&self) {
+        self.unlocks.fetch_add(1, Ordering::SeqCst);
     }
     fn save(&mut self, p: PairedPhone) -> Result<(), StoreError> {
         self.inner.save(p)
@@ -375,18 +379,36 @@ fn the_tray_asks_for_authorization_while_the_injector_is_not_trusted() {
 }
 
 #[test]
-fn an_idle_receiver_still_looks_at_the_injector_now_and_then() {
-    // Nobody is connected, yet the tray must notice when the portal grant is given or lost.
+fn an_idle_receiver_with_a_working_injector_plans_no_wake_up() {
+    // Windows is always trusted: nothing to look at, so no timer runs while nobody is connected.
     let rig = Rig::new();
+    assert_eq!(rig.app.next_wake_ms(), None);
+}
+
+#[test]
+fn while_the_injector_is_not_trusted_the_receiver_looks_at_it_twice_a_second() {
+    let rig = Rig::new();
+    rig.injector.set_trusted(false);
     let wake = rig.app.next_wake_ms().expect("a wake-up is planned");
-    assert!(wake <= rig.app.now() + 2_000, "{wake}");
+    assert!(wake <= rig.app.now() + 500, "{wake}");
+}
+
+#[test]
+fn starting_to_pair_asks_the_key_store_to_unlock() {
+    let locked = Arc::new(AtomicBool::new(true));
+    let store = LockableStore { inner: MemoryPhoneStore::new(), locked, unlocks: Arc::default() };
+    let unlocks = store.unlocks.clone();
+    let mut rig = Rig::with_store(Box::new(store));
+    assert_eq!(unlocks.load(Ordering::SeqCst), 0, "nothing asks the user until they ask for something");
+    rig.command(UiCommand::StartPairing);
+    assert_eq!(unlocks.load(Ordering::SeqCst), 1);
 }
 
 #[test]
 fn a_keyring_that_cannot_be_read_gives_one_notice_and_the_phones_return_when_it_opens() {
     let inner = MemoryPhoneStore::new();
     let locked = Arc::new(AtomicBool::new(true));
-    let mut rig = Rig::with_store(Box::new(LockableStore { inner: inner.clone(), locked: locked.clone() }));
+    let mut rig = Rig::with_store(Box::new(LockableStore { inner: inner.clone(), locked: locked.clone(), unlocks: Arc::default() }));
     inner.clone().save(PairedPhone {
         identity: PhoneIdentity { id: [1; 16], name: "Phone 1".into(), platform: PhonePlatform::Ios },
         pair_key: PairKey::new([1; 32]),
@@ -397,8 +419,12 @@ fn a_keyring_that_cannot_be_read_gives_one_notice_and_the_phones_return_when_it_
     rig.advance(10);
     assert_eq!(rig.notices(), vec![NoticeKind::KeyStoreUnavailable], "one outage, one notice");
     assert!(rig.last_tray().phones.is_empty());
+    // The tray keeps showing the notice for as long as the outage lasts: it clears a notice once the icon is no longer
+    // the attention one.
+    assert_eq!(rig.last_tray().icon, IconState::Attention);
     locked.store(false, Ordering::SeqCst);
     rig.advance(10);
+    assert_eq!(rig.last_tray().icon, IconState::Disconnected);
     assert_eq!(rig.last_tray().phones.len(), 1, "the phones are listed again without a restart");
     let lines = rig.logs.lines().join("\n");
     assert!(lines.contains("ev=keystore_unavailable") && lines.contains("ev=keystore_ok"), "{lines}");
@@ -408,7 +434,7 @@ fn a_keyring_that_cannot_be_read_gives_one_notice_and_the_phones_return_when_it_
 #[test]
 fn a_connection_while_the_keyring_cannot_be_read_is_dropped_without_auth_failed() {
     let locked = Arc::new(AtomicBool::new(true));
-    let mut rig = Rig::with_store(Box::new(LockableStore { inner: MemoryPhoneStore::new(), locked }));
+    let mut rig = Rig::with_store(Box::new(LockableStore { inner: MemoryPhoneStore::new(), locked, unlocks: Arc::default() }));
     rig.connect(Route::Selected);
     assert!(!rig.link.is_connected());
     assert_eq!(rig.link.holds(), &[(DEVICE, Duration::from_secs(10))]);
