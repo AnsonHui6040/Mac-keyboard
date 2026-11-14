@@ -8,12 +8,16 @@
 //! 5. `event` subscribed, `control` written with Write Request only;
 //! 6. when the 8 s run out the objects are closed, so the next advertisement opens everything afresh. The phone keeps
 //!    advertising until it is subscribed, so a new advertisement during discovery is normal and is not looked at.
+//! 7. while a link made through the selected UUID is open a second watcher keeps running, and an advertisement of the
+//!    selected UUID from the same phone, more than a second after `subscribed`, makes the link stale: it is released at
+//!    once and that advertiser is connected to (`stale.rs`).
 //!
 //! WinRT calls block (`.get()`), so one dedicated thread owns the whole state machine and talks to the application through
 //! channels. All of it is invisible to the logic tests; it is exercised on a real Windows machine.
 
 use crate::diag::{Diag, FailKind, Value};
 use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff};
+use crate::stale::{is_stale_link, Advert, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use std::collections::HashMap;
 use std::sync::mpsc as std_mpsc;
@@ -135,6 +139,8 @@ struct Link {
     value_token: i64,
     lost: std_mpsc::Receiver<()>,
     gate: Arc<Mutex<NotificationGate>>,
+    /// When `event` was subscribed: the stale-link rule counts from here.
+    subscribed_at: Instant,
 }
 
 impl Link {
@@ -160,6 +166,26 @@ enum Watched {
     Failed(ScanFailure),
     /// The application is gone.
     Gone,
+}
+
+/// How one link ended, for the loop that runs them.
+enum Served {
+    /// Back to scanning.
+    Ended,
+    /// The application is gone.
+    Quit,
+    /// The link was stale: connect to the phone that advertised, at once.
+    Reconnect(Sighting),
+}
+
+impl Served {
+    fn of(keep_going: bool) -> Self {
+        if keep_going {
+            Self::Ended
+        } else {
+            Self::Quit
+        }
+    }
 }
 
 enum Failure {
@@ -204,15 +230,25 @@ impl Worker {
     }
 
     fn run(mut self) {
+        let mut reconnect: Option<Sighting> = None;
         loop {
             if !self.drain_commands() {
                 return;
             }
-            let Some(sighting) = self.scan_until_found() else { return };
+            // A stale link was replaced: its advertiser is the next target, no scan in between.
+            let sighting = match reconnect.take() {
+                Some(sighting) => sighting,
+                None => match self.scan_until_found() {
+                    Some(sighting) => sighting,
+                    None => return,
+                },
+            };
             let conn = self.next_conn;
             self.next_conn += 1;
-            if !self.connect_and_serve(conn, sighting) {
-                return;
+            match self.connect_and_serve(conn, sighting) {
+                Served::Quit => return,
+                Served::Reconnect(next) => reconnect = Some(next),
+                Served::Ended => {}
             }
         }
     }
@@ -289,14 +325,14 @@ impl Worker {
     }
 
     /// One attempt from advertisement to hang-up. `false` ends the worker.
-    fn connect_and_serve(&mut self, conn: u64, sighting: Sighting) -> bool {
+    fn connect_and_serve(&mut self, conn: u64, sighting: Sighting) -> Served {
         let adv_at = Instant::now();
         let device_key = DeviceKey(sighting.address);
         // A hold may have been set between the advertisement and now (the previous connection of this device just ended).
         let held = self.scan.lock().unwrap_or_else(|p| p.into_inner()).holds.get(&sighting.address).is_some_and(|until| *until > adv_at);
         if held {
             self.diag(Diag::new(conn, "held_skip").debug().with("device", Value::Id(device_key.short())));
-            return true;
+            return Served::Ended;
         }
         self.diag(Diag::new(conn, "adv_seen").at(0).with("device", Value::Id(device_key.short())).with("route", Value::S(route_word(sighting.route))));
         self.diag(Diag::new(conn, "connect_start").at(millis(adv_at)));
@@ -309,9 +345,9 @@ impl Worker {
                 self.diag(Diag::new(conn, "connect_failed").at(millis(adv_at)).with("kind", Value::S(kind.as_str())));
                 let wait = RETRY_WAITS_MS[self.failures.min(RETRY_WAITS_MS.len() - 1)];
                 self.failures += 1;
-                self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Failed(kind) }) && self.wait(Duration::from_millis(wait))
+                Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Failed(kind) }) && self.wait(Duration::from_millis(wait)))
             }
-            Err(Failure::Cancelled) => self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local }),
+            Err(Failure::Cancelled) => Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local })),
         }
     }
 
@@ -429,6 +465,7 @@ impl Worker {
             return Err(fail(opened, service, FailKind::AttError));
         }
         self.diag(Diag::new(conn, "subscribed").at(millis(adv_at)));
+        let subscribed_at = Instant::now();
         let (lost_tx, lost) = std_mpsc::channel();
         let lost_tx = Mutex::new(lost_tx);
         let _ = opened.device.ConnectionStatusChanged(&TypedEventHandler::<BluetoothLEDevice, IInspectable>::new(move |device, _| {
@@ -437,26 +474,36 @@ impl Worker {
             }
             Ok(())
         }));
-        Ok(Link { device: opened.device, session: opened.session, service, event, control, _preferred: opened.preferred, value_token, lost, gate })
+        Ok(Link { device: opened.device, session: opened.session, service, event, control, _preferred: opened.preferred, value_token, lost, gate, subscribed_at })
     }
 
-    /// Runs one open link until it ends. `false` ends the worker.
-    fn serve(&mut self, conn: u64, device: DeviceKey, route: Route, adv_at: Instant, link: Link) -> bool {
+    /// Runs one open link until it ends.
+    fn serve(&mut self, conn: u64, device: DeviceKey, route: Route, adv_at: Instant, link: Link) -> Served {
         let mtu = link.session.MaxPduSize().map_or(23, usize::from);
         {
             let mut gate = link.gate.lock().unwrap_or_else(|p| p.into_inner());
             if !self.emit(LinkEvent::Connected { conn, device, route, mtu }) {
                 drop(gate);
                 link.release();
-                return false;
+                return Served::Quit;
             }
             for bytes in gate.open() {
                 self.emit(LinkEvent::Notification { conn, bytes });
             }
         }
+        // The phone advertises its selected UUID only while no central is subscribed: seeing it again means it has let go of
+        // this link, which Windows would keep for about ten more seconds. The scan runs next to the link for that.
+        let (seen_tx, seen) = std_mpsc::channel();
+        let watching = if route == Route::Selected { start_watcher(self.scan.clone(), seen_tx).ok() } else { None };
+        let mut replaced = None;
         let reason = loop {
             if link.lost.try_recv().is_ok() {
                 break DisconnectReason::LinkLost;
+            }
+            if let Some(sighting) = self.stale_advert(&seen, device, route, link.subscribed_at) {
+                self.diag(Diag::new(conn, "stale_link").at(millis(adv_at)).with("ms", Value::U(millis(link.subscribed_at))));
+                replaced = Some(sighting);
+                break DisconnectReason::StaleAdvert;
             }
             match self.commands.recv_timeout(Duration::from_millis(50)) {
                 Ok(LinkCommand::Write(bytes)) => {
@@ -483,13 +530,30 @@ impl Worker {
                 Ok(LinkCommand::SetPairingScan(on)) => self.scan.lock().unwrap_or_else(|p| p.into_inner()).pairing_on = on,
                 Err(std_mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => {
+                    stop_watching(watching);
                     link.release();
-                    return false;
+                    return Served::Quit;
                 }
             }
         };
+        stop_watching(watching);
         link.release();
-        self.emit(LinkEvent::Disconnected { conn, device, reason })
+        if !self.emit(LinkEvent::Disconnected { conn, device, reason }) {
+            return Served::Quit;
+        }
+        replaced.map_or(Served::Ended, Served::Reconnect)
+    }
+
+    /// The first advertisement of what the watcher has seen that makes the held link stale.
+    fn stale_advert(&self, seen: &std_mpsc::Receiver<Sighting>, device: DeviceKey, route: Route, subscribed_at: Instant) -> Option<Sighting> {
+        let link = HeldLink { route, device, subscribed_for: Some(subscribed_at.elapsed()) };
+        seen.try_iter().find(|s| is_stale_link(link, Advert { device: DeviceKey(s.address), route: Some(s.route) }))
+    }
+}
+
+fn stop_watching(watching: Option<(BluetoothLEAdvertisementWatcher, StopReason)>) {
+    if let Some((watcher, _)) = watching {
+        let _ = watcher.Stop();
     }
 }
 

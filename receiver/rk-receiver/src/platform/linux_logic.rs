@@ -362,6 +362,11 @@ impl LoadSlot {
         state.result.take()
     }
 
+    /// A finished read's answer is waiting to be taken by `begin`.
+    pub fn has_answer(&self) -> bool {
+        self.lock().result.is_some()
+    }
+
     /// The user asked for something that needs the keys: the next read may raise the unlock prompt.
     pub fn want_interactive(&self) {
         self.lock().interactive = true;
@@ -477,6 +482,10 @@ impl PhoneBackend for ChainedBackend {
         if let Some(primary) = &self.primary {
             primary.unlock();
         }
+    }
+
+    fn answer_ready(&self) -> bool {
+        self.primary.as_ref().is_some_and(|primary| primary.answer_ready())
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {

@@ -150,6 +150,11 @@ pub trait PhoneBackend: Send {
     /// The next `load` may ask the user to unlock the key store; until this is called none does (a retry every few seconds
     /// must never raise a prompt). Must not wait for the user.
     fn unlock(&self) {}
+    /// A read that was started earlier has finished and its answer is waiting: the next `load` returns it at once. The
+    /// store then does not sit out its back-off first.
+    fn answer_ready(&self) -> bool {
+        false
+    }
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError>;
     fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
 }
@@ -187,7 +192,8 @@ impl<B: PhoneBackend> CachedPhoneStore<B> {
     /// The cache, with the list read from the backend when it is not known yet and the last failure is old enough.
     fn cached(&self) -> MutexGuard<'_, Cache> {
         let mut guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
-        if guard.phones.is_none() && guard.failed_at.is_none_or(|at| at.elapsed() >= self.retry_after) {
+        let due = guard.failed_at.is_none_or(|at| at.elapsed() >= self.retry_after) || self.backend.answer_ready();
+        if guard.phones.is_none() && due {
             match self.backend.load() {
                 Ok(list) => {
                     guard.phones = Some(list);
@@ -404,6 +410,34 @@ mod tests {
         assert_eq!(*backend.unlocks.lock().unwrap(), 1);
         assert!(store.unavailable());
         assert_eq!(*backend.loads.lock().unwrap(), 2, "the next look reads again at once");
+    }
+
+    #[test]
+    fn a_read_that_has_finished_is_picked_up_at_once_not_after_the_backoff() {
+        // The user unlocked the keyring a moment after the first look failed: saving the phone must not be refused.
+        struct Late {
+            answered: Arc<Mutex<bool>>,
+        }
+        impl PhoneBackend for Late {
+            fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+                if *self.answered.lock().unwrap() { Ok(vec![phone(1)]) } else { Err(StoreError::Backend("pending".into())) }
+            }
+            fn put(&mut self, _: &PairedPhone) -> Result<(), StoreError> {
+                Ok(())
+            }
+            fn remove(&mut self, _: &[u8; 16]) -> Result<(), StoreError> {
+                Ok(())
+            }
+            fn answer_ready(&self) -> bool {
+                *self.answered.lock().unwrap()
+            }
+        }
+        let answered = Arc::new(Mutex::new(false));
+        let mut store = CachedPhoneStore::new(Late { answered: answered.clone() }).with_retry_after(Duration::from_secs(3600));
+        assert!(store.unavailable());
+        *answered.lock().unwrap() = true;
+        store.save(phone(2)).unwrap();
+        assert_eq!(store.phones().len(), 2);
     }
 
     #[test]

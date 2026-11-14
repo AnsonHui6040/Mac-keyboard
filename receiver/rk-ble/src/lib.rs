@@ -4,7 +4,8 @@
 //! down. The contract the application relies on:
 //!
 //! - While no connection exists the backend scans for `LinkConfig::select` (and, after `SetPairingScan(true)`, for
-//!   `LinkConfig::pairing`); while a connection exists it does not scan.
+//!   `LinkConfig::pairing`). While a link made through the selected UUID exists it keeps watching advertisements for the
+//!   selected UUID only, to find out that the phone has let go of it ([`stale`]); it connects to nothing else.
 //! - A device under `Hold` is not connected to until the hold has run out.
 //! - Every connection has a serial (`conn`), unique for the life of the process, and a `Diag` event for each phase.
 
@@ -19,6 +20,7 @@ pub mod connect;
 pub mod diag;
 pub mod fake;
 pub mod flow;
+pub mod stale;
 #[cfg(target_os = "linux")]
 pub mod linux;
 #[cfg(windows)]
@@ -52,6 +54,9 @@ pub enum DisconnectReason {
     Remote,
     /// The link dropped without either side asking (supervision timeout, out of range).
     LinkLost,
+    /// The phone advertised its selected UUID again while this link was still held: it has no subscribed central, so the
+    /// link is a dead one and was released (see [`stale`]).
+    StaleAdvert,
     /// The connection never became usable.
     Failed(FailKind),
 }
@@ -63,6 +68,7 @@ impl DisconnectReason {
             Self::Local => "local",
             Self::Remote => "remote",
             Self::LinkLost => "link_lost",
+            Self::StaleAdvert => "stale_advert",
             Self::Failed(kind) => kind.as_str(),
         }
     }

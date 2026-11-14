@@ -461,6 +461,18 @@ fn waiting_gives_the_answer_when_it_comes_in_time_and_gives_up_otherwise() {
 }
 
 #[test]
+fn the_slot_says_when_an_answer_is_waiting() {
+    let slot = LoadSlot::new();
+    assert!(!slot.has_answer());
+    slot.begin();
+    assert!(!slot.has_answer());
+    slot.finish(Ok(Vec::new()));
+    assert!(slot.has_answer());
+    slot.begin();
+    assert!(!slot.has_answer());
+}
+
+#[test]
 fn the_user_asking_to_unlock_makes_the_next_read_interactive() {
     let slot = LoadSlot::new();
     slot.begin();

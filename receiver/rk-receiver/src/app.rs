@@ -39,6 +39,8 @@ const FRAME_TICK_MS: u64 = 8;
 const WATCHDOG_TICK_MS: u64 = 25;
 /// While authenticated, how often the injector's readiness is looked at.
 const STATUS_POLL_MS: u64 = 500;
+/// While the key store cannot be read: how often it is looked at again (the store itself retries at its own pace).
+const KEYSTORE_POLL_MS: u64 = 1_000;
 const POINTER_PACKET_MAGIC: u8 = 0x03;
 const FRAME_MAGIC: u8 = 0x02;
 
@@ -803,6 +805,10 @@ impl App {
         // at it twice a second then. Otherwise (Windows is always trusted) no timer runs while nobody is connected.
         if authenticated || !self.injector.trusted() {
             wakes.push(now + STATUS_POLL_MS);
+        }
+        // A keyring that comes back (the user unlocked it) must show up without anything else happening.
+        if self.keystore_down {
+            wakes.push(now + KEYSTORE_POLL_MS);
         }
         if self.pointer.needs_frames() {
             wakes.push(now + FRAME_TICK_MS);

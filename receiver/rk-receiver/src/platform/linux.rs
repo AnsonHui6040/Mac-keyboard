@@ -276,6 +276,10 @@ impl PhoneBackend for SecretServiceBackend {
         self.loads.want_interactive();
     }
 
+    fn answer_ready(&self) -> bool {
+        self.loads.has_answer()
+    }
+
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
         self.ask(|expires, reply| KeyRequest::Put(phone.clone(), expires, reply)).unwrap_or_else(|| Err(keyring_error()))
     }
