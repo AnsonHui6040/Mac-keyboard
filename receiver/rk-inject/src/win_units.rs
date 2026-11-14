@@ -3,9 +3,10 @@
 //!
 //! Kept apart from `windows.rs` so the Mac and CI test runs cover them.
 
+use crate::{Button, InjectError};
 use std::fmt;
 
-/// One thing to type: either one Unicode scalar as its UTF-16 units, or the Enter key.
+/// One thing to type: one Unicode scalar as its UTF-16 units, or the Enter or Tab key.
 ///
 /// A scalar outside the BMP is two units (a surrogate pair). `SendInput` takes those back to back as one call; the pause
 /// between characters goes between scalars, never between the two halves of a pair.
@@ -15,6 +16,8 @@ pub enum KeyInput {
     Scalar(Vec<u16>),
     /// A line break in the text becomes the Enter key; a Unicode `\n` would not make a new line in every program.
     Return,
+    /// A tab character becomes the Tab key, as on Linux.
+    Tab,
 }
 
 /// The text is never written to a log, so neither is it in `Debug` output.
@@ -23,11 +26,17 @@ impl fmt::Debug for KeyInput {
         match self {
             Self::Scalar(units) => write!(f, "Scalar({} units)", units.len()),
             Self::Return => f.write_str("Return"),
+            Self::Tab => f.write_str("Tab"),
         }
     }
 }
 
-/// Splits `text` into key inputs, one per Unicode scalar. `\r\n`, `\n` and a lone `\r` each become one [`KeyInput::Return`].
+/// Splits `text` into key inputs, one per Unicode scalar.
+///
+/// - `\r\n`, `\n`, a lone `\r`, U+2028 and U+2029 each become one [`KeyInput::Return`]; `\t` becomes [`KeyInput::Tab`].
+/// - Every other control character (U+0000 to U+001F, U+007F) is dropped. Sent as a Unicode key event, some programs act on
+///   it as the key it stands for: Backspace (U+0008) deletes, Escape (U+001B) closes dialogs, U+0003 is Ctrl+C in a console.
+///   Text from a phone must never be able to do that.
 pub fn utf16_inputs(text: &str) -> Vec<KeyInput> {
     let mut out = Vec::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -39,7 +48,9 @@ pub fn utf16_inputs(text: &str) -> Vec<KeyInput> {
                 }
                 out.push(KeyInput::Return);
             }
-            '\n' => out.push(KeyInput::Return),
+            '\n' | '\u{2028}' | '\u{2029}' => out.push(KeyInput::Return),
+            '\t' => out.push(KeyInput::Tab),
+            c if c.is_ascii_control() => {}
             _ => {
                 let mut buf = [0u16; 2];
                 out.push(KeyInput::Scalar(c.encode_utf16(&mut buf).to_vec()));
@@ -47,6 +58,87 @@ pub fn utf16_inputs(text: &str) -> Vec<KeyInput> {
         }
     }
     out
+}
+
+/// The virtual keys the injector presses by name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vk {
+    Back,
+    Return,
+    Tab,
+}
+
+/// One input event in terms of what it does, free of any Windows type. `windows.rs` turns each into an `INPUT`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RawEvent {
+    /// A `KEYEVENTF_UNICODE` key event for one UTF-16 unit.
+    Unicode { unit: u16, up: bool },
+    Vk { key: Vk, up: bool },
+    Button { button: Button, up: bool },
+    Move { dx: i32, dy: i32 },
+    /// Vertical wheel, signed units (positive turns the wheel up).
+    Wheel { units: i32 },
+    /// Horizontal wheel, signed units (positive scrolls right).
+    HWheel { units: i32 },
+}
+
+/// The events of one key press of a virtual key: down, then up.
+pub fn vk_press(key: Vk) -> [RawEvent; 2] {
+    [RawEvent::Vk { key, up: false }, RawEvent::Vk { key, up: true }]
+}
+
+/// The events that type one [`KeyInput`]: down and up for each UTF-16 unit in order, or a press of the named key.
+pub fn events_for(input: &KeyInput) -> Vec<RawEvent> {
+    match input {
+        KeyInput::Scalar(units) => units.iter().flat_map(|&unit| [RawEvent::Unicode { unit, up: false }, RawEvent::Unicode { unit, up: true }]).collect(),
+        KeyInput::Return => vk_press(Vk::Return).to_vec(),
+        KeyInput::Tab => vk_press(Vk::Tab).to_vec(),
+    }
+}
+
+/// The key-up and button-up events still owed for the keys and buttons that `sent` pressed and did not release, the one
+/// pressed last first.
+fn pending_releases(sent: &[RawEvent]) -> Vec<RawEvent> {
+    let mut down: Vec<RawEvent> = Vec::new();
+    for &event in sent {
+        match event {
+            RawEvent::Unicode { unit, up: false } => down.push(RawEvent::Unicode { unit, up: false }),
+            RawEvent::Vk { key, up: false } => down.push(RawEvent::Vk { key, up: false }),
+            RawEvent::Button { button, up: false } => down.push(RawEvent::Button { button, up: false }),
+            RawEvent::Unicode { unit, up: true } => down.retain(|d| *d != RawEvent::Unicode { unit, up: false }),
+            RawEvent::Vk { key, up: true } => down.retain(|d| *d != RawEvent::Vk { key, up: false }),
+            RawEvent::Button { button, up: true } => down.retain(|d| *d != RawEvent::Button { button, up: false }),
+            RawEvent::Move { .. } | RawEvent::Wheel { .. } | RawEvent::HWheel { .. } => {}
+        }
+    }
+    down.into_iter()
+        .rev()
+        .map(|event| match event {
+            RawEvent::Unicode { unit, .. } => RawEvent::Unicode { unit, up: true },
+            RawEvent::Vk { key, .. } => RawEvent::Vk { key, up: true },
+            RawEvent::Button { button, .. } => RawEvent::Button { button, up: true },
+            other => other,
+        })
+        .collect()
+}
+
+/// Hands `events` to `send` (which returns how many Windows took, always from the front) and checks the answer.
+///
+/// All taken: `Ok`. Fewer taken: the keys and buttons that already went down are released with a second call (best effort)
+/// so nothing stays pressed, and the result is `Failed("sendinput_short")`; the kind is a fixed word, never the text.
+pub fn deliver(events: &[RawEvent], send: &mut dyn FnMut(&[RawEvent]) -> usize) -> Result<(), InjectError> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    let taken = send(events).min(events.len());
+    if taken == events.len() {
+        return Ok(());
+    }
+    let release = pending_releases(&events[..taken]);
+    if !release.is_empty() {
+        let _ = send(&release);
+    }
+    Err(InjectError::Failed("sendinput_short".into()))
 }
 
 /// One step of typing a batch.
@@ -140,7 +232,7 @@ mod tests {
             .into_iter()
             .flat_map(|i| match i {
                 KeyInput::Scalar(u) => u,
-                KeyInput::Return => vec![],
+                KeyInput::Return | KeyInput::Tab => vec![],
             })
             .collect()
     }
@@ -177,6 +269,138 @@ mod tests {
     fn line_breaks_become_one_return_each() {
         assert_eq!(utf16_inputs("a\r\nb\nc\rd").iter().filter(|i| **i == KeyInput::Return).count(), 3);
         assert_eq!(units("a\r\nb"), vec![0x61, 0x62]);
+    }
+
+    #[test]
+    fn control_characters_are_dropped_except_tab_and_line_breaks() {
+        // Backspace, Escape, Ctrl+C, DEL, NUL, bell and vertical tab must not reach the target as characters: a program may
+        // treat them as the key they stand for.
+        assert_eq!(units("a\u{8}b\u{1b}c\u{3}d\u{7f}e\0f\u{7}g\u{b}h"), "abcdefgh".encode_utf16().collect::<Vec<_>>());
+        assert!(utf16_inputs("\u{8}\u{1b}\u{3}\u{7f}\0").is_empty(), "nothing left to type");
+        assert!(typing_schedule(&utf16_inputs("\u{8}\u{1b}"), 20).is_empty());
+    }
+
+    #[test]
+    fn dropped_characters_leave_no_pause_behind() {
+        let inputs = utf16_inputs("a\u{8}b");
+        assert_eq!(typing_schedule(&inputs, 20).len(), 3, "two characters and one pause");
+    }
+
+    #[test]
+    fn tab_becomes_the_tab_key() {
+        assert_eq!(utf16_inputs("a\tb"), vec![KeyInput::Scalar(vec![0x61]), KeyInput::Tab, KeyInput::Scalar(vec![0x62])]);
+    }
+
+    #[test]
+    fn line_and_paragraph_separators_become_enter() {
+        assert_eq!(utf16_inputs("a\u{2028}b\u{2029}c").iter().filter(|i| **i == KeyInput::Return).count(), 2);
+        assert_eq!(units("a\u{2028}b"), vec![0x61, 0x62]);
+    }
+
+    #[test]
+    fn ordinary_punctuation_and_other_planes_are_kept() {
+        let text = "~ !\"#%&'()*+,-./:;<=>?@[\\]^_`{|}~ é 測 😀";
+        assert_eq!(units(text), text.encode_utf16().collect::<Vec<_>>());
+    }
+
+    // ---- what is handed to SendInput, and what happens when Windows takes only part of it
+
+    fn unicode(unit: u16, up: bool) -> RawEvent {
+        RawEvent::Unicode { unit, up }
+    }
+
+    #[test]
+    fn a_surrogate_pair_is_four_events_down_up_per_unit_in_order() {
+        let events = events_for(&KeyInput::Scalar(vec![0xD83D, 0xDE00]));
+        assert_eq!(events, vec![unicode(0xD83D, false), unicode(0xD83D, true), unicode(0xDE00, false), unicode(0xDE00, true)]);
+    }
+
+    #[test]
+    fn return_and_tab_are_virtual_key_presses() {
+        assert_eq!(events_for(&KeyInput::Return), vec![RawEvent::Vk { key: Vk::Return, up: false }, RawEvent::Vk { key: Vk::Return, up: true }]);
+        assert_eq!(events_for(&KeyInput::Tab), vec![RawEvent::Vk { key: Vk::Tab, up: false }, RawEvent::Vk { key: Vk::Tab, up: true }]);
+    }
+
+    /// A stand-in for `SendInput`: takes at most `limit` events of the first call and everything of later calls, and remembers
+    /// each call.
+    struct FakeSend {
+        limit: usize,
+        calls: Vec<Vec<RawEvent>>,
+    }
+
+    impl FakeSend {
+        fn new(limit: usize) -> Self {
+            Self { limit, calls: Vec::new() }
+        }
+        fn send(&mut self, events: &[RawEvent]) -> usize {
+            self.calls.push(events.to_vec());
+            if self.calls.len() == 1 {
+                events.len().min(self.limit)
+            } else {
+                events.len()
+            }
+        }
+    }
+
+    #[test]
+    fn a_batch_that_goes_through_is_sent_once() {
+        let mut fake = FakeSend::new(usize::MAX);
+        let batch = events_for(&KeyInput::Scalar(vec![0x61]));
+        assert_eq!(deliver(&batch, &mut |e| fake.send(e)), Ok(()));
+        assert_eq!(fake.calls, vec![batch]);
+    }
+
+    #[test]
+    fn an_empty_batch_sends_nothing() {
+        let mut fake = FakeSend::new(usize::MAX);
+        assert_eq!(deliver(&[], &mut |e| fake.send(e)), Ok(()));
+        assert!(fake.calls.is_empty());
+    }
+
+    #[test]
+    fn nothing_accepted_is_the_short_error_and_nothing_needs_releasing() {
+        let mut fake = FakeSend::new(0);
+        let batch = events_for(&KeyInput::Scalar(vec![0x61]));
+        assert_eq!(deliver(&batch, &mut |e| fake.send(e)), Err(InjectError::Failed("sendinput_short".into())));
+        assert_eq!(fake.calls.len(), 1, "no release call for keys that never went down");
+    }
+
+    #[test]
+    fn a_key_that_went_down_is_released_when_the_batch_stops_short() {
+        let mut fake = FakeSend::new(3);
+        let batch = [events_for(&KeyInput::Scalar(vec![0x61])), events_for(&KeyInput::Scalar(vec![0x62]))].concat();
+        assert_eq!(deliver(&batch, &mut |e| fake.send(e)), Err(InjectError::Failed("sendinput_short".into())));
+        assert_eq!(fake.calls[1], vec![unicode(0x62, true)], "b went down and never came up");
+    }
+
+    #[test]
+    fn a_mouse_button_that_went_down_is_released() {
+        let mut fake = FakeSend::new(1);
+        let batch = [RawEvent::Button { button: Button::Left, up: false }, RawEvent::Button { button: Button::Left, up: true }];
+        assert!(deliver(&batch, &mut |e| fake.send(e)).is_err());
+        assert_eq!(fake.calls[1], vec![RawEvent::Button { button: Button::Left, up: true }]);
+    }
+
+    #[test]
+    fn several_keys_still_down_are_released_last_pressed_first() {
+        let down = [unicode(1, false), RawEvent::Vk { key: Vk::Back, up: false }, RawEvent::Button { button: Button::Right, up: false }, unicode(1, true)];
+        let mut fake = FakeSend::new(3);
+        assert!(deliver(&down, &mut |e| fake.send(e)).is_err());
+        assert_eq!(fake.calls[1], vec![RawEvent::Button { button: Button::Right, up: true }, RawEvent::Vk { key: Vk::Back, up: true }, unicode(1, true)]);
+    }
+
+    #[test]
+    fn moves_and_wheel_turns_need_no_release() {
+        let batch = [RawEvent::Move { dx: 1, dy: 2 }, RawEvent::Wheel { units: 120 }, RawEvent::HWheel { units: -120 }];
+        let mut fake = FakeSend::new(2);
+        assert!(deliver(&batch, &mut |e| fake.send(e)).is_err());
+        assert_eq!(fake.calls.len(), 1);
+    }
+
+    #[test]
+    fn a_sender_claiming_more_than_it_was_given_is_not_trusted() {
+        let batch = events_for(&KeyInput::Scalar(vec![0x61]));
+        assert_eq!(deliver(&batch, &mut |_| 99), Ok(()));
     }
 
     #[test]

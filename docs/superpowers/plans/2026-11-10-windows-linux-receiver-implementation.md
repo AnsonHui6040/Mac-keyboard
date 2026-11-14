@@ -479,7 +479,7 @@ pub struct NullInjector; pub struct RecordingInjector;    // 測試用
 
 ```rust
 pub trait PhoneStore { fn phones(&self) -> Vec<PairedPhone>; fn save(&mut self, p: PairedPhone) -> Result<(), StoreError>; fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError>; }
-pub struct Config { pub host_id: [u8;16], pub host_name: String, pub trackpad: bool, pub autostart: bool, pub char_interval_ms: u32, pub paste_non_ascii: bool, pub adapter: Option<String> }
+pub struct Config { pub host_id: [u8;16], pub host_name: String, pub trackpad: bool, pub autostart: bool, pub char_gap_ms: Option<u32>, pub paste_non_ascii: bool, pub adapter: Option<String> }
 pub enum UiEvent { State(TrayState), PairingRequest { phone_name: String, sas: String }, PairingClosed, Notice(NoticeKind) }
 pub enum UiCommand { StartPairing, ConfirmPairing(bool), Rename(String), DeletePhone([u8;16]), SetTrackpad(bool), SetAutostart(bool), SetPasteNonAscii(bool), Reauthorize, Quit }
 ```
@@ -494,7 +494,7 @@ pub enum UiCommand { StartPairing, ConfirmPairing(bool), Rename(String), DeleteP
 
 **Files:** Create `receiver/rk-inject/src/windows.rs`；Modify `receiver/rk-inject/src/lib.rs`（純函式）、`receiver/rk-receiver/src/platform/windows.rs`（接上 `WindowsInjector`）、驗收報告。
 
-**做法（WL1 S2）：** 文字用 `SendInput` 的 `KEYEVENTF_UNICODE`，逐個 UTF-16 code unit 送按下與放開；代理對的兩個單位連續送，**字元之間**（Unicode 碼位之間）等 `char_interval_ms`，預設 10 毫秒（設定檔可改，0 表示不等）；Backspace、Enter 用 `VK_BACK`、`VK_RETURN`；移動 `MOUSEEVENTF_MOVE`（小數位移累加，送整數，餘數留到下一次）；按鍵 `MOUSEEVENTF_LEFTDOWN/UP`、`RIGHTDOWN/UP`；捲動 `MOUSEEVENTF_WHEEL`／`HWHEEL`，像素到滾輪單位的換算（Provisional：每 1 點位移 = 120/40 單位）有餘數累加。注入不在 BLE 通知的執行緒內做，經佇列交給注入執行緒，避免字元間隔卡住通知。
+**做法（WL1 S2）：** 文字用 `SendInput` 的 `KEYEVENTF_UNICODE`，逐個 UTF-16 code unit 送按下與放開；代理對的兩個單位連續送，**字元之間**（Unicode 碼位之間）等 `Config::char_interval_ms(platform)`：設定檔的 `char_gap_ms`（沒寫＝平台預設，Windows 為 20 毫秒；寫 0 表示不等）。WL8 在記事本量到 10 毫秒會偶爾（3／35）把相鄰字元的順序送反，20 毫秒 25／25 正確，所以預設 20；舊版寫進每個檔案的 `char_interval_ms: 0` 一律忽略；Backspace、Enter、Tab 用 `VK_BACK`、`VK_RETURN`、`VK_TAB`；文字裡的換行（`\r\n`、`\n`、`\r`、U+2028、U+2029）送 Enter、`\t` 送 Tab，其他控制字元（U+0000–U+001F、U+007F）丟棄，不當成字元送出；移動 `MOUSEEVENTF_MOVE`（小數位移累加，送整數，餘數留到下一次）；按鍵 `MOUSEEVENTF_LEFTDOWN/UP`、`RIGHTDOWN/UP`；捲動 `MOUSEEVENTF_WHEEL`／`HWHEEL`，像素到滾輪單位的換算（Provisional：每 1 點位移 = 120/40 單位）有餘數累加。注入不在 BLE 通知的執行緒內做，經佇列交給注入執行緒，避免字元間隔卡住通知。
 
 **Tests：** `utf16_inputs(&str) -> Vec<KeyInput>` 的 `utf16_units_for_supplementary_plane`、`combining_sequence_keeps_order`、`empty_text_sends_nothing`、`zwj_sequence_stays_whole`；`interval_is_between_code_points_not_units`；`WheelAccumulator` 的 `small_scroll_deltas_accumulate`、`direction_change_drops_remainder`；`MoveAccumulator` 的 `fractional_moves_accumulate`。
 

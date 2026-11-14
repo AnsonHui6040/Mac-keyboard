@@ -224,7 +224,7 @@ pub fn adapter_info() -> Option<AdapterInfo> {
 
 /// The `SendInput` injector, with the character gap from the configuration (0 means none).
 pub fn make_injector(config: &Config) -> Box<dyn Injector> {
-    Box::new(WindowsInjector::new(config.char_interval_ms))
+    Box::new(WindowsInjector::new(config.char_interval_ms(HostPlatform::Windows)))
 }
 
 /// `--inject-selftest`: after `delay_secs`, type the file through the injector the receiver itself uses, press Enter and print
