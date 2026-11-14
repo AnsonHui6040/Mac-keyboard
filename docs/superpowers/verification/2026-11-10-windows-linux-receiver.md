@@ -875,6 +875,16 @@ TDD：`app.rs` 先以 `todo!()` 空殼跑出 33 個失敗再實作到全綠；�
 | m6 | `config.json` 損壞時悄悄覆蓋 | 見偏離 8 |
 | m7 | 應用程式執行緒 panic 後行程留在系統匣 | 以 drop guard 在任何結束方式都對系統匣執行緒送 `WM_QUIT`，行程以非 0 結束 |
 
+### 獨立審查第 2 輪與複審（2026-11-14）
+
+| 輪次 | 審查者 | 結果 |
+|---|---|---|
+| 第 1 輪 | ecc:rust-reviewer（含 security-review 角度） | Block：2 個 Critical（探索期間誤判舊連線失效、配對確認沒有綁定嘗試）、6 個 Important，全部修正（commit `5df7488`） |
+| 第 1 輪複審 | ecc:rust-reviewer | 10 項已處理；修正引入 2 個 Important（藍牙關閉時重複跳視窗、部分損壞的設定檔被覆寫） |
+| 第 2 輪複審 | ecc:rust-reviewer | 2 項已處理，加上 `--pair`；沒有新的 Critical／Important（commit `2d9ea14`） |
+
+主代理在 Mac 重跑：`cargo test --workspace` 全過（rk-receiver 97、rk-ble 9、rk-core 230＋7＋9、rk-inject 3）；`cargo clippy --workspace --all-targets -- -D warnings` 與 `--target x86_64-pc-windows-msvc` 皆無警告。
+
 ### 未驗證（TBD，使用者手測）
 
 - WinRT 連線本身：看到廣播、探索、訂閱、寫入、重連，以及 WL1 量到的時間（`rk-ble/src/windows.rs` 只在 `rk-win` 編譯，沒有連 iPhone 跑過）。
