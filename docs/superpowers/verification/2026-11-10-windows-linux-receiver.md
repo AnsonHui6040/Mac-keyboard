@@ -14,6 +14,7 @@
 | WL5（Mac Receiver v4 與多手機） | `MacReceiverTests` 349 個測試 0 失敗；Mac、iOS 模擬器建置成功；真機 build-for-testing 成功 | TBD | 程式完成；實機項目未測 |
 | WL1（S1–S7、S9 連線與注入 spike） | 兩個 Rust spike 在測試機編譯通過；Windows 的 S1、S2、S7 與 Linux 的 S3、S4、S5、S6、S7、S9 已實測 | 2026-11-13 實測，全部項目已跑；S6 沒有量到「沒有 RustDesk」的對照 | S1 基準版不通過、調參版時間通過但 26% 的嘗試失敗；S3 不通過；S2 通過（記事本需要字元間隔）；S4 不通過（非 ASCII 全部丟失）、S5 通過（所以 Linux 的非 ASCII 改用貼上）；S9 在 120 次/秒以內通過；S6 在 RustDesk 連線中可注入。依設計 §12 停下回報 |
 | WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR #98 上 Windows 與 Ubuntu 的 CI 皆成功 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
+| WL9（Linux 注入，portal） | Mac 與 `rk-linux` 的 `cargo test` 0 失敗（`rk-inject` 117）、clippy 無警告；GNOME 文字編輯器 200 字逐字相同，剪貼簿不留打過的字 | TBD（iPhone 經 BLE 打字、觸控板） | 程式完成；四輪獨立審查後沒有 Critical／Important |
 | WL7（`rk-ble` Windows 後端、`rk-inject` 介面、Windows 接收端外殼） | Mac 上 `cargo test --workspace` 349 個測試 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 3、`rk-receiver` 91）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` build、test（`rk-receiver` 90）、clippy 通過；`rk-linux` test 通過；`rk-win` 桌面工作階段實跑 20 秒，log 有 `ev=scan_start` 且沒有錯誤 | TBD（連線、打字、系統匣、配對、自動啟動全部未在實機測） | 程式完成；修復第 1 輪後待再審；`rk-win` 上整個 workspace 的 clippy 被 `rk-core` 一項新版 lint 擋住（見下） |
 | WL8（Windows 注入：`SendInput`） | Mac 上 `cargo test --workspace` 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 30、`rk-receiver` 107）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` release build、test（`rk-inject` 36、`rk-receiver` 106）、clippy 通過；`rk-win` 桌面工作階段把 200 字（英文、中文、表情符號含 ZWJ）經接收端注入路徑送進記事本：預設間隔 20 毫秒 28／28 逐字相同，10 毫秒 32／35（3 次相鄰字元順序送反） | TBD（iPhone 打字、指標移動、按鍵、捲動、記事本以外的目標、以系統管理員身分執行的視窗皆未測） | 程式完成；審查修復第 1 輪完成；預設間隔由計畫的 10 毫秒改為 20 毫秒 |
 
@@ -976,3 +977,50 @@ TDD：`win_units.rs` 初版與測試一起寫，之後故意弄壞行為確認�
 - 記事本以外的目標（瀏覽器、Office、遊戲、遠端桌面）。
 - 以系統管理員身分執行的視窗：Windows 的 UIPI 會悄悄擋下一般權限程式送的輸入，`SendInput` 看不出來，使用者會看到「已送出」但沒有字。已知限制，未偵測。
 - 輸入法開啟時（注音）的長文字、使用者實際打字的節奏與 20 毫秒間隔的感受。
+
+## WL9：Linux 注入（RemoteDesktop portal）（2026-11-14）
+
+### 內容
+
+- `rk-inject/src/keysym.rs`（各平台都測）：keysym 對應、Latin-1 與其他字元的分段、指標移動合併到每秒最多 120 次並保留餘數、捲動換算、注入報告（只有路徑、長度、portal 呼叫數與錯誤種類）。
+- `rk-inject/src/linux.rs`、`linux/ashpd_portal.rs`：`LinuxInjector`。keyboard 與 pointer 的持續工作階段（`ExplicitlyRevoked`，restore token 檔 0600）；ASCII 與 Latin-1 用 keysym 逐字送，字間 3 毫秒；其他片段經 portal 剪貼簿貼上：讀出原內容 → 設定片段 → Ctrl+V → 等 400 毫秒 → 還原原內容，沒有原內容或還原失敗時改放空字串；Backspace `0xff08`、Enter `0xff0d`、左右鍵 272／273、平滑捲動。
+- `rk-inject/examples/linux_selftest.rs`：桌面工作階段內把檔案文字經 `LinuxInjector` 打出，只印長度與結果。
+- 接收端的串接（系統匣、`--inject-selftest`）在 WL10。
+
+### 自動驗證
+
+| 位置 | 指令 | 結果 |
+|---|---|---|
+| Mac | `cargo test --workspace` | 0 失敗（`rk-inject` 51，含 WL8 的 Windows 純函式） |
+| Mac | `cargo clippy --workspace --all-targets -- -D warnings` | 無警告 |
+| `rk-linux` | `cargo test --workspace`（與 WL8 合併後的樹） | 0 失敗（`rk-core` 230＋7＋9、`rk-inject` 117、`rk-receiver` 107） |
+| `rk-linux` | `cargo clippy -p rk-inject --all-targets -- -D warnings` | 無警告 |
+
+### 實機自動驗證（`rk-linux`，GNOME 文字編輯器，已存的 restore token，沒有跳授權視窗）
+
+| 情況 | 結果 |
+|---|---|
+| S2 的 200 字文字（英文、繁體中文、表情符號含 ZWJ 家庭），剪貼簿原本是空的 | 逐字相同；打字中與結束後 `wl-paste` 都是空的，打過的字沒有留在剪貼簿 |
+| 同上，剪貼簿原本是哨兵文字 | 逐字相同；哨兵文字全程都在剪貼簿上 |
+| 貼上等待 250 毫秒時的一次（B5） | 最後一個貼上片段（`。`）沒有進到編輯器；portal 那次啟動較慢（428 毫秒）。改為 400 毫秒後連續 4 次逐字相同 |
+
+### 獨立審查（ecc:rust-reviewer）
+
+| 輪次 | 結果 |
+|---|---|
+| 第 1 輪 | Block：剪貼簿留下打過的字（Critical）、放開按鍵失敗時按鍵卡住、portal 沒回應時卡死、工作階段被關閉時沒有察覺 |
+| 第 2–3 輪 | 前述已修；修正引入的邊界情況（還原前就丟掉工作階段、清除失敗、結束程式時正在貼上、Ctrl 可能卡住、工作階段關閉時延後恢復）逐一修正 |
+| 第 4 輪（換 Opus 實作） | portal 關閉工作階段且剪貼簿未清乾淨時會永遠卡住，已修；貼上等待改 400 毫秒；複審沒有新的 Critical／Important |
+
+### 偏離計畫
+
+- 實機自檢用 `examples/linux_selftest.rs`，`rk-receiver --inject-selftest` 在 WL10 補上。
+- 使用者在 GNOME 按「停止分享」後，60 秒內只會用 token 靜默恢復一次；再被關閉就等使用者按「重新授權」。
+- 讀不到原剪貼簿時不貼上，回 `injectFailed`（不冒險覆蓋使用者的剪貼簿）。
+
+### 未驗證（TBD）
+
+- iPhone 經 BLE 打字到 Linux、觸控板（移動、點擊、捲動方向）在真的 portal 上。
+- 第一次授權視窗、拒絕授權、token 失效。
+- 貼上中途按「停止分享」、清除剪貼簿失敗（只有假 portal 測試）。
+- 終端機（要 Ctrl+Shift+V，中文貼不進去）、剪貼簿管理工具會留下每段貼上的紀錄（已知代價，寫入手冊）。

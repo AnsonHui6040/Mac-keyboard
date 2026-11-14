@@ -8,6 +8,9 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 use thiserror::Error;
 
+pub mod keysym;
+#[cfg(target_os = "linux")]
+pub mod linux;
 pub mod win_units;
 // The one place with `unsafe`: calls into the Win32 `SendInput` API.
 #[cfg(windows)]
