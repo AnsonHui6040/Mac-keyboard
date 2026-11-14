@@ -1,5 +1,5 @@
 #!/bin/sh
-# Finds the receiver's zenity pairing question ("Remote Keyboard") through AT-SPI and presses Yes (or No).
+# Finds the receiver's zenity pairing question (title 「配對新手機」／"Pair new phone") through AT-SPI and presses Yes (or No).
 # Usage: linux-confirm-pairing.sh [timeout_seconds=120] [result_file=/tmp/rk-pair-result.txt] [expect_sas]
 # Run it inside the GNOME session, e.g.:
 #   systemd-run --user --collect --wait -E WAYLAND_DISPLAY=wayland-0 /path/linux-confirm-pairing.sh 120 /tmp/r.txt
@@ -56,7 +56,7 @@ def find():
         if app is None:
             continue
         for frame in (app.get_child_at_index(i) for i in range(app.get_child_count())):
-            if frame is None or (frame.get_name() or "") != "Remote Keyboard":
+            if frame is None or (frame.get_name() or "") not in ("配對新手機", "Pair new phone", "Remote Keyboard"):
                 continue
             nodes = list(walk(frame))
             digits = None
@@ -85,7 +85,7 @@ while time.time() < deadline:
     if found:
         digits, nodes = found
         yes = not expect or expect == digits
-        names = {"yes", "是", "是(y)", "確定", "ok"} if yes else {"no", "否", "否(n)", "取消", "cancel"}
+        names = {"相符", "same code", "yes", "是", "是(y)", "確定", "ok"} if yes else {"不相符", "different", "no", "否", "否(n)", "取消", "cancel"}
         if not press(nodes, names):
             print("RKLINUX button-not-found"); sys.exit(4)
         open(result, "w").write("sas=%s\nanswer=%s\n" % (digits, "yes" if yes else "no"))
