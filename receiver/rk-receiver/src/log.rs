@@ -171,6 +171,24 @@ impl Logger {
         self.write(Level::Debug, ev, conn, fields);
     }
 
+    /// Writes a line made elsewhere in the form `ev=<kind> key=value ...` (the Linux injector's own events), with the usual
+    /// time stamps in front. The maker of the line promises kinds, lengths and results only; a line that does not start
+    /// with `ev=` is dropped.
+    pub fn stamped_line(&self, line: &str) {
+        let Some(rest) = line.strip_prefix("ev=") else { return };
+        let (ev, fields) = rest.split_once(' ').unwrap_or((rest, ""));
+        let mut inner = self.inner();
+        if Level::Info > inner.level {
+            return;
+        }
+        let mut text = format_line(inner.clock.wall_unix_ms(), inner.clock.mono_ms(), Level::Info, ev, None, &[]);
+        if !fields.is_empty() {
+            text.push(' ');
+            text.push_str(fields);
+        }
+        inner.sink.write_line(&text);
+    }
+
     /// Writes a backend's diagnostic event; `ms` carries the time since the advertisement was seen.
     pub fn diag(&self, diag: &Diag) {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(diag.fields.len() + 1);
@@ -317,6 +335,21 @@ mod tests {
         let sink = MemorySink::new();
         let clock = Arc::new(FakeClock::new(T0));
         (Logger::new(Box::new(sink.clone()), clock.clone(), level), sink, clock)
+    }
+
+    #[test]
+    fn a_line_made_elsewhere_gets_the_usual_stamp_and_nothing_else_gets_in() {
+        let (log, sink, _) = logger(Level::Info);
+        log.stamped_line("ev=portal_open has_token=true");
+        log.stamped_line("ev=portal_lost");
+        log.stamped_line("a line without the marker");
+        assert_eq!(
+            sink.lines(),
+            vec![
+                "wall=2026-11-14T10:20:30.123Z mono_ms=0 lvl=info ev=portal_open has_token=true".to_string(),
+                "wall=2026-11-14T10:20:30.123Z mono_ms=0 lvl=info ev=portal_lost".to_string(),
+            ]
+        );
     }
 
     #[test]

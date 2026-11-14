@@ -3,14 +3,21 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod linux_logic;
+
 #[cfg(windows)]
 pub mod windows;
 #[cfg(windows)]
 pub use windows::{inject_selftest, paths, prepare_console, print_diag, run};
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{inject_selftest, paths, prepare_console, print_diag, run};
+
+#[cfg(not(any(windows, target_os = "linux")))]
 mod other;
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 pub use other::{inject_selftest, paths, prepare_console, print_diag, run};
 
 /// Where the receiver keeps its files.

@@ -26,6 +26,8 @@ pub struct TrayState {
     pub trackpad: bool,
     pub autostart: bool,
     pub paste_non_ascii: bool,
+    /// The computer has not (yet) allowed this program to type: the tray offers 「重新授權」 (Linux portal).
+    pub needs_authorization: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +42,8 @@ pub enum NoticeKind {
     StoreError,
     /// The Bluetooth radio is off or scanning cannot run.
     BluetoothOff,
+    /// The paired phones cannot be read from the key store (a locked keyring); they are read again later.
+    KeyStoreUnavailable,
     /// `config.json` is unreadable and could not be moved aside: this run's settings are not saved, the file is left alone.
     ConfigNotSaved,
 }
@@ -67,6 +71,8 @@ pub enum UiCommand {
     SetTrackpad(bool),
     SetAutostart(bool),
     SetPasteNonAscii(bool),
+    /// The Bluetooth controller to use from the next start on (Linux); `None` takes the system default.
+    SetAdapter(Option<String>),
     Reauthorize,
     Quit,
 }

@@ -39,6 +39,8 @@ const FRAME_TICK_MS: u64 = 8;
 const WATCHDOG_TICK_MS: u64 = 25;
 /// While authenticated, how often the injector's readiness is looked at.
 const STATUS_POLL_MS: u64 = 500;
+/// While the key store cannot be read: how often it is looked at again (the store itself retries at its own pace).
+const KEYSTORE_POLL_MS: u64 = 1_000;
 const POINTER_PACKET_MAGIC: u8 = 0x03;
 const FRAME_MAGIC: u8 = 0x02;
 
@@ -112,6 +114,8 @@ pub struct App {
     pair_at_start: bool,
     last_adv: Option<(u64, u64)>,
     last_tray: Option<TrayState>,
+    /// The key store could not be read when it was last looked at.
+    keystore_down: bool,
 }
 
 fn kind_word(kind: &EventKind) -> &'static str {
@@ -162,6 +166,7 @@ impl App {
             pair_at_start: deps.pair_at_start,
             last_adv: None,
             last_tray: None,
+            keystore_down: false,
         }
     }
 
@@ -251,6 +256,14 @@ impl App {
     fn on_connected(&mut self, id: u64, device: DeviceKey, route: Route, mtu: usize, fx: &mut Vec<Effect>) {
         if let Some(old) = self.conn.take() {
             self.end_connection(&old, DisconnectReason::Local, fx);
+        }
+        if route == Route::Selected && self.store.unavailable() {
+            // The phones' keys cannot be read right now, so a failed handshake would say nothing about the phone: let go
+            // quietly, no `authFailed`, and try again after the short back-off.
+            self.log.info("keystore_unavailable", Some(id), &[("connection", Value::S("dropped"))]);
+            fx.push(Effect::Link(LinkCommand::Disconnect));
+            fx.push(Effect::Link(LinkCommand::Hold { device, for_: BACKOFF }));
+            return;
         }
         let now = self.now();
         let adv_base_ms = self.last_adv.filter(|(conn, _)| *conn == id).map_or(now, |(_, at)| at);
@@ -656,7 +669,11 @@ impl App {
     pub fn on_ui(&mut self, command: UiCommand) -> Vec<Effect> {
         let mut fx = Vec::new();
         match command {
-            UiCommand::StartPairing => self.start_pairing(&mut fx),
+            UiCommand::StartPairing => {
+                // Saving the phone's key needs the keyring open: this is the moment the user may be asked to unlock it.
+                self.store.unlock_keys();
+                self.start_pairing(&mut fx);
+            }
             UiCommand::ConfirmPairing(attempt, accepted) => self.confirm_pairing(attempt, accepted, &mut fx),
             UiCommand::Rename(name) => {
                 self.cfg.set_host_name(&name, self.platform);
@@ -677,9 +694,14 @@ impl App {
             }
             UiCommand::SetPasteNonAscii(on) => {
                 self.cfg.paste_non_ascii = on;
+                self.injector.set_paste_non_ascii(on);
                 self.save_config("paste_non_ascii", &mut fx);
             }
-            UiCommand::Reauthorize => {}
+            UiCommand::SetAdapter(adapter) => {
+                self.cfg.adapter = adapter;
+                self.save_config("adapter", &mut fx);
+            }
+            UiCommand::Reauthorize => self.injector.reauthorize(),
             UiCommand::Quit => self.quit(&mut fx),
         }
         self.flush_state(&mut fx);
@@ -775,11 +797,18 @@ impl App {
         let now = self.now();
         let mut wakes: Vec<u64> = Vec::new();
         wakes.extend(self.pairing_until_ms);
+        let authenticated = self.conn.as_ref().is_some_and(|c| c.handshake.is_authenticated());
         if let Some(conn) = &self.conn {
             wakes.extend(conn.deadline_ms);
-            if conn.handshake.is_authenticated() {
-                wakes.push(now + STATUS_POLL_MS);
-            }
+        }
+        // The injector can change under a phone that is listening, and an authorization that is pending ends by itself: look
+        // at it twice a second then. Otherwise (Windows is always trusted) no timer runs while nobody is connected.
+        if authenticated || !self.injector.trusted() {
+            wakes.push(now + STATUS_POLL_MS);
+        }
+        // A keyring that comes back (the user unlocked it) must show up without anything else happening.
+        if self.keystore_down {
+            wakes.push(now + KEYSTORE_POLL_MS);
         }
         if self.pointer.needs_frames() {
             wakes.push(now + FRAME_TICK_MS);
@@ -794,9 +823,10 @@ impl App {
 
     fn tray_state(&self) -> TrayState {
         let authenticated = self.conn.as_ref().is_some_and(|c| c.handshake.is_authenticated());
+        let needs_authorization = !self.injector.trusted();
         let icon = if authenticated {
             IconState::Connected
-        } else if self.attention || self.scan_failure.is_some() {
+        } else if self.attention || self.scan_failure.is_some() || needs_authorization || self.keystore_down {
             IconState::Attention
         } else {
             IconState::Disconnected
@@ -810,11 +840,25 @@ impl App {
             trackpad: self.cfg.trackpad,
             autostart: self.cfg.autostart,
             paste_non_ascii: self.cfg.paste_non_ascii,
+            needs_authorization,
         }
+    }
+
+    /// One outage of the key store is one notice and two log lines (kinds only), however often the list is looked at.
+    fn check_keystore(&mut self, fx: &mut Vec<Effect>) {
+        let down = self.store.unavailable();
+        if down && !self.keystore_down {
+            self.log.info("keystore_unavailable", None, &[]);
+            self.notice(NoticeKind::KeyStoreUnavailable, fx);
+        } else if !down && self.keystore_down {
+            self.log.info("keystore_ok", None, &[]);
+        }
+        self.keystore_down = down;
     }
 
     /// Tells the tray about the state when it differs from what it was last told.
     fn flush_state(&mut self, fx: &mut Vec<Effect>) {
+        self.check_keystore(fx);
         let state = self.tray_state();
         if self.last_tray.as_ref() != Some(&state) {
             self.last_tray = Some(state.clone());
