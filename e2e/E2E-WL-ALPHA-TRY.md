@@ -1,19 +1,19 @@
 # Windows／Linux 接收端 Alpha 試用清單
 
-狀態欄：PASS／FAIL／TBD。實機項目全部 TBD，你親手試過才改。有問題時用系統匣「匯出診斷資料」，把 zip 給我。
+狀態欄：PASS／FAIL／TBD。實機項目全部 TBD，你親手試過才改。有問題時用系統匣「匯出診斷資料」，把 zip 給我；log 位置與失敗種類見 `docs/troubleshooting-receiver.md`。
 
 ## 已裝好的東西
 
 | 裝置 | 位置 | 開機自動啟動 |
 |---|---|---|
-| Windows（TUF） | `%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-receiver.exe` | 是（`HKCU\…\Run\RemoteKeyboard`） |
-| Linux（Ubuntu） | `~/.local/bin/rk-receiver`，藍牙控制器 hci1 | 是（`~/.config/autostart/remote-keyboard.desktop`） |
+| Windows（TUF） | `%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-receiver.exe`（旁邊有 `rk-diag.exe`） | 是（`HKCU\…\Run\RemoteKeyboard`） |
+| Linux（Ubuntu） | `~/.local/bin/rk-receiver`（旁邊有 `rk-diag`），藍牙控制器 hci1 | 是（`~/.config/autostart/remote-keyboard.desktop`） |
 | iPhone 17 Pro | Remote Keyboard（main 最新建置） | — |
 | Mac | `/Applications/Remote Keyboard Receiver.app` | 照舊 |
 
 ## 配對
 
-已配對的電腦不必再配對。要重新配對時：
+Windows、Linux 都已和這支 iPhone 配對好（自動測試時完成），不必再配對。要重新配對時：
 
 1. 電腦：系統匣圖示 →「配對新手機」（120 秒內有效）。
 2. iPhone：Remote Keyboard App →「已配對電腦」→「新增電腦」。
