@@ -44,6 +44,15 @@ pub fn default_host_name(platform: HostPlatform) -> &'static str {
     }
 }
 
+/// Windows types through `SendInput`, and Notepad drops characters that come with no gap (WL1 S2): 10 ms passed there. Linux
+/// has its own fixed timing, so its setting stays 0.
+fn default_char_interval_ms(platform: HostPlatform) -> u32 {
+    match platform {
+        HostPlatform::Windows => 10,
+        HostPlatform::Mac | HostPlatform::Linux => 0,
+    }
+}
+
 impl Config {
     pub fn new(host_id: [u8; 16], platform: HostPlatform) -> Self {
         Self {
@@ -51,7 +60,7 @@ impl Config {
             host_name: default_host_name(platform).to_string(),
             trackpad: false,
             autostart: false,
-            char_interval_ms: 0,
+            char_interval_ms: default_char_interval_ms(platform),
             paste_non_ascii: false,
             adapter: None,
         }
@@ -163,6 +172,13 @@ mod tests {
         let config = Config::new([7; 16], HostPlatform::Windows);
         assert_eq!(config.host_name, "Windows");
         assert_eq!(Config::new([7; 16], HostPlatform::Linux).host_name, "Linux");
+    }
+
+    #[test]
+    fn windows_types_with_a_10_ms_gap_between_characters_by_default() {
+        // Notepad drops characters sent with no gap (WL1 S2); 10 ms passed. Linux has its own fixed timing.
+        assert_eq!(Config::new([7; 16], HostPlatform::Windows).char_interval_ms, 10);
+        assert_eq!(Config::new([7; 16], HostPlatform::Linux).char_interval_ms, 0);
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::diag::{self, DiagInfo};
 use crate::cli::Cli;
 use rk_core::identity::HostPlatform;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
@@ -37,6 +37,12 @@ pub fn print_diag() -> String {
         state: "not running",
         log_level: "info",
     })
+}
+
+/// Linux gets its injector in WL9; until then there is nothing to type with.
+pub fn inject_selftest(_file: &Path, _delay_secs: u64) -> i32 {
+    println!("units=0 ms=0 result=err:not_ready");
+    1
 }
 
 pub fn run(_cli: &Cli) -> i32 {

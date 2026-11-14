@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 #[cfg(windows)]
 pub mod windows;
 #[cfg(windows)]
-pub use windows::{paths, prepare_console, print_diag, run};
+pub use windows::{inject_selftest, paths, prepare_console, print_diag, run};
 
 #[cfg(not(windows))]
 mod other;
 #[cfg(not(windows))]
-pub use other::{paths, prepare_console, print_diag, run};
+pub use other::{inject_selftest, paths, prepare_console, print_diag, run};
 
 /// Where the receiver keeps its files.
 #[derive(Debug, Clone, PartialEq, Eq)]
