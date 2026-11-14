@@ -15,6 +15,7 @@
 | WL1（S1–S7、S9 連線與注入 spike） | 兩個 Rust spike 在測試機編譯通過；Windows 的 S1、S2、S7 與 Linux 的 S3、S4、S5、S6、S7、S9 已實測 | 2026-11-13 實測，全部項目已跑；S6 沒有量到「沒有 RustDesk」的對照 | S1 基準版不通過、調參版時間通過但 26% 的嘗試失敗；S3 不通過；S2 通過（記事本需要字元間隔）；S4 不通過（非 ASCII 全部丟失）、S5 通過（所以 Linux 的非 ASCII 改用貼上）；S9 在 120 次/秒以內通過；S6 在 RustDesk 連線中可注入。依設計 §12 停下回報 |
 | WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR #98 上 Windows 與 Ubuntu 的 CI 皆成功 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
 | WL9（Linux 注入，portal） | Mac 與 `rk-linux` 的 `cargo test` 0 失敗（`rk-inject` 117）、clippy 無警告；GNOME 文字編輯器 200 字逐字相同，剪貼簿不留打過的字 | TBD（iPhone 經 BLE 打字、觸控板） | 程式完成；四輪獨立審查後沒有 Critical／Important |
+| WL10（Linux 接收端、舊連線釋放） | Mac、`rk-linux`、`rk-win` 測試全過；CI 通過 | 自動實機：配對兩台全自動；重連 100 次 Windows 100／100、Linux 97／100；Windows 記事本打字逐字相同；其餘 TBD | 可試用；Linux 重連速度未達門檻 |
 | WL7（`rk-ble` Windows 後端、`rk-inject` 介面、Windows 接收端外殼） | Mac 上 `cargo test --workspace` 349 個測試 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 3、`rk-receiver` 91）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` build、test（`rk-receiver` 90）、clippy 通過；`rk-linux` test 通過；`rk-win` 桌面工作階段實跑 20 秒，log 有 `ev=scan_start` 且沒有錯誤 | TBD（連線、打字、系統匣、配對、自動啟動全部未在實機測） | 程式完成；修復第 1 輪後待再審；`rk-win` 上整個 workspace 的 clippy 被 `rk-core` 一項新版 lint 擋住（見下） |
 | WL8（Windows 注入：`SendInput`） | Mac 上 `cargo test --workspace` 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 30、`rk-receiver` 107）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` release build、test（`rk-inject` 36、`rk-receiver` 106）、clippy 通過；`rk-win` 桌面工作階段把 200 字（英文、中文、表情符號含 ZWJ）經接收端注入路徑送進記事本：預設間隔 20 毫秒 28／28 逐字相同，10 毫秒 32／35（3 次相鄰字元順序送反） | TBD（iPhone 打字、指標移動、按鍵、捲動、記事本以外的目標、以系統管理員身分執行的視窗皆未測） | 程式完成；審查修復第 1 輪完成；預設間隔由計畫的 10 毫秒改為 20 毫秒 |
 
@@ -1024,3 +1025,49 @@ TDD：`win_units.rs` 初版與測試一起寫，之後故意弄壞行為確認�
 - 第一次授權視窗、拒絕授權、token 失效。
 - 貼上中途按「停止分享」、清除剪貼簿失敗（只有假 portal 測試）。
 - 終端機（要 Ctrl+Shift+V，中文貼不進去）、剪貼簿管理工具會留下每段貼上的紀錄（已知代價，寫入手冊）。
+
+## WL10：Linux 接收端與連線中的舊連線釋放（2026-11-15）
+
+### 內容
+
+- `rk-ble` Linux 後端：bluer 只做探索（設定檔或 `--adapter` 指定控制器；測試機為 hci1），連線用自寫的最小 ATT client（L2CAP 固定通道 CID 4）：Exchange MTU 517、只探索本 service、handle 快取並在使用前核對、回應 iPhone 送來的 ATT 請求、寫入 `control` 一律 Write Request、`ENOSYS` 立即重試最多 3 次。不需要 root，沒有動 hci0。
+- Linux 外殼：StatusNotifierItem 系統匣與選單、zenity 配對與改名對話框（與配對嘗試綁定）、Secret Service 金鑰（讀取不阻塞 app、鎖住時只在啟動或使用者操作時跳解鎖視窗）、XDG 設定與 log、autostart、單一執行個體、`--adapter`、`--pair`、`--inject-selftest`；接上 WL9 的 `LinuxInjector`。
+- 兩個平台：連線中看到同一支手機在訂閱 1 秒後重新廣播選定 UUID，就立即釋放舊連線（`reason=stale_advert`）並重連。Windows 用第二個廣播監看器；Linux 用 RSSI 更新，同一波更新裡有 ManufacturerData 的不算（iPhone 本身的 Apple 廣播）。
+
+### 自動驗證
+
+| 位置 | 結果 |
+|---|---|
+| Mac | `cargo test --workspace` 0 失敗（rk-ble 67、rk-core 230＋7＋9、rk-inject 52、rk-receiver 162）；clippy（host 與 `x86_64-pc-windows-msvc`）無警告 |
+| `rk-linux` | release 建置；`cargo test --workspace` 0 失敗（rk-receiver 165）；clippy（rk-ble、rk-receiver）無警告；hci1 煙霧測試：系統匣註冊、只在 hci1 探索、SIGTERM 正常結束 |
+| `rk-win` | release 建置；`cargo test --workspace` 0 失敗；clippy 無警告 |
+| CI（PR #103） | Windows、Ubuntu 皆通過 |
+
+### 實機自動驗證（iPhone 17 Pro，`ReconnectUITests` 叫出／收起鍵盤 100 次，Notes 與 Safari 各 50 次）
+
+配對兩台都用 `PairingUITests` 加接收端的確認腳本全自動完成（Windows 配對碼 633207、Linux 620284，兩邊相同才按）。
+
+| 平台與版本 | 連上 | iPhone「鍵盤出現→已連接」中位數／p95（Notes；Safari） | 接收端「看到廣播→驗證完成」中位數／p95 | 備註 |
+|---|---|---|---|---|
+| Windows，WL7＋WL8（沒有舊連線釋放） | 49／50＋49／50 | 4.6 s／7.9 s；5.8 s／7.6 s | 1.37 s／2.07 s（101／101 在 3 秒內） | 101 次斷線全是連線逾時（約 10 秒）；下一個廣播在斷線後 0.27 秒就出現 |
+| Windows，加上舊連線釋放 | 50／50＋50／50 | 0.46 s／2.64 s；0.17 s／1.16 s | 0.56 s／1.52 s | 82 次由新廣播釋放，0 次驗證失敗；整體 p95 2048 ms（門檻 2000 ms） |
+| Linux，第 4 輪 | 94／100 | 2.0 s／5.9 s；0.17 s／1.17 s | 0.74 s／4.70 s | 136 次釋放，中位數在訂閱後 3.8 秒，多數是誤判（即第 5 輪修的問題）；44 次 ATT 錯誤 |
+| Linux，第 5 輪（本 PR） | 97／100 | 3.6 s／7.0 s；0.86 s／6.2 s | 2.45 s／4.68 s（89／98 在 3 秒內） | 41 次釋放，中位數在訂閱後 7.2 秒；57 次由手機端斷線；0 次驗證失敗 |
+
+另外在 Windows 記事本專用測試檔用 `RemoteTypingUITests` 打 `hello world`（含一次 Backspace）與換行，記事本內容為 `hello world` 加換行，逐字相同。
+
+### 判定
+
+- Windows：連線與打字可用；連線速度在加上舊連線釋放後接近 Mac 的門檻（p95 2048 ms）。
+- Linux：可用但未達門檻（97／100、p95 約 7 秒）。主要耗時在連上後的服務探索（約 2.4 秒，與 WL1 的 2.6 秒一致，原因是 iPhone 在新連線頭 40 多個連線間隔不回 ATT），要再快需要 root 調整連線間隔（WL1 除錯已列，未執行）。列為已知限制與後續工作。
+
+### 過程中的事故（如實記錄）
+
+- Windows 打字測試第一次沒有先確認前景視窗，`hello world` 與換行送進了當時在前景的 ChatGPT 桌面程式（換行可能把它當訊息送出）。之後改為先用 `e2e/scripts/win-focus-target.ps1` 開專用測試檔並確認前景標題才打字。
+- 讀回記事本內容的腳本第一版讀到使用者自己開著的 `credentials.local` 分頁（未修改），內容曾出現在工作紀錄中；暫存檔已立即刪除，腳本改為只讀專用測試檔的分頁。
+
+### 未驗證（TBD）
+
+- Linux 實機打字（iPhone 經 BLE）、觸控板；Windows 觸控板。
+- 系統匣各項操作、改名、刪除手機、匯出診斷資料、重開機自動啟動（兩個平台）。
+- Linux 鑰匙圈鎖住時的實際提示行為、控制器切換。
