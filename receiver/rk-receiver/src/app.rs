@@ -10,7 +10,7 @@ use crate::log::Logger;
 use crate::random::{RandomSource, SharedRandom};
 use crate::store::{ConfigStore, PhoneStore, StoreError};
 use crate::ui::{IconState, NoticeKind, PhoneEntry, TrayState, UiCommand, UiEvent};
-use rk_ble::{DeviceKey, DisconnectReason, FailKind, LinkCommand, LinkConfig, LinkEvent, Route, Value};
+use rk_ble::{DeviceKey, DisconnectReason, FailKind, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState, Value};
 use rk_core::dedup::{DedupDecision, EventDeduplicator};
 use rk_core::frame::{FrameReassembler, Reassembly};
 use rk_core::handshake::{HostHandshake, HostOutput};
@@ -75,6 +75,8 @@ struct Attempt {
     pending: Option<PairedPhone>,
     /// The user said yes; the phone may stay connected.
     confirmed: bool,
+    /// A pairing question is on screen and not answered yet.
+    question_open: bool,
 }
 
 struct Conn {
@@ -104,6 +106,7 @@ pub struct App {
     pointer: PointerReceiver,
     pairing_until_ms: Option<u64>,
     attention: bool,
+    scan_failure: Option<ScanFailure>,
     last_adv: Option<(u64, u64)>,
     last_tray: Option<TrayState>,
 }
@@ -152,6 +155,7 @@ impl App {
             pointer,
             pairing_until_ms: None,
             attention: false,
+            scan_failure: None,
             last_adv: None,
             last_tray: None,
         }
@@ -195,7 +199,14 @@ impl App {
                 self.log.diag(&diag);
             }
             LinkEvent::Connected { conn, device, route, mtu } => self.on_connected(conn, device, route, mtu, &mut fx),
-            LinkEvent::Notification(bytes) => self.on_notification(&bytes, &mut fx),
+            LinkEvent::Notification { conn, bytes } => {
+                if self.conn.as_ref().is_some_and(|c| c.id == conn) {
+                    self.on_notification(&bytes, &mut fx);
+                } else {
+                    self.log.debug("notify_stale", Some(conn), &[("len", Value::U(bytes.len() as u64))]);
+                }
+            }
+            LinkEvent::Scan(state) => self.on_scan_state(state, &mut fx),
             LinkEvent::Disconnected { conn, reason, .. } => {
                 if self.conn.as_ref().is_some_and(|c| c.id == conn) {
                     if let Some(conn) = self.conn.take() {
@@ -206,6 +217,18 @@ impl App {
         }
         self.flush_state(&mut fx);
         fx
+    }
+
+    fn on_scan_state(&mut self, state: ScanState, fx: &mut Vec<Effect>) {
+        match state {
+            ScanState::Failed(failure) if self.scan_failure != Some(failure) => {
+                self.scan_failure = Some(failure);
+                self.log.info("scan_error", None, &[("kind", Value::S(failure.as_str()))]);
+                self.notice(NoticeKind::BluetoothOff, fx);
+            }
+            ScanState::Running if self.scan_failure.take().is_some() => self.log.info("scan_ok", None, &[]),
+            ScanState::Failed(_) | ScanState::Running => {}
+        }
     }
 
     fn on_connected(&mut self, id: u64, device: DeviceKey, route: Route, mtu: usize, fx: &mut Vec<Effect>) {
@@ -370,7 +393,7 @@ impl App {
         match pairing.receive_offer(commitment) {
             HostPairingOutput::Send(accept) => {
                 fx.push(Effect::Link(LinkCommand::Write(encode_control(&accept))));
-                conn.attempt = Some(Attempt { pairing, pending: None, confirmed: false });
+                conn.attempt = Some(Attempt { pairing, pending: None, confirmed: false, question_open: false });
                 self.log.info("pair_accept_sent", Some(conn.id), &[]);
                 true
             }
@@ -400,8 +423,9 @@ impl App {
             return self.finish(conn, FailKind::AuthFailed, None, fx);
         }
         attempt.pending = Some(PairedPhone { identity: identity.clone(), pair_key: key });
+        attempt.question_open = true;
         self.log.info("pair_confirm_shown", Some(conn.id), &[]);
-        fx.push(Effect::Ui(UiEvent::PairingRequest { phone_name: identity.name, sas }));
+        fx.push(Effect::Ui(UiEvent::PairingRequest { attempt: conn.id, phone_name: identity.name, sas }));
         true
     }
 
@@ -429,12 +453,18 @@ impl App {
         }
     }
 
-    fn confirm_pairing(&mut self, accepted: bool, fx: &mut Vec<Effect>) {
-        let pending = self.conn.as_mut().and_then(|c| c.attempt.as_mut()).and_then(|a| a.pending.take());
-        let Some(phone) = pending else { return };
+    /// The answer of the user to the question of attempt `attempt`. An answer for any other attempt is ignored and leaves the
+    /// waiting one waiting: a dialog left over from an earlier attempt must not confirm a later one.
+    fn confirm_pairing(&mut self, attempt: u64, accepted: bool, fx: &mut Vec<Effect>) {
+        let waiting = self.conn.as_mut().filter(|c| c.id == attempt).and_then(|c| c.attempt.as_mut()).filter(|a| a.pending.is_some());
+        let Some(waiting) = waiting else {
+            self.log.info("pair_confirm_stale", None, &[]);
+            return;
+        };
+        waiting.question_open = false;
+        let Some(phone) = waiting.pending.take() else { return };
         if !accepted {
             self.log.info("pair_rejected", None, &[]);
-            fx.push(Effect::Ui(UiEvent::PairingClosed));
             self.discard_unconfirmed_attempt(fx);
             return;
         }
@@ -583,10 +613,8 @@ impl App {
         self.apply_pointer(effects, None, fx);
         let ms = self.now().saturating_sub(conn.adv_base_ms);
         self.log.info("disconnected", Some(conn.id), &[("ms", Value::U(ms)), ("reason", Value::S(reason.as_str()))]);
-        if let Some(attempt) = &conn.attempt {
-            if attempt.pending.is_some() {
-                fx.push(Effect::Ui(UiEvent::PairingClosed));
-            }
+        if conn.attempt.as_ref().is_some_and(|a| a.question_open) {
+            fx.push(Effect::Ui(UiEvent::PairingDialogClose(conn.id)));
         }
         self.log.info("scan_start", None, &[("pairing", Value::B(self.pairing_until_ms.is_some()))]);
     }
@@ -612,7 +640,7 @@ impl App {
         let mut fx = Vec::new();
         match command {
             UiCommand::StartPairing => self.start_pairing(&mut fx),
-            UiCommand::ConfirmPairing(accepted) => self.confirm_pairing(accepted, &mut fx),
+            UiCommand::ConfirmPairing(attempt, accepted) => self.confirm_pairing(attempt, accepted, &mut fx),
             UiCommand::Rename(name) => {
                 self.cfg.set_host_name(&name, self.platform);
                 self.save_config("rename", &mut fx);
@@ -751,7 +779,7 @@ impl App {
         let authenticated = self.conn.as_ref().is_some_and(|c| c.handshake.is_authenticated());
         let icon = if authenticated {
             IconState::Connected
-        } else if self.attention {
+        } else if self.attention || self.scan_failure.is_some() {
             IconState::Attention
         } else {
             IconState::Disconnected

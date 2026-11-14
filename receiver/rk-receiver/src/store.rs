@@ -123,6 +123,57 @@ impl ConfigStore for MemoryConfigStore {
     }
 }
 
+/// A slow, real key store (Credential Manager, Secret Service): the cache in front of it reads it once.
+pub trait PhoneBackend: Send {
+    fn load(&self) -> Vec<PairedPhone>;
+    fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError>;
+    fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
+}
+
+/// Keeps the phone list in memory and goes to the backend only on the first read and on every change. The application asks
+/// for the list on every tray refresh, which on a key store means decrypting every secret every time.
+pub struct CachedPhoneStore<B: PhoneBackend> {
+    backend: B,
+    cache: Mutex<Option<Vec<PairedPhone>>>,
+}
+
+impl<B: PhoneBackend> CachedPhoneStore<B> {
+    pub fn new(backend: B) -> Self {
+        Self { backend, cache: Mutex::new(None) }
+    }
+
+    /// The cached list, read from the backend the first time it is needed.
+    fn cached(&self) -> MutexGuard<'_, Option<Vec<PairedPhone>>> {
+        let mut guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = Some(self.backend.load());
+        }
+        guard
+    }
+}
+
+impl<B: PhoneBackend> PhoneStore for CachedPhoneStore<B> {
+    fn phones(&self) -> Vec<PairedPhone> {
+        self.cached().clone().unwrap_or_default()
+    }
+
+    fn save(&mut self, p: PairedPhone) -> Result<(), StoreError> {
+        let mut next = self.phones();
+        upsert(&mut next, p.clone())?;
+        self.backend.put(&p)?;
+        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(next);
+        Ok(())
+    }
+
+    fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
+        self.backend.remove(id)?;
+        if let Some(list) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+            list.retain(|p| &p.identity.id != id);
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +199,70 @@ mod tests {
         store.save(renamed).unwrap();
         assert_eq!(store.phones().len(), 8);
         assert_eq!(store.phones()[2].identity.name, "renamed");
+    }
+
+    #[derive(Clone, Default)]
+    struct CountingBackend {
+        stored: Arc<Mutex<Vec<PairedPhone>>>,
+        loads: Arc<Mutex<u32>>,
+    }
+
+    impl PhoneBackend for CountingBackend {
+        fn load(&self) -> Vec<PairedPhone> {
+            *self.loads.lock().unwrap() += 1;
+            self.stored.lock().unwrap().clone()
+        }
+        fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
+            upsert(&mut self.stored.lock().unwrap(), phone.clone())
+        }
+        fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
+            self.stored.lock().unwrap().retain(|p| &p.identity.id != id);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn the_cached_store_reads_its_backend_once_however_often_it_is_asked() {
+        let backend = CountingBackend::default();
+        backend.stored.lock().unwrap().push(phone(1));
+        let mut store = CachedPhoneStore::new(backend.clone());
+        store.save(phone(2)).unwrap(); // the first change loads the list once
+        for _ in 0..100 {
+            assert_eq!(store.phones().len(), 2);
+        }
+        store.delete(&[1; 16]).unwrap();
+        assert_eq!(store.phones().iter().map(|p| p.identity.id[0]).collect::<Vec<_>>(), vec![2]);
+        assert_eq!(*backend.loads.lock().unwrap(), 1);
+        assert_eq!(backend.stored.lock().unwrap().len(), 1, "the backend saw both changes");
+    }
+
+    #[test]
+    fn reading_alone_loads_the_backend_only_once() {
+        let backend = CountingBackend::default();
+        let store = CachedPhoneStore::new(backend.clone());
+        for _ in 0..100 {
+            store.phones();
+        }
+        assert_eq!(*backend.loads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_failed_backend_write_leaves_the_cache_unchanged() {
+        struct Refusing;
+        impl PhoneBackend for Refusing {
+            fn load(&self) -> Vec<PairedPhone> {
+                Vec::new()
+            }
+            fn put(&mut self, _: &PairedPhone) -> Result<(), StoreError> {
+                Err(StoreError::Backend("no".into()))
+            }
+            fn remove(&mut self, _: &[u8; 16]) -> Result<(), StoreError> {
+                Err(StoreError::Backend("no".into()))
+            }
+        }
+        let mut store = CachedPhoneStore::new(Refusing);
+        assert!(store.save(phone(1)).is_err());
+        assert!(store.phones().is_empty());
     }
 
     #[test]

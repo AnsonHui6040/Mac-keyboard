@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod diag;
 pub mod fake;
+pub mod flow;
 #[cfg(windows)]
 pub mod windows;
 
@@ -61,13 +62,45 @@ impl DisconnectReason {
     }
 }
 
+/// Why scanning is not running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanFailure {
+    /// The Bluetooth radio is off or disabled.
+    RadioOff,
+    /// The system stopped the scan on its own.
+    Aborted,
+    /// The scan could not be started for another reason.
+    Unavailable,
+}
+
+impl ScanFailure {
+    /// The word written to the log.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RadioOff => "radio_off",
+            Self::Aborted => "aborted",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+/// Whether the backend is scanning. Reported when it changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanState {
+    Running,
+    Failed(ScanFailure),
+}
+
 /// From a backend to the application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LinkEvent {
     /// The `event` characteristic is subscribed: the connection is usable. `route` tells which advertised UUID led here.
     Connected { conn: u64, device: DeviceKey, route: Route, mtu: usize },
-    /// One notification of `event` (one frame, or one pointer packet).
-    Notification(Vec<u8>),
+    /// One notification of `event` (one frame, or one pointer packet) of connection `conn`. The backend delivers it after
+    /// `Connected`; the application ignores one that belongs to a connection it no longer has.
+    Notification { conn: u64, bytes: Vec<u8> },
+    /// Scanning started, or stopped working.
+    Scan(ScanState),
     Disconnected { conn: u64, device: DeviceKey, reason: DisconnectReason },
     /// A phase of a connection, for the diagnostic log.
     Diag(Diag),

@@ -38,21 +38,28 @@ pub enum NoticeKind {
     /// Eight phones are stored; delete one first.
     PairingStoreFull,
     StoreError,
+    /// The Bluetooth radio is off or scanning cannot run.
+    BluetoothOff,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiEvent {
     State(TrayState),
-    /// Ask the user whether the code on the phone shows the same.
-    PairingRequest { phone_name: String, sas: String },
+    /// Ask the user whether the code on the phone shows the same. `attempt` names the pairing attempt; only an answer that
+    /// carries it counts.
+    PairingRequest { attempt: u64, phone_name: String, sas: String },
+    /// The pairing window closed.
     PairingClosed,
+    /// The attempt's question is moot (its connection ended, the window closed): take the dialog away.
+    PairingDialogClose(u64),
     Notice(NoticeKind),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiCommand {
     StartPairing,
-    ConfirmPairing(bool),
+    /// The answer to the question of the given attempt.
+    ConfirmPairing(u64, bool),
     Rename(String),
     DeletePhone([u8; 16]),
     SetTrackpad(bool),

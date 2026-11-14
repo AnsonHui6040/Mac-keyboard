@@ -25,7 +25,7 @@ pub fn pretty_name(os_release: &str) -> Option<String> {
 pub fn prepare_console() {}
 
 pub fn print_diag() -> String {
-    let config = Config::load_or_create(&paths().config_file, HostPlatform::Linux, || [0; 16]);
+    let config = Config::read_only(&paths().config_file, HostPlatform::Linux);
     let os = std::fs::read_to_string("/etc/os-release").ok().and_then(|text| pretty_name(&text)).unwrap_or_else(|| std::env::consts::OS.to_string());
     diag::diag_txt(&DiagInfo {
         version: env!("CARGO_PKG_VERSION"),

@@ -14,6 +14,7 @@
 | WL5（Mac Receiver v4 與多手機） | `MacReceiverTests` 349 個測試 0 失敗；Mac、iOS 模擬器建置成功；真機 build-for-testing 成功 | TBD | 程式完成；實機項目未測 |
 | WL1（S1–S7、S9 連線與注入 spike） | 兩個 Rust spike 在測試機編譯通過；Windows 的 S1、S2、S7 與 Linux 的 S3、S4、S5、S6、S7、S9 已實測 | 2026-11-13 實測，全部項目已跑；S6 沒有量到「沒有 RustDesk」的對照 | S1 基準版不通過、調參版時間通過但 26% 的嘗試失敗；S3 不通過；S2 通過（記事本需要字元間隔）；S4 不通過（非 ASCII 全部丟失）、S5 通過（所以 Linux 的非 ASCII 改用貼上）；S9 在 120 次/秒以內通過；S6 在 RustDesk 連線中可注入。依設計 §12 停下回報 |
 | WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR #98 上 Windows 與 Ubuntu 的 CI 皆成功 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
+| WL7（`rk-ble` Windows 後端、`rk-inject` 介面、Windows 接收端外殼） | Mac 上 `cargo test --workspace` 349 個測試 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 3、`rk-receiver` 91）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` build、test（`rk-receiver` 90）、clippy 通過；`rk-linux` test 通過；`rk-win` 桌面工作階段實跑 20 秒，log 有 `ev=scan_start` 且沒有錯誤 | TBD（連線、打字、系統匣、配對、自動啟動全部未在實機測） | 程式完成；修復第 1 輪後待再審；`rk-win` 上整個 workspace 的 clippy 被 `rk-core` 一項新版 lint 擋住（見下） |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -794,3 +795,96 @@ Linux 一次連上的 34 次全部在 2,448–2,765 毫秒；需要重試的 9 �
 
 - bluetoothd 在 2026-11-13 16:43:07 有一次 segfault（先前 spike 期間），原因未查。
 - UI 測試在 Safari 找不到 `rk.status`，主機端的嘗試數不等於鍵盤出現次數。
+
+## WL7：`rk-ble`（Windows 後端）、`rk-inject` 介面與 Windows 接收端外殼（2026-11-14）
+
+### 內容
+
+| 項目 | 說明 |
+|---|---|
+| `rk-inject` | `Injector` 特性（計畫的簽名不變，另加有預設值的 `path()` 供診斷記錄）、`Button`、`InjectError`（`NotReady`、`Failed`、`Unsupported`）、`NullInjector`（`ready()` 為 false）、`RecordingInjector`（複本共用同一份紀錄） |
+| `rk-ble` | `LinkEvent`／`LinkCommand`／`LinkConfig`、`DeviceKey`（只有雜湊會進 log）、`FakeLink`（測試用）、`flow.rs`（通知閘門、掃描退避、結束時送完佇列的 `pump_commands`）、`windows.rs`（WinRT 後端，專用執行緒，照 WL1 除錯的 WC 做法） |
+| `rk-receiver` | `app.rs`（平台無關的狀態機，用假的連線、注入器、儲存、時鐘與亂數測試）、`log.rs`、`diag.rs`、`config.rs`、`store.rs`、`i18n.rs`（台灣繁體與英文）、`runner.rs`、`icons.rs`（三個圖示在程式裡畫出，`assets/*.ico` 與產生器逐位元組相同）、`platform/windows.rs`（系統匣與選單、配對對話框、PowerShell 改名輸入框、認證管理員、`%APPDATA%`、`%LOCALAPPDATA%`、`HKCU\...\Run`、具名 mutex）；Linux 上的 `main` 只支援 `--version`、`--print-paths`、`--diag`，其餘印出「WL10 才有」 |
+| 診斷記錄（使用者追加） | 一行一筆 `wall=… mono_ms=… lvl=… ev=… conn=…`；數值型別只有數字、布林、固定字詞、裝置雜湊，沒有自由文字；每條連線的階段（相對 `adv_seen` 的毫秒）、失敗分類 `kind=`、`retry`、`hold`、注入批次 `ev=inject`；每日一檔、單檔 5 MB、同日 3 檔、保留 7 天；系統匣「匯出診斷資料」產生 `RemoteKeyboard-diag-<時間>.zip` 並以 Explorer 選取；`--diag`、`--log-level debug` |
+
+### 自動驗證
+
+Mac，在 `receiver/`（2026-11-14，修復第 1 輪之後）：
+
+```
+$ cargo test --workspace
+rk-ble 9 passed；rk-core 230 passed（1 ignored）、loopback 7、swift_vectors 9；rk-inject 3；rk-receiver 91 passed；全部 0 failed
+$ cargo clippy --workspace --all-targets -- -D warnings                                  → 無警告
+$ cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings  → 無警告
+```
+
+`rk-win`（Windows 11 build 26300，Rust 1.99.1），原始碼在 `%USERPROFILE%\rk-build\wl7\receiver`：
+
+```
+$ cargo build --release --workspace          → Finished `release`（24.88 s）
+$ cargo test --workspace                      → rk-ble 9、rk-core 230＋7＋9、rk-inject 3、rk-receiver 90 passed；0 failed
+$ cargo clippy -p rk-ble -p rk-inject -p rk-receiver --all-targets --no-deps -- -D warnings   → Finished，無警告
+$ target\release\rk-receiver.exe --version        → rk-receiver 0.1.0
+$ target\release\rk-receiver.exe --print-paths    → config=C:\Users\anson\AppData\Roaming\RemoteKeyboard\config.json
+                                                     logs=C:\Users\anson\AppData\Local\RemoteKeyboard\logs
+```
+
+`rk-receiver` 在 Windows 少 1 個測試（讀 `/etc/os-release` 的那個只在非 Windows 編譯）。
+
+`rk-linux`（Ubuntu 26.04，hci0 與 bluetoothd 未動）：`cargo build --release --workspace` 通過，`cargo test --workspace` 同 Mac（`rk-receiver` 91），`--version`、`--print-paths`、`--diag` 正常，不帶參數的執行印出「WL10 才有」並以 0 結束。
+
+桌面工作階段實跑（排程工作，互動使用者，20 秒後以 `taskkill` 結束並刪除工作）：行程在 session 1 執行、`Responding` 為 True；log：
+
+```
+ev=config_created
+ev=start version=0.1.0 phones=0
+ev=scan_start pairing=false
+```
+
+沒有 `scan_error` 或其他錯誤；結束後沒有殘留行程，排程工作已刪除。
+
+TDD：`app.rs` 先以 `todo!()` 空殼跑出 33 個失敗再實作到全綠；其餘模組（`log`、`diag`、`cli`、`config`、`store`、`icons`、`inject_log`、`runner`）測試與實作一起寫，沒有先看到紅燈（`store` 的快取在修復時補了先紅後綠的測試）。
+
+涵蓋的計畫測試名稱全部存在並通過：`default_host_name_is_windows`、`rename_keeps_host_id_and_phones`、`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`、`second_instance_exits`、`bye_disconnects_immediately`、`text_event_is_injected_and_acked_posted`、`duplicate_event_is_not_injected_twice`、`pointer_open_needs_current_grant`、`end_to_end_with_rust_phone`。`log_lines_never_contain_text` 在 debug 等級跑完整個配對、握手、打字、指標流程，檢查機密文字、手機名稱、配對碼、配對金鑰、兩個 nonce、兩個 proof 的原文、小寫十六進位、大寫十六進位、base64 都不在任何一行，也沒有 16 個以上的十六進位連續字元。
+
+### 偏離計畫
+
+1. `LinkEvent::Connected`、`Disconnected` 多 `conn`（連線序號），`Notification` 改成 `Notification { conn, bytes }`（後端在 `Connected` 之後才送，應用程式忽略不屬於目前連線的通知），新增 `LinkEvent::Diag` 與 `LinkEvent::Scan`（掃描是否在跑；藍牙關閉時系統匣顯示通知）。WL10 的 Linux 後端要照同一組事件。
+2. `Injector` 多一個有預設值的 `path()`；`InjectError` 的變體（`NotReady`、`Failed(String)`、`Unsupported`）計畫沒有定義，由本 Task 決定。
+3. `bye_disconnects_immediately` 是主機端：v4 只有主機會送 `bye`，所以測的是刪除連線中的手機或結束程式時，先送加密的 `bye` 再 `Disconnect`。刪除手機不設 `Hold`（避免擋住同一個位址的配對連線）。
+4. 「連線期間不掃描」是後端的約定，`app` 由連線與斷線事件寫 `scan_stop`、`scan_start`；`FakeLink` 照約定模擬。
+5. 配對確認後 `app` 關閉配對時段但保留連線（協定 §5.4）；沒有人確認的嘗試在時段到期時丟棄。第九支手機在顯示問題之前就被拒絕（`PairingStoreFull`）。
+6. 配對問題綁定嘗試：`PairingRequest` 帶嘗試編號，`ConfirmPairing(嘗試編號, 是否)`，編號不符的答案忽略；問題因連線結束或時段到期而作廢時送 `PairingDialogClose(嘗試編號)`，Windows 殼以該對話框所屬執行緒找到視窗並按「否」。
+7. log 的時間是 UTC；`rk-receiver` 拆成 lib 加 bin，讓非 Windows 建置沒有未使用程式碼的警告。
+8. `Config::load_or_create` 在 `config.json` 無法解析時先改名為 `config.json.bad-<毫秒>` 再建立新設定（新的 `hostId` 等於新主機，需要重新配對），不會悄悄覆蓋。
+9. `rk-ble` 在 Windows 忽略 `LinkConfig.adapter`（WinRT 用預設控制器）。
+
+### 獨立審查第 1 輪的處理（2026-11-14）
+
+| # | 問題 | 修復 |
+|---|---|---|
+| C1 | 探索期間的「過期連線」監看器每次都打斷正常探索 | 移除；在同一個裝置物件上每 50 毫秒重查到 8 秒，8 秒到才關閉物件，下一次廣播重開 |
+| C2 | 配對確認沒有綁定嘗試，過期對話框可能確認下一次配對 | 見偏離 6；測試 `stale_confirmation_is_ignored`、`confirmation_of_a_finished_attempt_cannot_confirm_the_next_one`、`the_question_is_withdrawn_when_its_attempt_ends` |
+| I1 | `Connected` 之前到的通知被丟掉 | 後端用 `NotificationGate` 把早到的通知壓住，`Connected` 之後依序送出；`notification_for_old_conn_is_ignored`；閘門本身有測試 |
+| I2 | 結束時的 `bye` 與 `Disconnect` 沒有送到無線電 | `runner::run` 結束後放掉 `link_tx`，等 `rk_ble::run` 把佇列送完、釋放連線，最多 2 秒（`pump_commands` 有測試，含「必須放開工作執行緒的命令通道」） |
+| I3 | 第一個系統匣狀態可能因為執行緒還沒有訊息佇列而遺失 | 啟動應用程式執行緒前先 `PeekMessageW`，建好系統匣後先處理已排隊的更新 |
+| I4 | 藍牙關閉或監看器被中止後不會恢復 | 處理 `Stopped` 事件與 `Status`，以 2、4、8、16、30 秒退避重啟（`ScanBackoff` 有測試），送 `LinkEvent::Scan`；系統匣顯示「藍牙未開啟」；log `ev=scan_error kind=…`、`ev=scan_ok`；`scan_failure_shows_bluetooth_notice_and_recovery_clears_it` |
+| I5 | 寫入失敗不會結束連線 | 寫入失敗以 `link_lost` 結束連線並回到掃描 |
+| I6 | 每次系統匣更新都讀認證管理員 | `CachedPhoneStore`：第一次讀取之後只在儲存與刪除時動後端；測試 `reading_alone_loads_the_backend_only_once` 等（先紅後綠） |
+| m1 | 連線前沒有再檢查 Hold | 開連線前再查一次 |
+| m6 | `config.json` 損壞時悄悄覆蓋 | 見偏離 8 |
+| m7 | 應用程式執行緒 panic 後行程留在系統匣 | 以 drop guard 在任何結束方式都對系統匣執行緒送 `WM_QUIT`，行程以非 0 結束 |
+
+### 未驗證（TBD，使用者手測）
+
+- WinRT 連線本身：看到廣播、探索、訂閱、寫入、重連，以及 WL1 量到的時間（`rk-ble/src/windows.rs` 只在 `rk-win` 編譯，沒有連 iPhone 跑過）。
+- `status.ready` 在 WL8 之前一律為 false（注入器是 `NullInjector`）。
+- 配對對話框（含被取消時按「否」）、PowerShell 改名輸入框、認證管理員、`HKCU\...\Run` 自動啟動、匯出診斷資料與 Explorer、具名 mutex、`--version` 在互動 cmd 視窗的輸出（透過 SSH 管線時正常）。
+- `--log-level debug` 的 ATT／WinRT 層級事件。
+- 常數（Provisional）：8 秒探索期限、50 毫秒重查、退避 10 秒與 60 秒、握手 5 秒、配對時段 120 秒、掃描失敗退避 2 到 30 秒。
+
+### 其他發現
+
+- `rk-win` 的 Rust 1.99.1 對 `rk-core/src/pointer.rs` 約 349 行的 `match` 報 `clippy::collapsible_match`（Mac 的 1.100 不報），所以 `rk-win` 上 `cargo clippy --workspace -- -D warnings` 在 `rk-core` 就失敗；本 Task 沒有改 `rk-core`，`-p rk-ble -p rk-inject -p rk-receiver --no-deps` 通過。
+- `rk-win` 的 `ProductName` 登錄值寫 Windows 10（Windows 11 預覽版的已知現象），所以 `--diag` 的 `os:` 行寫「Windows 10 Home 26H2 build 26300」。
+- 桌面實跑在 `rk-win` 建立了 `%APPDATA%\RemoteKeyboard\config.json`（新的 `hostId`，沒有配對任何手機）。

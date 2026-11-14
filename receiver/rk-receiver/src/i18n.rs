@@ -136,6 +136,8 @@ pub fn notice(lang: Lang, kind: NoticeKind) -> &'static str {
         (NoticeKind::PairingStoreFull, En) => "Eight phones are paired already, delete one first",
         (NoticeKind::StoreError, ZhTw) => "無法儲存配對資料",
         (NoticeKind::StoreError, En) => "Could not store the pairing",
+        (NoticeKind::BluetoothOff, ZhTw) => "藍牙未開啟，無法掃描",
+        (NoticeKind::BluetoothOff, En) => "Bluetooth is off, scanning is not running",
     }
 }
 

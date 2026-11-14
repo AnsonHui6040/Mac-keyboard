@@ -10,7 +10,7 @@ use crate::store::{MemoryConfigStore, MemoryPhoneStore};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use rk_ble::fake::FakeLink;
-use rk_ble::{DeviceKey, DisconnectReason};
+use rk_ble::{DeviceKey, DisconnectReason, ScanFailure, ScanState};
 use rk_core::channel::ChannelSet;
 use rk_core::frame::split_frames;
 use rk_core::handshake::{PhoneHandshake, PhoneOutput};
@@ -136,6 +136,20 @@ impl Rig {
             let event = self.link.notify(frame);
             self.deliver(event);
         }
+    }
+
+    /// The user answers the pairing question that was asked last.
+    fn confirm(&mut self, accepted: bool) {
+        let attempt = self.last_attempt();
+        self.command(UiCommand::ConfirmPairing(attempt, accepted));
+    }
+
+    fn last_attempt(&self) -> u64 {
+        self.ui
+            .iter()
+            .rev()
+            .find_map(|e| if let UiEvent::PairingRequest { attempt, .. } = e { Some(*attempt) } else { None })
+            .expect("a pairing question was asked")
     }
 
     fn notify(&mut self, bytes: Vec<u8>) {
@@ -294,7 +308,7 @@ fn confirmed_pairing_saves_phone() {
     let mut rig = Rig::new();
     let (pairing, _) = rig.pair_up_to_confirmation("Anson 的 iPhone");
     assert!(rig.store.phones().is_empty(), "nothing is stored before the user confirms");
-    rig.command(UiCommand::ConfirmPairing(true));
+    rig.confirm(true);
     let stored = rig.store.phones();
     assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].identity.name, "Anson 的 iPhone");
@@ -306,7 +320,7 @@ fn confirmed_pairing_saves_phone() {
 fn rejected_pairing_saves_nothing() {
     let mut rig = Rig::new();
     rig.pair_up_to_confirmation("Phone");
-    rig.command(UiCommand::ConfirmPairing(false));
+    rig.confirm(false);
     assert!(rig.store.phones().is_empty());
     assert!(!rig.link.is_connected(), "the attempt is dropped with its connection");
 }
@@ -316,7 +330,7 @@ fn pairing_window_expiring_before_confirmation_saves_nothing() {
     let mut rig = Rig::new();
     rig.pair_up_to_confirmation("Phone");
     rig.advance(120_000);
-    rig.command(UiCommand::ConfirmPairing(true));
+    rig.confirm(true);
     assert!(rig.store.phones().is_empty());
     assert!(rig.ui.contains(&UiEvent::PairingClosed));
 }
@@ -357,6 +371,48 @@ fn ninth_phone_is_refused_with_a_notice() {
     rig.phone_sends(&reveal);
     assert!(rig.notices().contains(&NoticeKind::PairingStoreFull));
     assert!(!rig.ui.iter().any(|e| matches!(e, UiEvent::PairingRequest { .. })));
+}
+
+#[test]
+fn stale_confirmation_is_ignored() {
+    let mut rig = Rig::new();
+    rig.pair_up_to_confirmation("Phone");
+    let attempt = rig.last_attempt();
+    // An answer that belongs to some other attempt must not confirm this one.
+    rig.command(UiCommand::ConfirmPairing(attempt + 1, true));
+    assert!(rig.store.phones().is_empty());
+    // The attempt is still waiting for its own answer.
+    rig.command(UiCommand::ConfirmPairing(attempt, true));
+    assert_eq!(rig.store.phones().len(), 1);
+}
+
+#[test]
+fn confirmation_of_a_finished_attempt_cannot_confirm_the_next_one() {
+    let mut rig = Rig::new();
+    rig.pair_up_to_confirmation("First");
+    let first = rig.last_attempt();
+    rig.link_drops(DisconnectReason::Remote);
+    rig.pair_up_to_confirmation("Second");
+    let second = rig.last_attempt();
+    assert_ne!(first, second);
+    rig.command(UiCommand::ConfirmPairing(first, true));
+    assert!(rig.store.phones().is_empty(), "the dialog of the first attempt answered yes, the second is not confirmed");
+    rig.command(UiCommand::ConfirmPairing(second, true));
+    assert_eq!(rig.store.phones()[0].identity.name, "Second");
+}
+
+#[test]
+fn the_question_is_withdrawn_when_its_attempt_ends() {
+    let mut rig = Rig::new();
+    rig.pair_up_to_confirmation("Phone");
+    let attempt = rig.last_attempt();
+    rig.link_drops(DisconnectReason::Remote);
+    assert!(rig.ui.contains(&UiEvent::PairingDialogClose(attempt)), "the open dialog is closed");
+    let mut rig = Rig::new();
+    rig.pair_up_to_confirmation("Phone");
+    let attempt = rig.last_attempt();
+    rig.advance(120_000);
+    assert!(rig.ui.contains(&UiEvent::PairingDialogClose(attempt)));
 }
 
 // ---------------------------------------------------------------- connection lifecycle
@@ -456,6 +512,42 @@ fn scanning_stops_while_connected() {
     let stop = log.find("ev=scan_stop").expect("scan_stop is logged");
     let restart = log.rfind("ev=scan_start").expect("scan_start is logged");
     assert!(log.contains("ev=scan_start") && stop < restart, "{log}");
+}
+
+#[test]
+fn notification_for_old_conn_is_ignored() {
+    let mut rig = Rig::new();
+    rig.pair_phone(1);
+    rig.connect(Route::Selected);
+    rig.writes();
+    rig.link_drops(DisconnectReason::Remote);
+    // The next connection is under way; a late notification of the first one must not touch it.
+    rig.connect(Route::Selected);
+    let old = 1;
+    let mut stale = Vec::new();
+    for frame in split_frames(&encode_peripheral(&PeripheralMessage::NotSelected), 9, 185).unwrap() {
+        stale.push(frame);
+    }
+    for frame in stale {
+        rig.deliver(LinkEvent::Notification { conn: old, bytes: frame });
+    }
+    assert!(rig.link.is_connected(), "a notSelected of the old connection ends nothing");
+    assert!(rig.link.holds().is_empty());
+}
+
+#[test]
+fn scan_failure_shows_bluetooth_notice_and_recovery_clears_it() {
+    let mut rig = Rig::new();
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    assert_eq!(rig.notices(), vec![NoticeKind::BluetoothOff]);
+    assert_eq!(rig.last_tray().icon, IconState::Attention);
+    assert!(rig.log_text().contains("ev=scan_error kind=radio_off"));
+    // The same failure again is not announced twice.
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    assert_eq!(rig.notices().len(), 1);
+    rig.deliver(LinkEvent::Scan(ScanState::Running));
+    assert_eq!(rig.last_tray().icon, IconState::Disconnected);
+    assert!(rig.log_text().contains("ev=scan_ok"));
 }
 
 #[test]
@@ -686,7 +778,7 @@ fn end_to_end_with_rust_phone() {
     // Pair.
     let (pairing, sas) = rig.pair_up_to_confirmation("Anson 的 iPhone");
     assert_eq!(sas.len(), 6);
-    rig.command(UiCommand::ConfirmPairing(true));
+    rig.confirm(true);
     // The phone goes away; the keyboard now advertises the selected UUID.
     rig.link_drops(DisconnectReason::Remote);
     // Connect through the selected UUID and type.
@@ -717,7 +809,7 @@ fn log_lines_never_contain_text() {
     let phone_name = "Zelda-Phone-名稱";
     let (pairing, sas) = rig.pair_up_to_confirmation(phone_name);
     let pair_key = pairing.pair_key().unwrap().clone();
-    rig.command(UiCommand::ConfirmPairing(true));
+    rig.confirm(true);
     rig.command(UiCommand::SetTrackpad(true));
     rig.link_drops(DisconnectReason::Remote);
 

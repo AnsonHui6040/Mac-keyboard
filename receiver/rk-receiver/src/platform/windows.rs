@@ -6,19 +6,20 @@
 use super::{claim_instance, windows_paths, Instance, InstanceLock, Paths};
 use crate::app::{App, AppDeps};
 use crate::clock::{Clock, SystemClock};
-use crate::config::{hex, Config, FileConfigStore};
+use crate::config::{hex, Config, ConfigOrigin, FileConfigStore};
 use crate::diag::{self, AdapterInfo, DiagInfo};
 use crate::i18n::{self, Lang, Text};
 use crate::icons;
 use crate::log::{FileSink, Level, Logger};
 use crate::random::OsRandom;
 use crate::runner::{self, UiSink};
-use crate::store::{decode_record, encode_record, upsert, PhoneStore, StoreError};
+use crate::store::{decode_record, encode_record, CachedPhoneStore, PhoneBackend, PhoneStore, StoreError};
 use crate::ui::{IconState, NoticeKind, TrayState, UiCommand, UiEvent};
 use rk_core::identity::{HostPlatform, PairedPhone};
 use rk_inject::{Injector, NullInjector};
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc as std_mpsc;
@@ -26,8 +27,8 @@ use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
-use windows::core::{w, PCWSTR, PWSTR};
-use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE, LPARAM, WPARAM};
+use windows::core::{w, BOOL, PCWSTR, PWSTR};
+use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE, HWND, LPARAM, WPARAM};
 use windows::Win32::Globalization::GetUserDefaultUILanguage;
 use windows::Win32::Security::Credentials::{
     CredDeleteW, CredEnumerateW, CredFree, CredWriteW, CREDENTIALW, CRED_ENUMERATE_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
@@ -40,8 +41,9 @@ use windows::Win32::System::Registry::{
 use windows::Win32::System::Threading::{CreateMutexW, GetCurrentThreadId};
 use windows::Win32::System::WinRT::{RoInitialize, RO_INIT_MULTITHREADED};
 use windows::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, FindWindowW, GetMessageW, MessageBoxW, PostMessageW, PostThreadMessageW, TranslateMessage, IDYES, MB_ICONINFORMATION,
-    MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MSG, WM_APP, WM_CLOSE, WM_QUIT,
+    DispatchMessageW, EnumThreadWindows, GetMessageW, MessageBoxW, PeekMessageW, PostMessageW, PostThreadMessageW, TranslateMessage, IDNO,
+    IDYES, MB_ICONINFORMATION, MB_ICONQUESTION, MB_OK, MB_SETFOREGROUND, MB_TOPMOST, MB_YESNO, MSG, PM_NOREMOVE, WM_APP, WM_COMMAND, WM_QUIT,
+    WM_USER,
 };
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -107,9 +109,12 @@ impl InstanceLock for NamedMutex {
 
 // ---------------------------------------------------------------- Credential Manager
 
-/// The paired phones, one generic credential each: target `RemoteKeyboard/phone/<phoneId>`, blob = JSON record.
+/// The paired phones, one generic credential each: target `RemoteKeyboard/phone/<phoneId>`, blob = JSON record. Reading it
+/// decrypts every secret, so the application only ever sees the cached version.
+pub type CredentialPhoneStore = CachedPhoneStore<CredentialBackend>;
+
 #[derive(Default)]
-pub struct CredentialPhoneStore;
+pub struct CredentialBackend;
 
 fn credential_target(id: &[u8; 16]) -> String {
     format!("{CREDENTIAL_PREFIX}{}", hex(id))
@@ -119,8 +124,8 @@ fn backend_error(what: &str) -> StoreError {
     StoreError::Backend(what.to_string())
 }
 
-impl PhoneStore for CredentialPhoneStore {
-    fn phones(&self) -> Vec<PairedPhone> {
+impl PhoneBackend for CredentialBackend {
+    fn load(&self) -> Vec<PairedPhone> {
         let filter = wide(&format!("{CREDENTIAL_PREFIX}*"));
         let (mut count, mut list) = (0u32, std::ptr::null_mut());
         let mut found: Vec<(String, PairedPhone)> = Vec::new();
@@ -142,11 +147,9 @@ impl PhoneStore for CredentialPhoneStore {
         found.into_iter().map(|(_, phone)| phone).collect()
     }
 
-    fn save(&mut self, phone: PairedPhone) -> Result<(), StoreError> {
-        let mut list = self.phones();
-        upsert(&mut list, phone.clone())?;
+    fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
         let mut target = wide(&credential_target(&phone.identity.id));
-        let mut blob = encode_record(&phone);
+        let mut blob = encode_record(phone);
         let credential = CREDENTIALW {
             Type: CRED_TYPE_GENERIC,
             TargetName: PWSTR(target.as_mut_ptr()),
@@ -159,7 +162,7 @@ impl PhoneStore for CredentialPhoneStore {
         unsafe { CredWriteW(&credential, 0) }.map_err(|_| backend_error("CredWriteW"))
     }
 
-    fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
+    fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
         let target = wide(&credential_target(id));
         // SAFETY: valid NUL-terminated name.
         unsafe { CredDeleteW(PCWSTR(target.as_ptr()), CRED_TYPE_GENERIC, None) }.map_err(|_| backend_error("CredDeleteW"))
@@ -224,7 +227,7 @@ pub fn make_injector(_config: &Config) -> Box<dyn Injector> {
 
 // ---------------------------------------------------------------- dialogs
 
-const PAIRING_TITLE: &str = "Remote Keyboard";
+const DIALOG_TITLE: &str = "Remote Keyboard";
 
 fn message_box(title: &str, text: &str, flags: windows::Win32::UI::WindowsAndMessaging::MESSAGEBOX_STYLE) -> bool {
     let (title, text) = (wide(title), wide(text));
@@ -232,14 +235,43 @@ fn message_box(title: &str, text: &str, flags: windows::Win32::UI::WindowsAndMes
     unsafe { MessageBoxW(None, PCWSTR(text.as_ptr()), PCWSTR(title.as_ptr()), flags | MB_SETFOREGROUND | MB_TOPMOST) == IDYES }
 }
 
-fn close_pairing_dialog() {
-    let title = wide(PAIRING_TITLE);
-    // SAFETY: valid NUL-terminated title; the message only asks the dialog to close.
-    unsafe {
-        if let Ok(window) = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) {
-            let _ = PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0));
+/// The pairing questions on screen: attempt, and the thread that is inside its `MessageBoxW`. A message box belongs to the
+/// thread that opened it, so that thread finds the box without guessing by title, and a box is closed by its own attempt.
+#[derive(Default)]
+struct PairingDialogs {
+    open: Mutex<HashMap<u64, u32>>,
+}
+
+impl PairingDialogs {
+    fn ask(self: &Arc<Self>, attempt: u64, question: String, commands: mpsc::UnboundedSender<UiCommand>) {
+        let dialogs = self.clone();
+        std::thread::spawn(move || {
+            // SAFETY: no arguments.
+            let thread = unsafe { GetCurrentThreadId() };
+            dialogs.open.lock().unwrap_or_else(|p| p.into_inner()).insert(attempt, thread);
+            let yes = message_box(DIALOG_TITLE, &question, MB_YESNO | MB_ICONQUESTION);
+            dialogs.open.lock().unwrap_or_else(|p| p.into_inner()).remove(&attempt);
+            // The application accepts the answer only for the attempt it belongs to.
+            let _ = commands.send(UiCommand::ConfirmPairing(attempt, yes));
+        });
+    }
+
+    /// Presses "No" on the box of this attempt, if it is still open.
+    fn close(&self, attempt: u64) {
+        let thread = self.open.lock().unwrap_or_else(|p| p.into_inner()).get(&attempt).copied();
+        if let Some(thread) = thread {
+            // SAFETY: the callback only posts a message to each top-level window of that thread.
+            unsafe {
+                let _ = EnumThreadWindows(thread, Some(press_no), LPARAM(0));
+            }
         }
     }
+}
+
+unsafe extern "system" fn press_no(window: HWND, _: LPARAM) -> BOOL {
+    // SAFETY: posting a command message to a window handle that Windows just handed out.
+    let _ = unsafe { PostMessageW(Some(window), WM_COMMAND, WPARAM(IDNO.0 as usize), LPARAM(0)) };
+    BOOL(1)
 }
 
 /// Asks for a new name with the Visual Basic input box through PowerShell (no window of its own). `None` when cancelled.
@@ -374,7 +406,7 @@ impl MenuActions {
     fn export(&self) {
         let (state, paths, lang, clock) = (self.current(), self.paths.clone(), self.lang, self.clock.clone());
         std::thread::spawn(move || {
-            let config = Config::load_or_create(&paths.config_file, HostPlatform::Windows, || [0; 16]);
+            let config = Config::read_only(&paths.config_file, HostPlatform::Windows);
             let phones = state.as_ref().map_or(0, |s| s.phones.len());
             let word = match state.as_ref().map(|s| s.icon) {
                 Some(IconState::Connected) => "connected",
@@ -387,7 +419,7 @@ impl MenuActions {
             match diag::export(&paths.log_dir, &target, &text, clock.wall_unix_ms()) {
                 Ok(zip) => reveal(&zip),
                 Err(_) => {
-                    message_box(PAIRING_TITLE, i18n::text(lang, Text::DiagnosticsFailed), MB_OK | MB_ICONINFORMATION);
+                    message_box(DIALOG_TITLE, i18n::text(lang, Text::DiagnosticsFailed), MB_OK | MB_ICONINFORMATION);
                 }
             }
         });
@@ -415,8 +447,8 @@ pub fn diag_text(config: &Config, phones: usize, state: &str, log_level: &str) -
 
 /// `--diag`: what `diag.txt` would hold, without starting the receiver.
 pub fn print_diag() -> String {
-    let config = Config::load_or_create(&paths().config_file, HostPlatform::Windows, || [0; 16]);
-    diag_text(&config, CredentialPhoneStore.phones().len(), "not running", "info")
+    let config = Config::read_only(&paths().config_file, HostPlatform::Windows);
+    diag_text(&config, CredentialPhoneStore::new(CredentialBackend).phones().len(), "not running", "info")
 }
 
 fn apply_state(tray: &TrayIcon, state: &TrayState, lang: Lang, notice: Option<NoticeKind>) {
@@ -433,14 +465,23 @@ pub fn run(level: Level) -> i32 {
     let (paths, lang) = (paths(), lang());
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
     let logger = Logger::new(Box::new(FileSink::new(paths.log_dir.clone(), clock.clone())), clock.clone(), level);
-    let config = Config::load_or_create(&paths.config_file, HostPlatform::Windows, || crate::random::SharedRandom::new(Box::new(OsRandom)).bytes::<16>());
+    let new_id = || crate::random::SharedRandom::new(Box::new(OsRandom)).bytes::<16>();
+    let (config, origin) = Config::load_or_create(&paths.config_file, HostPlatform::Windows, new_id, clock.wall_unix_ms());
+    match origin {
+        ConfigOrigin::Loaded => {}
+        ConfigOrigin::Created => logger.info("config_created", None, &[]),
+        // The unreadable file is still there under another name; a new host id starts a new identity, so say so.
+        ConfigOrigin::Recovered { .. } => logger.info("config_corrupt", None, &[("kept_as_bad", rk_ble::Value::B(true))]),
+    }
     let mut config_store = FileConfigStore::new(paths.config_file.clone());
-    let _ = crate::store::ConfigStore::save(&mut config_store, &config);
+    if crate::store::ConfigStore::save(&mut config_store, &config).is_err() {
+        logger.info("config_save_failed", None, &[]);
+    }
     let injector = make_injector(&config);
     let app = App::new(AppDeps {
         config,
         platform: HostPlatform::Windows,
-        store: Box::new(CredentialPhoneStore),
+        store: Box::new(CredentialPhoneStore::new(CredentialBackend)),
         config_store: Box::new(config_store),
         injector,
         clock: clock.clone(),
@@ -448,36 +489,48 @@ pub fn run(level: Level) -> i32 {
         logger,
     });
 
+    // The first update can come from the application thread before this thread has asked for a message: make sure the
+    // thread has a message queue, or a thread message posted to it is lost.
+    let mut probe = MSG::default();
+    // SAFETY: peeks without removing anything; its only effect is creating the queue.
+    let _ = unsafe { PeekMessageW(&mut probe, None, WM_USER, WM_USER, PM_NOREMOVE) };
     let (ui_queue, ui_events) = std_mpsc::channel();
     // SAFETY: no arguments.
     let thread_id = unsafe { GetCurrentThreadId() };
     let (command_tx, command_rx) = mpsc::unbounded_channel();
     let state = Arc::new(Mutex::new(None::<TrayState>));
+    let dialogs = Arc::new(PairingDialogs::default());
     let actions = MenuActions { commands: command_tx.clone(), state: state.clone(), lang, paths, clock: clock.clone() };
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| actions.click(&event.id.0)));
 
     let link_config = app.link_config();
     let worker = std::thread::spawn(move || {
+        // Whatever ends this thread, the tray loop must end too, or the process would sit in the tray with nothing behind it.
+        let _quit = QuitTrayOnDrop(thread_id);
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_time().build() else { return };
         runtime.block_on(async move {
             let (event_tx, event_rx) = mpsc::channel(256);
             let (link_tx, link_rx) = mpsc::channel(64);
-            tokio::spawn(rk_ble::run(link_config, event_tx, link_rx));
+            let link = tokio::spawn(rk_ble::run(link_config, event_tx, link_rx));
             runner::run(app, event_rx, link_tx, command_rx, TraySink { queue: ui_queue, thread_id }, clock).await;
+            // `link_tx` went with `runner::run`: the link now carries out what is queued (the `bye`, the hang-up) and ends.
+            let _ = link.await;
         });
-        // SAFETY: asks the tray thread to leave its message loop.
-        let _ = unsafe { PostThreadMessageW(thread_id, WM_QUIT, WPARAM(0), LPARAM(0)) };
     });
 
     let tray = TrayIconBuilder::new().with_icon(icon_for(IconState::Disconnected).expect("generated icon is valid")).build();
     let Ok(tray) = tray else { return 1 };
     let mut notice = None;
+    // Updates that were posted before the loop started.
+    for event in ui_events.try_iter() {
+        handle_ui_event(event, &tray, &state, lang, &command_tx, &dialogs, &mut notice);
+    }
     let mut message = MSG::default();
     // SAFETY: a standard message loop on the thread that created the tray.
     while unsafe { GetMessageW(&mut message, None, 0, 0) }.0 > 0 {
         if message.message == WM_WAKE {
             for event in ui_events.try_iter() {
-                handle_ui_event(event, &tray, &state, lang, &command_tx, &mut notice);
+                handle_ui_event(event, &tray, &state, lang, &command_tx, &dialogs, &mut notice);
             }
             continue;
         }
@@ -487,8 +540,18 @@ pub fn run(level: Level) -> i32 {
             DispatchMessageW(&message);
         }
     }
-    let _ = worker.join();
-    0
+    // A panic of the application thread shows here as an error.
+    i32::from(worker.join().is_err())
+}
+
+/// Posts `WM_QUIT` to the tray thread when dropped, on a normal end and on a panic alike.
+struct QuitTrayOnDrop(u32);
+
+impl Drop for QuitTrayOnDrop {
+    fn drop(&mut self) {
+        // SAFETY: posting a thread message with no payload.
+        let _ = unsafe { PostThreadMessageW(self.0, WM_QUIT, WPARAM(0), LPARAM(0)) };
+    }
 }
 
 fn handle_ui_event(
@@ -497,6 +560,7 @@ fn handle_ui_event(
     shared: &Arc<Mutex<Option<TrayState>>>,
     lang: Lang,
     commands: &mpsc::UnboundedSender<UiCommand>,
+    dialogs: &Arc<PairingDialogs>,
     notice: &mut Option<NoticeKind>,
 ) {
     match event {
@@ -507,14 +571,11 @@ fn handle_ui_event(
             apply_state(tray, &state, lang, *notice);
             *shared.lock().unwrap_or_else(|p| p.into_inner()) = Some(state);
         }
-        UiEvent::PairingRequest { phone_name, sas } => {
-            let commands = commands.clone();
-            std::thread::spawn(move || {
-                let yes = message_box(PAIRING_TITLE, &i18n::pairing_question(lang, &phone_name, &sas), MB_YESNO | MB_ICONQUESTION);
-                let _ = commands.send(UiCommand::ConfirmPairing(yes));
-            });
+        UiEvent::PairingRequest { attempt, phone_name, sas } => {
+            dialogs.ask(attempt, i18n::pairing_question(lang, &phone_name, &sas), commands.clone());
         }
-        UiEvent::PairingClosed => close_pairing_dialog(),
+        UiEvent::PairingClosed => {}
+        UiEvent::PairingDialogClose(attempt) => dialogs.close(attempt),
         UiEvent::Notice(kind) => {
             if matches!(kind, NoticeKind::NeedsRepair | NoticeKind::UpdatePhone) {
                 *notice = Some(kind);
@@ -524,7 +585,7 @@ fn handle_ui_event(
             } else {
                 let text = i18n::notice(lang, kind);
                 std::thread::spawn(move || {
-                    message_box(PAIRING_TITLE, text, MB_OK | MB_ICONINFORMATION);
+                    message_box(DIALOG_TITLE, text, MB_OK | MB_ICONINFORMATION);
                 });
             }
         }

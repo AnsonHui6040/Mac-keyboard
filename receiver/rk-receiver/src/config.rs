@@ -22,6 +22,16 @@ pub struct Config {
     pub adapter: Option<String>,
 }
 
+/// Where a configuration came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConfigOrigin {
+    Loaded,
+    /// There was no file: a first start.
+    Created,
+    /// The file was unreadable and was kept under this name.
+    Recovered { backup: PathBuf },
+}
+
 /// The name a host has before the user renames it (§4).
 pub fn default_host_name(platform: HostPlatform) -> &'static str {
     match platform {
@@ -54,10 +64,29 @@ impl Config {
         HostIdentity { id: self.host_id, name: self.host_name.clone(), platform }
     }
 
-    /// Reads the file, or makes a fresh configuration with a new `hostId` when there is none (or it cannot be read).
-    pub fn load_or_create(path: &std::path::Path, platform: HostPlatform, new_id: impl FnOnce() -> [u8; 16]) -> Self {
-        let read = fs::read_to_string(path).ok().and_then(|text| serde_json::from_str::<Config>(&text).ok());
-        read.unwrap_or_else(|| Config::new(new_id(), platform))
+    /// Reads the file. A missing file makes a fresh configuration with a new `hostId`. A file that cannot be read as a
+    /// configuration is moved to `config.json.bad-<time>` first, so the old `hostId` is never silently overwritten; the
+    /// new configuration is the caller's to save.
+    pub fn load_or_create(path: &std::path::Path, platform: HostPlatform, new_id: impl FnOnce() -> [u8; 16], now_unix_ms: u64) -> (Self, ConfigOrigin) {
+        match fs::read_to_string(path) {
+            Err(_) => (Config::new(new_id(), platform), ConfigOrigin::Created),
+            Ok(text) => match serde_json::from_str::<Config>(&text) {
+                Ok(config) => (config, ConfigOrigin::Loaded),
+                Err(_) => {
+                    let mut backup = path.as_os_str().to_owned();
+                    backup.push(format!(".bad-{now_unix_ms}"));
+                    let backup = PathBuf::from(backup);
+                    let _ = fs::rename(path, &backup);
+                    (Config::new(new_id(), platform), ConfigOrigin::Recovered { backup })
+                }
+            },
+        }
+    }
+
+    /// The configuration on disk for a read-only look (`--diag`, the export): never moves or writes anything. A file that is
+    /// missing or unreadable shows as a configuration with an all-zero `hostId`.
+    pub fn read_only(path: &std::path::Path, platform: HostPlatform) -> Self {
+        fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_else(|| Config::new([0; 16], platform))
     }
 
     pub fn to_json(&self) -> String {
@@ -145,17 +174,48 @@ mod tests {
         let mut config = Config::new([0xAB; 16], HostPlatform::Windows);
         config.trackpad = true;
         FileConfigStore::new(path.clone()).save(&config).unwrap();
-        let loaded = Config::load_or_create(&path, HostPlatform::Windows, || [0; 16]);
+        let (loaded, _) = Config::load_or_create(&path, HostPlatform::Windows, || [0; 16], 1);
         assert_eq!(loaded, config);
         assert!(fs::read_to_string(&path).unwrap().contains(&"ab".repeat(16)));
     }
 
     #[test]
-    fn missing_or_broken_file_makes_a_new_host_id() {
+    fn a_missing_file_makes_a_new_host_id() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.json");
-        assert_eq!(Config::load_or_create(&path, HostPlatform::Windows, || [5; 16]).host_id, [5; 16]);
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [5; 16], 1);
+        assert_eq!((config.host_id, origin), ([5; 16], ConfigOrigin::Created));
+    }
+
+    #[test]
+    fn a_broken_file_is_kept_aside_before_a_new_one_is_made() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
         fs::write(&path, "{ not json").unwrap();
-        assert_eq!(Config::load_or_create(&path, HostPlatform::Windows, || [6; 16]).host_id, [6; 16]);
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [6; 16], 1_794_651_630_123);
+        let backup = dir.path().join("config.json.bad-1794651630123");
+        assert_eq!(config.host_id, [6; 16]);
+        assert_eq!(origin, ConfigOrigin::Recovered { backup: backup.clone() });
+        assert_eq!(fs::read_to_string(backup).unwrap(), "{ not json", "the broken file is not lost");
+        assert!(!path.exists(), "the caller saves the new one");
+    }
+
+    #[test]
+    fn a_read_only_look_never_moves_a_broken_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(Config::read_only(&path, HostPlatform::Windows).host_id, [0; 16]);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_good_file_is_loaded_as_it_is() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        FileConfigStore::new(path.clone()).save(&Config::new([7; 16], HostPlatform::Windows)).unwrap();
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [9; 16], 1);
+        assert_eq!((config.host_id, origin), ([7; 16], ConfigOrigin::Loaded));
     }
 }

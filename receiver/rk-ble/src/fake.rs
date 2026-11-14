@@ -38,7 +38,8 @@ impl FakeLink {
 
     /// One notification from the connected device.
     pub fn notify(&self, bytes: Vec<u8>) -> LinkEvent {
-        LinkEvent::Notification(bytes)
+        let conn = self.connected.map_or(0, |(conn, _)| conn);
+        LinkEvent::Notification { conn, bytes }
     }
 
     /// The device goes away. Scanning resumes. `None` when nothing was connected.
