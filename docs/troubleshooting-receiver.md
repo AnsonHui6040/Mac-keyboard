@@ -17,9 +17,18 @@
 
 ## 連線時間統計
 
-    rk-diag stats <log 資料夾> --since 2026-11-14T20:23:00Z
+    rk-diag stats <log 資料夾> --since 2026-11-14T20:23:00Z [--out <檔案>]
 
-輸出次數、最小、中位、p95、最大、3 秒內比例與各種失敗的次數。
+輸出次數、最小、中位、p95、最大、3 秒內比例與各種失敗的次數。`reason`、`kind`、`result` 只統計下表列出的詞，其他一律算 `other`。
+
+`rk-diag` 與 `rk-receiver` 放在同一處：
+
+| 系統 | 位置 |
+|---|---|
+| Windows | `%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe` |
+| Linux | `~/.local/bin/rk-diag` |
+
+自己建置：在 `receiver/` 執行 `cargo build --release -p rk-receiver --bin rk-diag`，把 `target/release/rk-diag`（Windows 為 `rk-diag.exe`）複製到上表位置。
 
 ## 失敗種類
 
@@ -33,10 +42,11 @@
 | `not_selected` | auth | 手機選的不是這台電腦 | 在手機的電腦清單選這台 |
 | `auth_failed` | auth | 驗證失敗 | 刪除這台電腦後重新配對 |
 | `unsupported_version` | auth | 手機與接收端版本不相容 | 兩邊更新到同一版 |
+| `local` | disconnected | 這一端主動結束連線（例如結束接收端） | 正常 |
 | `peer_bye`、`remote` | disconnected | 手機端結束連線 | 正常，例如收起鍵盤 |
 | `link_lost` | disconnected、write_failed | 連線中斷（距離、干擾、手機休眠） | 靠近一點，確認手機沒鎖定 |
 | `stale_advert` | disconnected | 手機重新廣播，舊連線被換掉 | 正常，隨後會自動重連 |
-| `hold` | hold | 同一支手機連續失敗，暫停數秒再試 | 等待；一直出現就看上面各種失敗 |
+| `hold`（事件，沒有 `kind`） | hold | 同一支手機連續失敗，暫停數秒再試 | 等待；一直出現就看上面各種失敗 |
 
 ## Linux
 

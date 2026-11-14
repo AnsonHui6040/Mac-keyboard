@@ -24,6 +24,19 @@ pub struct Summary {
     pub hold: u64,
 }
 
+/// Every `kind=` word the receiver writes (`rk_ble::FailKind::as_str`). Anything else is counted as `other`.
+pub const FAIL_KINDS: [&str; 10] = [
+    "unreachable", "enosys", "abort_by_local", "att_error", "timeout", "not_selected", "auth_failed", "unsupported_version", "peer_bye",
+    "link_lost",
+];
+/// Every `reason=` word of `disconnected`: the four plain reasons and the failure kinds.
+pub const DISCONNECT_REASONS: [&str; 13] = [
+    "local", "remote", "link_lost", "stale_advert", "unreachable", "enosys", "abort_by_local", "att_error", "timeout", "not_selected",
+    "auth_failed", "unsupported_version", "peer_bye",
+];
+/// Every `result=` word of `auth`.
+pub const AUTH_RESULTS: [&str; 5] = ["ok", "fail", "not_selected", "timeout", "unsupported_version"];
+
 /// The share of the ok connections that took at most this long.
 pub const FAST_MS: u64 = 3000;
 
@@ -32,7 +45,7 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<u64> {
     let (date, rest) = text.split_once('T')?;
     let mut d = date.split('-');
     let (y, m, day): (i64, i64, i64) = (d.next()?.parse().ok()?, d.next()?.parse().ok()?, d.next()?.parse().ok()?);
-    if d.next().is_some() || !(1..=12).contains(&m) || !(1..=31).contains(&day) {
+    if d.next().is_some() || !(1970..=9999).contains(&y) || !(1..=12).contains(&m) || day < 1 || day > days_in_month(y, m) {
         return None;
     }
     let (clock, offset_min) = if let Some(c) = rest.strip_suffix('Z') {
@@ -52,7 +65,7 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<u64> {
     }
     let (sec, frac) = sec_part.split_once('.').unwrap_or((sec_part, ""));
     let sec: i64 = sec.parse().ok()?;
-    if sec > 60 || !frac.bytes().all(|b| b.is_ascii_digit()) {
+    if sec > 59 || !frac.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     let mut ms: i64 = 0;
@@ -61,6 +74,15 @@ pub fn parse_rfc3339_ms(text: &str) -> Option<u64> {
     }
     let total = (days_from_civil(y, m, day) * 86_400 + h * 3600 + mi * 60 + sec - offset_min * 60) * 1000 + ms;
     u64::try_from(total).ok()
+}
+
+fn days_in_month(y: i64, m: i64) -> i64 {
+    match m {
+        2 if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) => 29,
+        2 => 28,
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 /// Days since 1970-01-01 of a civil date (proleptic Gregorian).
@@ -88,8 +110,10 @@ fn field<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     line.split_whitespace().find_map(|w| w.strip_prefix(key).and_then(|r| r.strip_prefix('=')))
 }
 
-fn bump(map: &mut BTreeMap<String, u64>, kind: Option<&str>) {
-    *map.entry(kind.unwrap_or("unknown").to_string()).or_insert(0) += 1;
+/// Counts a word from a fixed list; any other word, or none, is `other`, so free text can never reach the report.
+fn bump(map: &mut BTreeMap<String, u64>, word: Option<&str>, allowed: &[&str]) {
+    let key = word.filter(|w| allowed.contains(w)).unwrap_or("other");
+    *map.entry(key.to_string()).or_insert(0) += 1;
 }
 
 /// Summarizes log lines in file order. A new run starts at every `ev=start` line, because connection numbers restart.
@@ -123,7 +147,7 @@ pub fn summarize<'a>(lines: impl IntoIterator<Item = &'a str>, since_unix_ms: Op
             }
             "auth" => {
                 let result = field(line, "result");
-                bump(&mut s.auth_results, result);
+                bump(&mut s.auth_results, result, &AUTH_RESULTS);
                 if result == Some("ok") && key.is_some_and(|k| auth_ok.insert(k)) {
                     let from_field = field(line, "ms").and_then(|m| m.parse::<u64>().ok());
                     let from_wall = key.and_then(|k| adv_wall.get(&k)).map(|adv| wall.saturating_sub(*adv));
@@ -132,10 +156,10 @@ pub fn summarize<'a>(lines: impl IntoIterator<Item = &'a str>, since_unix_ms: Op
                     }
                 }
             }
-            "disconnected" => bump(&mut s.disconnected, field(line, "reason")),
-            "retry" => bump(&mut s.retry, field(line, "kind")),
-            "connect_failed" => bump(&mut s.connect_failed, field(line, "kind")),
-            "write_failed" => bump(&mut s.write_failed, field(line, "kind")),
+            "disconnected" => bump(&mut s.disconnected, field(line, "reason"), &DISCONNECT_REASONS),
+            "retry" => bump(&mut s.retry, field(line, "kind"), &FAIL_KINDS),
+            "connect_failed" => bump(&mut s.connect_failed, field(line, "kind"), &FAIL_KINDS),
+            "write_failed" => bump(&mut s.write_failed, field(line, "kind"), &FAIL_KINDS),
             "stale_link" => s.stale_link += 1,
             "hold" => s.hold += 1,
             _ => {}
@@ -168,7 +192,8 @@ impl Summary {
     pub fn render(&self, since: Option<&str>) -> String {
         let mut out = String::from("rk-diag stats\n");
         out.push_str(&format!("window {}\n", since.map_or("all".to_string(), |s| format!("since {s}"))));
-        out.push_str(&format!("lines counted={} skipped={}\n", self.lines, self.skipped_lines));
+        out.push_str(&format!("lines counted={} skipped_unreadable_lines={} (whole input, before --since)\n", self.lines, self.skipped_lines));
+        out.push_str("note auth counts use the ms= field of the auth line (time since adv_seen)\n");
         out.push_str(&format!("connections {}\n", self.connections));
         match (self.adv_to_auth_ms.first(), self.adv_to_auth_ms.last()) {
             (Some(min), Some(max)) => {
@@ -329,5 +354,61 @@ mod tests {
         names.retain(|n| file_order_key(n).is_some());
         names.sort_by_key(|n| file_order_key(n));
         assert_eq!(names, ["rk-2026-11-13.log", "rk-2026-11-14.log", "rk-2026-11-14.1.log"]);
+    }
+
+    #[test]
+    fn unknown_words_count_as_other_and_never_reach_the_output() {
+        let lines = [
+            line("2026-11-14T20:00:00.000Z", "adv_seen", "conn=1 ms=0 device=aa route=selected"),
+            line("2026-11-14T20:00:01.000Z", "disconnected", "conn=1 ms=1 reason=SecretPhoneName"),
+            line("2026-11-14T20:00:01.000Z", "retry", "conn=1 ms=1 attempt=1 kind=hunter2"),
+            line("2026-11-14T20:00:01.000Z", "connect_failed", "conn=1 ms=1 kind=att_error"),
+            line("2026-11-14T20:00:01.000Z", "auth", "conn=1 ms=1 result=maybe"),
+            line("2026-11-14T20:00:01.000Z", "write_failed", "conn=1 ms=1 kind="),
+        ];
+        let s = summarize(lines.iter().map(String::as_str), None);
+        assert_eq!(s.disconnected.get("other"), Some(&1));
+        assert_eq!(s.retry.get("other"), Some(&1));
+        assert_eq!(s.auth_results.get("other"), Some(&1));
+        assert_eq!(s.write_failed.get("other"), Some(&1));
+        assert_eq!(s.connect_failed.get("att_error"), Some(&1));
+        let text = s.render(None);
+        assert!(!text.contains("SecretPhoneName") && !text.contains("hunter2"), "{text}");
+    }
+
+    #[test]
+    fn the_word_lists_cover_everything_the_receiver_can_write() {
+        use rk_ble::{DisconnectReason, FailKind};
+        let kinds = [
+            FailKind::Unreachable, FailKind::Enosys, FailKind::AbortByLocal, FailKind::AttError, FailKind::Timeout,
+            FailKind::NotSelected, FailKind::AuthFailed, FailKind::UnsupportedVersion, FailKind::PeerBye, FailKind::LinkLost,
+        ];
+        for kind in kinds {
+            assert!(FAIL_KINDS.contains(&kind.as_str()), "{}", kind.as_str());
+            assert!(DISCONNECT_REASONS.contains(&DisconnectReason::Failed(kind).as_str()));
+        }
+        for reason in [DisconnectReason::Local, DisconnectReason::Remote, DisconnectReason::LinkLost, DisconnectReason::StaleAdvert] {
+            assert!(DISCONNECT_REASONS.contains(&reason.as_str()), "{}", reason.as_str());
+        }
+        assert_eq!(FAIL_KINDS.len(), kinds.len());
+    }
+
+    #[test]
+    fn rfc3339_rejects_out_of_range_dates() {
+        for bad in [
+            "1969-12-31T23:59:59Z", "10000-01-01T00:00:00Z", "2026-13-01T00:00:00Z", "2026-02-30T00:00:00Z",
+            "2026-04-31T00:00:00Z", "2026-11-14T24:00:00Z", "2026-11-14T20:60:00Z", "2026-11-14T20:23:60Z", "2026-00-10T00:00:00Z",
+        ] {
+            assert_eq!(parse_rfc3339_ms(bad), None, "{bad}");
+        }
+        assert!(parse_rfc3339_ms("2028-02-29T00:00:00Z").is_some());
+        assert_eq!(parse_rfc3339_ms("2027-02-29T00:00:00Z"), None);
+    }
+
+    #[test]
+    fn render_says_what_the_numbers_are() {
+        let text = summarize(["garbage"], None).render(None);
+        assert!(text.contains("skipped_unreadable_lines=1 (whole input, before --since)"), "{text}");
+        assert!(text.contains("auth counts use the ms= field"), "{text}");
     }
 }

@@ -8,7 +8,9 @@
 #   RK_IPHONE_UDID   iPhone UDID (default: the first connected device in `xcrun devicectl list devices`)
 #   RK_SSH_WIN       ssh host name of the Windows machine (default rk-win)
 #   RK_SSH_LINUX     ssh host name of the Linux machine (default rk-linux)
-#   RK_SINCE_SKEW_S  seconds to subtract from the start time when the receiver's clock runs behind (default 0)
+#   RK_SINCE_SKEW_S  extra seconds to subtract from the start time (default 0)
+# The receiver's UTC clock is read over ssh before the run and the difference to this Mac is applied to --since
+# automatically, so a receiver clock that is off does not shift the window.
 #
 # The test reads RK_REOPEN_COUNT from the test process environment. xcodebuild forwards only environment variables
 # of its own process that start with TEST_RUNNER_, so the count is set that way here. The same NAME=value written as a
@@ -27,7 +29,7 @@ COUNT="${2:-100}"
 
 case "$TARGET" in
   win|linux) ;;
-  -h|--help|"") sed -n '2,19p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
+  -h|--help|"") sed -n '2,22p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
   *) echo "target must be win or linux" >&2; exit 2 ;;
 esac
 case "$COUNT" in
@@ -62,9 +64,31 @@ while [ -e "$OUT" ]; do OUT="$BASE-$n.txt"; n=$((n + 1)); done
 XLOG="$(mktemp -t rk-reconnect-xcodebuild)"
 trap 'rm -f "$XLOG"' EXIT
 
-START_EPOCH=$(( $(date -u +%s) - SKEW ))
+case "$TARGET" in
+  win)
+    SSH_HOST="$WIN_HOST"
+    REMOTE_CLOCK='powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"'
+    REMOTE_CMD_PREFIX='"%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe" stats "%LOCALAPPDATA%\RemoteKeyboard\logs" --since '
+    ;;
+  linux)
+    SSH_HOST="$LINUX_HOST"
+    REMOTE_CLOCK='date -u +%s'
+    REMOTE_CMD_PREFIX='"$HOME/.local/bin/rk-diag" stats "${XDG_STATE_HOME:-$HOME/.local/state}/remote-keyboard/logs" --since '
+    ;;
+esac
+
+# The receiver's clock against this Mac's (mid-point of the ssh round trip).
+LOCAL_BEFORE=$(date -u +%s)
+REMOTE_EPOCH="$(ssh -n -o ConnectTimeout=10 -o BatchMode=yes -- "$SSH_HOST" "$REMOTE_CLOCK" 2>/dev/null | tr -d '\r' | tail -1)"
+LOCAL_AFTER=$(date -u +%s)
+case "$REMOTE_EPOCH" in
+  ''|*[!0-9]*) echo "cannot read the receiver's clock over ssh ($SSH_HOST); nothing was run" >&2; exit 5 ;;
+esac
+CLOCK_OFFSET=$(( REMOTE_EPOCH - (LOCAL_BEFORE + LOCAL_AFTER) / 2 ))
+
+START_EPOCH=$(( $(date -u +%s) + CLOCK_OFFSET - SKEW ))
 SINCE="$(date -u -r "$START_EPOCH" +%Y-%m-%dT%H:%M:%SZ)"
-echo "start $SINCE  target=$TARGET  reopens=$COUNT  iphone=$UDID"
+echo "start $SINCE (receiver clock)  receiver_clock_offset_s=$CLOCK_OFFSET  target=$TARGET  reopens=$COUNT  iphone=$UDID"
 
 TEST_RUNNER_RK_REOPEN_COUNT="$COUNT" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
   -destination "id=$UDID" -allowProvisioningUpdates \
@@ -75,21 +99,12 @@ grep -E "TEST (SUCCEEDED|FAILED)|Test Case .* (passed|failed)" "$XLOG" | tail -3
 # RKTIMING n=<done>/<asked> per app and metric: the two apps' keyboardToConnected counts add up to the reopens that ran.
 RAN="$(grep -h "RKTIMING .*metric=keyboardToConnected" "$XLOG" | sed -E 's/.* n=([0-9]+)\/([0-9]+) .*/\2/' | awk '{s += $1} END {print s + 0}')"
 
-case "$TARGET" in
-  win)
-    SSH_HOST="$WIN_HOST"
-    REMOTE_CMD='"%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe" stats "%LOCALAPPDATA%\RemoteKeyboard\logs" --since '"$SINCE"
-    ;;
-  linux)
-    SSH_HOST="$LINUX_HOST"
-    REMOTE_CMD='"$HOME/.local/bin/rk-diag" stats "${XDG_STATE_HOME:-$HOME/.local/state}/remote-keyboard/logs" --since '"$SINCE"
-    ;;
-esac
-RECEIVER_SUMMARY="$(ssh -o ConnectTimeout=10 -o BatchMode=yes "$SSH_HOST" "$REMOTE_CMD" 2>&1)"
+REMOTE_CMD="$REMOTE_CMD_PREFIX$SINCE"
+RECEIVER_SUMMARY="$(ssh -n -o ConnectTimeout=10 -o BatchMode=yes -- "$SSH_HOST" "$REMOTE_CMD" 2>&1)"
 SSH_STATUS=$?
 
 {
-  echo "# measure-reconnect target=$TARGET since=$SINCE reopens_asked=$COUNT reopens_ran=$RAN xcodebuild_exit=$XCODE_STATUS"
+  echo "# measure-reconnect target=$TARGET since=$SINCE receiver_clock_offset_s=$CLOCK_OFFSET reopens_asked=$COUNT reopens_ran=$RAN xcodebuild_exit=$XCODE_STATUS"
   echo
   echo "## iPhone (RKTIMING)"
   grep -h "RKTIMING" "$XLOG" || echo "none"
@@ -106,4 +121,11 @@ if [ "$RAN" -ne "$COUNT" ]; then
   exit 4
 fi
 [ "$SSH_STATUS" -eq 0 ] || exit 5
+# One reopen is normally one connection on the receiver; far fewer means the window or the receiver is wrong.
+SEEN="$(printf '%s\n' "$RECEIVER_SUMMARY" | awk '$1 == "connections" {print $2; exit}')"
+case "$SEEN" in ''|*[!0-9]*) SEEN=0 ;; esac
+if [ $(( SEEN * 2 )) -lt "$COUNT" ]; then
+  echo "WARNING: the receiver saw $SEEN connections for $COUNT reopens; check the receiver, the clock window and the pairing" >&2
+  exit 6
+fi
 exit "$XCODE_STATUS"

@@ -49,7 +49,7 @@ fn run(args: &[String]) -> Result<(), String> {
         text.push_str(&String::from_utf8_lossy(&bytes));
         text.push('\n');
     }
-    let report = format!("files {}\n{}", files.len(), summarize(text.lines(), since_ms).render(since.as_deref()));
+    let report = format!("files {}\n{}", files.len(), summarize(text.lines(), since_ms).render(since_ms.map(rk_receiver::log::rfc3339_utc_ms).as_deref()));
     print!("{report}");
     if let Some(out) = out {
         std::fs::write(&out, &report).map_err(|e| format!("cannot write {out}: {e}"))?;
