@@ -1,4 +1,4 @@
-//! The command line: `--version`, `--print-paths`, `--diag`, `--log-level debug`, `--pair`.
+//! The command line: `--version`, `--print-paths`, `--diag`, `--log-level debug`, `--pair`, `--adapter hci1`.
 
 use crate::log::Level;
 use std::path::PathBuf;
@@ -25,11 +25,13 @@ pub struct Cli {
     pub log_level: Level,
     /// Open the 120-second pairing window right after start-up, as the tray item 「配對新手機」 does.
     pub pair: bool,
+    /// `--adapter hci1`: the Bluetooth controller to use, over the one in the configuration. Linux only.
+    pub adapter: Option<String>,
 }
 
 /// `args` excludes the program name.
 pub fn parse<S: AsRef<str>>(args: &[S]) -> Result<Cli, String> {
-    let mut cli = Cli { mode: Mode::Run, log_level: Level::Info, pair: false };
+    let mut cli = Cli { mode: Mode::Run, log_level: Level::Info, pair: false, adapter: None };
     let mut selftest_file: Option<PathBuf> = None;
     let mut delay_secs: Option<u64> = None;
     let mut args = args.iter().map(AsRef::as_ref);
@@ -39,6 +41,10 @@ pub fn parse<S: AsRef<str>>(args: &[S]) -> Result<Cli, String> {
             "--print-paths" => cli.mode = Mode::PrintPaths,
             "--diag" => cli.mode = Mode::Diag,
             "--pair" => cli.pair = true,
+            "--adapter" => {
+                let value = args.next().filter(|v| !v.is_empty()).ok_or("--adapter needs a controller name such as hci1")?;
+                cli.adapter = Some(value.to_string());
+            }
             "--log-level" => {
                 let value = args.next().ok_or("--log-level needs a value: info or debug")?;
                 cli.log_level = Level::parse(value).ok_or_else(|| format!("unknown log level {value:?}: use info or debug"))?;
@@ -66,7 +72,7 @@ mod tests {
 
     #[test]
     fn no_arguments_runs_the_receiver_at_info_level() {
-        assert_eq!(parse::<&str>(&[]), Ok(Cli { mode: Mode::Run, log_level: Level::Info, pair: false }));
+        assert_eq!(parse::<&str>(&[]), Ok(Cli { mode: Mode::Run, log_level: Level::Info, pair: false, adapter: None }));
     }
 
     #[test]
@@ -113,6 +119,16 @@ mod tests {
         assert!(parse(&["--inject-selftest", "t.txt", "--delay-secs"]).is_err());
         assert!(parse(&["--inject-selftest", "t.txt", "--delay-secs", "soon"]).is_err());
         assert!(parse(&["--inject-selftest", "t.txt", "--diag"]).is_err(), "one job per run");
+    }
+
+    #[test]
+    fn adapter_names_the_bluetooth_controller() {
+        assert_eq!(parse(&["--adapter", "hci1"]).unwrap().adapter.as_deref(), Some("hci1"));
+        assert_eq!(parse::<&str>(&[]).unwrap().adapter, None);
+        let cli = parse(&["--pair", "--adapter", "hci1", "--log-level", "debug"]).unwrap();
+        assert_eq!((cli.adapter.as_deref(), cli.pair, cli.log_level), (Some("hci1"), true, Level::Debug));
+        assert!(parse(&["--adapter"]).is_err());
+        assert!(parse(&["--adapter", ""]).is_err());
     }
 
     #[test]

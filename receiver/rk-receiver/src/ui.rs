@@ -67,6 +67,8 @@ pub enum UiCommand {
     SetTrackpad(bool),
     SetAutostart(bool),
     SetPasteNonAscii(bool),
+    /// The Bluetooth controller to use from the next start on (Linux); `None` takes the system default.
+    SetAdapter(Option<String>),
     Reauthorize,
     Quit,
 }

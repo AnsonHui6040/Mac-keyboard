@@ -47,3 +47,8 @@ windows = { version = "=0.61.3", features = [
   "Win32_Globalization",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3.7"
+secret-service = { version = "5.2.0", features = ["rt-tokio-crypto-rust"] }
+tokio = { version = "1.54.1", features = ["process", "signal", "io-util"] }

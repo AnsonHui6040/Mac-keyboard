@@ -1,6 +1,6 @@
 //! The BLE link of a receiver: scan for the keyboard, connect, subscribe, write, disconnect.
 //!
-//! Backends (`windows.rs` here, Linux in WL10) speak one interface to the application: [`LinkEvent`]s up, [`LinkCommand`]s
+//! Backends (`windows.rs`, `linux.rs`) speak one interface to the application: [`LinkEvent`]s up, [`LinkCommand`]s
 //! down. The contract the application relies on:
 //!
 //! - While no connection exists the backend scans for `LinkConfig::select` (and, after `SetPairingScan(true)`, for
@@ -14,14 +14,20 @@
 use std::time::Duration;
 use uuid::Uuid;
 
+pub mod att;
+pub mod connect;
 pub mod diag;
 pub mod fake;
 pub mod flow;
+#[cfg(target_os = "linux")]
+pub mod linux;
 #[cfg(windows)]
 pub mod windows;
 
 pub use diag::{Diag, FailKind, ShortId, Value};
 pub use rk_core::handshake::Route;
+#[cfg(target_os = "linux")]
+pub use linux::{adapters, run, AdapterInfo};
 #[cfg(windows)]
 pub use windows::run;
 

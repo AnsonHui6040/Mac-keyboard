@@ -297,6 +297,16 @@ fn rename_keeps_host_id_and_phones() {
     assert_eq!(rig.configs.last().unwrap().host_name, "Windows");
 }
 
+#[test]
+fn choosing_a_bluetooth_controller_is_saved_and_the_link_config_follows() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetAdapter(Some("hci1".into())));
+    assert_eq!(rig.configs.last().unwrap().adapter.as_deref(), Some("hci1"));
+    assert_eq!(rig.app.link_config().adapter.as_deref(), Some("hci1"));
+    rig.command(UiCommand::SetAdapter(None));
+    assert_eq!(rig.configs.last().unwrap().adapter, None);
+}
+
 // ---------------------------------------------------------------- pairing
 
 #[test]

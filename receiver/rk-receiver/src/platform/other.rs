@@ -1,10 +1,11 @@
-//! Hosts without a shell of their own yet. Linux gets its tray and BlueZ link in WL10; until then the binary can say what it
-//! is (`--version`, `--print-paths`, `--diag`) and nothing more.
+//! Hosts that have no receiver shell (a development Mac): the binary can say what it is (`--version`, `--print-paths`,
+//! `--diag`) and nothing more. Windows and Linux have their own shells.
 
+use super::linux_logic::pretty_name;
 use super::{linux_paths, Paths};
+use crate::cli::Cli;
 use crate::config::Config;
 use crate::diag::{self, DiagInfo};
-use crate::cli::Cli;
 use rk_core::identity::HostPlatform;
 use std::path::{Path, PathBuf};
 
@@ -15,11 +16,6 @@ fn env_path(name: &str) -> Option<PathBuf> {
 pub fn paths() -> Paths {
     let home = env_path("HOME").unwrap_or_default();
     linux_paths(&home, env_path("XDG_CONFIG_HOME").as_deref(), env_path("XDG_STATE_HOME").as_deref())
-}
-
-/// `PRETTY_NAME` of an `/etc/os-release` file.
-pub fn pretty_name(os_release: &str) -> Option<String> {
-    os_release.lines().find_map(|line| line.strip_prefix("PRETTY_NAME=")).map(|v| v.trim().trim_matches('"').to_string())
 }
 
 pub fn prepare_console() {}
@@ -46,17 +42,6 @@ pub fn inject_selftest(_file: &Path, _delay_secs: u64) -> i32 {
 }
 
 pub fn run(_cli: &Cli) -> i32 {
-    eprintln!("The receiver for this system comes in WL10.");
+    eprintln!("This system has no receiver shell: the receiver runs on Windows and Linux.");
     0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pretty_name_is_read_from_os_release() {
-        assert_eq!(pretty_name("NAME=\"Ubuntu\"\nPRETTY_NAME=\"Ubuntu 26.04 LTS\"\nID=ubuntu\n").as_deref(), Some("Ubuntu 26.04 LTS"));
-        assert_eq!(pretty_name("ID=x\n"), None);
-    }
 }

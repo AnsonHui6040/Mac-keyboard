@@ -679,6 +679,10 @@ impl App {
                 self.cfg.paste_non_ascii = on;
                 self.save_config("paste_non_ascii", &mut fx);
             }
+            UiCommand::SetAdapter(adapter) => {
+                self.cfg.adapter = adapter;
+                self.save_config("adapter", &mut fx);
+            }
             UiCommand::Reauthorize => {}
             UiCommand::Quit => self.quit(&mut fx),
         }

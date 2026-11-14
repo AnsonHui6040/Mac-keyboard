@@ -66,7 +66,8 @@ impl Config {
             trackpad: false,
             autostart: false,
             char_gap_ms: None,
-            paste_non_ascii: false,
+            // Linux types only Latin-1 by key code; everything else is pasted unless the user turns that off.
+            paste_non_ascii: platform == HostPlatform::Linux,
             adapter: None,
         }
     }
@@ -240,6 +241,17 @@ mod tests {
         FileConfigStore::new(path.clone()).save(&config).unwrap();
         assert!(fs::read_to_string(&path).unwrap().contains("\"char_gap_ms\": 0"));
         assert_eq!(Config::read_only(&path, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 0);
+    }
+
+    #[test]
+    fn default_host_name_is_linux() {
+        assert_eq!(Config::new([7; 16], HostPlatform::Linux).host_name, "Linux");
+    }
+
+    #[test]
+    fn linux_pastes_non_ascii_text_by_default_and_windows_does_not_need_to() {
+        assert!(Config::new([7; 16], HostPlatform::Linux).paste_non_ascii);
+        assert!(!Config::new([7; 16], HostPlatform::Windows).paste_non_ascii);
     }
 
     #[test]
