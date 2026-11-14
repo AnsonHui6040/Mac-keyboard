@@ -436,6 +436,16 @@ pub struct NullInjector; pub struct RecordingInjector;    // 測試用
 
 **log：** 一行一筆 `ts=<RFC3339> ev=<種類> k=v…`；只記事件種類、長度、時間、結果與裝置的短雜湊（不記 BLE 位址原文）；不得含文字內容、金鑰、nonce、proof、配對碼、手機名稱、指標位移。檔案每天一個，保留 7 天。
 
+**診斷記錄（2026-11-14 使用者追加，WL7 建立、WL8–WL10 沿用）：**
+- 位置：Windows `%LOCALAPPDATA%\RemoteKeyboard\logs\`，Linux `$XDG_STATE_HOME/remote-keyboard/logs/`（預設 `~/.local/state/remote-keyboard/logs/`）。每天一個檔，保留 7 天，單檔超過 5 MB 時換新檔（同日最多 3 個）。
+- 每行 `wall=<RFC3339 毫秒> mono_ms=<程式啟動起的單調毫秒> lvl=<info|debug> ev=<種類> k=v…`；`conn=<連線序號>` 串起同一條連線。
+- 每條連線的階段與耗時（相對 `adv_seen` 的毫秒）：`adv_seen`、`connect_start`、`connected`、`mtu`、`discovered`、`subscribed`、`hello_sent`、`hello_reply`、`auth`（`result=ok|fail|not_selected|timeout|unsupported_version`）、`disconnected`（`reason=`）。
+- 失敗分類（`kind=`）：`unreachable`、`enosys`、`abort_by_local`、`att_error`、`timeout`、`not_selected`、`auth_failed`、`unsupported_version`、`peer_bye`、`link_lost`；每次重試 `ev=retry attempt=N kind=…`；退避 `ev=hold secs=…`。
+- 注入每批：`ev=inject op=text|backspace|enter|pointer path=unicode|keysym|paste units=<長度> ms=<耗時> result=ok|err:<種類>`（不含內容）。
+- `log_lines_never_contain_text` 涵蓋上述全部欄位：送「機密」文字、手機名稱、配對碼後，掃描全部 log 輸出都找不到它們，也找不到金鑰、nonce、proof 的十六進位或 base64。
+- 一鍵匯出：系統匣「匯出診斷資料」，在桌面（找不到時在 log 資料夾）產生 `RemoteKeyboard-diag-<時間>.zip`，內含最近 7 天 log、`diag.txt`（版本、OS 版本、藍牙控制器名稱與位址的雜湊、設定去掉 `hostId` 以外的機密、已配對手機數量、目前狀態），完成後打開所在資料夾。
+- 命令列：`--diag`（把 `diag.txt` 的內容印到標準輸出後結束，可經 SSH 取得）、`--log-level debug`（另記 ATT／WinRT 呼叫層級的事件，仍不含內容）。
+
 **驗證（每個 Task）：** 在 `receiver/`：Mac 上 `cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`；`rk-win` 與 `rk-linux` 上 `cargo build --release` 與 `cargo test --workspace`（程式以 `rsync`／`scp` 複製到 `~/rk-build/<task>/`，不在測試機上 commit）；PR 的 CI 兩個平台皆綠。
 
 **硬性界線：** Linux 只用 hci1，不動 hci0、`/opt/musegadget`、`/etc/bluetooth/main.conf`，不重啟 bluetoothd，不用 sudo；需要 apt 套件時停下列給使用者。Windows 只接 Wi-Fi、不改系統設定；OpenSSH 會終止子行程，在桌面工作階段執行要用 `schtasks /run` 搭配 `/IT` 的工作。
@@ -520,6 +530,18 @@ pub enum UiCommand { StartPairing, ConfirmPairing(bool), Rename(String), DeleteP
 **Tests：** `autostart_desktop_file_contents`、`config_paths_follow_xdg`、`default_host_name_is_linux`；ATT 編解碼純函式：`att_find_by_type_value_request_bytes`、`att_parses_read_by_type_characteristics`、`att_finds_cccd_in_find_information`、`att_peer_request_gets_error_response`、`att_peer_mtu_request_gets_517`、`att_cached_handles_are_checked_before_use`、`enosys_retries_three_times`（假的 socket）。
 
 **自動實機驗證（主代理）：** 在 `rk-linux` 桌面工作階段啟動接收端（`--adapter hci1`），Mac 上跑 UI 測試叫出鍵盤 20 次（鍵盤的目前主機要先是這台 Linux：配對需要使用者），從 log 統計看到廣播到驗證完成的時間。配對、打字、系統匣各項標 TBD。
+
+---
+
+### Task WL10b：量測工具與排錯說明（安裝之後做）
+
+使用者追加。不阻擋第一個可試用版本，排在安裝之後。
+
+**Files:** Create `receiver/rk-receiver/src/bin/rk-diag.rs`（或 `rk-receiver diag-stats` 子命令）、`e2e/scripts/measure-reconnect.sh`、`docs/troubleshooting-receiver.md`；Modify 驗收報告。
+
+- `rk-diag stats <log 檔或資料夾> [--since <時間>]`：從接收端 log 取每條連線 `adv_seen` 到 `auth result=ok` 的時間，輸出次數、最小、中位、p95、最大、3 秒內比例與失敗分類計數，寫成文字檔。純函式 `summarize(lines) -> Summary`，測試 `summary_counts_failures_by_kind`、`percentiles_match_known_sample`、`ignores_lines_from_other_runs`。
+- `e2e/scripts/measure-reconnect.sh <win|linux> [N]`：Mac 上一鍵執行；記下開始時間，跑 iPhone 的 `ReconnectUITests`（叫出／收起鍵盤 N 次），經 SSH 在目標機上跑 `rk-diag stats --since <開始時間>`，把結果收回 `e2e/results/`（不進 repo）。
+- `docs/troubleshooting-receiver.md`（台灣繁體）：log 位置、怎麼匯出、失敗種類的意思與下一步。
 
 ---
 
