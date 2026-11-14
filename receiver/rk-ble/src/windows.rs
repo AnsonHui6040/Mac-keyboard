@@ -49,6 +49,9 @@ const fn rk_service() -> u128 {
 /// §1.5: how long service discovery may take before the attempt is given up.
 const DISCOVERY_DEADLINE: Duration = Duration::from_secs(8);
 const DISCOVERY_RETRY: Duration = Duration::from_millis(50);
+/// A scan counts as running once the watcher has stayed in `Started` this long without being stopped (with the radio off
+/// it starts and is aborted straight away) or once it has seen an advertisement.
+const SCAN_CONFIRM_AFTER: Duration = Duration::from_millis(500);
 /// §1.5 and the plan: on `Disconnect` or exit the queued commands (the `bye`) get this long to reach the radio.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 /// §1.5: the wait before scanning again after a connection failed before it became ready (ms), 2 s at most.
@@ -222,16 +225,10 @@ impl Worker {
             let failure = match start_watcher(self.scan.clone(), tx) {
                 Err(_) => ScanFailure::Unavailable,
                 Ok((watcher, stopped_because)) => {
-                    if self.reported_scan.take().is_some() {
-                        self.emit(LinkEvent::Scan(ScanState::Running));
-                    }
                     let outcome = self.watch(&watcher, &stopped_because, &rx);
                     let _ = watcher.Stop();
                     match outcome {
-                        Watched::Found(sighting) => {
-                            self.scan_backoff.reset();
-                            return Some(sighting);
-                        }
+                        Watched::Found(sighting) => return Some(sighting),
                         Watched::Gone => return None,
                         Watched::Failed(failure) => failure,
                     }
@@ -246,20 +243,40 @@ impl Worker {
     }
 
     fn watch(&mut self, watcher: &BluetoothLEAdvertisementWatcher, stopped_because: &StopReason, found: &std_mpsc::Receiver<Sighting>) -> Watched {
+        let started = Instant::now();
+        let mut confirmed = false;
         loop {
             if !self.drain_commands() {
                 return Watched::Gone;
             }
             match found.recv_timeout(Duration::from_millis(100)) {
-                Ok(sighting) => return Watched::Found(sighting),
+                Ok(sighting) => {
+                    self.confirm_scan(&mut confirmed);
+                    return Watched::Found(sighting);
+                }
                 Err(std_mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => return Watched::Gone,
             }
-            let aborted = watcher.Status().is_ok_and(|s| s == BluetoothLEAdvertisementWatcherStatus::Aborted);
+            let status = watcher.Status().ok();
+            let aborted = status == Some(BluetoothLEAdvertisementWatcherStatus::Aborted);
             let reason = stopped_because.lock().unwrap_or_else(|p| p.into_inner()).take();
             if let Some(failure) = reason.or(aborted.then_some(ScanFailure::Aborted)) {
                 return Watched::Failed(failure);
             }
+            if !confirmed && started.elapsed() >= SCAN_CONFIRM_AFTER && status == Some(BluetoothLEAdvertisementWatcherStatus::Started) {
+                self.confirm_scan(&mut confirmed);
+            }
+        }
+    }
+
+    /// Scanning is really running: the backoff starts over, and an outage that was reported is over.
+    fn confirm_scan(&mut self, confirmed: &mut bool) {
+        if std::mem::replace(confirmed, true) {
+            return;
+        }
+        self.scan_backoff.reset();
+        if self.reported_scan.take().is_some() {
+            self.emit(LinkEvent::Scan(ScanState::Running));
         }
     }
 

@@ -51,6 +51,8 @@ pub struct AppDeps {
     pub clock: Arc<dyn Clock>,
     pub random: Box<dyn RandomSource>,
     pub logger: Logger,
+    /// Open the pairing window as soon as the receiver starts (`--pair`).
+    pub pair_at_start: bool,
 }
 
 /// What the application wants done.
@@ -107,6 +109,7 @@ pub struct App {
     pairing_until_ms: Option<u64>,
     attention: bool,
     scan_failure: Option<ScanFailure>,
+    pair_at_start: bool,
     last_adv: Option<(u64, u64)>,
     last_tray: Option<TrayState>,
 }
@@ -156,6 +159,7 @@ impl App {
             pairing_until_ms: None,
             attention: false,
             scan_failure: None,
+            pair_at_start: deps.pair_at_start,
             last_adv: None,
             last_tray: None,
         }
@@ -183,6 +187,9 @@ impl App {
         let mut fx = Vec::new();
         self.log.info("start", None, &[("version", Value::S(env!("CARGO_PKG_VERSION"))), ("phones", Value::U(self.store.phones().len() as u64))]);
         self.log.info("scan_start", None, &[("pairing", Value::B(false))]);
+        if self.pair_at_start {
+            self.start_pairing(&mut fx);
+        }
         self.flush_state(&mut fx);
         fx
     }
@@ -219,15 +226,25 @@ impl App {
         fx
     }
 
+    /// One outage is one notice: while scanning keeps failing, whatever the reason, the tray already says so. Only a real
+    /// `Running` ends the outage.
     fn on_scan_state(&mut self, state: ScanState, fx: &mut Vec<Effect>) {
         match state {
-            ScanState::Failed(failure) if self.scan_failure != Some(failure) => {
-                self.scan_failure = Some(failure);
-                self.log.info("scan_error", None, &[("kind", Value::S(failure.as_str()))]);
-                self.notice(NoticeKind::BluetoothOff, fx);
+            ScanState::Failed(failure) => {
+                let first = self.scan_failure.is_none();
+                if self.scan_failure != Some(failure) {
+                    self.scan_failure = Some(failure);
+                    self.log.info("scan_error", None, &[("kind", Value::S(failure.as_str()))]);
+                }
+                if first {
+                    self.notice(NoticeKind::BluetoothOff, fx);
+                }
             }
-            ScanState::Running if self.scan_failure.take().is_some() => self.log.info("scan_ok", None, &[]),
-            ScanState::Failed(_) | ScanState::Running => {}
+            ScanState::Running => {
+                if self.scan_failure.take().is_some() {
+                    self.log.info("scan_ok", None, &[]);
+                }
+            }
         }
     }
 

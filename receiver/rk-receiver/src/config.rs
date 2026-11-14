@@ -30,6 +30,9 @@ pub enum ConfigOrigin {
     Created,
     /// The file was unreadable and was kept under this name.
     Recovered { backup: PathBuf },
+    /// The file was unreadable and could not be moved aside (the error kind says why). It is still there: the caller must not
+    /// write a new configuration over it.
+    NotKept { error: std::io::ErrorKind },
 }
 
 /// The name a host has before the user renames it (§4).
@@ -64,23 +67,27 @@ impl Config {
         HostIdentity { id: self.host_id, name: self.host_name.clone(), platform }
     }
 
-    /// Reads the file. A missing file makes a fresh configuration with a new `hostId`. A file that cannot be read as a
-    /// configuration is moved to `config.json.bad-<time>` first, so the old `hostId` is never silently overwritten; the
-    /// new configuration is the caller's to save.
+    /// Reads the file. Only a missing file makes a fresh configuration with a new `hostId` straight away. A file that exists
+    /// but cannot be read or parsed is moved to `config.json.bad-<time>` first, so the old `hostId` is never silently
+    /// overwritten. When even that move fails the file stays as it is (`NotKept`) and the caller must keep the new
+    /// configuration in memory only.
     pub fn load_or_create(path: &std::path::Path, platform: HostPlatform, new_id: impl FnOnce() -> [u8; 16], now_unix_ms: u64) -> (Self, ConfigOrigin) {
-        match fs::read_to_string(path) {
-            Err(_) => (Config::new(new_id(), platform), ConfigOrigin::Created),
-            Ok(text) => match serde_json::from_str::<Config>(&text) {
-                Ok(config) => (config, ConfigOrigin::Loaded),
-                Err(_) => {
-                    let mut backup = path.as_os_str().to_owned();
-                    backup.push(format!(".bad-{now_unix_ms}"));
-                    let backup = PathBuf::from(backup);
-                    let _ = fs::rename(path, &backup);
-                    (Config::new(new_id(), platform), ConfigOrigin::Recovered { backup })
-                }
-            },
+        let text = match fs::read_to_string(path) {
+            Ok(text) => Some(text),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return (Config::new(new_id(), platform), ConfigOrigin::Created),
+            Err(_) => None,
+        };
+        if let Some(config) = text.and_then(|text| serde_json::from_str::<Config>(&text).ok()) {
+            return (config, ConfigOrigin::Loaded);
         }
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(format!(".bad-{now_unix_ms}"));
+        let backup = PathBuf::from(backup);
+        let origin = match fs::rename(path, &backup) {
+            Ok(()) => ConfigOrigin::Recovered { backup },
+            Err(error) => ConfigOrigin::NotKept { error: error.kind() },
+        };
+        (Config::new(new_id(), platform), origin)
     }
 
     /// The configuration on disk for a read-only look (`--diag`, the export): never moves or writes anything. A file that is
@@ -198,6 +205,33 @@ mod tests {
         assert_eq!(origin, ConfigOrigin::Recovered { backup: backup.clone() });
         assert_eq!(fs::read_to_string(backup).unwrap(), "{ not json", "the broken file is not lost");
         assert!(!path.exists(), "the caller saves the new one");
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_as_text_is_kept_aside_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, [0xFF, 0xFE, 0xFD]).unwrap(); // not UTF-8: read_to_string fails with InvalidData, not NotFound
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [8; 16], 77);
+        let backup = dir.path().join("config.json.bad-77");
+        assert_eq!(config.host_id, [8; 16]);
+        assert_eq!(origin, ConfigOrigin::Recovered { backup: backup.clone() });
+        assert_eq!(fs::read(backup).unwrap(), vec![0xFF, 0xFE, 0xFD]);
+    }
+
+    #[test]
+    fn when_the_broken_file_cannot_be_kept_it_stays_and_nothing_is_to_be_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(&path, "{ not json").unwrap();
+        // Something is in the way of the backup name, so the rename fails.
+        let in_the_way = dir.path().join("config.json.bad-5");
+        fs::create_dir(&in_the_way).unwrap();
+        fs::write(in_the_way.join("x"), "x").unwrap();
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [9; 16], 5);
+        assert_eq!(config.host_id, [9; 16], "the receiver runs with a configuration in memory");
+        assert!(matches!(origin, ConfigOrigin::NotKept { .. }), "{origin:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "{ not json", "the old file is untouched");
     }
 
     #[test]

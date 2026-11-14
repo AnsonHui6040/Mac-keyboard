@@ -23,7 +23,7 @@ fn main() -> ExitCode {
         Mode::Version => println!("rk-receiver {}", env!("CARGO_PKG_VERSION")),
         Mode::PrintPaths => print!("{}", platform::paths_text(&platform::paths())),
         Mode::Diag => print!("{}", platform::print_diag()),
-        Mode::Run => return ExitCode::from(u8::try_from(platform::run(cli.log_level)).unwrap_or(1)),
+        Mode::Run => return ExitCode::from(u8::try_from(platform::run(&cli)).unwrap_or(1)),
     }
     ExitCode::SUCCESS
 }

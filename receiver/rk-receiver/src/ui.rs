@@ -40,6 +40,8 @@ pub enum NoticeKind {
     StoreError,
     /// The Bluetooth radio is off or scanning cannot run.
     BluetoothOff,
+    /// `config.json` is unreadable and could not be moved aside: this run's settings are not saved, the file is left alone.
+    ConfigNotSaved,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

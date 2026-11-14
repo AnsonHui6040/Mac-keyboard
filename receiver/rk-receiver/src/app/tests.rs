@@ -51,6 +51,15 @@ impl Rig {
     }
 
     fn with_level(level: Level) -> Self {
+        Self::build(level, false)
+    }
+
+    /// A receiver started with `--pair`: the pairing window opens at start-up.
+    fn with_pairing_at_start() -> Self {
+        Self::build(Level::Info, true)
+    }
+
+    fn build(level: Level, pair_at_start: bool) -> Self {
         let clock = Arc::new(FakeClock::new(T0));
         let logs = MemorySink::new();
         let logger = Logger::new(Box::new(logs.clone()), clock.clone(), level);
@@ -66,6 +75,7 @@ impl Rig {
             clock: clock.clone(),
             random: Box::new(SequenceRandom::default()),
             logger,
+            pair_at_start,
         });
         let mut rig = Self {
             app,
@@ -548,6 +558,31 @@ fn scan_failure_shows_bluetooth_notice_and_recovery_clears_it() {
     rig.deliver(LinkEvent::Scan(ScanState::Running));
     assert_eq!(rig.last_tray().icon, IconState::Disconnected);
     assert!(rig.log_text().contains("ev=scan_ok"));
+}
+
+#[test]
+fn repeated_scan_failures_without_a_real_recovery_raise_one_notice() {
+    let mut rig = Rig::new();
+    // The radio is off: every backoff round fails again, the kind may even change, and none of them ran in between.
+    for failure in [ScanFailure::RadioOff, ScanFailure::Aborted, ScanFailure::RadioOff, ScanFailure::Unavailable] {
+        rig.deliver(LinkEvent::Scan(ScanState::Failed(failure)));
+    }
+    assert_eq!(rig.notices(), vec![NoticeKind::BluetoothOff], "one notice per outage");
+    assert!(!rig.log_text().contains("ev=scan_ok"), "no recovery was reported");
+    // A real recovery ends the outage; the next outage is announced again.
+    rig.deliver(LinkEvent::Scan(ScanState::Running));
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    assert_eq!(rig.notices(), vec![NoticeKind::BluetoothOff, NoticeKind::BluetoothOff]);
+}
+
+#[test]
+fn pairing_window_opens_at_start_when_asked() {
+    let rig = Rig::with_pairing_at_start();
+    assert!(rig.link.pairing_scan(), "the backend is told to scan for the pairing UUID");
+    assert!(rig.last_tray().pairing_open);
+    assert!(rig.log_text().contains("ev=pairing_window state=open"));
+    let plain = Rig::new();
+    assert!(!plain.link.pairing_scan());
 }
 
 #[test]

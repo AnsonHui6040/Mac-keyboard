@@ -6,14 +6,15 @@
 use super::{claim_instance, windows_paths, Instance, InstanceLock, Paths};
 use crate::app::{App, AppDeps};
 use crate::clock::{Clock, SystemClock};
+use crate::cli::Cli;
 use crate::config::{hex, Config, ConfigOrigin, FileConfigStore};
 use crate::diag::{self, AdapterInfo, DiagInfo};
 use crate::i18n::{self, Lang, Text};
 use crate::icons;
-use crate::log::{FileSink, Level, Logger};
+use crate::log::{FileSink, Logger};
 use crate::random::OsRandom;
 use crate::runner::{self, UiSink};
-use crate::store::{decode_record, encode_record, CachedPhoneStore, PhoneBackend, PhoneStore, StoreError};
+use crate::store::{decode_record, encode_record, CachedPhoneStore, ConfigStore, PhoneBackend, PhoneStore, RefusingConfigStore, StoreError};
 use crate::ui::{IconState, NoticeKind, TrayState, UiCommand, UiEvent};
 use rk_core::identity::{HostPlatform, PairedPhone};
 use rk_inject::{Injector, NullInjector};
@@ -458,23 +459,30 @@ fn apply_state(tray: &TrayIcon, state: &TrayState, lang: Lang, notice: Option<No
 }
 
 /// Runs the receiver: single instance, logger, store, link thread, application, then the tray loop on this thread.
-pub fn run(level: Level) -> i32 {
+pub fn run(cli: &Cli) -> i32 {
     if claim_instance(&mut NamedMutex { held: None }) == Instance::Second {
         return 0;
     }
     let (paths, lang) = (paths(), lang());
     let clock: Arc<dyn Clock> = Arc::new(SystemClock::new());
-    let logger = Logger::new(Box::new(FileSink::new(paths.log_dir.clone(), clock.clone())), clock.clone(), level);
+    let logger = Logger::new(Box::new(FileSink::new(paths.log_dir.clone(), clock.clone())), clock.clone(), cli.log_level);
     let new_id = || crate::random::SharedRandom::new(Box::new(OsRandom)).bytes::<16>();
     let (config, origin) = Config::load_or_create(&paths.config_file, HostPlatform::Windows, new_id, clock.wall_unix_ms());
+    let mut config_store: Box<dyn ConfigStore> = Box::new(FileConfigStore::new(paths.config_file.clone()));
+    let mut startup_notice = None;
     match origin {
         ConfigOrigin::Loaded => {}
         ConfigOrigin::Created => logger.info("config_created", None, &[]),
         // The unreadable file is still there under another name; a new host id starts a new identity, so say so.
         ConfigOrigin::Recovered { .. } => logger.info("config_corrupt", None, &[("kept_as_bad", rk_ble::Value::B(true))]),
+        // The file could not be moved aside: it stays as it is, nothing is written over it this run.
+        ConfigOrigin::NotKept { error } => {
+            logger.info("config_corrupt", None, &[("kept_as_bad", rk_ble::Value::B(false)), ("error", rk_ble::Value::S(error_word(error)))]);
+            config_store = Box::new(RefusingConfigStore);
+            startup_notice = Some(NoticeKind::ConfigNotSaved);
+        }
     }
-    let mut config_store = FileConfigStore::new(paths.config_file.clone());
-    if crate::store::ConfigStore::save(&mut config_store, &config).is_err() {
+    if config_store.save(&config).is_err() && startup_notice.is_none() {
         logger.info("config_save_failed", None, &[]);
     }
     let injector = make_injector(&config);
@@ -482,11 +490,12 @@ pub fn run(level: Level) -> i32 {
         config,
         platform: HostPlatform::Windows,
         store: Box::new(CredentialPhoneStore::new(CredentialBackend)),
-        config_store: Box::new(config_store),
+        config_store,
         injector,
         clock: clock.clone(),
         random: Box::new(OsRandom),
         logger,
+        pair_at_start: cli.pair,
     });
 
     // The first update can come from the application thread before this thread has asked for a message: make sure the
@@ -495,6 +504,9 @@ pub fn run(level: Level) -> i32 {
     // SAFETY: peeks without removing anything; its only effect is creating the queue.
     let _ = unsafe { PeekMessageW(&mut probe, None, WM_USER, WM_USER, PM_NOREMOVE) };
     let (ui_queue, ui_events) = std_mpsc::channel();
+    if let Some(notice) = startup_notice {
+        let _ = ui_queue.send(UiEvent::Notice(notice));
+    }
     // SAFETY: no arguments.
     let thread_id = unsafe { GetCurrentThreadId() };
     let (command_tx, command_rx) = mpsc::unbounded_channel();
@@ -554,6 +566,16 @@ impl Drop for QuitTrayOnDrop {
     }
 }
 
+/// A fixed word for an I/O error kind, for the log.
+fn error_word(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::AlreadyExists => "already_exists",
+        std::io::ErrorKind::InvalidData => "invalid_data",
+        _ => "other",
+    }
+}
+
 fn handle_ui_event(
     event: UiEvent,
     tray: &TrayIcon,
@@ -577,7 +599,9 @@ fn handle_ui_event(
         UiEvent::PairingClosed => {}
         UiEvent::PairingDialogClose(attempt) => dialogs.close(attempt),
         UiEvent::Notice(kind) => {
-            if matches!(kind, NoticeKind::NeedsRepair | NoticeKind::UpdatePhone) {
+            // Notices that stay true while the tray shows them go to the tooltip; a modal box each time would pile up (the
+            // Bluetooth notice comes back until the radio is on). The rest are said once, in a box.
+            if matches!(kind, NoticeKind::NeedsRepair | NoticeKind::UpdatePhone | NoticeKind::BluetoothOff) {
                 *notice = Some(kind);
                 if let Some(state) = shared.lock().unwrap_or_else(|p| p.into_inner()).clone() {
                     let _ = tray.set_tooltip(Some(tooltip(&state, lang, *notice)));

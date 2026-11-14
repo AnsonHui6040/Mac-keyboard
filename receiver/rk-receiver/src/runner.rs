@@ -107,6 +107,7 @@ mod tests {
             clock: clock.clone(),
             random: Box::new(SequenceRandom::default()),
             logger: Logger::new(Box::new(MemorySink::new()), clock, Level::Info),
+            pair_at_start: false,
         })
     }
 

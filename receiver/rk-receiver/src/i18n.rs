@@ -138,6 +138,8 @@ pub fn notice(lang: Lang, kind: NoticeKind) -> &'static str {
         (NoticeKind::StoreError, En) => "Could not store the pairing",
         (NoticeKind::BluetoothOff, ZhTw) => "藍牙未開啟，無法掃描",
         (NoticeKind::BluetoothOff, En) => "Bluetooth is off, scanning is not running",
+        (NoticeKind::ConfigNotSaved, ZhTw) => "設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動",
+        (NoticeKind::ConfigNotSaved, En) => "The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone",
     }
 }
 

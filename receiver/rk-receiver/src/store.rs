@@ -69,6 +69,17 @@ pub fn decode_record(bytes: &[u8]) -> Option<PairedPhone> {
     })
 }
 
+/// A configuration store that saves nothing and says so: used when the settings file on disk is unreadable and could not be
+/// moved aside, so that nothing ever overwrites it.
+#[derive(Debug, Default)]
+pub struct RefusingConfigStore;
+
+impl ConfigStore for RefusingConfigStore {
+    fn save(&mut self, _: &Config) -> Result<(), StoreError> {
+        Err(StoreError::Backend("settings file is protected".into()))
+    }
+}
+
 /// Phones in memory. Clones share one list so a test can look at what the application stored.
 #[derive(Debug, Clone, Default)]
 pub struct MemoryPhoneStore {
@@ -278,6 +289,12 @@ mod tests {
         let mut record = String::from_utf8(encode_record(&phone(1))).unwrap();
         record = record.replace("ios", "palm");
         assert_eq!(decode_record(record.as_bytes()), None);
+    }
+
+    #[test]
+    fn the_refusing_store_never_saves() {
+        let config = Config::new([1; 16], rk_core::identity::HostPlatform::Windows);
+        assert!(RefusingConfigStore.save(&config).is_err());
     }
 
     #[test]

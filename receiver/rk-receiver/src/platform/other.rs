@@ -4,7 +4,7 @@
 use super::{linux_paths, Paths};
 use crate::config::Config;
 use crate::diag::{self, DiagInfo};
-use crate::log::Level;
+use crate::cli::Cli;
 use rk_core::identity::HostPlatform;
 use std::path::PathBuf;
 
@@ -39,7 +39,7 @@ pub fn print_diag() -> String {
     })
 }
 
-pub fn run(_level: Level) -> i32 {
+pub fn run(_cli: &Cli) -> i32 {
     eprintln!("The receiver for this system comes in WL10.");
     0
 }
