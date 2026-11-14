@@ -16,5 +16,6 @@ pub mod log;
 pub mod platform;
 pub mod random;
 pub mod runner;
+pub mod selftest;
 pub mod store;
 pub mod ui;

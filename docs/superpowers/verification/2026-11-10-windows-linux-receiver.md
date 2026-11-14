@@ -15,6 +15,7 @@
 | WL1（S1–S7、S9 連線與注入 spike） | 兩個 Rust spike 在測試機編譯通過；Windows 的 S1、S2、S7 與 Linux 的 S3、S4、S5、S6、S7、S9 已實測 | 2026-11-13 實測，全部項目已跑；S6 沒有量到「沒有 RustDesk」的對照 | S1 基準版不通過、調參版時間通過但 26% 的嘗試失敗；S3 不通過；S2 通過（記事本需要字元間隔）；S4 不通過（非 ASCII 全部丟失）、S5 通過（所以 Linux 的非 ASCII 改用貼上）；S9 在 120 次/秒以內通過；S6 在 RustDesk 連線中可注入。依設計 §12 停下回報 |
 | WL6（`rk-core` 與 CI） | Mac 上 `cargo test --workspace` 246 個測試 0 失敗、`cargo clippy -D warnings` 無警告；`swift test` 1117 個測試 0 失敗；PR #98 上 Windows 與 Ubuntu 的 CI 皆成功 | 不適用（純邏輯） | 完成；`rk-win`、`rk-linux` 上的 `cargo test` 待測試機連線 |
 | WL7（`rk-ble` Windows 後端、`rk-inject` 介面、Windows 接收端外殼） | Mac 上 `cargo test --workspace` 349 個測試 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 3、`rk-receiver` 91）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` build、test（`rk-receiver` 90）、clippy 通過；`rk-linux` test 通過；`rk-win` 桌面工作階段實跑 20 秒，log 有 `ev=scan_start` 且沒有錯誤 | TBD（連線、打字、系統匣、配對、自動啟動全部未在實機測） | 程式完成；修復第 1 輪後待再審；`rk-win` 上整個 workspace 的 clippy 被 `rk-core` 一項新版 lint 擋住（見下） |
+| WL8（Windows 注入：`SendInput`） | Mac 上 `cargo test --workspace` 0 失敗（`rk-ble` 9、`rk-core` 230＋7＋9、`rk-inject` 30、`rk-receiver` 107）、clippy（本機與 `x86_64-pc-windows-msvc`）無警告；`rk-win` release build、test（`rk-inject` 36、`rk-receiver` 106）、clippy 通過；`rk-win` 桌面工作階段把 200 字（英文、中文、表情符號含 ZWJ）經接收端注入路徑送進記事本：預設間隔 20 毫秒 28／28 逐字相同，10 毫秒 32／35（3 次相鄰字元順序送反） | TBD（iPhone 打字、指標移動、按鍵、捲動、記事本以外的目標、以系統管理員身分執行的視窗皆未測） | 程式完成；審查修復第 1 輪完成；預設間隔由計畫的 10 毫秒改為 20 毫秒 |
 
 ## WL0：S8 廣播 UUID 切換（2026-11-11）
 
@@ -898,3 +899,80 @@ TDD：`app.rs` 先以 `todo!()` 空殼跑出 33 個失敗再實作到全綠；�
 - `rk-win` 的 Rust 1.99.1 對 `rk-core/src/pointer.rs` 約 349 行的 `match` 報 `clippy::collapsible_match`（Mac 的 1.100 不報），所以 `rk-win` 上 `cargo clippy --workspace -- -D warnings` 在 `rk-core` 就失敗；本 Task 沒有改 `rk-core`，`-p rk-ble -p rk-inject -p rk-receiver --no-deps` 通過。
 - `rk-win` 的 `ProductName` 登錄值寫 Windows 10（Windows 11 預覽版的已知現象），所以 `--diag` 的 `os:` 行寫「Windows 10 Home 26H2 build 26300」。
 - 桌面實跑在 `rk-win` 建立了 `%APPDATA%\RemoteKeyboard\config.json`（新的 `hostId`，沒有配對任何手機）。
+
+## WL8：Windows 注入（`SendInput`）（2026-11-14）
+
+### 內容
+
+| 項目 | 說明 |
+|---|---|
+| `rk-inject/src/win_units.rs`（所有平台都編譯與測試） | `utf16_inputs`：文字拆成每個 Unicode 碼位一筆（代理對與 ZWJ 序列不拆）；換行（`\r\n`、`\n`、`\r`、U+2028、U+2029）變 Enter，`\t` 變 Tab，其他控制字元（U+0000–U+001F、U+007F）丟棄；`typing_schedule`：字元之間（不是 UTF-16 單位之間）等 `char_interval_ms`，第一個之前與最後一個之後不等；`RawEvent` 與 `deliver`：Windows 只收下一部分事件時，補送已按下的按鍵與滑鼠鍵的放開事件再回 `Failed("sendinput_short")`；`WheelAccumulator`（40 點＝120 單位，換方向時丟掉餘數）、`MoveAccumulator`（小數累加） |
+| `rk-inject/src/windows.rs`（只在 Windows 編譯） | `WindowsInjector`：只做 `RawEvent` 到 `INPUT` 的轉換與 `SendInput` 呼叫；每個 UTF-16 單位一次按下與放開（代理對一次呼叫送四個事件）；`path()` 回 `unicode`；`ready()` 恆為 true |
+| 捲動方向 | 傳入的 `(dx, dy)` 是「內容跟著手指走」，與 Linux 注入器相同：`dy > 0` 送正的 `WHEEL`，`dx > 0` 送負的 `HWHEEL` |
+| 設定 | 設定檔的字元間隔改為 `char_gap_ms`（沒寫＝平台預設，Windows 為 20 毫秒，0 表示不等）；舊版寫進每個檔案的 `char_interval_ms: 0` 與 WL8 初版寫的 10 一律忽略、不再寫出 |
+| `rk-receiver --inject-selftest <檔案> [--delay-secs N]` | 等 N 秒（預設 3）、用接收端自己的注入器送檔案內容、按 Enter、只印 `units=<碼位數> ms=<耗時> result=ok|err:<種類>` 後結束；文字不印、不寫 log；不帶這個參數不會讀任何檔案 |
+
+### 自動驗證
+
+Mac，在 `receiver/`（2026-11-14，審查修復第 1 輪之後）：
+
+```
+$ cargo test --workspace
+rk-ble 9；rk-core 230（1 ignored）、loopback 7、swift_vectors 9；rk-inject 30；rk-receiver 107；全部 0 failed
+$ cargo clippy --workspace --all-targets -- -D warnings                                  → 無警告
+$ cargo clippy --workspace --all-targets --target x86_64-pc-windows-msvc -- -D warnings  → 無警告
+```
+
+`rk-win`（Windows 11 build 26300，Rust 1.99.1），原始碼在 `%USERPROFILE%\rk-build\wl8\receiver`：
+
+```
+$ cargo build --release --workspace          → Finished `release`
+$ cargo test --workspace                      → rk-ble 9、rk-core 230＋7＋9、rk-inject 36、rk-receiver 106 passed；0 failed
+$ cargo clippy -p rk-inject -p rk-receiver --all-targets --no-deps -- -D warnings   → Finished，無警告
+```
+
+`rk-inject` 在 Windows 多 6 個只在 Windows 編譯的測試（`INPUT` 結構大小為 40 位元組、`RawEvent` 到 `INPUT` 的欄位對應）。
+
+計畫列的測試名稱全部存在：`utf16_units_for_supplementary_plane`、`combining_sequence_keeps_order`、`empty_text_sends_nothing`、`zwj_sequence_stays_whole`、`interval_is_between_code_points_not_units`、`small_scroll_deltas_accumulate`、`direction_change_drops_remainder`、`fractional_moves_accumulate`。另加：控制字元丟棄、Tab 與 Unicode 換行、部分送出時補送放開事件（鍵盤、滑鼠鍵、多個按鍵的放開順序）、舊設定檔的 0 與 10 改用預設、明確設定值保留。
+
+TDD：`win_units.rs` 初版與測試一起寫，之後故意弄壞行為確認測試會失敗（每個字元後都等、不丟餘數、拆開代理對、四捨五入、保留控制字元、不補送放開事件、放開順序、Tab 當字元）；審查修復的控制字元、部分送出與設定檔遷移都是先寫測試、看到編譯失敗（紅）再實作。
+
+### 實機自動驗證（`rk-win` 桌面工作階段）
+
+方法：排程工作（互動使用者）開記事本（空檔案），經 `rk-receiver.exe --inject-selftest text200.txt --delay-secs 1` 送 200 字（英文、繁體中文、表情符號、ZWJ 家庭表情符號；212 個 UTF-16 單位）並按 Enter，再用 UI Automation 讀回編輯區文字，與原文逐個單位比對。早期用 Ctrl+S 存檔逐位元組比對 2 次通過（362 位元組加 CRLF）。
+
+| 間隔 | 次數 | 逐字相同 | 不同 |
+|---|---|---|---|
+| 10 毫秒 | 35 | 32 | 3：長度都是 212，但順序送反——單位 123 附近（未記細節）；`200D D83D DC67` 變成 `D83D DC67 200D`（ZWJ 跑到表情符號後面）；`e`、`y` 對調 |
+| 20 毫秒 | 25 | 25 | 0 |
+| 20 毫秒（預設，審查修復後的建置，機器上留著舊的 `char_interval_ms: 0` 設定檔，驗證舊值被忽略） | 3 | 3 | 0（`ms=4162` 到 `4180`） |
+| 0 毫秒（設定檔舊值） | 1 | 1 | 0 |
+
+每個字元都是獨立的 `SendInput` 呼叫，按程式順序、間隔 10 毫秒，所以順序送反發生在記事本收到之後（記事本自己的輸入處理），不是送出順序錯。原因未查；資料只支持「10 毫秒偶爾送反，20 毫秒沒有出現」，樣本不大。另有一次記事本進入「已格式化」模式並跳出「另存為 Markdown」對話框，螢幕上字形也亂掉，沒有取得文字內容，不能判斷是注入還是顯示問題；不列入上表。
+
+### 偏離計畫
+
+1. 預設字元間隔由計畫的 10 毫秒改為 20 毫秒（上表）。
+2. 設定檔欄位 `char_interval_ms: u32` 改為 `char_gap_ms: Option<u32>`：舊版會把 `char_interval_ms: 0` 寫進每個檔案，使用者其實沒有選過，若沿用會讓舊檔案永遠是 0 毫秒（記事本會丟字）。
+3. 計畫說「注入不在 BLE 通知的執行緒內做，經佇列交給注入執行緒」。實際：應用程式迴圈（目前執行緒的 tokio 執行環境）同步呼叫注入器，BLE 通知回呼在 WinRT 自己的執行緒，只把事件放進容量 256 的通道，所以回呼不被字元間隔卡住；但 `text()` 執行期間（200 字約 4 秒）應用程式迴圈被擋住，ack、心跳要等。ack 要在注入之後才送，所以沒有加佇列。
+4. `lib.rs` 的 `forbid(unsafe_code)` 改 `deny`，只有 `windows.rs` 允許 `unsafe`。
+5. 其餘控制字元一律丟棄（計畫沒寫）：Notepad 會把 U+0008 當 Backspace、U+001B 會關對話框、主控台會把 U+0003 當 Ctrl+C。C1 控制字元（U+0080–U+009F）沒有處理。
+
+### 審查第 1 輪（2026-11-14）
+
+| # | 問題 | 處理 |
+|---|---|---|
+| R0 | 10 毫秒會偶爾送反順序 | 預設改 20 毫秒；註解、計畫與文件同步 |
+| I1 | 文字中的控制字元原樣送出 | 見上；`control_characters_are_dropped_except_tab_and_line_breaks` 等 |
+| I2 | 註解說被系統管理員視窗擋下時 `SendInput` 會少回事件 | 不正確：UIPI 擋下時回傳值與 `GetLastError` 都看不出來。註解改正，列為已知限制，不偵測 |
+| I3 | 既有設定檔的 `char_interval_ms: 0` 永遠有效 | 改用新欄位 `char_gap_ms`；`an_old_file_with_a_stored_zero_gap_gets_the_default` 等 |
+| M2 | 只送出一部分時，已按下的鍵會卡住 | `deliver` 補送放開事件；5 個測試 |
+| M4 | 結構大小 | `INPUT` 在 x86_64 為 40 位元組的測試（只在 Windows 編譯） |
+
+### 未驗證（TBD，使用者手測）
+
+- iPhone 經 BLE 打字到 Windows（`status.ready` 現在是 true）、Backspace、Enter、Tab。
+- 指標移動（`MOUSEEVENTF_MOVE` 是相對位移，會受 Windows「提高指標的準確性」影響）、左右鍵、雙擊三擊、捲動方向與速度（40 點＝120 單位是 Provisional）。
+- 記事本以外的目標（瀏覽器、Office、遊戲、遠端桌面）。
+- 以系統管理員身分執行的視窗：Windows 的 UIPI 會悄悄擋下一般權限程式送的輸入，`SendInput` 看不出來，使用者會看到「已送出」但沒有字。已知限制，未偵測。
+- 輸入法開啟時（注音）的長文字、使用者實際打字的節奏與 20 毫秒間隔的感受。

@@ -43,7 +43,7 @@ pub fn diag_txt(info: &DiagInfo<'_>) -> String {
     let c = info.config;
     format!(
         "version: {}\ntarget: {}\nos: {}\n{adapter}\nhost_id: {}\nadapter_configured: {}\npaired_phones: {}\nstate: {}\nlog_level: {}\n\
-         trackpad: {}\nautostart: {}\nchar_interval_ms: {}\npaste_non_ascii: {}\n",
+         trackpad: {}\nautostart: {}\nchar_gap_ms: {}\npaste_non_ascii: {}\n",
         info.version,
         info.target,
         info.os,
@@ -54,7 +54,7 @@ pub fn diag_txt(info: &DiagInfo<'_>) -> String {
         info.log_level,
         c.trackpad,
         c.autostart,
-        c.char_interval_ms,
+        c.char_gap_ms.map_or_else(|| "default".to_string(), |ms| ms.to_string()),
         c.paste_non_ascii,
     )
 }

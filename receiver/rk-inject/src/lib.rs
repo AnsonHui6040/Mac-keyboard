@@ -3,10 +3,16 @@
 //! The trait is shared by every platform. Platform injectors (Windows `SendInput`, Linux RemoteDesktop portal) sit in
 //! their own modules; this file holds only the trait and the two doubles the tests use.
 
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use thiserror::Error;
+
+pub mod win_units;
+// The one place with `unsafe`: calls into the Win32 `SendInput` API.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod windows;
 
 /// A pointer button the protocol knows about (§8.3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -20,6 +20,7 @@ fn main() -> ExitCode {
         }
     };
     match cli.mode {
+        Mode::InjectSelftest { file, delay_secs } => return ExitCode::from(u8::try_from(platform::inject_selftest(&file, delay_secs)).unwrap_or(1)),
         Mode::Version => println!("rk-receiver {}", env!("CARGO_PKG_VERSION")),
         Mode::PrintPaths => print!("{}", platform::paths_text(&platform::paths())),
         Mode::Diag => print!("{}", platform::print_diag()),

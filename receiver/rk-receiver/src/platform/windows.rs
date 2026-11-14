@@ -17,7 +17,8 @@ use crate::runner::{self, UiSink};
 use crate::store::{decode_record, encode_record, CachedPhoneStore, ConfigStore, PhoneBackend, PhoneStore, RefusingConfigStore, StoreError};
 use crate::ui::{IconState, NoticeKind, TrayState, UiCommand, UiEvent};
 use rk_core::identity::{HostPlatform, PairedPhone};
-use rk_inject::{Injector, NullInjector};
+use rk_inject::windows::WindowsInjector;
+use rk_inject::Injector;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::process::CommandExt;
 use std::collections::HashMap;
@@ -221,9 +222,25 @@ pub fn adapter_info() -> Option<AdapterInfo> {
 
 // ---------------------------------------------------------------- injection
 
-/// WL8 replaces this with the `SendInput` injector. Until then nothing is typed and `status.ready` says so.
-pub fn make_injector(_config: &Config) -> Box<dyn Injector> {
-    Box::new(NullInjector)
+/// The `SendInput` injector, with the character gap from the configuration (0 means none).
+pub fn make_injector(config: &Config) -> Box<dyn Injector> {
+    Box::new(WindowsInjector::new(config.char_interval_ms(HostPlatform::Windows)))
+}
+
+/// `--inject-selftest`: after `delay_secs`, type the file through the injector the receiver itself uses, press Enter and print
+/// one line of counts. The text is neither printed nor logged. Returns the exit code.
+pub fn inject_selftest(file: &Path, delay_secs: u64) -> i32 {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        println!("units=0 ms=0 result=err:read_file");
+        return 1;
+    };
+    let config = Config::read_only(&paths().config_file, HostPlatform::Windows);
+    let mut injector = make_injector(&config);
+    std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+    let clock = SystemClock::new();
+    let line = crate::selftest::run(injector.as_mut(), &text, || clock.mono_ms());
+    println!("{line}");
+    i32::from(!line.ends_with("result=ok"))
 }
 
 // ---------------------------------------------------------------- dialogs

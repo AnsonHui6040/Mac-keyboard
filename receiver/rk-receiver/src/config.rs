@@ -14,8 +14,12 @@ pub struct Config {
     /// 「允許觸控板控制」
     pub trackpad: bool,
     pub autostart: bool,
-    /// Pause between typed characters, for targets that drop fast input.
-    pub char_interval_ms: u32,
+    /// Pause between typed characters, for targets that drop fast input. `None` (the key is absent) takes the platform
+    /// default, see [`Config::char_interval_ms`]; `Some(0)` means no pause at all. There is no menu for it: it is set by editing
+    /// the file. The key is `char_gap_ms` and not the older `char_interval_ms`: versions before WL8 wrote `char_interval_ms: 0`
+    /// into every file whatever anybody wanted, so that key is ignored when reading and never written.
+    #[serde(default, rename = "char_gap_ms", skip_serializing_if = "Option::is_none")]
+    pub char_gap_ms: Option<u32>,
     /// Linux: paste non-ASCII text instead of typing it.
     pub paste_non_ascii: bool,
     /// A specific Bluetooth controller; `None` takes the system default.
@@ -44,6 +48,16 @@ pub fn default_host_name(platform: HostPlatform) -> &'static str {
     }
 }
 
+/// Windows types through `SendInput`, and Notepad loses or reorders characters that come close together (WL1 S2: lost with no
+/// gap; WL8: reordered at 10 ms in 3 of 35 runs, never at 20 ms in 25 runs). Linux has its own fixed timing, so its setting
+/// stays 0.
+fn default_char_interval_ms(platform: HostPlatform) -> u32 {
+    match platform {
+        HostPlatform::Windows => 20,
+        HostPlatform::Mac | HostPlatform::Linux => 0,
+    }
+}
+
 impl Config {
     pub fn new(host_id: [u8; 16], platform: HostPlatform) -> Self {
         Self {
@@ -51,10 +65,15 @@ impl Config {
             host_name: default_host_name(platform).to_string(),
             trackpad: false,
             autostart: false,
-            char_interval_ms: 0,
+            char_gap_ms: None,
             paste_non_ascii: false,
             adapter: None,
         }
+    }
+
+    /// The pause between typed characters in milliseconds: what the file says, or the default of `platform`.
+    pub fn char_interval_ms(&self, platform: HostPlatform) -> u32 {
+        self.char_gap_ms.unwrap_or_else(|| default_char_interval_ms(platform))
     }
 
     /// Sets the name the way §4 asks: cut to 32 bytes on a scalar boundary, the default when nothing is left.
@@ -163,6 +182,64 @@ mod tests {
         let config = Config::new([7; 16], HostPlatform::Windows);
         assert_eq!(config.host_name, "Windows");
         assert_eq!(Config::new([7; 16], HostPlatform::Linux).host_name, "Linux");
+    }
+
+    #[test]
+    fn windows_types_with_a_20_ms_gap_between_characters_by_default() {
+        // Notepad reordered characters at 10 ms in 3 of 35 runs and not at 20 ms in 25 runs (WL8). Linux has its own fixed timing.
+        let config = Config::new([7; 16], HostPlatform::Windows);
+        assert_eq!(config.char_gap_ms, None, "nothing is stored unless somebody set it");
+        assert_eq!(config.char_interval_ms(HostPlatform::Windows), 20);
+        assert_eq!(Config::new([7; 16], HostPlatform::Linux).char_interval_ms(HostPlatform::Linux), 0);
+    }
+
+    fn file_with(extra: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let json = format!(r#"{{"host_id":"{}","host_name":"Windows","trackpad":false,"autostart":false{extra},"paste_non_ascii":false,"adapter":null}}"#, "ab".repeat(16));
+        fs::write(&path, json).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn an_old_file_with_a_stored_zero_gap_gets_the_default() {
+        // Versions before WL8 wrote `char_interval_ms: 0` into every file; nobody chose that.
+        let (_dir, path) = file_with(r#","char_interval_ms":0"#);
+        let (config, origin) = Config::load_or_create(&path, HostPlatform::Windows, || [0; 16], 1);
+        assert_eq!(origin, ConfigOrigin::Loaded);
+        assert_eq!(config.char_interval_ms(HostPlatform::Windows), 20);
+        assert_eq!(Config::read_only(&path, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 20);
+    }
+
+    #[test]
+    fn an_old_file_with_a_stored_ten_gap_gets_the_default_too() {
+        // The WL8 build before this change wrote 10 into new files.
+        let (_dir, path) = file_with(r#","char_interval_ms":10"#);
+        assert_eq!(Config::read_only(&path, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 20);
+    }
+
+    #[test]
+    fn an_explicit_gap_is_kept_and_zero_then_means_none() {
+        let (_dir, path) = file_with(r#","char_gap_ms":35"#);
+        assert_eq!(Config::read_only(&path, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 35);
+        let (_dir0, path0) = file_with(r#","char_gap_ms":0"#);
+        assert_eq!(Config::read_only(&path0, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 0);
+        let (_dirn, pathn) = file_with(r#","char_gap_ms":null"#);
+        assert_eq!(Config::read_only(&pathn, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 20);
+    }
+
+    #[test]
+    fn saving_writes_the_gap_only_when_it_was_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        let mut config = Config::new([1; 16], HostPlatform::Windows);
+        FileConfigStore::new(path.clone()).save(&config).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("char_gap_ms") && !text.contains("char_interval_ms"), "{text}");
+        config.char_gap_ms = Some(0);
+        FileConfigStore::new(path.clone()).save(&config).unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains("\"char_gap_ms\": 0"));
+        assert_eq!(Config::read_only(&path, HostPlatform::Windows).char_interval_ms(HostPlatform::Windows), 0);
     }
 
     #[test]
