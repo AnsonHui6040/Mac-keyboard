@@ -40,7 +40,7 @@
 - 遠端機器：`ssh rk-win`（Windows 11，只接 Wi-Fi）、`ssh rk-linux`（Ubuntu 26.04）。需要互動桌面的步驟用 RustDesk 或由使用者親手操作。
 - 在兩台測試機安裝任何東西（rustup、MSVC Build Tools、apt 套件）前，先列出項目與大小並取得使用者同意。
 - **決策關卡**：WL0 完成後停下，由使用者確認 S8 結果才進 WL2。WL1 的結果決定 WL7–WL10 是否照本計畫進行；任一項依 spec §12 的決策不通過時，停下回報並用 writing-plans 修訂對應 Task。
-- WL7 之後的 Task 在 WL1 完成後才細化步驟。現在只定檔案、介面與測試名稱。
+- WL7–WL10 已於 2026-11-14 依 WL1 除錯結論細化（見「WL7–WL10 共同規則」）。
 
 ## Review Focus
 
@@ -380,67 +380,168 @@ pub struct ChannelSet;  pub struct EventDeduplicator;  pub struct PointerPlayout
 
 ---
 
-### Task WL7: `rk-ble` 與 Windows 接收端外殼
+### WL7–WL10 共同規則（2026-11-14 依 WL1 除錯結論細化）
 
-WL1 完成後細化。先定下：
+依據：驗收報告「## WL1」與「## WL1 除錯：S1 與 S3 的原因（2026-11-14）」的「對實作的要求」。使用者 2026-11-14 指定照這套方法直接做出可以裝在實機上試用的 Alpha，細化不另外等批准。
 
-**Files:** `receiver/rk-ble/src/{lib,link,scan}.rs`、`receiver/rk-receiver/src/{main,app,config,store,tray,pairing_dialog,autostart,log,i18n}.rs`、`receiver/rk-receiver/src/platform/windows.rs`
+**範圍（Alpha）：** 配對、打字（英文、中文、表情符號）、Backspace／Enter、觸控板、系統匣（狀態、配對、改名、刪除手機、觸控板開關、開機自動啟動、結束；Linux 另有「非 ASCII 改用貼上」與「重新授權」）、開機自動啟動。WL11、WL12 不在這一輪。
 
-**Interfaces:**
-- Consumes: `rk_core` 全部；WL0 的 S8 結論（掃描方式）；WL1 的 S1 數據（重連行為、MTU）。`rk-ble` 分 `windows.rs`（WinRT）與 `linux.rs`（bluer，含 `--adapter` 選擇）兩個後端，對上層是同一組 `LinkEvent`／`LinkCommand`。
-- Produces:
+**crate 與相依：**
+
+| crate | 內容 | 主要相依 |
+|---|---|---|
+| `rk-ble` | `Link`：掃描、連線、訂閱、寫入、斷線；兩個後端 `windows.rs`、`linux.rs`，對上層同一組 `LinkEvent`／`LinkCommand` | tokio；Windows `windows` 0.61（WinRT）；Linux `bluer`（只用探索與 L2CAP socket，不用 GATT client） |
+| `rk-inject` | `Injector` trait 與兩個實作 | Windows `windows`（`SendInput`）；Linux `ashpd`（RemoteDesktop、Clipboard） |
+| `rk-receiver` | 執行檔：`app`（平台無關的狀態機）＋`platform/{windows,linux}.rs`（系統匣、對話框、金鑰儲存、自動啟動、單一執行個體） | Windows `tray-icon`；Linux `ksni`、`zenity`（系統內建）；金鑰：Windows 認證管理員、Linux Secret Service |
+
+`rk-ble`、`rk-inject` 的平台程式都用 `#[cfg(target_os = …)]` 隔開；Mac 上 `cargo test --workspace` 與 `cargo clippy` 只編平台無關的部分與假的後端。
+
+**介面（全部 Task 共用，WL7 建立）：**
 
 ```rust
-// rk-ble
-pub enum LinkEvent { Discovered, Connected { mtu: usize }, Notification(Vec<u8>), Disconnected }
-pub struct Link;  impl Link { pub async fn run(select: Uuid, pairing: Option<Uuid>, tx: Sender<LinkEvent>, rx: Receiver<LinkCommand>) }
-pub enum LinkCommand { Write(Vec<u8>), Disconnect, SetPairingScan(bool), BackoffRescan(Duration) }
-// rk-receiver
-pub trait PhoneStore { fn host(&self) -> HostIdentity; fn phones(&self) -> Vec<PairedPhone>; fn save(&self, p: PairedPhone) -> Result<(), StoreError>; fn delete(&self, id: &[u8; 16]); }
-pub trait Injector { fn text(&mut self, s: &str) -> Result<(), InjectError>; fn backspace(&mut self) -> ..; fn enter(&mut self) -> ..; fn pointer_move(&mut self, dx: f64, dy: f64) -> ..; fn button(&mut self, b: Button, down: bool) -> ..; fn scroll(&mut self, dx: f64, dy: f64) -> ..; fn ready(&self) -> bool; }
+// rk-ble/src/lib.rs
+pub use rk_core::handshake::Route;                        // 經哪一個廣播 UUID 找到（Selected／Pairing）
+pub enum LinkEvent {
+    Connected { device: DeviceKey, route: Route, mtu: usize },
+    Notification(Vec<u8>),                                // event 特徵的一則通知（一個分段）
+    Disconnected { device: DeviceKey, reason: DisconnectReason },
+}
+pub enum LinkCommand {
+    Write(Vec<u8>),                                       // 寫 control，一律 Write Request（有回應）
+    Disconnect,                                           // 立即釋放連線（收到 bye、驗證失敗、版本不符、逾時）
+    Hold { device: DeviceKey, for_: Duration },           // 這段時間內不連這個裝置（notSelected／逾時 10 秒、authFailed／版本不符 60 秒）
+    SetPairingScan(bool),
+}
+pub struct LinkConfig { pub select: Uuid, pub pairing: Uuid, pub adapter: Option<String> }
+pub async fn run(cfg: LinkConfig, tx: mpsc::Sender<LinkEvent>, rx: mpsc::Receiver<LinkCommand>);   // 平台後端
+pub struct FakeLink;                                      // 測試用，app 的測試透過它注入事件、檢查命令
+
+// rk-inject/src/lib.rs
+pub enum Button { Left, Right }
+pub trait Injector: Send {
+    fn text(&mut self, s: &str) -> Result<(), InjectError>;
+    fn backspace(&mut self) -> Result<(), InjectError>;
+    fn enter(&mut self) -> Result<(), InjectError>;
+    fn pointer_move(&mut self, dx: f64, dy: f64) -> Result<(), InjectError>;
+    fn button(&mut self, b: Button, down: bool) -> Result<(), InjectError>;
+    fn click(&mut self, b: Button, count: u8) -> Result<(), InjectError>;
+    fn scroll(&mut self, dx: f64, dy: f64) -> Result<(), InjectError>;
+    fn ready(&self) -> bool;                              // 後端可用（Linux：portal 已授權）
+    fn trusted(&self) -> bool { true }                    // Linux 尚未授權時為 false
+}
+pub struct NullInjector; pub struct RecordingInjector;    // 測試用
 ```
 
-**主機名稱：** `config.json` 第一次產生時 `hostName` 預設為「Windows」（Linux 接收端為「Linux」，見 WL10），不取電腦名稱；系統匣選單可改名，改名只寫入設定檔，已配對的手機要重新配對才顯示新名稱（設計 §5.1、§16 第 34 項）。
+**連線生命週期（兩個平台相同，由 `app` 負責）：** 未連線時掃描自己的選定 UUID（配對時段另掃配對 UUID）；連線期間不掃描。經選定 UUID 連上：產生 `hostNonce`，寫 `hello`，5 秒內沒有完成驗證就送 `Disconnect` 與 `Hold 10 s`（不寫 `authFailed`）。收到 `notSelected`：`Disconnect`＋`Hold 10 s`，不顯示錯誤。驗證失敗：寫 `authFailed`、`Disconnect`、`Hold 60 s`，系統匣顯示需要重新配對。版本不符：系統匣顯示「請更新 iPhone App」、`Disconnect`、`Hold 60 s`。驗證完成：立刻送 `status`，之後狀態有變再送。v4 只有主機會送 `bye`（協定 §7.4）：主機要結束連線時送 sealed `bye` 後立即 `Disconnect`；連線失效（寫入失敗、Unreachable）時立即釋放（WL1 除錯：舊連線失效最多約 10 秒，立刻釋放才能讓下一次叫出鍵盤走全新連線）。經配對 UUID 連上：不寫 `hello`，只等 `pairOffer`。
 
-**Tests:** `app` 以假的 `Link`、`Injector`、`PhoneStore` 測：`default_host_name_is_windows`、`rename_keeps_host_id_and_phones`、`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`（送「機密」後掃描所有 log 輸出）、`second_instance_exits`。
+**log：** 一行一筆 `ts=<RFC3339> ev=<種類> k=v…`；只記事件種類、長度、時間、結果與裝置的短雜湊（不記 BLE 位址原文）；不得含文字內容、金鑰、nonce、proof、配對碼、手機名稱、指標位移。檔案每天一個，保留 7 天。
 
-**實機（TBD）：** Windows 上配對、開機自動啟動、系統匣選單各項。
+**診斷記錄（2026-11-14 使用者追加，WL7 建立、WL8–WL10 沿用）：**
+- 位置：Windows `%LOCALAPPDATA%\RemoteKeyboard\logs\`，Linux `$XDG_STATE_HOME/remote-keyboard/logs/`（預設 `~/.local/state/remote-keyboard/logs/`）。每天一個檔，保留 7 天，單檔超過 5 MB 時換新檔（同日最多 3 個）。
+- 每行 `wall=<RFC3339 毫秒> mono_ms=<程式啟動起的單調毫秒> lvl=<info|debug> ev=<種類> k=v…`；`conn=<連線序號>` 串起同一條連線。
+- 每條連線的階段與耗時（相對 `adv_seen` 的毫秒）：`adv_seen`、`connect_start`、`connected`、`mtu`、`discovered`、`subscribed`、`hello_sent`、`hello_reply`、`auth`（`result=ok|fail|not_selected|timeout|unsupported_version`）、`disconnected`（`reason=`）。
+- 失敗分類（`kind=`）：`unreachable`、`enosys`、`abort_by_local`、`att_error`、`timeout`、`not_selected`、`auth_failed`、`unsupported_version`、`peer_bye`、`link_lost`；每次重試 `ev=retry attempt=N kind=…`；退避 `ev=hold secs=…`。
+- 注入每批：`ev=inject op=text|backspace|enter|pointer path=unicode|keysym|paste units=<長度> ms=<耗時> result=ok|err:<種類>`（不含內容）。
+- `log_lines_never_contain_text` 涵蓋上述全部欄位：送「機密」文字、手機名稱、配對碼後，掃描全部 log 輸出都找不到它們，也找不到金鑰、nonce、proof 的十六進位或 base64。
+- 一鍵匯出：系統匣「匯出診斷資料」，在桌面（找不到時在 log 資料夾）產生 `RemoteKeyboard-diag-<時間>.zip`，內含最近 7 天 log、`diag.txt`（版本、OS 版本、藍牙控制器名稱與位址的雜湊、設定去掉 `hostId` 以外的機密、已配對手機數量、目前狀態），完成後打開所在資料夾。
+- 命令列：`--diag`（把 `diag.txt` 的內容印到標準輸出後結束，可經 SSH 取得）、`--log-level debug`（另記 ATT／WinRT 呼叫層級的事件，仍不含內容）。
+
+**驗證（每個 Task）：** 在 `receiver/`：Mac 上 `cargo test --workspace`、`cargo clippy --workspace --all-targets -- -D warnings`；`rk-win` 與 `rk-linux` 上 `cargo build --release` 與 `cargo test --workspace`（程式以 `rsync`／`scp` 複製到 `~/rk-build/<task>/`，不在測試機上 commit）；PR 的 CI 兩個平台皆綠。
+
+**硬性界線：** Linux 只用 hci1，不動 hci0、`/opt/musegadget`、`/etc/bluetooth/main.conf`，不重啟 bluetoothd，不用 sudo；需要 apt 套件時停下列給使用者。Windows 只接 Wi-Fi、不改系統設定；OpenSSH 會終止子行程，在桌面工作階段執行要用 `schtasks /run` 搭配 `/IT` 的工作。
 
 ---
+
+### Task WL7: `rk-ble`（Windows 後端）、`rk-inject` 介面與 Windows 接收端外殼
+
+**Files:**
+- Modify: `receiver/Cargo.toml`（members 加 `rk-ble`、`rk-inject`、`rk-receiver`）、`.github/workflows/receiver.yml`（如需）
+- Create: `receiver/rk-ble/{Cargo.toml,src/lib.rs,src/fake.rs,src/windows.rs}`
+- Create: `receiver/rk-inject/{Cargo.toml,src/lib.rs}`（trait、`NullInjector`、`RecordingInjector`；平台實作在 WL8、WL9）
+- Create: `receiver/rk-receiver/{Cargo.toml,build.rs,src/main.rs,src/app.rs,src/config.rs,src/store.rs,src/log.rs,src/i18n.rs,src/ui.rs,src/platform/mod.rs,src/platform/windows.rs}`、`receiver/rk-receiver/assets/`（系統匣圖示：已連線、未連線、需要注意三種）
+- Modify: 驗收報告（新增「## WL7」）
+
+**Windows 連線（`rk-ble/src/windows.rs`，照 WL1 除錯的 WC 做法）：**
+1. `BluetoothLEAdvertisementWatcher`，`ScanningMode = Active`，逐筆比對廣播的 service UUID 是否等於選定 UUID（或配對時段的配對 UUID）；被 `Hold` 的裝置略過。
+2. 看到目標：停掃描；`BluetoothLEDevice::FromBluetoothAddressWithBluetoothAddressTypeAsync(addr, 廣播的位址類型)`。
+3. `GattSession::FromDeviceIdAsync`，`MaintainConnection = true`；`device.RequestPreferredConnectionParameters(BluetoothLEPreferredConnectionParameters::ThroughputOptimized())`，回傳物件在連線期間保留。
+4. 在同一個 `device` 物件上 `GetGattServicesForUuidWithCacheModeAsync(service, Uncached)`，每 50 毫秒重查到成功或 8 秒；`Unreachable` 與 0 個 service 都重查，中途不 `Close`。
+5. 取 `event`、`control` 特徵，訂閱 `event` 通知（`WriteClientCharacteristicConfigurationDescriptorAsync(Notify)`），送 `Connected { mtu: GattSession.MaxPduSize }`。
+6. `Write` 一律 `WriteValueWithResultAndOptionAsync(…, WriteWithResponse)`。
+7. `Disconnect`：取消訂閱、釋放 `GattSession`、特徵、service、`device`（`Close`），回到掃描。連線狀態變成 Disconnected 時送 `Disconnected` 並回到掃描。
+8. 看到新廣播而目前連線查不到 service（舊連線失效）時，放棄舊物件改開新連線。
+
+參考：Mac 上 `~/rk-spike-debug/win/src/main.rs`（WC 模式）與 `~/rk-spike-debug/scripts-win/WC.ps1`。
+
+**`app.rs`（平台無關，用 `FakeLink`、`RecordingInjector`、記憶體 `PhoneStore` 與假的時鐘、亂數測）：** 連線生命週期如共同規則；配對：`HostPairing` → 顯示手機名稱與 6 位數配對碼 → 使用者「相符」才 `save`，「不相符」或 120 秒到期不存；事件：`EventDeduplicator`、`SessionPin`、依序處理 `text`／`backspace`／`returnKey`，`ping`／`probe` 回 `pong`／對應結果，`pointerOpen`／`pointerClose` 與指標封包交給 `rk_core::pointer::PointerReceiver`；每則事件回 sealed `ack`（`posted` 或 `injectFailed`）。`status`：`ready = injector.ready()`、`focusEpoch = 1`、`trusted = injector.trusted()`、觸控板開關打開時帶 `pointerGrant`。
+
+**介面（`rk-receiver`）：**
+
+```rust
+pub trait PhoneStore { fn phones(&self) -> Vec<PairedPhone>; fn save(&mut self, p: PairedPhone) -> Result<(), StoreError>; fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError>; }
+pub struct Config { pub host_id: [u8;16], pub host_name: String, pub trackpad: bool, pub autostart: bool, pub char_interval_ms: u32, pub paste_non_ascii: bool, pub adapter: Option<String> }
+pub enum UiEvent { State(TrayState), PairingRequest { phone_name: String, sas: String }, PairingClosed, Notice(NoticeKind) }
+pub enum UiCommand { StartPairing, ConfirmPairing(bool), Rename(String), DeletePhone([u8;16]), SetTrackpad(bool), SetAutostart(bool), SetPasteNonAscii(bool), Reauthorize, Quit }
+```
+
+**Windows 外殼（`platform/windows.rs`）：** `tray-icon` 系統匣與選單（狀態列含目前連線的手機名稱、主機名稱「改名…」、配對新手機、已配對手機子選單（每支「刪除」）、允許觸控板控制、開機自動啟動、結束）；配對對話框用 `MessageBoxW`（`MB_YESNO`，顯示手機名稱與配對碼，按「是」＝相符），在另一條執行緒開；改名用 PowerShell `Microsoft.VisualBasic.Interaction.InputBox`（`CREATE_NO_WINDOW`），回傳空字串視為取消，非空字串經 `clamp_name`；金鑰存 Windows 認證管理員（`CredWriteW`，`CRED_TYPE_GENERIC`，target `RemoteKeyboard/phone/<phoneId 十六進位>`，內容為金鑰與手機身分的 JSON）；設定 `%APPDATA%\RemoteKeyboard\config.json`；log `%LOCALAPPDATA%\RemoteKeyboard\logs\`；自動啟動 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RemoteKeyboard`；單一執行個體用具名 mutex `Local\RemoteKeyboardReceiver`；`#![windows_subsystem = "windows"]`（release）。介面語言依 `GetUserDefaultUILanguage`：中文（0x04 主要語言）用台灣繁體，其他用英文。`main` 接受 `--version`、`--print-paths`（印出設定、log 路徑後結束）以便自動驗證。
+
+**Tests（`app.rs`、`config.rs`、`log.rs`）：** 計畫原列的 16 項：`default_host_name_is_windows`、`rename_keeps_host_id_and_phones`、`pairing_window_closes_after_120_s`、`confirmed_pairing_saves_phone`、`rejected_pairing_saves_nothing`、`handshake_timeout_backs_off_10_s_without_auth_failed`、`not_selected_backs_off_10_s_without_error`、`auth_failed_holds_device_60_s_and_shows_repair_note`、`pairing_advert_connection_sends_no_hello`、`scanning_stops_while_connected`、`status_is_ready_only_when_injector_ready`、`unsupported_version_shows_update_phone_note`、`unsupported_version_disconnects_and_holds_device_60_s`、`paired_phone_list_delete_removes_key`、`log_lines_never_contain_text`、`second_instance_exits`；另加 `bye_disconnects_immediately`（主機送 `bye` 與 `Disconnect` 在同一批）、`text_event_is_injected_and_acked_posted`、`duplicate_event_is_not_injected_twice`、`pointer_open_needs_current_grant`、`end_to_end_with_rust_phone`（用 `rk_core` 的 `PhonePairing`／`PhoneHandshake` 當手機，經 `FakeLink` 跑完配對、握手、打字）。
+
+**實機（TBD，使用者）：** 配對、打字、系統匣各項、開機自動啟動。可自動做的部分（主代理）：`--version`、`--print-paths`、以排程工作在桌面工作階段啟動並確認行程存在、log 有 `ev=scan_start`。
 
 ### Task WL8: Windows 注入與觸控板
 
-WL1 完成後細化。
+**Files:** Create `receiver/rk-inject/src/windows.rs`；Modify `receiver/rk-inject/src/lib.rs`（純函式）、`receiver/rk-receiver/src/platform/windows.rs`（接上 `WindowsInjector`）、驗收報告。
 
-**Files:** `receiver/rk-inject/src/{lib,windows}.rs`
+**做法（WL1 S2）：** 文字用 `SendInput` 的 `KEYEVENTF_UNICODE`，逐個 UTF-16 code unit 送按下與放開；代理對的兩個單位連續送，**字元之間**（Unicode 碼位之間）等 `char_interval_ms`，預設 10 毫秒（設定檔可改，0 表示不等）；Backspace、Enter 用 `VK_BACK`、`VK_RETURN`；移動 `MOUSEEVENTF_MOVE`（小數位移累加，送整數，餘數留到下一次）；按鍵 `MOUSEEVENTF_LEFTDOWN/UP`、`RIGHTDOWN/UP`；捲動 `MOUSEEVENTF_WHEEL`／`HWHEEL`，像素到滾輪單位的換算（Provisional：每 1 點位移 = 120/40 單位）有餘數累加。注入不在 BLE 通知的執行緒內做，經佇列交給注入執行緒，避免字元間隔卡住通知。
 
-**Tests:** 純函式 `utf16_inputs(&str) -> Vec<KeyInput>`：`utf16_units_for_supplementary_plane`（「😀」→ 兩個 code unit，各有按下與放開）、`combining_sequence_keeps_order`、`empty_text_sends_nothing`；`wheel_units` 的換算與餘數累加：`small_scroll_deltas_accumulate`。
+**Tests：** `utf16_inputs(&str) -> Vec<KeyInput>` 的 `utf16_units_for_supplementary_plane`、`combining_sequence_keeps_order`、`empty_text_sends_nothing`、`zwj_sequence_stays_whole`；`interval_is_between_code_points_not_units`；`WheelAccumulator` 的 `small_scroll_deltas_accumulate`、`direction_change_drops_remainder`；`MoveAccumulator` 的 `fractional_moves_accumulate`。
 
-**實機（TBD）：** 記事本、瀏覽器、Office 類編輯器的英文、中文、語音聽寫、手寫；觸控板移動、點擊、拖曳、捲動；管理員視窗收不到的限制如手冊所述。
+**自動實機驗證（主代理）：** 在 `rk-win` 用排程工作於桌面工作階段開記事本，經接收端的注入路徑（`rk-receiver --inject-selftest <檔案>`，只有帶這個參數時才讀檔送字，送完結束）送 200 字（英文、中文、表情符號），存檔比對逐字相同。觸控板與 iPhone 端的打字標 TBD。
+
+### Task WL9: Linux 注入（RemoteDesktop portal）
+
+**Files:** Create `receiver/rk-inject/src/linux.rs`；Modify `receiver/rk-inject/src/lib.rs`（純函式）、驗收報告。
+
+**做法（WL1 S4、S5、S9）：** `ashpd` RemoteDesktop，申請 keyboard 與 pointer，`PersistMode::ExplicitlyRevoked`，restore token 存 `~/.config/remote-keyboard/portal-token`（權限 0600），之後啟動帶上 token 不再跳視窗；授權被拒或 token 失效時 `ready = false`、`trusted = false`，系統匣「重新授權」重新申請。文字：每個字元判斷，ASCII 與 Latin-1（U+0020–U+007E、U+00A0–U+00FF）用 keysym 逐字送（按下、放開，字元間 3 毫秒）；其他字元在 `paste_non_ascii = true`（預設）時把連續的非 Latin-1 片段走貼上：portal 剪貼簿讀出原內容 → 設成片段 → Ctrl+V → 等 250 毫秒 → 還原原內容（S5 流程）；`paste_non_ascii = false` 時用 Unicode keysym `0x01000000 + 碼位`（S4 證實在 GNOME 會丟失，只作為選項）。Backspace `0xff08`、Enter `0xff0d`。指標：移動合併到最多 120 次/秒（S9），按鍵 `BTN_LEFT` 272、`BTN_RIGHT` 273，捲動用平滑捲動 `NotifyPointerAxis`。portal 呼叫與剪貼簿等待在注入執行緒內做。
+
+參考：`rk-linux` 上 `~/rk-spike/wl1/` 的 S4、S5、S9 spike 原始碼。
+
+**Tests：** `keysym_for_ascii`、`keysym_for_latin1`、`keysym_for_supplementary_plane`（U+1F600 → `0x0101F600`）、`segments_split_latin1_and_other`、`non_ascii_uses_paste_when_enabled`、`clipboard_is_restored_after_paste`（假的 portal）、`denied_session_reports_untrusted`、`restore_token_is_reused`、`moves_coalesce_to_120_per_second`。
+
+**自動實機驗證（主代理）：** `rk-linux` 桌面工作階段內（`systemd-run --user` 帶 `WAYLAND_DISPLAY`、`DBUS_SESSION_BUS_ADDRESS`）`rk-receiver --inject-selftest <檔案>` 對 GNOME 文字編輯器送 200 字，存檔比對；剪貼簿哨兵還原。第一次 portal 授權要使用者在 Linux 螢幕按「允許」，發生時立刻告訴使用者。
+
+### Task WL10: `rk-ble` Linux 後端與 Linux 接收端外殼
+
+**Files:** Create `receiver/rk-ble/src/linux.rs`（含 `att.rs` 最小 ATT client）、`receiver/rk-receiver/src/platform/linux.rs`；Modify 驗收報告。
+
+**Linux 連線（照 WL1 除錯的 L3 做法）：**
+1. 掃描用 `bluer`，控制器取設定檔 `adapter`（命令列 `--adapter hci1` 優先），沒有設定時用 BlueZ 預設控制器；本機安裝時設定為 `hci1`。未連線時每 1.5 秒 `StopDiscovery`＋`StartDiscovery`，並對目標裝置 `RemoveDevice`；比對 `Device1.UUIDs` 或廣播資料中的選定 UUID／配對 UUID。
+2. 看到目標：`StopDiscovery`；開 L2CAP `SOCK_SEQPACKET`，bind 到該控制器位址、CID 4（ATT），connect 對方（`LE Random`，CID 4）。`ENOSYS`（及連線被中止）立即重試，最多 3 次。
+3. 自寫最小 ATT client（不用 BlueZ GATT client）：Exchange MTU 517；如有上一輪的 handle 快取，先用一次 Read By Type 核對 `event` 與 `control` 的宣告仍在原位，不符就重新探索；探索只做本 service：Find By Type Value（Primary Service = 本 service UUID）→ Read By Type（特徵宣告）→ Find Information（取 `event` 的 CCCD）→ Write Request 寫 CCCD = 0x0001 → `Connected`。
+4. 讀迴圈：Handle Value Notification 中 `event` handle 的值送 `Notification`；iPhone 送來的 ATT 請求（opcode 為請求類）一律回 Error Response（Request Not Supported），Exchange MTU 請求回 MTU 517；長度 0 的讀取或錯誤視為斷線。
+5. `Write`：ATT Write Request（opcode 0x12）到 `control` handle，等 Write Response；超過 MTU−3 的寫入不應出現（rk-core 分段已依 MTU 切），出現時回錯誤。
+6. `Disconnect`：關 socket，回到掃描。
+不需要 root：socket 只開在 hci1 的 L2CAP 固定通道。不縮短連線間隔。
+
+**Linux 外殼（`platform/linux.rs`）：** `ksni` StatusNotifierItem 與選單（同 Windows，另有「非 ASCII 改用貼上」「重新授權」，控制器多於一個時有「藍牙控制器」子選單）；配對對話框 `zenity --question`（顯示手機名稱與配對碼），改名 `zenity --entry`；金鑰存 Secret Service（屬性 `application=remote-keyboard`、`phone-id=<十六進位>`）；Secret Service 不可用時改存 `~/.local/share/remote-keyboard/phones.json`（0600）並記 log；設定 `$XDG_CONFIG_HOME/remote-keyboard/config.json`；log `$XDG_STATE_HOME/remote-keyboard/`；自動啟動 `~/.config/autostart/remote-keyboard.desktop`（`Exec=` 絕對路徑，`X-GNOME-Autostart-enabled=true`）；單一執行個體用 `$XDG_RUNTIME_DIR/remote-keyboard.lock` 的 `flock`。預設主機名稱「Linux」。
+
+**Tests：** `autostart_desktop_file_contents`、`config_paths_follow_xdg`、`default_host_name_is_linux`；ATT 編解碼純函式：`att_find_by_type_value_request_bytes`、`att_parses_read_by_type_characteristics`、`att_finds_cccd_in_find_information`、`att_peer_request_gets_error_response`、`att_peer_mtu_request_gets_517`、`att_cached_handles_are_checked_before_use`、`enosys_retries_three_times`（假的 socket）。
+
+**自動實機驗證（主代理）：** 在 `rk-linux` 桌面工作階段啟動接收端（`--adapter hci1`），Mac 上跑 UI 測試叫出鍵盤 20 次（鍵盤的目前主機要先是這台 Linux：配對需要使用者），從 log 統計看到廣播到驗證完成的時間。配對、打字、系統匣各項標 TBD。
 
 ---
 
-### Task WL9: Linux 注入（portal）
+### Task WL10b：量測工具與排錯說明（安裝之後做）
 
-WL1 完成後細化；S4、S5、S9 的結果決定預設值與是否包含觸控板。
+使用者追加。不阻擋第一個可試用版本，排在安裝之後。
 
-**Files:** `receiver/rk-inject/src/linux.rs`、`receiver/rk-receiver/src/platform/linux.rs`
+**Files:** Create `receiver/rk-receiver/src/bin/rk-diag.rs`（或 `rk-receiver diag-stats` 子命令）、`e2e/scripts/measure-reconnect.sh`、`docs/troubleshooting-receiver.md`；Modify 驗收報告。
 
-**Tests:** `keysym_for_ascii`、`keysym_for_supplementary_plane`（U+1F600 → `0x0101F600`）、`non_ascii_uses_paste_when_enabled`、`clipboard_is_restored_after_paste`（假的 portal）、`denied_session_reports_untrusted`、`restore_token_is_reused`。
-
-**實機（TBD）：** 文字編輯器、Firefox、終端機的英文與中文；重新授權；重開機後不再跳授權視窗；觸控板。
-
----
-
-### Task WL10: Linux 接收端外殼
-
-**Files:** `receiver/rk-receiver/src/platform/linux.rs`（系統匣、Secret Service、autostart、檔案鎖）
-
-**主機名稱：** `config.json` 第一次產生時 `hostName` 預設為「Linux」，不取電腦名稱；改名規則同 WL7。
-
-**Tests:** `autostart_desktop_file_contents`、`config_paths_follow_xdg`、`default_host_name_is_linux`。
-
-**實機（TBD）：** 配對、開機自動啟動、系統匣選單各項。
+- `rk-diag stats <log 檔或資料夾> [--since <時間>]`：從接收端 log 取每條連線 `adv_seen` 到 `auth result=ok` 的時間，輸出次數、最小、中位、p95、最大、3 秒內比例與失敗分類計數，寫成文字檔。純函式 `summarize(lines) -> Summary`，測試 `summary_counts_failures_by_kind`、`percentiles_match_known_sample`、`ignores_lines_from_other_runs`。
+- `e2e/scripts/measure-reconnect.sh <win|linux> [N]`：Mac 上一鍵執行；記下開始時間，跑 iPhone 的 `ReconnectUITests`（叫出／收起鍵盤 N 次），經 SSH 在目標機上跑 `rk-diag stats --since <開始時間>`，把結果收回 `e2e/results/`（不進 repo）。
+- `docs/troubleshooting-receiver.md`（台灣繁體）：log 位置、怎麼匯出、失敗種類的意思與下一步。
 
 ---
 

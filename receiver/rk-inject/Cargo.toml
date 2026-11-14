@@ -1,0 +1,9 @@
+[package]
+name = "rk-inject"
+version = "0.1.0"
+description = "Remote Keyboard receiver: the Injector trait and its test doubles; platform injectors live beside it"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror = "2.0.21"

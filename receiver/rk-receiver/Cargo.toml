@@ -1,0 +1,49 @@
+[package]
+name = "rk-receiver"
+version = "0.1.0"
+description = "Remote Keyboard receiver for Windows and Linux: tray shell around the platform-independent application"
+edition.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lib]
+name = "rk_receiver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rk-receiver"
+path = "src/main.rs"
+
+[dependencies]
+rk-core = { path = "../rk-core" }
+rk-ble = { path = "../rk-ble" }
+rk-inject = { path = "../rk-inject" }
+getrandom = "0.4.3"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+uuid = "1.29.2"
+zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+base64 = "0.23.1"
+
+[target.'cfg(windows)'.dependencies]
+tray-icon = { version = "0.26.1", default-features = false }
+windows = { version = "=0.61.3", features = [
+  "Devices_Bluetooth",
+  "Foundation",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Credentials",
+  "Win32_System_Console",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_System_SystemInformation",
+  "Win32_System_WinRT",
+  "Win32_Globalization",
+  "Win32_UI_WindowsAndMessaging",
+] }
