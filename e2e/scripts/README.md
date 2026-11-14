@@ -8,6 +8,7 @@
 | `win-focus-target.ps1` | 在 Notepad 開一個專用的空白測試檔 `type-target.txt`，帶到最前面，確認前景視窗標題是它才寫 `focus=True`。**任何 Windows 打字測試之前一定先跑，`focus=True` 才繼續** |
 | `win-read-target.ps1` | 只在目前選取的分頁是 `type-target.txt` 時讀出它的內容；其他文件一律拒絕讀取 |
 | `linux-confirm-pairing.sh` | 經 AT-SPI 找 zenity 配對視窗，行為同上，結束碼 0、3、2、4（找不到按鈕） |
+| `measure-reconnect.sh` | `measure-reconnect.sh <win\|linux> [N]`：在 Mac 上跑 iPhone 的 `ReconnectUITests`（叫出／收起鍵盤 N 次，預設 100），再經 SSH 在接收端跑 `rk-diag stats --since <開始時間>`，把 iPhone 的 RKTIMING 與接收端統計存到 `e2e/results/<日期>-<target>.txt`（不進 repo）。次數用環境變數 `TEST_RUNNER_RK_REOPEN_COUNT` 傳入，寫在 `xcodebuild` 指令前面；放在指令尾端只會變成 build setting，測試讀不到而跑預設 100 次。腳本會核對實際跑的次數 |
 | `iOS/RemoteKeyboardUITests/RemoteTypingUITests.swift` | 在 iPhone 備忘錄新增一則備忘錄，用 Remote Keyboard 打 `hello world`（含一次 Backspace）與換行，送到目前的電腦 |
 | `iOS/RemoteKeyboardUITests/PairingUITests.swift` | `testPairNewComputer` 在 iPhone 上新增電腦並按確認、完成；`testSelectComputer` 切換目前電腦 |
 

@@ -19,3 +19,6 @@ release/
 
 # Rust receiver build output
 receiver/target/
+
+# 量測結果（measure-reconnect.sh）
+e2e/results/

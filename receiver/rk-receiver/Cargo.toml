@@ -14,6 +14,10 @@ path = "src/lib.rs"
 name = "rk-receiver"
 path = "src/main.rs"
 
+[[bin]]
+name = "rk-diag"
+path = "src/bin/rk-diag.rs"
+
 [dependencies]
 rk-core = { path = "../rk-core" }
 rk-ble = { path = "../rk-ble" }
