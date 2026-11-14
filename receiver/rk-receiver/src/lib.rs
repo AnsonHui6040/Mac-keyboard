@@ -9,6 +9,7 @@ pub mod cli;
 pub mod clock;
 pub mod config;
 pub mod diag;
+pub mod diag_stats;
 pub mod i18n;
 pub mod icons;
 pub mod inject_log;

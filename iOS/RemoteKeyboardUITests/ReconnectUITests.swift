@@ -68,7 +68,9 @@ final class ReconnectUITests: XCTestCase {
     }
 
     func testHundredReopens() throws {
-        // TEST_RUNNER_RK_REOPEN_COUNT=3 gives a short dry run; the gate itself is the default 100.
+        // `TEST_RUNNER_RK_REOPEN_COUNT=3 xcodebuild test ...` (environment of the xcodebuild process, in front of the
+        // command) gives a short dry run; the gate itself is the default 100. The same NAME=value as a trailing argument
+        // is only a build setting and never reaches this process.
         let count = ProcessInfo.processInfo.environment["RK_REOPEN_COUNT"].flatMap(Int.init) ?? Self.defaultCount
 
         try warmUp()
