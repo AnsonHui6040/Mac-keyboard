@@ -90,7 +90,19 @@ final class PairingUITests: XCTestCase {
     private func openHostList(_ app: XCUIApplication) {
         app.launchArguments += ["-rkSkipOnboarding"]
         app.launch()
-        let link = element(app, "rk.home.pairing")
+        // Inside the 設定完成／連線有問題 group the row keeps its label but not always its identifier, and the group may be
+        // collapsed: look by identifier or label, and open the group only when the row is not there.
+        let byLabel = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "已配對電腦")).firstMatch
+        var link = element(app, "rk.home.pairing")
+        if !link.waitForExistence(timeout: 3) {
+            if !byLabel.exists {
+                for group in ["rk.home.setupDone", "rk.home.setupProblem"] {
+                    let row = element(app, group)
+                    if row.exists { row.tap(); break }
+                }
+            }
+            link = element(app, "rk.home.pairing").exists ? element(app, "rk.home.pairing") : byLabel
+        }
         XCTAssertTrue(link.waitForExistence(timeout: 10), "已配對電腦 (rk.home.pairing) not found")
         link.tap()
     }

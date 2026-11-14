@@ -5,7 +5,10 @@
 | 檔案 | 作用 |
 |---|---|
 | `win-confirm-pairing.ps1` | 等 Windows 接收端的配對視窗（標題 Remote Keyboard），把 6 位數寫入結果檔，按「是」。`-ExpectSas` 不符時按「否」。結束碼：0 是、3 否、2 逾時沒視窗、1 錯誤 |
+| `win-focus-target.ps1` | 在 Notepad 開一個專用的空白測試檔 `type-target.txt`，帶到最前面，確認前景視窗標題是它才寫 `focus=True`。**任何 Windows 打字測試之前一定先跑，`focus=True` 才繼續** |
+| `win-read-target.ps1` | 只在目前選取的分頁是 `type-target.txt` 時讀出它的內容；其他文件一律拒絕讀取 |
 | `linux-confirm-pairing.sh` | 經 AT-SPI 找 zenity 配對視窗，行為同上，結束碼 0、3、2、4（找不到按鈕） |
+| `iOS/RemoteKeyboardUITests/RemoteTypingUITests.swift` | 在 iPhone 備忘錄新增一則備忘錄，用 Remote Keyboard 打 `hello world`（含一次 Backspace）與換行，送到目前的電腦 |
 | `iOS/RemoteKeyboardUITests/PairingUITests.swift` | `testPairNewComputer` 在 iPhone 上新增電腦並按確認、完成；`testSelectComputer` 切換目前電腦 |
 
 ## 執行方式
