@@ -58,40 +58,66 @@ pub enum HeldChange {
 }
 
 /// Linux: once connected, BlueZ already lists our UUID for the phone, so a repeated advertisement changes no `UUIDs`.
-/// What does arrive for every advertisement is an `RSSI` change, directly followed (same D-Bus signal) by a
-/// `ManufacturerData` change when the advertisement carries manufacturer data. The keyboard's own advertisement carries
+/// What does arrive for every advertisement is one D-Bus `PropertiesChanged` signal with `RSSI`, plus `ManufacturerData`
+/// when the advertisement carries manufacturer data. `bluer` splits that signal into separate events in hash-map order,
+/// so the two come in either order, possibly with other properties in between. The keyboard's own advertisement carries
 /// only UUIDs and a name; the phone's other advertisements (Apple's, from the same address) carry manufacturer data.
-/// So an `RSSI` change NOT followed by `ManufacturerData` is counted as one advertisement of the keyboard, stamped with
-/// the time of the `RSSI` change.
+///
+/// So every change within `QUIET` of the first one forms one burst, whatever its kind and order; no change ends a burst
+/// early. When the burst ends, it counts as one advertisement of the keyboard only if it holds an `RSSI` change and no
+/// `ManufacturerData` change, stamped with the time of its first `RSSI` change.
 #[derive(Debug, Default)]
 pub struct AdvertBursts {
-    pending: Option<Instant>,
+    burst: Option<Burst>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Burst {
+    started: Instant,
+    first_rssi: Option<Instant>,
+    manufacturer_data: bool,
+}
+
+impl Burst {
+    fn keyboard_advert(self) -> Option<Instant> {
+        if self.manufacturer_data {
+            None
+        } else {
+            self.first_rssi
+        }
+    }
 }
 
 impl AdvertBursts {
-    /// How long after an `RSSI` change its `ManufacturerData` may still come (measured: under 30 µs, same signal).
+    /// How long after the first change of a signal the rest of it may still come (measured: under 30 µs, same signal).
     pub const QUIET: Duration = Duration::from_millis(50);
 
-    /// Feeds one change; returns the time of a keyboard advertisement this concludes.
+    /// Feeds one change; returns the time of a keyboard advertisement when this change comes `QUIET` or more after the
+    /// start of the open burst, which it then concludes before opening the next one.
     pub fn on_change(&mut self, change: HeldChange, now: Instant) -> Option<Instant> {
+        let concluded = match self.burst {
+            Some(burst) if now >= burst.started + Self::QUIET => self.burst.take().and_then(Burst::keyboard_advert),
+            _ => None,
+        };
+        let burst = self.burst.get_or_insert(Burst { started: now, first_rssi: None, manufacturer_data: false });
         match change {
-            HeldChange::Rssi => self.pending.replace(now),
-            HeldChange::ManufacturerData => {
-                self.pending = None;
-                None
+            HeldChange::Rssi => {
+                burst.first_rssi.get_or_insert(now);
             }
-            HeldChange::Other => self.pending.take(),
+            HeldChange::ManufacturerData => burst.manufacturer_data = true,
+            HeldChange::Other => {}
         }
+        concluded
     }
 
-    /// `QUIET` has passed since the last change; returns the time of a keyboard advertisement this concludes.
+    /// `QUIET` has passed since the burst started; returns the time of a keyboard advertisement this concludes.
     pub fn on_quiet(&mut self) -> Option<Instant> {
-        self.pending.take()
+        self.burst.take().and_then(Burst::keyboard_advert)
     }
 
-    /// When `on_quiet` is due, if anything is pending.
+    /// When `on_quiet` is due, if a burst is open.
     pub fn quiet_at(&self) -> Option<Instant> {
-        self.pending.map(|at| at + Self::QUIET)
+        self.burst.map(|burst| burst.started + Self::QUIET)
     }
 }
 
@@ -185,7 +211,29 @@ mod tests {
         let mut bursts = AdvertBursts::default();
         assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
         assert_eq!(bursts.on_change(HeldChange::ManufacturerData, t), None);
+        assert_eq!(bursts.on_quiet(), None);
         assert_eq!(bursts.quiet_at(), None);
+    }
+
+    #[test]
+    fn manufacturer_data_then_rssi_at_the_same_instant_is_not_a_keyboard_advert() {
+        // bluer splits one PropertiesChanged signal in HashMap order: ManufacturerData may come first.
+        let t = Instant::now();
+        let mut bursts = AdvertBursts::default();
+        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, t), None);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
+        assert_eq!(bursts.quiet_at(), Some(t + AdvertBursts::QUIET));
+        assert_eq!(bursts.on_quiet(), None);
+        assert_eq!(bursts.quiet_at(), None);
+    }
+
+    #[test]
+    fn rssi_then_other_then_manufacturer_data_within_quiet_is_not_a_keyboard_advert() {
+        let t = Instant::now();
+        let mut bursts = AdvertBursts::default();
+        assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
+        assert_eq!(bursts.on_change(HeldChange::Other, t + Duration::from_millis(1)), None);
+        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, t + Duration::from_millis(2)), None);
         assert_eq!(bursts.on_quiet(), None);
     }
 
@@ -200,15 +248,64 @@ mod tests {
     }
 
     #[test]
-    fn a_second_rssi_or_another_change_concludes_the_pending_one() {
+    fn another_change_joins_the_burst_and_does_not_end_it() {
         let t = Instant::now();
-        let later = t + Duration::from_millis(600);
         let mut bursts = AdvertBursts::default();
-        bursts.on_change(HeldChange::Rssi, t);
-        assert_eq!(bursts.on_change(HeldChange::Rssi, later), Some(t));
-        assert_eq!(bursts.on_change(HeldChange::Other, later), Some(later));
-        assert_eq!(bursts.on_change(HeldChange::Other, later), None);
-        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, later), None);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
+        assert_eq!(bursts.on_change(HeldChange::Other, t + Duration::from_millis(1)), None);
+        assert_eq!(bursts.on_change(HeldChange::Other, t + Duration::from_millis(2)), None);
+        assert_eq!(bursts.quiet_at(), Some(t + AdvertBursts::QUIET));
+        assert_eq!(bursts.on_quiet(), Some(t));
+    }
+
+    #[test]
+    fn the_advert_is_stamped_at_the_first_rssi_when_another_change_opened_the_burst() {
+        let t = Instant::now();
+        let rssi = t + Duration::from_millis(10);
+        let mut bursts = AdvertBursts::default();
+        assert_eq!(bursts.on_change(HeldChange::Other, t), None);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, rssi), None);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, rssi + Duration::from_millis(5)), None);
+        assert_eq!(bursts.quiet_at(), Some(t + AdvertBursts::QUIET));
+        assert_eq!(bursts.on_quiet(), Some(rssi));
+    }
+
+    #[test]
+    fn a_burst_without_rssi_is_not_a_keyboard_advert() {
+        let t = Instant::now();
+        let mut bursts = AdvertBursts::default();
+        assert_eq!(bursts.on_change(HeldChange::Other, t), None);
+        assert_eq!(bursts.on_quiet(), None);
+    }
+
+    #[test]
+    fn two_bursts_separated_by_more_than_quiet_are_handled_independently() {
+        let t = Instant::now();
+        let second = t + Duration::from_millis(600);
+        let mut bursts = AdvertBursts::default();
+        // A keyboard advert, then the phone's Continuity advert: the late change first concludes the earlier burst.
+        assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
+        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, second), Some(t));
+        assert_eq!(bursts.on_change(HeldChange::Rssi, second), None);
+        assert_eq!(bursts.quiet_at(), Some(second + AdvertBursts::QUIET));
+        assert_eq!(bursts.on_quiet(), None);
+        // A Continuity advert, then a keyboard advert, each concluded by its own quiet.
+        let third = second + Duration::from_millis(600);
+        let fourth = third + Duration::from_millis(600);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, third), None);
+        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, third), None);
+        assert_eq!(bursts.on_quiet(), None);
+        assert_eq!(bursts.on_change(HeldChange::Rssi, fourth), None);
+        assert_eq!(bursts.on_quiet(), Some(fourth));
+    }
+
+    #[test]
+    fn a_change_exactly_quiet_after_the_first_opens_a_new_burst() {
+        let t = Instant::now();
+        let mut bursts = AdvertBursts::default();
+        assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
+        assert_eq!(bursts.on_change(HeldChange::ManufacturerData, t + AdvertBursts::QUIET), Some(t));
+        assert_eq!(bursts.on_quiet(), None);
     }
 
     #[test]

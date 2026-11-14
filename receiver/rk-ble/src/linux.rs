@@ -12,9 +12,9 @@
 //! 4. Reading and writing share one task: notifications of `event` become [`LinkEvent::Notification`], a write of
 //!    `control` is a Write Request that waits for its response.
 //! 5. Next to a link made through the selected UUID a separate task runs one discovery (no restart, no purge) and follows
-//!    the held phone's `RSSI` changes: a change not followed by `ManufacturerData` is one advertisement of the keyboard
-//!    (`stale::AdvertBursts`). The link task only gets those as messages and decides with `is_stale_link`; it never waits
-//!    on D-Bus while the link is open.
+//!    the held phone's property changes: the changes of one advertisement, in any order, form a burst, and a burst with
+//!    `RSSI` but no `ManufacturerData` is one advertisement of the keyboard (`stale::AdvertBursts`). The link task only
+//!    gets those as messages and decides with `is_stale_link`; it never waits on D-Bus while the link is open.
 //!
 //! No root and no change to the system: only the sockets and D-Bus calls above. Nothing here touches another controller
 //! than the one chosen.
@@ -498,9 +498,9 @@ struct HeldAdvert {
     uuids: Vec<Uuid>,
 }
 
-/// Runs one discovery for as long as it is not aborted and reports each advertisement of the phone at `address` that
-/// carries no manufacturer data (see [`AdvertBursts`]). If it cannot start or its streams end, that is logged once and
-/// stale detection is off for this link: the link itself is not affected.
+/// Runs one discovery for as long as it is not aborted and reports each advertisement of the phone at `address` whose
+/// burst of changes holds `RSSI` and no manufacturer data (see [`AdvertBursts`]). If it cannot start or its streams end,
+/// that is logged once and stale detection is off for this link: the link itself is not affected.
 async fn watch_held(session: Session, adapter_name: String, address: Address, conn: u64, seen: mpsc::Sender<HeldAdvert>, events: mpsc::Sender<LinkEvent>) {
     let setup = async {
         let adapter = session.adapter(&adapter_name)?;
