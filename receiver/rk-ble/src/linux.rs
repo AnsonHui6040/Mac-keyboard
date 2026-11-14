@@ -11,6 +11,10 @@
 //!    services. The handles of the last good link are checked with one request and reused.
 //! 4. Reading and writing share one task: notifications of `event` become [`LinkEvent::Notification`], a write of
 //!    `control` is a Write Request that waits for its response.
+//! 5. Next to a link made through the selected UUID a separate task runs one discovery (no restart, no purge) and follows
+//!    the held phone's `RSSI` changes: a change not followed by `ManufacturerData` is one advertisement of the keyboard
+//!    (`stale::AdvertBursts`). The link task only gets those as messages and decides with `is_stale_link`; it never waits
+//!    on D-Bus while the link is open.
 //!
 //! No root and no change to the system: only the sockets and D-Bus calls above. Nothing here touches another controller
 //! than the one chosen.
@@ -19,7 +23,7 @@ use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase,
 use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
 use crate::flow::ScanBackoff;
-use crate::stale::{is_stale_link, Advert, HeldLink};
+use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use bluer::l2cap::{SeqPacket, Socket, SocketAddr};
 use bluer::{Adapter, AdapterEvent, Address, AddressType, DeviceEvent, DeviceProperty, DiscoveryFilter, DiscoveryTransport, Session};
@@ -79,6 +83,7 @@ impl AttTransport for Seq {
 
 // ---------------------------------------------------------------- what the scan found
 
+#[derive(Clone, Copy)]
 struct Sighting {
     /// The controller that saw it; the socket binds to it.
     local: Address,
@@ -297,7 +302,7 @@ impl Worker {
                     drop(stream.take());
                     changes = SelectAll::new();
                     wait_until_idle(&scanner.adapter).await;
-                    purge(&scanner.adapter, None).await;
+                    purge(&scanner.adapter).await;
                     match scanner.adapter.discover_devices().await {
                         Ok(events) => stream = Some(events.boxed()),
                         Err(_) => return Watched::Failed(ScanFailure::Unavailable),
@@ -354,27 +359,24 @@ impl Worker {
             tokio::pin!(attempt);
             loop {
                 tokio::select! {
-                    result = &mut attempt => break Some(result),
-                    command = rx.recv() => match command {
-                        None => return Served::Quit,
-                        Some(LinkCommand::Disconnect) => break None,
-                        other => { self.apply(other); }
-                    },
+                    result = &mut attempt => break result,
+                    // A `Disconnect` here was meant for the link before this one (it has no `Connected` yet): dropped, as on
+                    // Windows.
+                    command = rx.recv() => if !self.apply(command) { return Served::Quit },
                 }
             }
         };
         match opened {
-            None => Served::of(self.emit(LinkEvent::Disconnected { conn, device: key, reason: DisconnectReason::Local }).await),
-            Some(Err(kind)) => {
+            Err(kind) => {
                 if forgets_handles(kind) {
                     self.cache = None;
                 }
                 Served::of(self.failed_connect(rx, conn, key, adv_at, kind).await)
             }
-            Some(Ok(live)) => {
+            Ok(live) => {
                 self.failures = 0;
                 self.cache = Some(live.handles);
-                self.serve(rx, conn, key, sighting.route, adv_at, live).await
+                self.serve(rx, conn, key, sighting, adv_at, live).await
             }
         }
     }
@@ -395,47 +397,30 @@ impl Worker {
     /// Runs one open link until it ends.
     ///
     /// The phone advertises its selected UUID only while no central is subscribed: seeing it again means it has let go of
-    /// this link, which would otherwise be kept until the supervision timeout. So discovery keeps running next to a link
-    /// made through the selected UUID (restarted every 1.5 s as when scanning, the held device itself never removed), and
-    /// an advert that `is_stale_link` calls stale ends the link and names the next target.
-    async fn serve(&mut self, rx: &mut mpsc::Receiver<LinkCommand>, conn: u64, device: DeviceKey, route: Route, adv_at: Instant, live: Live) -> Served {
+    /// this link, which would otherwise be kept until the supervision timeout. Next to a link made through the selected
+    /// UUID [`watch_held`] runs in its own task and reports the phone's advertisements; one that `is_stale_link` calls
+    /// stale ends the link and names the phone as the next target.
+    async fn serve(&mut self, rx: &mut mpsc::Receiver<LinkCommand>, conn: u64, device: DeviceKey, sighting: Sighting, adv_at: Instant, live: Live) -> Served {
         let Live { subscribed_at, mut att, handles, mtu } = live;
+        let route = sighting.route;
         if !self.emit(LinkEvent::Connected { conn, device, route, mtu }).await {
             return Served::Quit;
         }
-        let scanner = if route == Route::Selected { self.scanner().await.ok() } else { None };
-        let mut stream: Option<AdapterEvents> = None;
-        let mut changes: Merged = SelectAll::new();
-        let mut restart = interval(RESTART_EVERY);
-        restart.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let (seen_tx, mut seen) = mpsc::channel::<HeldAdvert>(16);
+        let watcher = match (&self.session, &self.announced_adapter) {
+            (Some(session), Some(name)) if route == Route::Selected => {
+                Some(tokio::spawn(watch_held(session.clone(), name.clone(), sighting.address, conn, seen_tx, self.events.clone())))
+            }
+            _ => None,
+        };
         let mut replaced: Option<Sighting> = None;
         let mut gone = false;
         let reason = loop {
             tokio::select! {
-                _ = restart.tick(), if scanner.is_some() => {
-                    let Some(scanner) = &scanner else { continue };
-                    drop(stream.take());
-                    changes = SelectAll::new();
-                    wait_until_idle(&scanner.adapter).await;
-                    purge(&scanner.adapter, Some(address_of(device))).await;
-                    stream = scanner.adapter.discover_devices().await.ok().map(StreamExt::boxed);
-                }
-                added = next_event(&mut stream), if scanner.is_some() => {
-                    if let (Some(AdapterEvent::DeviceAdded(address)), Some(scanner)) = (added, &scanner) {
-                        if let Some(uuids) = watch_device(&scanner.adapter, address, &mut changes).await {
-                            replaced = self.stale_sighting(scanner, address, &uuids, device, route, subscribed_at).await;
-                        }
-                        if replaced.is_some() {
-                            break DisconnectReason::StaleAdvert;
-                        }
-                    }
-                }
-                Some((address, uuids)) = changes.next(), if !changes.is_empty() => {
-                    if let Some(scanner) = &scanner {
-                        replaced = self.stale_sighting(scanner, address, &uuids, device, route, subscribed_at).await;
-                        if replaced.is_some() {
-                            break DisconnectReason::StaleAdvert;
-                        }
+                Some(advert) = seen.recv(), if watcher.is_some() => {
+                    if self.advert_is_stale(&advert, device, route, subscribed_at) {
+                        replaced = Some(Sighting { route: Route::Selected, ..sighting });
+                        break DisconnectReason::StaleAdvert;
                     }
                 }
                 incoming = att.next_notification() => match incoming {
@@ -476,12 +461,15 @@ impl Worker {
         }
         // Closing the socket is what hangs up.
         drop(att);
-        if let Some(scanner) = &scanner {
-            drop(stream.take());
-            drop(changes);
+        if let Some(watcher) = watcher {
+            // Ending the task drops its discovery; BlueZ stops it a moment later.
+            watcher.abort();
+            let _ = watcher.await;
             // Not on the way out: the application is leaving and the controller is let go of with the process.
             if !gone {
-                wait_until_idle(&scanner.adapter).await;
+                if let Some(adapter) = self.current_adapter() {
+                    wait_until_idle(&adapter).await;
+                }
             }
         }
         if !self.emit(LinkEvent::Disconnected { conn, device, reason }).await || gone {
@@ -490,22 +478,78 @@ impl Worker {
         replaced.map_or(Served::Ended, Served::Reconnect)
     }
 
-    /// The sighting of an advertisement that makes the held link stale, if it is one.
-    async fn stale_sighting(&self, scanner: &Scanner, address: Address, uuids: &HashSet<Uuid>, held: DeviceKey, route: Route, subscribed_at: Instant) -> Option<Sighting> {
-        let advertised: Vec<Uuid> = uuids.iter().copied().collect();
-        let advert = Advert { device: device_key(address.0), route: match_route(&advertised, self.cfg.select, self.cfg.pairing, self.pairing_on) };
-        let link = HeldLink { route, device: held, subscribed_for: Some(subscribed_at.elapsed()) };
-        if !is_stale_link(link, advert) {
-            return None;
-        }
-        self.sighting(scanner, address, uuids).await
+    /// The controller last used for scanning, without a D-Bus call.
+    fn current_adapter(&self) -> Option<Adapter> {
+        self.session.as_ref()?.adapter(self.announced_adapter.as_deref()?).ok()
+    }
+
+    /// Whether an advertisement of the held phone makes the link stale; the grace counts to when it was seen.
+    fn advert_is_stale(&self, advert: &HeldAdvert, held: DeviceKey, route: Route, subscribed_at: Instant) -> bool {
+        let link = HeldLink { route, device: held, subscribed_for: Some(age_at(subscribed_at, advert.seen_at)) };
+        let seen = Advert { device: held, route: match_route(&advert.uuids, self.cfg.select, self.cfg.pairing, self.pairing_on) };
+        is_stale_link(link, seen)
     }
 }
 
-/// The Bluetooth address a device key stands for.
-fn address_of(key: DeviceKey) -> Address {
-    let bytes = key.0.to_be_bytes();
-    Address::new([bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]])
+/// One advertisement of the held phone, as [`watch_held`] concluded it.
+struct HeldAdvert {
+    seen_at: Instant,
+    /// The phone's `UUIDs` as BlueZ lists them then.
+    uuids: Vec<Uuid>,
+}
+
+/// Runs one discovery for as long as it is not aborted and reports each advertisement of the phone at `address` that
+/// carries no manufacturer data (see [`AdvertBursts`]). If it cannot start or its streams end, that is logged once and
+/// stale detection is off for this link: the link itself is not affected.
+async fn watch_held(session: Session, adapter_name: String, address: Address, conn: u64, seen: mpsc::Sender<HeldAdvert>, events: mpsc::Sender<LinkEvent>) {
+    let setup = async {
+        let adapter = session.adapter(&adapter_name)?;
+        let device = adapter.device(address)?;
+        let changes = device.events().await?;
+        let uuids: Vec<Uuid> = device.uuids().await?.unwrap_or_default().into_iter().collect();
+        let discovery = adapter.discover_devices().await?;
+        bluer::Result::Ok((changes, uuids, discovery))
+    };
+    let Ok((mut changes, mut uuids, mut discovery)) = setup.await else {
+        emit_diag(&events, Diag::new(conn, "stale_watch").with("state", Value::S("unavailable"))).await;
+        return;
+    };
+    emit_diag(&events, Diag::new(conn, "stale_watch").debug().with("state", Value::S("on"))).await;
+    let mut bursts = AdvertBursts::default();
+    loop {
+        let quiet_at = bursts.quiet_at();
+        let concluded = tokio::select! {
+            // Drained only so that BlueZ's events do not pile up; the held phone is followed through `changes`.
+            found = discovery.next() => match found {
+                Some(_) => None,
+                None => break,
+            },
+            change = changes.next() => match change {
+                Some(DeviceEvent::PropertyChanged(DeviceProperty::Rssi(_))) => bursts.on_change(HeldChange::Rssi, Instant::now()),
+                Some(DeviceEvent::PropertyChanged(DeviceProperty::ManufacturerData(_))) => bursts.on_change(HeldChange::ManufacturerData, Instant::now()),
+                Some(DeviceEvent::PropertyChanged(DeviceProperty::Uuids(now))) => {
+                    uuids = now.into_iter().collect();
+                    bursts.on_change(HeldChange::Other, Instant::now())
+                }
+                Some(_) => bursts.on_change(HeldChange::Other, Instant::now()),
+                None => break,
+            },
+            () = sleep_until_opt(quiet_at) => bursts.on_quiet(),
+        };
+        if let Some(seen_at) = concluded {
+            if seen.send(HeldAdvert { seen_at, uuids: uuids.clone() }).await.is_err() {
+                return;
+            }
+        }
+    }
+    emit_diag(&events, Diag::new(conn, "stale_watch").with("state", Value::S("unavailable"))).await;
+}
+
+async fn sleep_until_opt(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+        None => std::future::pending().await,
+    }
 }
 
 fn reason_of(error: &AttError) -> DisconnectReason {
@@ -535,12 +579,9 @@ async fn wait_until_idle(adapter: &Adapter) {
 
 /// Removes the devices BlueZ only knows from scanning, so that a changed advertisement is a new device. Paired and
 /// connected devices stay.
-async fn purge(adapter: &Adapter, keep: Option<Address>) {
+async fn purge(adapter: &Adapter) {
     let Ok(addresses) = adapter.device_addresses().await else { return };
     for address in addresses {
-        if keep == Some(address) {
-            continue;
-        }
         let Ok(device) = adapter.device(address) else { continue };
         if device.is_paired().await.unwrap_or(true) || device.is_connected().await.unwrap_or(true) {
             continue;

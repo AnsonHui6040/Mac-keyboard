@@ -17,7 +17,7 @@
 
 use crate::diag::{Diag, FailKind, Value};
 use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff};
-use crate::stale::{is_stale_link, Advert, HeldLink};
+use crate::stale::{age_at, is_stale_link, Advert, HeldLink, WatchRestart};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use std::collections::HashMap;
 use std::sync::mpsc as std_mpsc;
@@ -81,6 +81,8 @@ struct Sighting {
     address: u64,
     address_type: BluetoothAddressType,
     route: Route,
+    /// When the advertisement arrived (the stale-link grace counts to here, not to when it is looked at).
+    seen_at: Instant,
 }
 
 /// Why a stopped watcher stopped, as seen by the `Stopped` event; filled in by the handler, read by the scan loop.
@@ -113,7 +115,7 @@ fn start_watcher(scan: Arc<Mutex<ScanFilter>>, found: std_mpsc::Sender<Sighting>
             return Ok(());
         }
         let route = if selected { Route::Selected } else { Route::Pairing };
-        let _ = found.send(Sighting { address, address_type: args.BluetoothAddressType()?, route });
+        let _ = found.send(Sighting { address, address_type: args.BluetoothAddressType()?, route, seen_at: Instant::now() });
         Ok(())
     }))?;
     let stopped_because: StopReason = Arc::new(Mutex::new(None));
@@ -494,11 +496,23 @@ impl Worker {
         // The phone advertises its selected UUID only while no central is subscribed: seeing it again means it has let go of
         // this link, which Windows would keep for about ten more seconds. The scan runs next to the link for that.
         let (seen_tx, seen) = std_mpsc::channel();
-        let watching = if route == Route::Selected { start_watcher(self.scan.clone(), seen_tx).ok() } else { None };
+        let mut watching = if route == Route::Selected { start_watcher(self.scan.clone(), seen_tx.clone()).ok() } else { None };
+        let mut restart = WatchRestart::default();
         let mut replaced = None;
         let reason = loop {
             if link.lost.try_recv().is_ok() {
                 break DisconnectReason::LinkLost;
+            }
+            // A watcher the system stopped is started again once, after a pause; a second stop turns stale detection off.
+            if watching.as_ref().is_some_and(|(watcher, why)| watcher_stopped(watcher, why)) {
+                stop_watching(watching.take());
+                let state = if restart.stopped(Instant::now()) { "restarting" } else { "unavailable" };
+                self.diag(Diag::new(conn, "stale_watch").at(millis(adv_at)).with("state", Value::S(state)));
+            }
+            if watching.is_none() && restart.due(Instant::now()) {
+                watching = start_watcher(self.scan.clone(), seen_tx.clone()).ok();
+                let state = if watching.is_some() { "restarted" } else { "unavailable" };
+                self.diag(Diag::new(conn, "stale_watch").at(millis(adv_at)).with("state", Value::S(state)));
             }
             if let Some(sighting) = self.stale_advert(&seen, device, route, link.subscribed_at) {
                 self.diag(Diag::new(conn, "stale_link").at(millis(adv_at)).with("ms", Value::U(millis(link.subscribed_at))));
@@ -546,9 +560,16 @@ impl Worker {
 
     /// The first advertisement of what the watcher has seen that makes the held link stale.
     fn stale_advert(&self, seen: &std_mpsc::Receiver<Sighting>, device: DeviceKey, route: Route, subscribed_at: Instant) -> Option<Sighting> {
-        let link = HeldLink { route, device, subscribed_for: Some(subscribed_at.elapsed()) };
-        seen.try_iter().find(|s| is_stale_link(link, Advert { device: DeviceKey(s.address), route: Some(s.route) }))
+        seen.try_iter().find(|s| {
+            let link = HeldLink { route, device, subscribed_for: Some(age_at(subscribed_at, s.seen_at)) };
+            is_stale_link(link, Advert { device: DeviceKey(s.address), route: Some(s.route) })
+        })
     }
+}
+
+/// The system stopped the watcher (radio off, an error): it no longer reports anything.
+fn watcher_stopped(watcher: &BluetoothLEAdvertisementWatcher, why: &StopReason) -> bool {
+    why.lock().unwrap_or_else(|p| p.into_inner()).is_some() || watcher.Status().is_ok_and(|status| status == BluetoothLEAdvertisementWatcherStatus::Aborted)
 }
 
 fn stop_watching(watching: Option<(BluetoothLEAdvertisementWatcher, StopReason)>) {
