@@ -127,14 +127,15 @@ fn backend_error(what: &str) -> StoreError {
 }
 
 impl PhoneBackend for CredentialBackend {
-    fn load(&self) -> Vec<PairedPhone> {
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
         let filter = wide(&format!("{CREDENTIAL_PREFIX}*"));
         let (mut count, mut list) = (0u32, std::ptr::null_mut());
         let mut found: Vec<(String, PairedPhone)> = Vec::new();
         // SAFETY: CredEnumerateW fills `count` pointers to credentials owned by the buffer, which is read before CredFree.
         unsafe {
+            // "Nothing found" is an error to CredEnumerateW too; there is no locked state to tell apart on Windows.
             if CredEnumerateW(PCWSTR(filter.as_ptr()), Some(CRED_ENUMERATE_FLAGS(0)), &mut count, &mut list).is_err() {
-                return Vec::new();
+                return Ok(Vec::new());
             }
             for credential in std::slice::from_raw_parts(list, count as usize) {
                 let credential = &**credential;
@@ -146,7 +147,7 @@ impl PhoneBackend for CredentialBackend {
             CredFree(list.cast());
         }
         found.sort_by(|a, b| a.0.cmp(&b.0));
-        found.into_iter().map(|(_, phone)| phone).collect()
+        Ok(found.into_iter().map(|(_, phone)| phone).collect())
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {

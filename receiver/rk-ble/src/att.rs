@@ -410,7 +410,11 @@ async fn exchange_mtu<T: AttTransport>(att: &mut AttClient<T>) -> Result<(), Att
 async fn cached_handles_still_valid<T: AttTransport>(att: &mut AttClient<T>, cached: HandleSet, uuids: ServiceUuids) -> Result<bool, AttError> {
     let request = read_by_type_request(cached.service_start, cached.service_end, UUID16_CHARACTERISTIC);
     let declarations = match att.request(request, REQUEST_TIMEOUT).await {
-        Ok(response) => parse_characteristics(&response)?,
+        // An answer that cannot be read is no answer to "are they still there": discover instead.
+        Ok(response) => match parse_characteristics(&response) {
+            Ok(declarations) => declarations,
+            Err(_) => return Ok(false),
+        },
         Err(AttError::Protocol { .. }) => return Ok(false),
         Err(other) => return Err(other),
     };
@@ -552,12 +556,14 @@ mod tests {
         inbox: VecDeque<Vec<u8>>,
         sent: Rc<RefCell<Vec<Vec<u8>>>>,
         mtu: u16,
+        /// The next Read By Type is answered with something that is not a response.
+        garble_next_read_by_type: bool,
     }
 
     impl Phone {
         fn new(layout: Layout) -> (Self, Rc<RefCell<Vec<Vec<u8>>>>) {
             let sent = Rc::new(RefCell::new(Vec::new()));
-            (Self { layout, on_subscribe: Vec::new(), cccd_error: None, inbox: VecDeque::new(), sent: sent.clone(), mtu: 185 }, sent)
+            (Self { layout, on_subscribe: Vec::new(), cccd_error: None, inbox: VecDeque::new(), sent: sent.clone(), mtu: 185, garble_next_read_by_type: false }, sent)
         }
 
         fn error(&self, request: &[u8], code: u8) -> Vec<u8> {
@@ -589,6 +595,7 @@ mod tests {
                         vec![self.error(request, ERR_ATTRIBUTE_NOT_FOUND)]
                     }
                 }
+                OP_READ_BY_TYPE_REQUEST if std::mem::take(&mut self.garble_next_read_by_type) => vec![vec![OP_READ_BY_TYPE_RESPONSE, 0x00]],
                 OP_READ_BY_TYPE_REQUEST => {
                     let from = u16::from_le_bytes([request[1], request[2]]);
                     let to = u16::from_le_bytes([request[3], request[4]]);
@@ -922,6 +929,19 @@ mod tests {
         assert_eq!(ops[..3], [OP_MTU_REQUEST, OP_READ_BY_TYPE_REQUEST, OP_FIND_BY_TYPE_VALUE_REQUEST]);
         let writes: Vec<_> = sent.borrow().iter().filter(|p| p[0] == OP_WRITE_REQUEST).cloned().collect();
         assert_eq!(writes, vec![write_request(0x43, &[1, 0])], "only the discovered CCCD is written");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cache_check_answered_with_garbage_means_discover_again() {
+        let cached = HandleSet { service_start: 0x20, service_end: 0x28, event: 0x22, control: 0x26, cccd: 0x23 };
+        let (mut phone, sent) = Phone::new(LAYOUT);
+        phone.garble_next_read_by_type = true;
+        let mut att = AttClient::new(phone);
+        let mut phases = Vec::new();
+        let done = establish(&mut att, Some(cached), UUIDS, |p| phases.push(p)).await.unwrap();
+        assert_eq!(done.handles, cached);
+        assert_eq!(phases, vec![Phase::Mtu(185), Phase::Discovered { cached: false }, Phase::Subscribed]);
+        assert!(opcodes(&sent).contains(&OP_FIND_BY_TYPE_VALUE_REQUEST), "the handles were looked for afresh");
     }
 
     #[tokio::test(start_paused = true)]

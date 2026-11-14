@@ -24,6 +24,7 @@ fn state() -> TrayState {
         trackpad: false,
         autostart: false,
         paste_non_ascii: true,
+        needs_authorization: false,
     }
 }
 
@@ -77,6 +78,8 @@ fn autostart_desktop_file_contents() {
 fn the_exec_line_quotes_what_the_desktop_entry_spec_wants_quoted() {
     assert_eq!(desktop_exec_quote(Path::new("/home/me/my apps/rk")), "\"/home/me/my apps/rk\"");
     assert_eq!(desktop_exec_quote(Path::new("/a/b\"c")), "\"/a/b\\\\\"c\"");
+    // A backslash is escaped by a backslash for the Exec key, and each of those again for the file: four in all.
+    assert_eq!(desktop_exec_quote(Path::new("/a/b\\c")), "\"/a/b\\\\\\\\c\"");
     assert_eq!(desktop_exec_quote(Path::new("/a/$b")), "\"/a/\\\\$b\"");
     assert_eq!(desktop_exec_quote(Path::new("/a/100%")), "/a/100%%");
     assert_eq!(desktop_exec_quote(Path::new("/plain/path")), "/plain/path");
@@ -108,6 +111,12 @@ fn config_paths_follow_xdg() {
     assert_eq!(data_file(home, Some(Path::new("/d"))), Path::new("/d/remote-keyboard/phones.json"));
     assert_eq!(lock_file(Some(Path::new("/run/user/1000")), Path::new("/tmp")), Path::new("/run/user/1000/remote-keyboard.lock"));
     assert_eq!(lock_file(None, Path::new("/home/a/.local/state")), Path::new("/home/a/.local/state/remote-keyboard.lock"));
+}
+
+#[test]
+fn the_portal_token_sits_next_to_the_config_file() {
+    assert_eq!(portal_token_file(Path::new("/home/a/.config/remote-keyboard/config.json")), Path::new("/home/a/.config/remote-keyboard/portal-token"));
+    assert_eq!(portal_token_file(Path::new("config.json")), Path::new("portal-token"));
 }
 
 #[test]
@@ -167,6 +176,15 @@ fn the_status_line_names_the_connected_phone_or_the_state() {
     assert_eq!(status_label(&s, Lang::En), "Pairing: open the pairing screen on the phone");
     s.connected_phone = Some("我的 iPhone".into());
     assert_eq!(status_label(&s, Lang::ZhTw), "已連線：我的 iPhone");
+}
+
+#[test]
+fn the_status_line_asks_for_authorization_until_the_computer_allows_typing() {
+    let mut s = state();
+    s.needs_authorization = true;
+    assert_eq!(status_label(&s, Lang::ZhTw), "電腦未授權，請選「重新授權」");
+    s.connected_phone = Some("我的 iPhone".into());
+    assert_eq!(status_label(&s, Lang::ZhTw), "已連線：我的 iPhone", "a connected phone is the more useful thing to say");
 }
 
 #[test]
@@ -269,8 +287,10 @@ fn only_exit_code_zero_is_yes_and_an_entry_is_cancelled_by_anything_else() {
 #[test]
 fn a_restart_drops_the_arguments_that_only_belong_to_the_first_start() {
     let args: Vec<String> = ["--pair", "--adapter", "hci1", "--log-level", "debug"].iter().map(|s| (*s).to_string()).collect();
-    assert_eq!(restart_args(&args), vec!["--log-level".to_string(), "debug".to_string()]);
-    assert!(restart_args(&[]).is_empty());
+    let strings = |list: &[&str]| list.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+    // The controller that was chosen is named outright, so the new start never falls back to the system default.
+    assert_eq!(restart_args(&args, "hci0"), strings(&["--log-level", "debug", "--adapter", "hci0"]));
+    assert_eq!(restart_args(&[], "hci1"), strings(&["--adapter", "hci1"]));
 }
 
 // ---------------------------------------------------------------- the key store without Secret Service
@@ -280,13 +300,13 @@ fn the_phones_file_round_trips_and_is_private() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("share").join("phones.json");
     let mut file = FilePhoneBackend::new(path.clone());
-    assert!(file.load().is_empty());
+    assert!(file.load().unwrap().is_empty());
     file.put(&phone(1)).unwrap();
     file.put(&phone(2)).unwrap();
     let mut renamed = phone(1);
     renamed.identity.name = "renamed".into();
     file.put(&renamed).unwrap();
-    let loaded = FilePhoneBackend::new(path.clone()).load();
+    let loaded = FilePhoneBackend::new(path.clone()).load().unwrap();
     assert_eq!(loaded.iter().map(|p| p.identity.name.as_str()).collect::<Vec<_>>(), vec!["renamed", "phone 2"]);
     assert_eq!(loaded[1], phone(2));
     #[cfg(unix)]
@@ -295,7 +315,30 @@ fn the_phones_file_round_trips_and_is_private() {
         assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
     }
     file.remove(&[1; 16]).unwrap();
-    assert_eq!(FilePhoneBackend::new(path).load().len(), 1);
+    assert_eq!(FilePhoneBackend::new(path).load().unwrap().len(), 1);
+}
+
+#[test]
+fn a_stale_temporary_file_is_replaced_and_the_result_is_private() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("phones.json");
+    // A crash left a world-readable temporary file behind.
+    let stale = path.with_extension("json.tmp");
+    std::fs::write(&stale, "old").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+    let mut file = FilePhoneBackend::new(path.clone());
+    file.put(&phone(1)).unwrap();
+    assert!(!stale.exists(), "the temporary file is gone after the rename");
+    assert_eq!(FilePhoneBackend::new(path.clone()).load().unwrap(), vec![phone(1)]);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
 }
 
 #[test]
@@ -304,7 +347,7 @@ fn an_unreadable_phones_file_is_never_overwritten() {
     let path = dir.path().join("phones.json");
     std::fs::write(&path, "{ not json").unwrap();
     let mut file = FilePhoneBackend::new(path.clone());
-    assert!(file.load().is_empty());
+    assert!(file.load().is_err(), "unreadable is not the same as empty");
     assert!(file.put(&phone(1)).is_err());
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
@@ -313,8 +356,11 @@ fn an_unreadable_phones_file_is_never_overwritten() {
 struct ListBackend(Arc<Mutex<Vec<PairedPhone>>>, bool);
 
 impl PhoneBackend for ListBackend {
-    fn load(&self) -> Vec<PairedPhone> {
-        self.0.lock().unwrap().clone()
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+        if self.1 {
+            return Err(StoreError::Backend("locked".into()));
+        }
+        Ok(self.0.lock().unwrap().clone())
     }
     fn put(&mut self, p: &PairedPhone) -> Result<(), StoreError> {
         if self.1 {
@@ -340,9 +386,9 @@ fn with_a_key_store_new_phones_go_there_and_old_file_phones_stay_visible() {
     let mut chain = ChainedBackend::new(Some(Box::new(keystore.clone())), file);
     chain.put(&phone(1)).unwrap();
     assert_eq!(keystore.0.lock().unwrap().len(), 1, "new phone in the key store");
-    assert_eq!(chain.load().iter().map(|p| p.identity.id[0]).collect::<Vec<_>>(), vec![1, 9]);
+    assert_eq!(chain.load().unwrap().iter().map(|p| p.identity.id[0]).collect::<Vec<_>>(), vec![1, 9]);
     chain.remove(&[9; 16]).unwrap();
-    assert_eq!(chain.load().len(), 1, "removed from the file too");
+    assert_eq!(chain.load().unwrap().len(), 1, "removed from the file too");
 }
 
 #[test]
@@ -350,9 +396,29 @@ fn without_a_key_store_the_file_is_used() {
     let dir = tempfile::tempdir().unwrap();
     let mut chain = ChainedBackend::new(None, FilePhoneBackend::new(dir.path().join("phones.json")));
     chain.put(&phone(3)).unwrap();
-    assert_eq!(chain.load(), vec![phone(3)]);
+    assert_eq!(chain.load().unwrap(), vec![phone(3)]);
     chain.remove(&[3; 16]).unwrap();
-    assert!(chain.load().is_empty());
+    assert!(chain.load().unwrap().is_empty());
+}
+
+#[test]
+fn a_key_store_that_cannot_be_read_makes_the_list_unknown_not_empty() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut file = FilePhoneBackend::new(dir.path().join("phones.json"));
+    file.put(&phone(9)).unwrap();
+    let chain = ChainedBackend::new(Some(Box::new(ListBackend(Arc::default(), true))), file);
+    assert!(chain.load().is_err(), "a locked keyring must not look like \"no phones\"");
+}
+
+#[test]
+fn a_damaged_phones_file_does_not_hide_the_key_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("phones.json");
+    std::fs::write(&path, "{ not json").unwrap();
+    let keystore = ListBackend::default();
+    keystore.0.lock().unwrap().push(phone(1));
+    let chain = ChainedBackend::new(Some(Box::new(keystore)), FilePhoneBackend::new(path));
+    assert_eq!(chain.load().unwrap(), vec![phone(1)]);
 }
 
 #[test]

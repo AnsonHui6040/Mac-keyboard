@@ -6,7 +6,7 @@ use crate::clock::FakeClock;
 use crate::config::Config;
 use crate::log::{Level, MemorySink};
 use crate::random::SequenceRandom;
-use crate::store::{MemoryConfigStore, MemoryPhoneStore};
+use crate::store::{MemoryConfigStore, MemoryPhoneStore, StoreError};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use rk_ble::fake::FakeLink;
@@ -23,6 +23,7 @@ use rk_core::pairing::{PhonePairing, PhonePairingOutput};
 use rk_core::pointer::{Opcode, PointerPayload};
 use rk_core::secret::PairKey;
 use rk_inject::{Button, Call, RecordingInjector};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -60,6 +61,15 @@ impl Rig {
     }
 
     fn build(level: Level, pair_at_start: bool) -> Self {
+        Self::build_with(level, pair_at_start, None)
+    }
+
+    /// A receiver whose key store is `store` (a stand-in for a keyring that can be locked).
+    fn with_store(store: Box<dyn PhoneStore>) -> Self {
+        Self::build_with(Level::Info, false, Some(store))
+    }
+
+    fn build_with(level: Level, pair_at_start: bool, custom_store: Option<Box<dyn PhoneStore>>) -> Self {
         let clock = Arc::new(FakeClock::new(T0));
         let logs = MemorySink::new();
         let logger = Logger::new(Box::new(logs.clone()), clock.clone(), level);
@@ -69,7 +79,7 @@ impl Rig {
         let app = App::new(AppDeps {
             config: Config::new(HOST_ID, HostPlatform::Windows),
             platform: HostPlatform::Windows,
-            store: Box::new(store.clone()),
+            store: custom_store.unwrap_or_else(|| Box::new(store.clone())),
             config_store: Box::new(configs.clone()),
             injector: Box::new(injector.clone()),
             clock: clock.clone(),
@@ -305,6 +315,104 @@ fn choosing_a_bluetooth_controller_is_saved_and_the_link_config_follows() {
     assert_eq!(rig.app.link_config().adapter.as_deref(), Some("hci1"));
     rig.command(UiCommand::SetAdapter(None));
     assert_eq!(rig.configs.last().unwrap().adapter, None);
+}
+
+/// A key store that cannot be read while `locked` is set.
+#[derive(Clone)]
+struct LockableStore {
+    inner: MemoryPhoneStore,
+    locked: Arc<AtomicBool>,
+}
+
+impl PhoneStore for LockableStore {
+    fn phones(&self) -> Vec<PairedPhone> {
+        if self.locked.load(Ordering::SeqCst) { Vec::new() } else { self.inner.phones() }
+    }
+    fn unavailable(&self) -> bool {
+        self.locked.load(Ordering::SeqCst)
+    }
+    fn save(&mut self, p: PairedPhone) -> Result<(), StoreError> {
+        self.inner.save(p)
+    }
+    fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
+        self.inner.delete(id)
+    }
+}
+
+#[test]
+fn reauthorize_asks_the_injector_for_a_new_grant() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::Reauthorize);
+    assert_eq!(rig.injector.calls(), vec![Call::Reauthorize]);
+}
+
+#[test]
+fn the_paste_option_is_saved_and_handed_to_the_injector() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetPasteNonAscii(true));
+    rig.command(UiCommand::SetPasteNonAscii(false));
+    assert_eq!(rig.injector.calls(), vec![Call::SetPasteNonAscii(true), Call::SetPasteNonAscii(false)]);
+    assert!(!rig.configs.last().unwrap().paste_non_ascii);
+    assert!(!rig.last_tray().paste_non_ascii);
+}
+
+#[test]
+fn the_tray_asks_for_authorization_while_the_injector_is_not_trusted() {
+    let mut rig = Rig::new();
+    assert!(!rig.last_tray().needs_authorization);
+    rig.injector.set_ready(false);
+    rig.injector.set_trusted(false);
+    rig.advance(10);
+    let tray = rig.last_tray();
+    assert!(tray.needs_authorization);
+    assert_eq!(tray.icon, IconState::Attention);
+    rig.injector.set_ready(true);
+    rig.injector.set_trusted(true);
+    rig.advance(10);
+    let tray = rig.last_tray();
+    assert!(!tray.needs_authorization);
+    assert_eq!(tray.icon, IconState::Disconnected);
+}
+
+#[test]
+fn an_idle_receiver_still_looks_at_the_injector_now_and_then() {
+    // Nobody is connected, yet the tray must notice when the portal grant is given or lost.
+    let rig = Rig::new();
+    let wake = rig.app.next_wake_ms().expect("a wake-up is planned");
+    assert!(wake <= rig.app.now() + 2_000, "{wake}");
+}
+
+#[test]
+fn a_keyring_that_cannot_be_read_gives_one_notice_and_the_phones_return_when_it_opens() {
+    let inner = MemoryPhoneStore::new();
+    let locked = Arc::new(AtomicBool::new(true));
+    let mut rig = Rig::with_store(Box::new(LockableStore { inner: inner.clone(), locked: locked.clone() }));
+    inner.clone().save(PairedPhone {
+        identity: PhoneIdentity { id: [1; 16], name: "Phone 1".into(), platform: PhonePlatform::Ios },
+        pair_key: PairKey::new([1; 32]),
+    })
+    .unwrap();
+    assert_eq!(rig.notices(), vec![NoticeKind::KeyStoreUnavailable]);
+    rig.advance(10);
+    rig.advance(10);
+    assert_eq!(rig.notices(), vec![NoticeKind::KeyStoreUnavailable], "one outage, one notice");
+    assert!(rig.last_tray().phones.is_empty());
+    locked.store(false, Ordering::SeqCst);
+    rig.advance(10);
+    assert_eq!(rig.last_tray().phones.len(), 1, "the phones are listed again without a restart");
+    let lines = rig.logs.lines().join("\n");
+    assert!(lines.contains("ev=keystore_unavailable") && lines.contains("ev=keystore_ok"), "{lines}");
+    assert!(!lines.contains("Phone 1"));
+}
+
+#[test]
+fn a_connection_while_the_keyring_cannot_be_read_is_dropped_without_auth_failed() {
+    let locked = Arc::new(AtomicBool::new(true));
+    let mut rig = Rig::with_store(Box::new(LockableStore { inner: MemoryPhoneStore::new(), locked }));
+    rig.connect(Route::Selected);
+    assert!(!rig.link.is_connected());
+    assert_eq!(rig.link.holds(), &[(DEVICE, Duration::from_secs(10))]);
+    assert!(rig.link.writes().is_empty(), "no hello and no authFailed: the phone's key is not known to be wrong");
 }
 
 // ---------------------------------------------------------------- pairing

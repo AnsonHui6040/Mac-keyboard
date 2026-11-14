@@ -68,6 +68,10 @@ pub trait Injector: Send {
     fn path(&self) -> &'static str {
         "unicode"
     }
+    /// Ask the user for the permission again (Linux: the portal's dialog). Backends with nothing to authorize ignore it.
+    fn reauthorize(&mut self) {}
+    /// Linux: send text outside Latin-1 through the clipboard (`true`) or as Unicode key symbols. Others ignore it.
+    fn set_paste_non_ascii(&mut self, _on: bool) {}
 }
 
 /// Accepts nothing and says so: `ready()` is false, every call fails with `NotReady`.
@@ -111,6 +115,8 @@ pub enum Call {
     Button(Button, bool),
     Click(Button, u8),
     Scroll(f64, f64),
+    Reauthorize,
+    SetPasteNonAscii(bool),
 }
 
 #[derive(Debug)]
@@ -201,11 +207,30 @@ impl Injector for RecordingInjector {
     fn trusted(&self) -> bool {
         self.state().trusted
     }
+    fn reauthorize(&mut self) {
+        self.state().calls.push(Call::Reauthorize);
+    }
+    fn set_paste_non_ascii(&mut self, on: bool) {
+        self.state().calls.push(Call::SetPasteNonAscii(on));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reauthorize_and_the_paste_option_are_recorded_and_harmless_by_default() {
+        let mut rec = RecordingInjector::new();
+        rec.reauthorize();
+        rec.set_paste_non_ascii(false);
+        assert_eq!(rec.calls(), vec![Call::Reauthorize, Call::SetPasteNonAscii(false)]);
+        // An injector that has nothing to authorize or paste simply ignores both.
+        let mut null = NullInjector;
+        null.reauthorize();
+        null.set_paste_non_ascii(true);
+        assert!(!null.ready());
+    }
 
     #[test]
     fn null_injector_is_not_ready_and_refuses_everything() {

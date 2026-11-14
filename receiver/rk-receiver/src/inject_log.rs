@@ -85,6 +85,13 @@ impl Injector for LoggingInjector {
     fn path(&self) -> &'static str {
         self.inner.path()
     }
+    fn reauthorize(&mut self) {
+        self.log.info("reauthorize", None, &[]);
+        self.inner.reauthorize();
+    }
+    fn set_paste_non_ascii(&mut self, on: bool) {
+        self.inner.set_paste_non_ascii(on);
+    }
 }
 
 #[cfg(test)]

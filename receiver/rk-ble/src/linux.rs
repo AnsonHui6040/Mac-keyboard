@@ -16,7 +16,7 @@
 //! than the one chosen.
 
 use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase, ServiceUuids};
-use crate::connect::{choose_adapter, device_key, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
+use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
 use crate::flow::ScanBackoff;
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
@@ -332,7 +332,12 @@ impl Worker {
         };
         match opened {
             None => self.emit(LinkEvent::Disconnected { conn, device: key, reason: DisconnectReason::Local }).await,
-            Some(Err(kind)) => self.failed_connect(rx, conn, key, adv_at, kind).await,
+            Some(Err(kind)) => {
+                if forgets_handles(kind) {
+                    self.cache = None;
+                }
+                self.failed_connect(rx, conn, key, adv_at, kind).await
+            }
             Some(Ok(live)) => {
                 self.failures = 0;
                 self.cache = Some(live.handles);
@@ -383,6 +388,9 @@ impl Worker {
                         let diag = Diag::new(conn, "att_write").at(millis(adv_at)).debug().with("len", Value::U(bytes.len() as u64)).with("took_ms", Value::U(millis(started))).with("result", Value::S(word));
                         emit_diag(&self.events, diag).await;
                         if let Err(error) = result {
+                            if forgets_handles(fail_kind(&error)) {
+                                self.cache = None;
+                            }
                             // A write that does not get through means the link is no longer there: end it, go back to scanning.
                             emit_diag(&self.events, Diag::new(conn, "write_failed").at(millis(adv_at)).with("kind", Value::S(fail_kind(&error).as_str()))).await;
                             break DisconnectReason::LinkLost;

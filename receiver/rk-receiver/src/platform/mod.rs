@@ -13,7 +13,7 @@ pub use windows::{inject_selftest, paths, prepare_console, print_diag, run};
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
-pub use linux::{paths, prepare_console, print_diag, run};
+pub use linux::{inject_selftest, paths, prepare_console, print_diag, run};
 
 #[cfg(not(any(windows, target_os = "linux")))]
 mod other;

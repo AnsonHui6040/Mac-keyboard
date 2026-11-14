@@ -25,10 +25,15 @@ pub fn desktop_exec_quote(exe: &Path) -> String {
     }
     let mut quoted = String::from("\"");
     for c in text.chars() {
-        if matches!(c, '"' | '`' | '$' | '\\') {
-            quoted.push_str("\\\\");
+        match c {
+            // A backslash is escaped by a backslash for the Exec key, and both again for the file: four in all.
+            '\\' => quoted.push_str("\\\\\\\\"),
+            '"' | '`' | '$' => {
+                quoted.push_str("\\\\");
+                quoted.push(c);
+            }
+            _ => quoted.push(c),
         }
-        quoted.push(c);
     }
     quoted.push('"');
     quoted
@@ -70,6 +75,11 @@ pub fn data_file(home: &Path, xdg_data_home: Option<&Path>) -> PathBuf {
     data.join("remote-keyboard").join("phones.json")
 }
 
+/// The portal's restore token: `$XDG_CONFIG_HOME/remote-keyboard/portal-token`, next to `config.json`.
+pub fn portal_token_file(config_file: &Path) -> PathBuf {
+    config_file.with_file_name("portal-token")
+}
+
 /// `$XDG_RUNTIME_DIR/remote-keyboard.lock`; without a runtime directory the state directory takes it.
 pub fn lock_file(xdg_runtime_dir: Option<&Path>, fallback_dir: &Path) -> PathBuf {
     xdg_runtime_dir.unwrap_or(fallback_dir).join("remote-keyboard.lock")
@@ -95,8 +105,9 @@ pub fn lang_from_env(lc_all: Option<&str>, lc_messages: Option<&str>, lang: Opti
     Lang::from_locale(locale)
 }
 
-/// The arguments for starting the receiver again: those that only belonged to the first start are left out.
-pub fn restart_args(args: &[String]) -> Vec<String> {
+/// The arguments for starting the receiver again: those that only belonged to the first start are left out, and the
+/// controller that was chosen is named outright, so the new start never falls back to the system default (`hci0`).
+pub fn restart_args(args: &[String], adapter: &str) -> Vec<String> {
     let mut kept = Vec::new();
     let mut args = args.iter();
     while let Some(arg) = args.next() {
@@ -108,6 +119,7 @@ pub fn restart_args(args: &[String]) -> Vec<String> {
             _ => kept.push(arg.clone()),
         }
     }
+    kept.extend(["--adapter".to_string(), adapter.to_string()]);
     kept
 }
 
@@ -146,6 +158,7 @@ impl AdapterChoices {
 pub fn status_label(state: &TrayState, lang: Lang) -> String {
     match &state.connected_phone {
         Some(phone) => i18n::status_connected(lang, phone),
+        None if state.needs_authorization => i18n::text(lang, Text::StatusNeedsAuthorization).to_string(),
         None if state.pairing_open => i18n::text(lang, Text::StatusPairing).to_string(),
         None => i18n::text(lang, Text::StatusIdle).to_string(),
     }
@@ -289,10 +302,11 @@ impl FilePhoneBackend {
     }
 }
 
-/// Create-or-truncate for writing, readable by the owner only (on the systems that have such a thing).
+/// A new file for writing, readable by the owner only (on the systems that have such a thing). It must not exist yet, so
+/// the mode is the one asked for and not that of some leftover.
 fn private_file_options() -> std::fs::OpenOptions {
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     options
@@ -321,16 +335,20 @@ impl FilePhoneBackend {
             std::fs::create_dir_all(dir).map_err(|_| file_error("phones directory not created"))?;
         }
         let temporary = self.path.with_extension("json.tmp");
+        // A crash may have left one behind, with any mode.
+        let _ = std::fs::remove_file(&temporary);
         let mut file = private_file_options().open(&temporary).map_err(|_| file_error("phones file not written"))?;
         file.write_all(text.as_bytes()).map_err(|_| file_error("phones file not written"))?;
+        // On disk before the rename makes it the file: a crash leaves the old list or the new one, never half of it.
+        file.sync_all().map_err(|_| file_error("phones file not written"))?;
         drop(file);
         std::fs::rename(&temporary, &self.path).map_err(|_| file_error("phones file not written"))
     }
 }
 
 impl PhoneBackend for FilePhoneBackend {
-    fn load(&self) -> Vec<PairedPhone> {
-        self.read().unwrap_or_default()
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+        self.read()
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
@@ -364,14 +382,16 @@ impl ChainedBackend {
 }
 
 impl PhoneBackend for ChainedBackend {
-    fn load(&self) -> Vec<PairedPhone> {
-        let mut phones = self.primary.as_ref().map_or_else(Vec::new, |primary| primary.load());
-        for phone in self.file.load() {
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+        let Some(primary) = &self.primary else { return self.file.load() };
+        // The key store that cannot be read makes the whole list unknown; a damaged file next to a good key store does not.
+        let mut phones = primary.load()?;
+        for phone in self.file.load().unwrap_or_default() {
             if !phones.iter().any(|p| p.identity.id == phone.identity.id) {
                 phones.push(phone);
             }
         }
-        phones
+        Ok(phones)
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {

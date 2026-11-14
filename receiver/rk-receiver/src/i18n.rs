@@ -34,6 +34,7 @@ pub enum Text {
     AppName,
     StatusIdle,
     StatusPairing,
+    StatusNeedsAuthorization,
     Rename,
     RenamePrompt,
     PairNewPhone,
@@ -55,10 +56,11 @@ pub enum Text {
 }
 
 impl Text {
-    pub const ALL: [Text; 21] = [
+    pub const ALL: [Text; 22] = [
         Text::AppName,
         Text::StatusIdle,
         Text::StatusPairing,
+        Text::StatusNeedsAuthorization,
         Text::Rename,
         Text::RenamePrompt,
         Text::PairNewPhone,
@@ -88,6 +90,8 @@ pub fn text(lang: Lang, key: Text) -> &'static str {
         (Text::StatusIdle, En) => "Waiting for a phone",
         (Text::StatusPairing, ZhTw) => "配對中，請在手機上開啟配對畫面",
         (Text::StatusPairing, En) => "Pairing: open the pairing screen on the phone",
+        (Text::StatusNeedsAuthorization, ZhTw) => "電腦未授權，請選「重新授權」",
+        (Text::StatusNeedsAuthorization, En) => "Not authorized to type: choose Authorize again",
         (Text::Rename, ZhTw) => "改名…",
         (Text::Rename, En) => "Rename…",
         (Text::RenamePrompt, ZhTw) => "這台電腦在手機上顯示的名稱（最多 32 個位元組）",
@@ -150,6 +154,8 @@ pub fn notice(lang: Lang, kind: NoticeKind) -> &'static str {
         (NoticeKind::StoreError, En) => "Could not store the pairing",
         (NoticeKind::BluetoothOff, ZhTw) => "藍牙未開啟，無法掃描",
         (NoticeKind::BluetoothOff, En) => "Bluetooth is off, scanning is not running",
+        (NoticeKind::KeyStoreUnavailable, ZhTw) => "讀不到已配對手機的金鑰，鑰匙圈可能還沒解鎖",
+        (NoticeKind::KeyStoreUnavailable, En) => "The pairing keys cannot be read: the keyring may be locked",
         (NoticeKind::ConfigNotSaved, ZhTw) => "設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動",
         (NoticeKind::ConfigNotSaved, En) => "The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone",
     }

@@ -976,6 +976,14 @@ impl Injector for LinuxInjector {
     fn path(&self) -> &'static str {
         self.shared.text_path_name()
     }
+
+    fn reauthorize(&mut self) {
+        LinuxInjector::reauthorize(self);
+    }
+
+    fn set_paste_non_ascii(&mut self, on: bool) {
+        LinuxInjector::set_paste_non_ascii(self, on);
+    }
 }
 
 #[cfg(test)]

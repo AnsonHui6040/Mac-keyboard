@@ -5,6 +5,7 @@ use crate::config::{hex, unhex, Config};
 use rk_core::identity::{is_valid_name, PairedPhone, PhoneIdentity, PhonePlatform, MAX_PHONES};
 use rk_core::secret::PairKey;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -18,6 +19,11 @@ pub enum StoreError {
 
 pub trait PhoneStore: Send {
     fn phones(&self) -> Vec<PairedPhone>;
+    /// The list could not be read from its key store (a locked keyring): `phones()` is empty for now and it is read again
+    /// later. Stores that cannot be unavailable keep the default.
+    fn unavailable(&self) -> bool {
+        false
+    }
     /// Stores the phone; one with the same id is replaced (§4). A ninth phone is `Full`.
     fn save(&mut self, p: PairedPhone) -> Result<(), StoreError>;
     fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
@@ -136,28 +142,53 @@ impl ConfigStore for MemoryConfigStore {
 
 /// A slow, real key store (Credential Manager, Secret Service): the cache in front of it reads it once.
 pub trait PhoneBackend: Send {
-    fn load(&self) -> Vec<PairedPhone>;
+    /// An error means "could not be read", which is not the same as "no phones".
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError>;
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError>;
     fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError>;
 }
 
+/// How long a key store that could not be read is left alone before the next try.
+const RETRY_AFTER: Duration = Duration::from_secs(5);
+
+#[derive(Default)]
+struct Cache {
+    phones: Option<Vec<PairedPhone>>,
+    failed_at: Option<Instant>,
+}
+
 /// Keeps the phone list in memory and goes to the backend only on the first read and on every change. The application asks
 /// for the list on every tray refresh, which on a key store means decrypting every secret every time.
+///
+/// A read that fails is not remembered as "no phones": the list stays unknown and is read again, at most once per
+/// `retry_after`, so a keyring that is unlocked later shows its phones without a restart.
 pub struct CachedPhoneStore<B: PhoneBackend> {
     backend: B,
-    cache: Mutex<Option<Vec<PairedPhone>>>,
+    cache: Mutex<Cache>,
+    retry_after: Duration,
 }
 
 impl<B: PhoneBackend> CachedPhoneStore<B> {
     pub fn new(backend: B) -> Self {
-        Self { backend, cache: Mutex::new(None) }
+        Self { backend, cache: Mutex::new(Cache::default()), retry_after: RETRY_AFTER }
     }
 
-    /// The cached list, read from the backend the first time it is needed.
-    fn cached(&self) -> MutexGuard<'_, Option<Vec<PairedPhone>>> {
+    pub fn with_retry_after(mut self, retry_after: Duration) -> Self {
+        self.retry_after = retry_after;
+        self
+    }
+
+    /// The cache, with the list read from the backend when it is not known yet and the last failure is old enough.
+    fn cached(&self) -> MutexGuard<'_, Cache> {
         let mut guard = self.cache.lock().unwrap_or_else(|p| p.into_inner());
-        if guard.is_none() {
-            *guard = Some(self.backend.load());
+        if guard.phones.is_none() && guard.failed_at.is_none_or(|at| at.elapsed() >= self.retry_after) {
+            match self.backend.load() {
+                Ok(list) => {
+                    guard.phones = Some(list);
+                    guard.failed_at = None;
+                }
+                Err(_) => guard.failed_at = Some(Instant::now()),
+            }
         }
         guard
     }
@@ -165,20 +196,24 @@ impl<B: PhoneBackend> CachedPhoneStore<B> {
 
 impl<B: PhoneBackend> PhoneStore for CachedPhoneStore<B> {
     fn phones(&self) -> Vec<PairedPhone> {
-        self.cached().clone().unwrap_or_default()
+        self.cached().phones.clone().unwrap_or_default()
+    }
+
+    fn unavailable(&self) -> bool {
+        self.cached().phones.is_none()
     }
 
     fn save(&mut self, p: PairedPhone) -> Result<(), StoreError> {
-        let mut next = self.phones();
+        let Some(mut next) = self.cached().phones.clone() else { return Err(StoreError::Backend("key store unavailable".into())) };
         upsert(&mut next, p.clone())?;
         self.backend.put(&p)?;
-        *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Some(next);
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).phones = Some(next);
         Ok(())
     }
 
     fn delete(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
         self.backend.remove(id)?;
-        if let Some(list) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(list) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).phones.as_mut() {
             list.retain(|p| &p.identity.id != id);
         }
         Ok(())
@@ -219,9 +254,9 @@ mod tests {
     }
 
     impl PhoneBackend for CountingBackend {
-        fn load(&self) -> Vec<PairedPhone> {
+        fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
             *self.loads.lock().unwrap() += 1;
-            self.stored.lock().unwrap().clone()
+            Ok(self.stored.lock().unwrap().clone())
         }
         fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
             upsert(&mut self.stored.lock().unwrap(), phone.clone())
@@ -261,8 +296,8 @@ mod tests {
     fn a_failed_backend_write_leaves_the_cache_unchanged() {
         struct Refusing;
         impl PhoneBackend for Refusing {
-            fn load(&self) -> Vec<PairedPhone> {
-                Vec::new()
+            fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+                Ok(Vec::new())
             }
             fn put(&mut self, _: &PairedPhone) -> Result<(), StoreError> {
                 Err(StoreError::Backend("no".into()))
@@ -274,6 +309,70 @@ mod tests {
         let mut store = CachedPhoneStore::new(Refusing);
         assert!(store.save(phone(1)).is_err());
         assert!(store.phones().is_empty());
+    }
+
+    /// A key store that cannot be read until `heal()` (a locked keyring).
+    #[derive(Clone, Default)]
+    struct Locked {
+        inner: CountingBackend,
+        healed: Arc<Mutex<bool>>,
+    }
+
+    impl PhoneBackend for Locked {
+        fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+            if *self.healed.lock().unwrap() {
+                self.inner.load()
+            } else {
+                *self.inner.loads.lock().unwrap() += 1;
+                Err(StoreError::Backend("locked".into()))
+            }
+        }
+        fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
+            self.inner.put(phone)
+        }
+        fn remove(&mut self, id: &[u8; 16]) -> Result<(), StoreError> {
+            self.inner.remove(id)
+        }
+    }
+
+    #[test]
+    fn a_failed_load_is_not_cached_and_the_next_look_after_the_backoff_reads_again() {
+        let locked = Locked::default();
+        locked.inner.stored.lock().unwrap().push(phone(1));
+        let store = CachedPhoneStore::new(locked.clone()).with_retry_after(Duration::ZERO);
+        assert!(store.phones().is_empty());
+        assert!(store.unavailable(), "the list could not be read");
+        *locked.healed.lock().unwrap() = true;
+        assert_eq!(store.phones().len(), 1, "the phones are there as soon as the key store opens");
+        assert!(!store.unavailable());
+        // Every look while it was unknown tried again (no backoff here); once read it is not read again.
+        let reads = *locked.inner.loads.lock().unwrap();
+        assert_eq!(store.phones().len(), 1);
+        assert_eq!(*locked.inner.loads.lock().unwrap(), reads);
+    }
+
+    #[test]
+    fn within_the_backoff_a_failed_key_store_is_not_asked_again() {
+        let locked = Locked::default();
+        let store = CachedPhoneStore::new(locked.clone()).with_retry_after(Duration::from_secs(3600));
+        for _ in 0..50 {
+            assert!(store.phones().is_empty());
+            assert!(store.unavailable());
+        }
+        assert_eq!(*locked.inner.loads.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_phone_is_not_saved_while_the_list_cannot_be_read() {
+        // Saving now would make the cache believe the new phone is the only one.
+        let locked = Locked::default();
+        locked.inner.stored.lock().unwrap().push(phone(1));
+        let mut store = CachedPhoneStore::new(locked.clone()).with_retry_after(Duration::ZERO);
+        assert!(store.save(phone(2)).is_err());
+        assert_eq!(locked.inner.stored.lock().unwrap().len(), 1, "nothing was written");
+        *locked.healed.lock().unwrap() = true;
+        store.save(phone(2)).unwrap();
+        assert_eq!(store.phones().len(), 2);
     }
 
     #[test]

@@ -11,7 +11,7 @@
 
 use super::linux_logic::{
     action_for, argb_from_rgba, autostart_file, data_file, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
-    pretty_name, question_args, restart_args, tooltip_text, write_autostart, Action, AdapterChoices, ChainedBackend, FilePhoneBackend, MenuEntry,
+    portal_token_file, pretty_name, question_args, restart_args, tooltip_text, write_autostart, Action, AdapterChoices, ChainedBackend, FilePhoneBackend, MenuEntry,
 };
 use super::{claim_instance, linux_paths, Instance, InstanceLock, Paths};
 use crate::app::{App, AppDeps};
@@ -29,14 +29,14 @@ use crate::ui::{IconState, NoticeKind, TrayState, UiCommand, UiEvent};
 use ksni::menu::{CheckmarkItem, StandardItem, SubMenu};
 use ksni::{Icon, MenuItem, ToolTip, TrayMethods};
 use rk_core::identity::{HostPlatform, PairedPhone};
-use rk_inject::{Injector, NullInjector};
+use rk_inject::linux::{LinuxInjector, LinuxOptions};
+use rk_inject::Injector;
 use secret_service::{EncryptionType, SecretService};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -52,6 +52,8 @@ const KEYSTORE_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 /// §1.5 of the plan: on exit the queued commands (the `bye`) get this long to reach the radio.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(2);
 const ADAPTER_REFRESH: Duration = Duration::from_secs(15);
+/// `--inject-selftest` waits this long for the portal before it types (and fails with `not_ready`).
+const SELFTEST_AUTHORIZATION_WAIT: Duration = Duration::from_secs(20);
 
 fn env_var(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
@@ -117,7 +119,7 @@ fn claim_lock(path: PathBuf) -> Option<FlockLock> {
 type Reply<T> = std_mpsc::Sender<T>;
 
 enum KeyRequest {
-    Load(Reply<Vec<PairedPhone>>),
+    Load(Reply<Result<Vec<PairedPhone>, StoreError>>),
     Put(PairedPhone, Reply<Result<(), StoreError>>),
     Remove([u8; 16], Reply<Result<(), StoreError>>),
 }
@@ -139,20 +141,24 @@ const APPLICATION: &str = "application";
 const APPLICATION_NAME: &str = "remote-keyboard";
 const PHONE_ID: &str = "phone-id";
 
-async fn keyring_load(service: &SecretService<'_>) -> Vec<PairedPhone> {
-    let Ok(found) = service.search_items(HashMap::from([(APPLICATION, APPLICATION_NAME)])).await else { return Vec::new() };
+/// Every phone of ours in the keyring. A keyring that is locked (and stays so) or does not answer is an error: that is not
+/// the same as having no phones, and the caller must not treat it so.
+async fn keyring_load(service: &SecretService<'_>) -> Result<Vec<PairedPhone>, StoreError> {
+    let found = service.search_items(HashMap::from([(APPLICATION, APPLICATION_NAME)])).await.map_err(|_| keyring_error())?;
     let locked: Vec<_> = found.locked.iter().collect();
     if !locked.is_empty() {
-        let _ = service.unlock_all(&locked).await;
+        service.unlock_all(&locked).await.map_err(|_| keyring_error())?;
     }
     let mut phones = Vec::new();
     for item in found.unlocked.iter().chain(found.locked.iter()) {
-        if let Some(phone) = item.get_secret().await.ok().and_then(|secret| decode_record(&secret)) {
+        let secret = item.get_secret().await.map_err(|_| keyring_error())?;
+        // An item that is not a record of ours is somebody else's business.
+        if let Some(phone) = decode_record(&secret) {
             phones.push(phone);
         }
     }
     phones.sort_by_key(|p| p.identity.id);
-    phones
+    Ok(phones)
 }
 
 async fn keyring_put(service: &SecretService<'_>, phone: &PairedPhone) -> Result<(), StoreError> {
@@ -224,8 +230,8 @@ impl SecretServiceBackend {
 }
 
 impl PhoneBackend for SecretServiceBackend {
-    fn load(&self) -> Vec<PairedPhone> {
-        self.ask(KeyRequest::Load).unwrap_or_default()
+    fn load(&self) -> Result<Vec<PairedPhone>, StoreError> {
+        self.ask(KeyRequest::Load).unwrap_or_else(|| Err(keyring_error()))
     }
 
     fn put(&mut self, phone: &PairedPhone) -> Result<(), StoreError> {
@@ -251,12 +257,37 @@ fn phone_store(logger: Option<&Logger>) -> CachedPhoneStore<ChainedBackend> {
 
 // ---------------------------------------------------------------- injection
 
-/// WL9 replaces this with `rk_inject::LinuxInjector::start(token_path, options)` (the RemoteDesktop portal), wires
-/// `UiCommand::Reauthorize` to its `reauthorize()` and the paste option to `set_paste_non_ascii`. Until then nothing is
-/// typed and `status.ready` says so. The application runs on its own thread (`rk-app`), so the portal calls the injector
-/// makes never block the tray or the BlueZ link.
-pub fn make_injector(_config: &Config) -> Box<dyn Injector> {
-    Box::new(NullInjector)
+/// The RemoteDesktop portal injector. It restores the saved grant at `$XDG_CONFIG_HOME/remote-keyboard/portal-token` (no
+/// dialog), so `ready()` is false for a moment after start and stays false until the user has answered the portal's dialog.
+/// The tray's 重新授權 and the paste option reach it through `Injector::reauthorize` and `set_paste_non_ascii`.
+///
+/// It works on a thread of its own, and the application calls it from `rk-app`, so the portal never holds up the tray or the
+/// BlueZ link.
+pub fn make_injector(config: &Config, token_file: PathBuf, logger: Option<Logger>) -> Box<dyn Injector> {
+    let log = logger.map(|logger| Arc::new(move |line: &str| logger.stamped_line(line)) as rk_inject::linux::Log);
+    Box::new(LinuxInjector::start(token_file, LinuxOptions { paste_non_ascii: config.paste_non_ascii, log, ..LinuxOptions::default() }))
+}
+
+/// `--inject-selftest`: wait for the portal grant, then after `delay_secs` type the file through the injector the receiver
+/// itself uses, press Enter and print one line of counts. The text is neither printed nor logged. Returns the exit code.
+pub fn inject_selftest(file: &Path, delay_secs: u64) -> i32 {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        println!("units=0 ms=0 result=err:read_file");
+        return 1;
+    };
+    let paths = paths();
+    let config = Config::read_only(&paths.config_file, HostPlatform::Linux);
+    let mut injector = make_injector(&config, portal_token_file(&paths.config_file), None);
+    // With a saved grant this takes a moment; without one the portal's dialog is open until somebody answers it.
+    let waiting = std::time::Instant::now();
+    while !injector.ready() && waiting.elapsed() < SELFTEST_AUTHORIZATION_WAIT {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    std::thread::sleep(Duration::from_secs(delay_secs));
+    let clock = SystemClock::new();
+    let line = crate::selftest::run(injector.as_mut(), &text, || clock.mono_ms());
+    println!("{line}");
+    i32::from(!line.ends_with("result=ok"))
 }
 
 // ---------------------------------------------------------------- BlueZ facts for diagnostics
@@ -322,8 +353,10 @@ struct Shell {
     log: Logger,
     log_level: &'static str,
     dialogs: Dialogs,
-    /// A controller was chosen in the menu: start again once the receiver has ended.
-    restart: AtomicBool,
+    /// A controller was chosen in the menu: start again with it once the receiver has ended.
+    restart: Mutex<Option<String>>,
+    /// `config.json` could not be read or moved aside, so nothing of this run is saved: choosing a controller is pointless.
+    config_protected: bool,
 }
 
 impl Shell {
@@ -346,9 +379,11 @@ impl Shell {
             }
             Some(Action::AskName) => self.ask_name(state.host_name),
             Some(Action::Export) => self.export(),
+            Some(Action::ChooseAdapter(_)) if self.config_protected => self.info(i18n::notice(self.lang, NoticeKind::ConfigNotSaved)),
             Some(Action::ChooseAdapter(name)) if lock(&self.adapters).effective().as_deref() != Some(name.as_str()) => {
+                // The new start is told the controller outright, whatever happens to the saved setting.
+                *lock(&self.restart) = Some(name.clone());
                 self.send(UiCommand::SetAdapter(Some(name)));
-                self.restart.store(true, Ordering::SeqCst);
                 self.send(UiCommand::Quit);
             }
             Some(Action::ChooseAdapter(_)) | None => {}
@@ -551,7 +586,7 @@ pub fn run(cli: &Cli) -> i32 {
         logger.info("config_save_failed", None, &[]);
     }
     let store = phone_store(Some(&logger));
-    let injector = make_injector(&config);
+    let injector = make_injector(&config, portal_token_file(&paths.config_file), Some(logger.clone()));
     let initial = TrayState {
         icon: IconState::Disconnected,
         connected_phone: None,
@@ -561,6 +596,7 @@ pub fn run(cli: &Cli) -> i32 {
         trackpad: config.trackpad,
         autostart: config.autostart,
         paste_non_ascii: config.paste_non_ascii,
+        needs_authorization: false,
     };
     let configured = cli.adapter.clone().or_else(|| config.adapter.clone());
     let app = App::new(AppDeps {
@@ -614,7 +650,8 @@ pub fn run(cli: &Cli) -> i32 {
         log: logger,
         log_level: cli.log_level.as_str(),
         dialogs: Dialogs::default(),
-        restart: AtomicBool::new(false),
+        restart: Mutex::new(None),
+        config_protected: startup_notice == Some(NoticeKind::ConfigNotSaved),
     });
     runtime.block_on(tray_loop(shell.clone(), initial, startup_notice, ui_rx, app_done_rx));
     shell.log.debug("shutdown", None, &[("stage", rk_ble::Value::S("tray_done"))]);
@@ -622,9 +659,10 @@ pub fn run(cli: &Cli) -> i32 {
     let link_finished = link_done_rx.recv_timeout(SHUTDOWN_GRACE).is_ok();
     shell.log.debug("shutdown", None, &[("stage", rk_ble::Value::S("link_done")), ("in_time", rk_ble::Value::B(link_finished))]);
     drop(runtime);
-    if shell.restart.load(Ordering::SeqCst) {
+    let restart_with = lock(&shell.restart).take();
+    if let Some(adapter) = restart_with {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let error = std::process::Command::new(std::env::current_exe().unwrap_or_default()).args(restart_args(&args)).exec();
+        let error = std::process::Command::new(std::env::current_exe().unwrap_or_default()).args(restart_args(&args, &adapter)).exec();
         shell.log.info("restart_failed", None, &[("kind", rk_ble::Value::S(error_word(error.kind())))]);
         return 1;
     }
@@ -701,7 +739,7 @@ async fn tray_loop(shell: Arc<Shell>, initial: TrayState, startup_notice: Option
 async fn show_notice(shell: &Arc<Shell>, handle: Option<&ksni::Handle<RkTray>>, notice: &mut Option<NoticeKind>, kind: NoticeKind) {
     // Notices that stay true while the tray shows them go to the tooltip; a dialog each time would pile up (the Bluetooth
     // notice comes back until the radio is on). The rest are said once, in a dialog.
-    if matches!(kind, NoticeKind::NeedsRepair | NoticeKind::UpdatePhone | NoticeKind::BluetoothOff) {
+    if matches!(kind, NoticeKind::NeedsRepair | NoticeKind::UpdatePhone | NoticeKind::BluetoothOff | NoticeKind::KeyStoreUnavailable) {
         *notice = Some(kind);
         if let Some(handle) = handle {
             let current = *notice;
@@ -776,10 +814,10 @@ mod tests {
         };
         backend.put(&phone).unwrap();
         backend.put(&phone).unwrap(); // the same phone again replaces, it does not add
-        let found: Vec<_> = backend.load().into_iter().filter(|p| p.identity.id == [0xEE; 16]).collect();
+        let found: Vec<_> = backend.load().unwrap().into_iter().filter(|p| p.identity.id == [0xEE; 16]).collect();
         assert_eq!(found, vec![phone.clone()]);
         backend.remove(&phone.identity.id).unwrap();
-        assert!(backend.load().iter().all(|p| p.identity.id != [0xEE; 16]));
+        assert!(backend.load().unwrap().iter().all(|p| p.identity.id != [0xEE; 16]));
         backend.remove(&phone.identity.id).unwrap(); // removing what is not there is fine
     }
 

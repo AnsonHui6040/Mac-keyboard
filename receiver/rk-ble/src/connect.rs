@@ -50,6 +50,12 @@ pub fn is_retryable(kind: FailKind) -> bool {
     matches!(kind, FailKind::Enosys | FailKind::AbortByLocal | FailKind::LinkLost)
 }
 
+/// Whether a failed link makes the remembered handles worthless: the phone's database answered wrongly (or not as
+/// remembered), so the next link must discover afresh. A link that merely dropped says nothing about the handles.
+pub fn forgets_handles(kind: FailKind) -> bool {
+    kind == FailKind::AttError
+}
+
 /// Runs `attempt` (given the number of failures so far) until it works, fails with something not worth retrying, or has
 /// failed `max_retries + 1` times. `on_retry(n, kind)` is called before retry number `n`.
 pub async fn with_retries<T, Fut>(
@@ -155,6 +161,14 @@ mod tests {
         assert_eq!(fail_kind(&AttError::Protocol { request: 8, code: 10 }), FailKind::AttError);
         assert_eq!(fail_kind(&AttError::Malformed), FailKind::AttError);
         assert_eq!(fail_kind(&AttError::TooLong), FailKind::AttError);
+    }
+
+    #[test]
+    fn handles_are_forgotten_after_an_att_error_and_kept_after_a_dropped_link() {
+        assert!(forgets_handles(FailKind::AttError));
+        for kind in [FailKind::Timeout, FailKind::LinkLost, FailKind::Enosys, FailKind::AbortByLocal, FailKind::Unreachable] {
+            assert!(!forgets_handles(kind), "{kind:?}");
+        }
     }
 
     #[test]
