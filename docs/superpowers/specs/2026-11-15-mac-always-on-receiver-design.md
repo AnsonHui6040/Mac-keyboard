@@ -1,0 +1,55 @@
+# Mac Receiver 常駐接收設計（D29）
+
+**日期**：2026-11-15｜**狀態**：APPROVED（使用者 2026-11-15 選擇題確認）｜**取代**：D13 的「點擊可編輯輸入框才開始接收」與「30 分鐘無活動自動停止」
+
+## 1. 目的
+
+使用者實機試用 Windows／Linux 接收端（D28）後，要求 Mac 改成相同行為（原話：「Mac改成和其他系統一樣，不會自動關閉廣播」）。經選擇題確認：Mac Receiver 啟動後就一直掃描，鍵盤一出現就連線，不需要先點可編輯欄位，也不會因閒置而停止。
+
+## 2. 現況（da86d82）
+
+| # | 情況 | 現行行為 | 位置 |
+|---|---|---|---|
+| 1 | 啟動 app | 待命，不掃描 | `MacReceiverApp.swift` init |
+| 2 | 點擊可編輯欄位（D13） | 開始接收並重設 30 分鐘 | `ReceiverCoordinator.swift:132`、`ReceiverSession.swift:27` |
+| 3 | 閒置 30 分鐘 | 停止掃描並斷線 | `ReceiverSession.swift:15,41`、`ReceiverBLECentral.swift:399` |
+| 4 | 面板「開始接收／停止接收」 | 手動開始／停止 | `ReceiverPanel.swift:49-50` |
+| 5 | 由待命狀態開的配對視窗結束 | 一併停止接收 | `ReceiverSecurity.swift:339,457` |
+| 6 | 斷線、交握逾時、notSelected、版本不符 | 回到掃描；個別裝置 hold 10 s／60 s | `ReceiverLinkStateMachine.swift` |
+| 7 | 驗證失敗、非配對期間送配對要求 | 該手機在「本次接收時段」內被略過，disarm 才清除 | `ReceiverBLECentral.swift:63`、`ReceiverSecurity.swift:229,367` |
+| 8 | 藍牙關閉或未授權 | unavailable，恢復後自動重掃 | `ReceiverLinkStateMachine.swift` |
+| 9 | 焦點安全閘（T14） | 不影響連線；只令注入 fail closed、狀態 `ready=false` | `ReceiverCoordinator.swift:25` |
+
+Windows／Linux（`receiver/rk-receiver/src/app.rs`）：啟動即掃描，沒有逾時，沒有暫停；驗證失敗只對該裝置 `Hold` 10 秒。
+
+## 3. 決定
+
+| 項目 | 決定 | 來源 |
+|---|---|---|
+| 啟動 | Receiver 啟動即開始接收（掃描、鍵盤出現即連線） | 使用者 |
+| 閒置逾時 | 移除；不再有 30 分鐘或任何自動停止；移除 `rk.idleTimeoutSeconds` | 使用者 |
+| 點擊欄位 | 不再觸發任何接收動作 | 使用者 |
+| 手動暫停 | 保留「開始接收」「停止接收」。按「停止接收」暫停到按「開始接收」或重開 app 為止；暫停狀態不寫入磁碟，不會自行恢復 | 使用者選擇題（推薦選項） |
+| 配對視窗 | 暫停中打開配對視窗仍會暫時開始接收，配對結束後回到暫停；沒有暫停時配對結束不影響接收 | 沿用現行 `armedByPairing`，主代理決定 |
+| 被略過的手機（現況 #7） | 「本次接收時段」不再存在，改為和 Rust 一樣的定時 hold：同一裝置 10 秒內不重連（沿用連線狀態機的 hold 名單與 `handshakeBackoffSeconds`）；手動暫停時清空 | 主代理決定（否則要重開 app 才能再連） |
+| 面板文字 | 倒數「剩餘接收時間 mm:ss」改為「接收中」／「已暫停」；連線狀態 `idle` 的字改為「已暫停接收」；「開始接收」在接收中停用、「停止接收」在暫停時停用 | 主代理決定 |
+| 不變 | 焦點安全閘（T14）、D4 輸入法切換、log 不記文字內容、斷線後回掃描、藍牙恢復重掃、焦點離開欄位不斷線、焦點輪詢頻率 | — |
+
+## 4. 做法比較
+
+| 做法 | 內容 | 取捨 |
+|---|---|---|
+| A（採用） | `ReceiverSession` 簡化為只有開始／停止兩種輸入；app 啟動時送開始 | 改動集中、純邏輯仍在 Core 可測；刪掉活動延長的整條管線 |
+| B | 保留逾時邏輯，把逾時設為無限大 | 改最少，但留下沒用的計時器、倒數與活動回報，日後誤導 |
+| C | 拿掉 `ReceiverSession`，`ReceiverBLECentral` 直接持有 armed 旗標 | 少一層，但失去 Core 的單元測試位置 |
+
+## 5. 驗收
+
+自動：Core `swift test`、`MacReceiverTests`、iOS 模擬器 build、Mac build（workspace）全綠。
+實機（可自動化部分由主代理執行）：iPhone 17 Pro 經 UI 測試叫出／收起鍵盤 N 次，Mac 不點任何欄位即連上，記錄連線時間於文字檔。使用者親手項目標 TBD。
+
+## 6. 不在範圍
+
+- `receiver/`（Rust）不改。
+- 手動暫停不跨重開保存。
+- 手冊截圖 `mac-receiver-pairing-wait.png` 仍為舊面板，日後重拍。
