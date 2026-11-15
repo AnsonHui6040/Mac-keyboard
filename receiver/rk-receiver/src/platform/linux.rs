@@ -10,7 +10,7 @@
 //! talks to the Secret Service for the application's synchronous key store.
 
 use super::linux_logic::{
-    action_for, argb_from_rgba, Begin, LoadSlot, autostart_file, data_file, ensure_autostart_points_to, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
+    action_for, argb_from_rgba, Begin, LoadSlot, autostart_file, data_file, ensure_autostart_points_to, running_exe_path, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
     portal_token_file, pretty_name, question_args, restart_args, tooltip_text, write_autostart, Action, AdapterChoices, ChainedBackend, FilePhoneBackend, MenuEntry,
 };
 use super::{claim_instance, linux_paths, Instance, InstanceLock, Paths};
@@ -416,7 +416,7 @@ impl Shell {
             Some(Action::Command(command)) => self.send(command),
             Some(Action::SetAutostart(on)) => {
                 let file = autostart_file(&home(), env_path("XDG_CONFIG_HOME").as_deref());
-                let exe = std::env::current_exe().unwrap_or_default();
+                let exe = running_exe_path(std::env::current_exe().unwrap_or_default());
                 if write_autostart(&file, &exe, on) {
                     self.send(UiCommand::SetAutostart(on));
                 } else {
@@ -634,7 +634,7 @@ pub fn run(cli: &Cli) -> i32 {
     if config.autostart {
         // After a move to a package, the autostart file may still name the old program.
         let file = autostart_file(&home(), env_path("XDG_CONFIG_HOME").as_deref());
-        if std::env::current_exe().is_ok_and(|exe| ensure_autostart_points_to(&file, &exe)) {
+        if std::env::current_exe().is_ok_and(|exe| ensure_autostart_points_to(&file, &running_exe_path(exe))) {
             logger.info("autostart_repointed", None, &[]);
         }
     }
@@ -716,7 +716,7 @@ pub fn run(cli: &Cli) -> i32 {
     let restart_with = lock(&shell.restart).take();
     if let Some(adapter) = restart_with {
         let args: Vec<String> = std::env::args().skip(1).collect();
-        let error = std::process::Command::new(std::env::current_exe().unwrap_or_default()).args(restart_args(&args, &adapter)).exec();
+        let error = std::process::Command::new(running_exe_path(std::env::current_exe().unwrap_or_default())).args(restart_args(&args, &adapter)).exec();
         shell.log.info("restart_failed", None, &[("kind", rk_ble::Value::S(error_word(error.kind())))]);
         return 1;
     }

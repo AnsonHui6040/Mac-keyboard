@@ -185,6 +185,10 @@ jobs:
             [ "$got" = "$tool $version" ] || { echo "$tool --version printed [$got], expected [$tool $version]"; exit 1; }
             echo "$got"
           done
+          deb_version=$(dpkg-query -W -f='${Version}' remote-keyboard)
+          want_deb_version=$(echo "$version" | sed 's/-/~/')
+          [ "$deb_version" = "$want_deb_version" ] || { echo "installed version [$deb_version], expected [$want_deb_version]"; exit 1; }
+          echo "dpkg version $deb_version"
 
       - name: Remove the package
         run: |

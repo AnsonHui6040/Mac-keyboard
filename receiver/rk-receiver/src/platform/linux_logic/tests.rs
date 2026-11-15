@@ -126,6 +126,70 @@ fn autostart_file_is_left_alone_when_disabled_or_already_ours() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), ours);
 }
 
+fn old_exec_file(dir: &Path, extra_before: &str, exec: &str, extra_after: &str) -> PathBuf {
+    let file = dir.join("remote-keyboard.desktop");
+    std::fs::write(&file, format!("[Desktop Entry]\n{extra_before}Exec={exec}\n{extra_after}")).unwrap();
+    file
+}
+
+#[test]
+fn a_disabled_autostart_file_stays_disabled_when_repointed() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = old_exec_file(dir.path(), "Type=Application\n", "/gone/rk-receiver", "Hidden=true\nX-GNOME-Autostart-enabled=false\n");
+    assert!(ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")));
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("Exec=/usr/bin/rk-receiver\n"));
+    assert!(text.contains("Hidden=true\n"));
+    assert!(text.contains("X-GNOME-Autostart-enabled=false\n"));
+    assert!(!text.contains("enabled=true"));
+}
+
+#[test]
+fn extra_keys_and_arguments_survive_a_repoint() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = old_exec_file(dir.path(), "X-Custom=1\n", "\"/gone/my apps/rk\" --adapter hci1", "Comment=mine\n");
+    assert!(ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")));
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "[Desktop Entry]\nX-Custom=1\nExec=/usr/bin/rk-receiver --adapter hci1\nComment=mine\n"
+    );
+}
+
+#[test]
+fn a_quoted_old_program_with_a_space_is_recognised_as_the_same_exe() {
+    let dir = tempfile::tempdir().unwrap();
+    let exe = Path::new("/usr/my apps/rk");
+    let file = old_exec_file(dir.path(), "", &format!("{} --x", desktop_exec_quote(exe)), "");
+    assert!(!ensure_autostart_points_to(&file, exe));
+}
+
+#[test]
+fn a_dev_build_does_not_steal_an_autostart_that_names_a_program_that_exists() {
+    let dir = tempfile::tempdir().unwrap();
+    let old = dir.path().join("rk-old");
+    std::fs::write(&old, "x").unwrap();
+    let file = old_exec_file(dir.path(), "", old.to_str().unwrap(), "");
+    let before = std::fs::read_to_string(&file).unwrap();
+    assert!(!ensure_autostart_points_to(&file, Path::new("/home/x/src/target/debug/rk-receiver")));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    assert!(ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")), "the package takes over");
+}
+
+#[test]
+fn should_repoint_decides_on_the_old_program_and_the_running_exe() {
+    let dev = Path::new("/home/x/src/target/debug/rk-receiver");
+    let old = Path::new("/home/x/.local/bin/rk-receiver");
+    assert!(!should_repoint(old, true, dev));
+    assert!(should_repoint(old, true, Path::new("/usr/bin/rk-receiver")));
+    assert!(should_repoint(old, false, dev));
+}
+
+#[test]
+fn running_exe_path_drops_the_deleted_suffix() {
+    assert_eq!(running_exe_path(PathBuf::from("/usr/bin/rk-receiver (deleted)")), Path::new("/usr/bin/rk-receiver"));
+    assert_eq!(running_exe_path(PathBuf::from("/usr/bin/rk-receiver")), Path::new("/usr/bin/rk-receiver"));
+}
+
 // ---------------------------------------------------------------- paths
 
 #[test]
