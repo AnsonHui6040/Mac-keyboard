@@ -1372,7 +1372,7 @@ WL13 之後使用者回報 Mac 觸控板「有比較好」但仍有卡頓。以 
 | 項目 | 自動檢查（2026-11-16） | 使用者 |
 |---|---|---|
 | rk-win 覆蓋升級 | 舊版 `0.1.0` 在桌面工作階段執行中，以排程工作在同一工作階段靜默安裝：結束碼 0、1 秒；舊行程結束、新行程在工作階段 1 啟動；兩個 `--version` 為 `0.2.0-alpha.1`；`Run` 值不變；`unins000.exe` 存在；log `ev=start version=0.2.0-alpha.1 phones=1` | iPhone 打字 PASS（2026-11-16） |
-| rk-linux 換成 `.deb` | 使用者 `sudo apt install` 成功；`/usr/bin` 兩個 `--version` 正確；舊版停止，`~/.local/bin` 兩個檔改名為 `.bak-0.1.0`；`/usr/bin/rk-receiver` 啟動時 log `ev=autostart_repointed`，自動啟動檔 `Exec=/usr/bin/rk-receiver` | 從應用程式選單開啟後 log `ev=start version=0.2.0-alpha.1 phones=1`、`portal_started`；配對、打字 PASS（2026-11-16）。重新登入後自動啟動：TBD |
+| rk-linux 換成 `.deb` | 使用者 `sudo apt install` 成功；`/usr/bin` 兩個 `--version` 正確；舊版停止，`~/.local/bin` 兩個檔改名為 `.bak-0.1.0`；`/usr/bin/rk-receiver` 啟動時 log `ev=autostart_repointed`，自動啟動檔 `Exec=/usr/bin/rk-receiver` | 從應用程式選單開啟後 log `ev=start version=0.2.0-alpha.1 phones=1`、`portal_started`；配對、打字 PASS（2026-11-16）。重新登入後自動啟動：TBD（停掉 SSH 啟動的那一份後尚未重測） |
 
 第一次重新登入時沒有自動啟動，原因是測試時經 SSH 用 `systemd-run --user` 啟動的那一份在登出後仍在執行、佔住單一執行個體鎖，自動啟動的那一份因此結束；停掉它、改從選單開啟後正常。一般使用不會經 SSH 啟動，不是安裝檔的問題。
 
