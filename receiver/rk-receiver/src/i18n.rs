@@ -173,6 +173,14 @@ pub fn notice(lang: Lang, kind: NoticeKind) -> &'static str {
     }
 }
 
+/// The version line of the tray menu.
+pub fn version_label(lang: Lang, version: &str) -> String {
+    match lang {
+        Lang::ZhTw => format!("版本：{version}"),
+        Lang::En => format!("Version: {version}"),
+    }
+}
+
 /// The pairing question: the phone's name and the code to compare.
 pub fn pairing_question(lang: Lang, phone: &str, sas: &str) -> String {
     match lang {
@@ -184,6 +192,12 @@ pub fn pairing_question(lang: Lang, phone: &str, sas: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn version_label_reads_the_same_way_as_the_mac_panel() {
+        assert_eq!(version_label(Lang::ZhTw, "0.2.0-alpha.1"), "版本：0.2.0-alpha.1");
+        assert_eq!(version_label(Lang::En, "0.2.0-alpha.1"), "Version: 0.2.0-alpha.1");
+    }
 
     #[test]
     fn every_text_exists_in_both_languages_and_they_differ() {
