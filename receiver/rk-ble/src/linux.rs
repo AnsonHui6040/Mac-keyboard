@@ -16,13 +16,20 @@
 //!    `RSSI` but no `ManufacturerData` is one advertisement of the keyboard (`stale::AdvertBursts`). The link task only
 //!    gets those as messages and decides with `is_stale_link`; it never waits on D-Bus while the link is open.
 //!
+//! 6. [`crate::health`] watches whether the controller still hears anything: any device found by the discovery above (the
+//!    filter is `Transport=Le` with no UUID, so every advertiser counts) is a sign of life. A controller that has heard
+//!    nothing for a minute while scanning, or failed three connection attempts in a row, is power-cycled through
+//!    `Adapter1.Powered`, unless it was switched off by someone else or another program has a connection through it. A
+//!    controller we switched off is always switched on again, retried with a backoff and once more on the way out.
+//!
 //! No root and no change to the system: only the sockets and D-Bus calls above. Nothing here touches another controller
 //! than the one chosen.
 
 use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase, ServiceUuids};
 use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
+use crate::flow::{after_reset, drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
+use crate::health::{is_our_phone, power_cycle, reset_diag, reset_failed_diag, reset_skipped_diag, restore_power, restored_diag, AdapterHealth, CycleTiming, KnownDevices, PowerControl, PowerFault, Report, ResetReason, Tick};
 use crate::rx_timing::RxTiming;
 use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
@@ -33,7 +40,7 @@ use std::collections::HashSet;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tokio::time::{interval, sleep, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
+use tokio::time::{interval, interval_at, sleep, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
 use uuid::Uuid;
 
 const SERVICE: Uuid = Uuid::from_u128(0x706AA642_68A3_41FA_889D_24E30709B0D0);
@@ -53,6 +60,13 @@ const RESTART_EVERY: Duration = Duration::from_millis(1500);
 const IDLE_WAIT: Duration = Duration::from_secs(1);
 /// The wait before scanning again after a connection failed before it became ready (ms), 2 s at most.
 const RETRY_WAITS_MS: [u64; 4] = [0, 500, 1000, 2000];
+/// How often the scan loop asks [`AdapterHealth`] whether the controller has gone deaf.
+const HEALTH_EVERY: Duration = Duration::from_secs(5);
+/// Waiting for BlueZ to have stopped discovery takes this long at the most, however it answers (or does not).
+const IDLE_BOUND: Duration = Duration::from_secs(2);
+/// The purge before a discovery restart, and the start of that discovery, take this long at the most each: a BlueZ that
+/// hangs must not keep the health check from running.
+const RESTART_BOUND: Duration = Duration::from_secs(3);
 
 fn millis(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -110,6 +124,8 @@ enum Watched {
     Paused,
     /// The application is gone.
     Gone,
+    /// The controller was power-cycled: scan again from the top.
+    Reset,
 }
 
 type Merged = SelectAll<Pin<Box<dyn Stream<Item = (Address, HashSet<Uuid>)> + Send>>>;
@@ -119,6 +135,43 @@ type AdapterEvents = Pin<Box<dyn Stream<Item = AdapterEvent> + Send>>;
 struct Scanner {
     adapter: Adapter,
     local: Address,
+}
+
+// ---------------------------------------------------------------- the controller's power
+
+/// The chosen controller, for [`crate::health::power_cycle`].
+#[derive(Clone)]
+struct BluezPower {
+    adapter: Adapter,
+    select: Uuid,
+    pairing: Uuid,
+}
+
+impl PowerControl for BluezPower {
+    async fn is_powered(&self) -> Result<bool, PowerFault> {
+        self.adapter.is_powered().await.map_err(|_| PowerFault)
+    }
+
+    async fn set_powered(&self, on: bool) -> Result<(), PowerFault> {
+        self.adapter.set_powered(on).await.map_err(|_| PowerFault)
+    }
+
+    /// A connected device that does not list the selected or the pairing service. One that cannot be read is skipped: it
+    /// may have just gone.
+    async fn other_connection(&self) -> Result<bool, PowerFault> {
+        let addresses = self.adapter.device_addresses().await.map_err(|_| PowerFault)?;
+        for address in addresses {
+            let Ok(device) = self.adapter.device(address) else { continue };
+            if !device.is_connected().await.unwrap_or(false) {
+                continue;
+            }
+            let uuids = device.uuids().await.ok().flatten().unwrap_or_default();
+            if !is_our_phone(&uuids, self.select, self.pairing) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 // ---------------------------------------------------------------- an open link
@@ -167,10 +220,43 @@ struct Worker {
     session: Option<Session>,
     /// The controller last announced in the log.
     announced_adapter: Option<String>,
+    /// Whether the controller still hears anything; decides on power cycles.
+    health: AdapterHealth,
+    /// The chosen controller as the power cycle uses it; kept when scanning fails, so that a controller we switched off can
+    /// be switched on again.
+    power: Option<BluezPower>,
 }
 
 async fn emit_diag(events: &mpsc::Sender<LinkEvent>, diag: Diag) -> bool {
     events.send(LinkEvent::Diag(diag)).await.is_ok()
+}
+
+/// The longest the log lines of one power cycle are waited for when the log channel is full.
+const REPORT_SEND_BOUND: Duration = Duration::from_millis(500);
+
+/// The log line of what a power cycle did. Sent without waiting (the cycle is not held up); a line that finds the channel
+/// full is kept in `pending` for [`flush_diags`], so the reset lines are not lost.
+fn log_report(events: &mpsc::Sender<LinkEvent>, reason: ResetReason, hci: Option<u64>, report: Report, pending: &mut Vec<Diag>) {
+    let diag = match report {
+        Report::Started => reset_diag(reason, hci),
+        Report::Skipped(skip) => reset_skipped_diag(skip),
+        Report::Failed(failure) => reset_failed_diag(failure),
+        Report::Restored => restored_diag(),
+        Report::Cycled => return,
+    };
+    if let Err(mpsc::error::TrySendError::Full(LinkEvent::Diag(diag))) = events.try_send(LinkEvent::Diag(diag)) {
+        pending.push(diag);
+    }
+}
+
+/// Sends the lines [`log_report`] had to keep, in order, waiting `bound` for all of them together at the most.
+async fn flush_diags(events: &mpsc::Sender<LinkEvent>, pending: Vec<Diag>, bound: Duration) {
+    let until = TokioInstant::now() + bound;
+    for diag in pending {
+        if tokio::time::timeout_at(until, events.send(LinkEvent::Diag(diag))).await.is_err() {
+            return;
+        }
+    }
 }
 
 impl Worker {
@@ -188,6 +274,8 @@ impl Worker {
             cache: None,
             session: None,
             announced_adapter: None,
+            health: AdapterHealth::new(Instant::now()),
+            power: None,
         }
     }
 
@@ -195,6 +283,7 @@ impl Worker {
     fn apply(&mut self, command: Option<LinkCommand>) -> bool {
         if let Some(command) = &command {
             self.switch.apply(command);
+            self.health.receiving(self.switch.is_on(), Instant::now());
         }
         match command {
             None => return false,
@@ -225,7 +314,14 @@ impl Worker {
         drain_then_admit(self, |worker| worker.drain(rx), |worker| &worker.switch, target)
     }
 
+    /// The loop, then the controller is made sure to be on: a stop or quit that came while a power cycle ran was queued and
+    /// is handled after it, and a controller we could not switch on is tried one last time on the way out.
     async fn run(mut self, rx: &mut mpsc::Receiver<LinkCommand>) {
+        self.run_loop(rx).await;
+        self.restore_power(true).await;
+    }
+
+    async fn run_loop(&mut self, rx: &mut mpsc::Receiver<LinkCommand>) {
         let mut reconnect: Option<Sighting> = None;
         loop {
             // A stale link was replaced: its advertiser is the next target, no scan in between (unless receiving was
@@ -269,11 +365,21 @@ impl Worker {
             if !self.park(rx).await {
                 return None;
             }
-            let failure = match self.watch(rx).await {
+            // A controller we switched off and could not switch on again comes first.
+            self.restore_power(false).await;
+            let watched = self.watch(rx).await;
+            // Whatever comes now (a connection, a pause, a failure), time passing is not silence.
+            self.health.scan_stopped();
+            let failure = match watched {
                 Watched::Found(sighting) => return Some(sighting),
                 Watched::Gone => return None,
                 // Back to the top: the switch is off, so `park` waits there.
                 Watched::Paused => continue,
+                // A stop or quit that came during the cycle counts before the next scan.
+                Watched::Reset => match after_reset(self, |worker| worker.drain(rx), |worker| &worker.switch) {
+                    Ok(_) => continue,
+                    Err(ApplicationGone) => return None,
+                },
                 Watched::Failed(failure) => failure,
             };
             // A broken session (bluetoothd restarted) is made again next time.
@@ -299,6 +405,7 @@ impl Worker {
     }
 
     async fn report_scan_failure(&mut self, failure: ScanFailure, wait: Duration) {
+        self.health.scan_failed(Instant::now());
         let diag = Diag::new(0, "scan_error").with("kind", Value::S(failure.as_str())).with("retry_ms", Value::U(u64::try_from(wait.as_millis()).unwrap_or(u64::MAX)));
         emit_diag(&self.events, diag).await;
         if self.reported_scan != Some(failure) {
@@ -327,6 +434,7 @@ impl Worker {
         let names = session.adapter_names().await.map_err(|_| ScanFailure::Unavailable)?;
         let name = choose_adapter(&names, self.cfg.adapter.as_deref()).map_err(|_: AdapterChoice| ScanFailure::Unavailable)?;
         let adapter = session.adapter(&name).map_err(|_| ScanFailure::Unavailable)?;
+        self.power = Some(BluezPower { adapter: adapter.clone(), select: self.cfg.select, pairing: self.cfg.pairing });
         if self.announced_adapter.as_deref() != Some(name.as_str()) {
             if let Some(index) = hci_index(&name) {
                 emit_diag(&self.events, Diag::new(0, "adapter").with("hci", Value::U(index))).await;
@@ -353,8 +461,30 @@ impl Worker {
         restart.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut stream: Option<AdapterEvents> = None;
         let mut changes: Merged = SelectAll::new();
+        let mut known = KnownDevices::new([]);
+        // The first health check is one period away: nothing has been heard yet, and what was counted before this scan is not
+        // silence of this one.
+        self.health.scan_started(Instant::now());
+        let mut health_tick = interval_at(TokioInstant::now() + HEALTH_EVERY, HEALTH_EVERY);
+        health_tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
         loop {
             tokio::select! {
+                _ = health_tick.tick() => {
+                    match self.health.tick(Instant::now()) {
+                        Tick::Idle => {}
+                        Tick::RestorePower => {
+                            // The controller is ours to switch on; the scan starts over either way.
+                            stop_discovery(stream.take(), changes, &scanner.adapter).await;
+                            self.restore_power(false).await;
+                            return Watched::Reset;
+                        }
+                        Tick::Cycle(reason) => {
+                            stop_discovery(stream.take(), changes, &scanner.adapter).await;
+                            self.power_cycle(reason).await;
+                            return Watched::Reset;
+                        }
+                    }
+                }
                 command = rx.recv() => {
                     if !self.apply(command) {
                         return Watched::Gone;
@@ -369,15 +499,22 @@ impl Worker {
                     drop(stream.take());
                     changes = SelectAll::new();
                     wait_until_idle(&scanner.adapter).await;
-                    purge(&scanner.adapter).await;
-                    match scanner.adapter.discover_devices().await {
-                        Ok(events) => stream = Some(events.boxed()),
-                        Err(_) => return Watched::Failed(ScanFailure::Unavailable),
+                    // A BlueZ that does not answer is not waited for: back to the loop, where the health tick runs.
+                    let Ok(kept) = timeout(RESTART_BOUND, purge(&scanner.adapter)).await else { continue };
+                    known = KnownDevices::new(kept);
+                    match timeout(RESTART_BOUND, scanner.adapter.discover_devices()).await {
+                        Ok(Ok(events)) => stream = Some(events.boxed()),
+                        Ok(Err(_)) => return Watched::Failed(ScanFailure::Unavailable),
+                        Err(_) => continue,
                     }
                     self.confirm_scan(&mut confirmed).await;
                 }
                 added = next_event(&mut stream) => match added {
                     Some(AdapterEvent::DeviceAdded(address)) => {
+                        // Any device heard now shows that the controller hears; BlueZ's own list at the start does not.
+                        if known.is_advert(&address) {
+                            self.health.advert(Instant::now());
+                        }
                         if let Some(uuids) = watch_device(&scanner.adapter, address, &mut changes).await {
                             if let Some(found) = self.sighting(&scanner, address, &uuids).await {
                                 stop_discovery(stream.take(), changes, &scanner.adapter).await;
@@ -389,6 +526,7 @@ impl Worker {
                     None => return Watched::Failed(ScanFailure::Aborted),
                 },
                 Some((address, uuids)) = changes.next(), if !changes.is_empty() => {
+                    self.health.advert(Instant::now());
                     if let Some(found) = self.sighting(&scanner, address, &uuids).await {
                         stop_discovery(stream.take(), changes, &scanner.adapter).await;
                         return Watched::Found(found);
@@ -457,7 +595,10 @@ impl Worker {
             Settled::Opened(live) => {
                 self.failures = 0;
                 self.cache = Some(live.handles);
-                self.serve(rx, conn, key, sighting, adv_at, live).await
+                self.health.link_up(Instant::now());
+                let served = self.serve(rx, conn, key, sighting, adv_at, live).await;
+                self.health.link_down(Instant::now());
+                served
             }
         }
     }
@@ -473,7 +614,42 @@ impl Worker {
         emit_diag(&self.events, Diag::new(conn, "connect_failed").at(millis(adv_at)).with("kind", Value::S(kind.as_str()))).await;
         let wait = RETRY_WAITS_MS[self.failures.min(RETRY_WAITS_MS.len() - 1)];
         self.failures += 1;
-        self.emit(LinkEvent::Disconnected { conn, device, reason: DisconnectReason::Failed(kind) }).await && self.wait(rx, Duration::from_millis(wait)).await
+        if !self.emit(LinkEvent::Disconnected { conn, device, reason: DisconnectReason::Failed(kind) }).await {
+            return false;
+        }
+        self.health.connect_failed(kind);
+        if let Some(reason) = self.health.check(Instant::now()) {
+            self.power_cycle(reason).await;
+        }
+        self.wait(rx, Duration::from_millis(wait)).await
+    }
+
+    /// Switches the controller off and on again through BlueZ (`Adapter1.Powered`, which the logged-in user may set), the
+    /// remedy for a controller that has stopped hearing or keeps failing connections. The rules (what is left alone, what is
+    /// always switched back on, how long it may take) are those of [`crate::health::power_cycle`]. Commands that arrive
+    /// meanwhile are queued and handled after it, so a stop never finds the controller half switched.
+    async fn power_cycle(&mut self, reason: ResetReason) {
+        let mut pending = Vec::new();
+        let Some(power) = self.power.clone() else {
+            log_report(&self.events, reason, None, Report::Failed(crate::health::ResetFailure::Unavailable), &mut pending);
+            return flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
+        };
+        let events = self.events.clone();
+        let hci = self.announced_adapter.as_deref().and_then(hci_index);
+        power_cycle(&mut self.health, &power, reason, CycleTiming::PRODUCTION, |report| log_report(&events, reason, hci, report, &mut pending)).await;
+        flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
+    }
+
+    /// Switches a controller we switched off back on, when that is due (`force`: now, whatever the wait).
+    async fn restore_power(&mut self, force: bool) {
+        if !self.health.power_on_owed() || !(force || self.health.power_on_due(Instant::now())) {
+            return;
+        }
+        let Some(power) = self.power.clone() else { return self.health.power_on_failed(Instant::now()) };
+        let events = self.events.clone();
+        let mut pending = Vec::new();
+        restore_power(&mut self.health, &power, CycleTiming::PRODUCTION, |report| log_report(&events, ResetReason::NoAdverts, None, report, &mut pending)).await;
+        flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
     }
 
     async fn emit(&self, event: LinkEvent) -> bool {
@@ -677,22 +853,31 @@ async fn next_event(stream: &mut Option<AdapterEvents>) -> Option<AdapterEvent> 
 /// Waits until BlueZ reports discovery stopped (bluer stops it a moment after its last stream is dropped).
 async fn wait_until_idle(adapter: &Adapter) {
     let deadline = tokio::time::Instant::now() + IDLE_WAIT;
-    while adapter.is_discovering().await.unwrap_or(false) && tokio::time::Instant::now() < deadline {
-        sleep(Duration::from_millis(20)).await;
-    }
+    let waiting = async {
+        while adapter.is_discovering().await.unwrap_or(false) && tokio::time::Instant::now() < deadline {
+            sleep(Duration::from_millis(20)).await;
+        }
+    };
+    // `is_discovering` is a D-Bus call: a BlueZ that does not answer must not hold the caller up.
+    let _ = timeout(IDLE_BOUND, waiting).await;
 }
 
 /// Removes the devices BlueZ only knows from scanning, so that a changed advertisement is a new device. Paired and
 /// connected devices stay.
-async fn purge(adapter: &Adapter) {
-    let Ok(addresses) = adapter.device_addresses().await else { return };
+async fn purge(adapter: &Adapter) -> Vec<Address> {
+    let Ok(addresses) = adapter.device_addresses().await else { return Vec::new() };
+    let mut kept = Vec::new();
     for address in addresses {
         let Ok(device) = adapter.device(address) else { continue };
         if device.is_paired().await.unwrap_or(true) || device.is_connected().await.unwrap_or(true) {
+            kept.push(address);
             continue;
         }
-        let _ = adapter.remove_device(address).await;
+        if adapter.remove_device(address).await.is_err() {
+            kept.push(address);
+        }
     }
+    kept
 }
 
 /// Starts following the `UUIDs` of a device and returns what they are now.
@@ -781,4 +966,61 @@ pub async fn adapters() -> Vec<AdapterInfo> {
 /// `Disconnect`) are carried out first, in order, and the socket is closed before this returns.
 pub async fn run(cfg: LinkConfig, tx: mpsc::Sender<LinkEvent>, mut rx: mpsc::Receiver<LinkCommand>) {
     Worker::new(cfg, tx).run(&mut rx).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filler() -> LinkEvent {
+        LinkEvent::Diag(Diag::new(0, "filler"))
+    }
+
+    #[tokio::test]
+    async fn reset_lines_that_find_the_channel_full_are_kept_and_delivered_in_order_afterwards() {
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.send(filler()).await.unwrap();
+        let mut pending = Vec::new();
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Started, &mut pending);
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Failed(crate::health::ResetFailure::Timeout), &mut pending);
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Cycled, &mut pending);
+        assert_eq!(pending.len(), 2, "nothing is dropped, and `Cycled` has no line");
+        let reader = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            while let Some(event) = rx.recv().await {
+                seen.push(event);
+                if seen.len() == 3 {
+                    break;
+                }
+            }
+            seen
+        });
+        flush_diags(&tx, pending, Duration::from_secs(1)).await;
+        let seen = reader.await.unwrap();
+        assert_eq!(seen[0], filler());
+        assert_eq!(seen[1], LinkEvent::Diag(reset_diag(ResetReason::NoAdverts, Some(1))));
+        assert_eq!(seen[2], LinkEvent::Diag(reset_failed_diag(crate::health::ResetFailure::Timeout)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_channel_that_stays_full_holds_the_cycle_up_for_the_bound_only() {
+        let (tx, _rx) = mpsc::channel(1);
+        tx.send(filler()).await.unwrap();
+        let mut pending = Vec::new();
+        for _ in 0..3 {
+            log_report(&tx, ResetReason::NoAdverts, None, Report::Started, &mut pending);
+        }
+        let before = TokioInstant::now();
+        flush_diags(&tx, pending, Duration::from_millis(500)).await;
+        assert!(before.elapsed() <= Duration::from_millis(500), "one bound for the whole batch, not one per line: {:?}", before.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_report_that_finds_room_is_sent_at_once() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut pending = Vec::new();
+        log_report(&tx, ResetReason::NoAdverts, Some(0), Report::Restored, &mut pending);
+        assert!(pending.is_empty());
+        assert_eq!(rx.try_recv().unwrap(), LinkEvent::Diag(restored_diag()));
+    }
 }

@@ -1205,3 +1205,65 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
 - Linux 到達端約 90 毫秒空窗的原因（連結層，未查）。
 - Windows 修正版的實機手感（修正前已暫定 PASS）。
 - 重開機後 hci1 連線間隔還原，屆時 Linux 會回到 50 毫秒延遲上限。
+
+## WL12：Linux 藍牙卡收不到廣播時自動重設（2026-11-15）
+
+使用者回報「每次改完代碼 Linux 都連唔到」。實際查到的原因是 hci1 本身，跟程式版本無關。
+
+### 量度與證據
+
+依每次啟動接收端分段，統計 Linux 的連線結果：
+
+| 接收端啟動（UTC） | 版本 | `auth ok` | `connect_failed` |
+|---|---|---|---|
+| 11-14 20:04 | 原本 WL 版本 | 127 | 44 |
+| 11-14 20:22 | 原本 | 99 | 0 |
+| 11-14 20:47 | 原本（da86d82） | 14 | 16 |
+| 11-15 01:19 | 原本，使用者改用 hci0 | 2 | 19 |
+| 11-15 02:47 | WL11 修正版 | 6 | 2 |
+| 11-15 05:20 | WL11 修正版＋短連線間隔 | 7 | 16 |
+
+- 變聾已經出現三次：約 00:20 之後、03:55 之後，以及 06:02–06:31 之間（UTC）。
+- 期間錄了 btmon（使用者執行 sudo），約 4 分鐘：
+  - kernel 一直下主動掃描（Accept all、啟用中），約 640 次 Set Extended Scan Enable，全部回 Success。
+  - 控制器沒有回報任何 Advertising Report，附近其他裝置也一個都沒有。
+- 透過 D-Bus 把 `Adapter1.Powered` 設成 false 再設回 true（不需要 sudo、不重啟 bluetoothd、不碰 hci0），立即恢復。之後 `measure-reconnect.sh linux 25`：27/27 次 `auth ok`、0 次 `connect_failed`，從看到廣播到通過驗證的時間中位數 0.92 秒、p95 3.7 秒。
+- 對照實驗都沒有重現變聾，觸發原因仍未知：
+  - 持續掃描 20 分鐘、每 1.5 秒重啟探索 20 分鐘，每分鐘都有 700–1,000 次觀測。
+  - 在 Linux 與 Windows 之間切換主機 20 輪，hci1 也沒有變聾。
+- 先前誤判「iPhone 停止廣播」，已在共用筆記更正。
+
+### 修正（PR #109）
+
+- `rk-ble/src/health.rs`（純邏輯）負責判斷，`linux.rs` 負責執行。觸發條件：
+  - 掃描中且沒有連線時，60 秒內收不到任何裝置的廣播；或
+  - 連續 3 次無線電層級的連線失敗（`unreachable`、`enosys`、`abort_by_local`、`timeout`）。
+- 觸發後，把設定使用的控制器電源關掉再開。
+- 不重設的情況：
+  - 已連線，或接收開關是停止。
+  - 控制器上連著不是我們手機的裝置。此時記錄 `adapter_reset_skipped kind=busy`，並退避。
+- `att_error`、`not_selected` 等手機在空中回應過的結果，不算失敗，而且會讓連續失敗的計數歸零。
+- 頻率與時間限制：
+  - 兩次重設至少間隔 120 秒，以指數退避延長到最多 30 分鐘。
+  - 因連線失敗而重設的那一次，要等到連線成功才把退避重設回 120 秒。
+  - 整個關開過程最多 12 秒。
+- 只要已經送出關閉，就一定會再送開啟；開不回來就持續重試。
+- log：`adapter_reset`、`adapter_reset_failed`、`adapter_reset_skipped`、`adapter_reset_restored`。
+- 以上門檻都是 Provisional。
+
+### 自動驗證
+
+- Mac：`cargo test --workspace` 648 個通過、0 失敗；clippy（本機與 `x86_64-pc-windows-msvc`）無警告。
+- rk-linux（att_error 修正之前的版本）：`cargo test --workspace` 通過，clippy 無警告，release build 成功。
+- 獨立 reviewer（ecc:rust-reviewer）：
+  - 第一輪：5 個 Important，已修。
+  - 第二輪：可 merge；Minor 1–3 也已修。
+- 實機（07:20 UTC，att_error 修正之前的版本）：`measure-reconnect.sh linux 10` 跑了 10 次，`auth ok` 11 次。
+  - 其中有一次誤判：手機收起鍵盤時，90 毫秒內出現 3 次 `att_error`，觸發了重設。重設後 2.9 秒就恢復連線。
+  - 這個誤判已由「`att_error` 不算失敗」修正。
+
+### 未驗證（TBD）
+
+- 安裝 att_error 修正後的版本，再量一次重連，確認不再誤判。
+- 真正變聾時能否自動觸發並恢復：需要長時間觀察 rk-linux 的 `adapter_reset*` log。
+- 變聾的觸發原因。
