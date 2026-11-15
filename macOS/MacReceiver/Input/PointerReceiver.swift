@@ -62,11 +62,16 @@ final class PointerReceiver: ObservableObject {
     private var playout = PointerPlayout()
     private var watchdog: Timer?
     private var statsTimer: Timer?
+    /// When the periodic link log last wrote, so its 5 s windows do not overlap.
+    private var lastPeriodicLogAt: UInt64 = 0
+    private static let periodicLogInterval: UInt64 = 5_000_000
     private var stats = PointerLinkStats()
     private var diagnostics = PointerPlayoutDiagnostics()
     private var consecutiveFailures = 0
     /// The later of the last frame and the moment the frame source was started.
     private var framesAliveAt: UInt64 = 0
+    /// When the last MOVE was queued; `nil` after the playout was dropped. For the starvation diagnostic only.
+    private var lastMoveEnqueueAt: UInt64?
     private var packets = 0
     private var rejected = 0
 
@@ -229,6 +234,7 @@ final class PointerReceiver: ObservableObject {
 
     private func startStatsTimer() {
         stopStatsTimer()
+        lastPeriodicLogAt = clock()
         statsTimer = CommonModeTimer.make(1, repeats: true) { [weak self] in self?.refreshLinkSummary() }
     }
 
@@ -247,13 +253,18 @@ final class PointerReceiver: ObservableObject {
         if lines != linkSummary { linkSummary = lines }
         let diag = diagnostics.snapshot(nowMicros: clock())?.lines
         if diag != playoutSummary { playoutSummary = diag }
+        // A time series for automatic measurement: every 5 s while there is activity (a snapshot exists).
+        if (lines != nil || diag != nil), clock() &- lastPeriodicLogAt >= Self.periodicLogInterval {
+            lastPeriodicLogAt = clock()
+            logLinkSummary()
+        }
     }
 
     /// Counts and milliseconds only.
     private func logLinkSummary() {
         let now = clock()
         if let d = diagnostics.snapshot(nowMicros: now) {
-            log("pointer diag stalled=\(Int(d.stalledFramePercent.rounded()))% longest=\(d.longestStall) squeezes=\(d.squeezeCount) cb50=\(Int(d.callbackIntervalP50Millis.rounded()))ms cb95=\(Int(d.callbackIntervalP95Millis.rounded()))ms margin10=\(Int(d.marginP10Millis.rounded()))ms margin50=\(Int(d.marginP50Millis.rounded()))ms gain50=\(String(format: "%.2f", d.gainJumpP50)) gain90=\(String(format: "%.2f", d.gainJumpP90)) lag=\(playout.lagBoundMicros / 1000)ms")
+            log("pointer diag stalled=\(Int(d.stalledFramePercent.rounded()))% longest=\(d.longestStall) squeezes=\(d.squeezeCount) cb50=\(Int(d.callbackIntervalP50Millis.rounded()))ms cb95=\(Int(d.callbackIntervalP95Millis.rounded()))ms margin10=\(Int(d.marginP10Millis.rounded()))ms margin50=\(Int(d.marginP50Millis.rounded()))ms gain50=\(String(format: "%.2f", d.gainJumpP50)) gain90=\(String(format: "%.2f", d.gainJumpP90)) starve=\(d.starveCount) starve95=\(Int(d.starveP95Millis.rounded()))ms starvemax=\(Int(d.starveMaxMillis.rounded()))ms starvedt50=\(Int(d.starveDtP50Millis.rounded()))ms starvegap50=\(Int(d.starveGapP50Millis.rounded()))ms lag=\(playout.lagBoundMicros / 1000)ms jit=\(playout.jitterAllowanceMicros / 1000)ms")
         }
         guard let s = stats.snapshot(nowMicros: now) else { return }
         log("pointer link rate=\(Int(s.packetsPerSecond.rounded())) p50=\(Int(s.arrivalP50Millis.rounded()))ms p95=\(Int(s.arrivalP95Millis.rounded()))ms interval=\(Int(s.estimatedConnectionIntervalMillis.rounded()))ms backlog=\(Int(s.backlogGrowthMillis.rounded()))ms")
@@ -265,6 +276,7 @@ final class PointerReceiver: ObservableObject {
     private func route(_ actions: [PointerAction], spanMicros: UInt64, nowMicros now: UInt64) {
         for action in actions {
             if case .move(let dx, let dy, let dragging) = action {
+                noteStarvation(nowMicros: now, phoneDtMicros: spanMicros)
                 let squeezesBefore = playout.squeezeCount
                 playout.enqueue(dx: dx, dy: dy, dragging: dragging, spanMicros: spanMicros, nowMicros: now)
                 if playout.squeezeCount != squeezesBefore { diagnostics.recordSqueeze(atMicros: now) }
@@ -279,13 +291,29 @@ final class PointerReceiver: ObservableObject {
                 framesAliveAt = now
             } else if now >= framesAliveAt, now - framesAliveAt >= Self.frameStallMicros {
                 // The display went away mid gesture: the source still says it runs but nothing arrives.
-                frames.stop()
+                stopFrames()
                 frames.start()
                 framesAliveAt = now
             }
         } else if frames.isRunning {
-            frames.stop()
+            stopFrames()
         }
+    }
+
+    /// A MOVE is about to be queued. When the previous one came less than `movingMicros` ago (mid-stroke) and the playout had
+    /// already played out everything, the cursor stood still from the end of the queue until now: a starvation event.
+    private func noteStarvation(nowMicros now: UInt64, phoneDtMicros: UInt64) {
+        defer { lastMoveEnqueueAt = now }
+        guard let previous = lastMoveEnqueueAt, now >= previous, now - previous <= PointerPlayoutDiagnostics.movingMicros else { return }
+        let queueEnd = playout.lastSegmentEndMicros
+        guard queueEnd > 0, now > queueEnd else { return }
+        diagnostics.recordStarvation(atMicros: now, standstillMicros: now - queueEnd, phoneDtMicros: phoneDtMicros, arrivalGapMicros: now - previous)
+    }
+
+    /// Every stop of the frame source goes through here, so the diagnostics know the next refresh follows a pause.
+    private func stopFrames() {
+        frames.stop()
+        diagnostics.frameSourceStopped()
     }
 
     private func flushPlayout() {
@@ -303,13 +331,14 @@ final class PointerReceiver: ObservableObject {
         }
         apply(due)
         diagnostics.recordFrame(nowMicros: now, timestampMicros: timestampMicros, targetMicros: targetMicros, delivered: !due.isEmpty)
-        if playout.isIdle, frames.isRunning { frames.stop() }
+        if playout.isIdle, frames.isRunning { stopFrames() }
     }
 
     /// The channel is over: whatever was not played is not performed any more.
     private func dropPlayout() {
         playout.discard()
-        if frames.isRunning { frames.stop() }
+        lastMoveEnqueueAt = nil
+        if frames.isRunning { stopFrames() }
     }
 
     private func apply(_ actions: [PointerAction]) {

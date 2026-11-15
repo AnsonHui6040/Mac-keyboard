@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# Measures trackpad timing against a Windows or Linux receiver without any manual step: the iPhone draws fixed strokes on the
+# Measures trackpad timing against a Windows, Linux or Mac receiver without any manual step: the iPhone draws fixed strokes on the
 # Remote Keyboard trackpad (TrackpadSmokeUITests/testFixedStrokes), then the receiver's timing summary lines (pointer_timing*,
 # ble_rx_timing, portal_motion_timing) are pulled over ssh, filtered to the run and aggregated by timing_report.py.
+# For mac the target is this Mac: the receiver app stays running and its `pointer diag` / `pointer link` lines (one pair per
+# 5 s of activity) are read with /usr/bin/log show and aggregated by mac_pointer_report.py (count, median, max per field).
 #
-#   e2e/scripts/measure-trackpad.sh <win|linux> [N]
+#   e2e/scripts/measure-trackpad.sh <win|linux|mac> [N]
 #
 # N is the number of strokes (default 20). Environment:
 #   RK_IPHONE_UDID   iPhone UDID (default: the first connected device in `xcrun devicectl list devices`)
 #   RK_SSH_WIN       ssh host name of the Windows machine (default rk-win)
 #   RK_SSH_LINUX     ssh host name of the Linux machine (default rk-linux)
-#   RK_HOST_NAME     the computer's name as the iPhone lists it under 已配對電腦 (linux default: Linux; win: required)
+#   RK_HOST_NAME     the computer's name as the iPhone lists it under 已配對電腦 (linux default: Linux; mac default: scutil --get
+#                    ComputerName; win: required)
 #   RK_LABEL         label added to the result file name, for example before or after
-# The Mac receiver app is quit for the run (it would compete for the iPhone's link) and opened again on every exit path.
-# The receiver's UTC clock is read over ssh first and its difference to this Mac is applied to the time window.
+# For win and linux the Mac receiver app is quit for the run (it would compete for the iPhone's link) and opened again on every
+# exit path. The receiver's UTC clock is read over ssh first and its difference to this Mac is applied to the time window.
 #
 # The test reads RK_STROKE_COUNT and PairingUITests reads RK_SELECT_HOST from the test process environment. xcodebuild forwards
 # only environment variables of its own process that start with TEST_RUNNER_, so they are set that way here.
@@ -30,9 +33,9 @@ TARGET="${1:-}"
 COUNT="${2:-20}"
 
 case "$TARGET" in
-  win|linux) ;;
-  -h|--help|"") sed -n '2,21p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
-  *) echo "target must be win or linux" >&2; exit 2 ;;
+  win|linux|mac) ;;
+  -h|--help|"") sed -n '2,24p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
+  *) echo "target must be win, linux or mac" >&2; exit 2 ;;
 esac
 case "$COUNT" in
   ''|*[!0-9]*|0) echo "N must be a positive whole number" >&2; exit 2 ;;
@@ -55,6 +58,14 @@ case "$TARGET" in
   linux)
     SSH_HOST="$LINUX_HOST"
     HOST_NAME="${RK_HOST_NAME:-Linux}"
+    ;;
+  mac)
+    SSH_HOST=""
+    HOST_NAME="${RK_HOST_NAME:-$(scutil --get ComputerName 2>/dev/null)}"
+    if [ -z "$HOST_NAME" ]; then
+      echo "cannot read this Mac's name (scutil --get ComputerName): set RK_HOST_NAME" >&2
+      exit 2
+    fi
     ;;
 esac
 
@@ -87,10 +98,16 @@ KEPT="$(mktemp -t rk-trackpad-kept)"
 
 restore_mac_receiver() {
   rm -f "$XLOG_SELECT" "$XLOG_RUN" "$RAW" "$KEPT"
+  [ "$TARGET" = mac ] && return 0
   open -a "$MAC_RECEIVER_APP" >/dev/null 2>&1 || echo "WARNING: could not reopen $MAC_RECEIVER_APP" >&2
 }
 trap restore_mac_receiver EXIT
 
+if [ "$TARGET" = mac ]; then
+  CLOCK_OFFSET=0
+  pgrep -f "Remote Keyboard Receiver.app/" >/dev/null 2>&1 || { echo "the Mac receiver app is not running: open it first (it is the target)" >&2; exit 3; }
+  echo "target=mac host=\"$HOST_NAME\" strokes=$COUNT iphone=$UDID"
+else
 # The receiver's clock against this Mac's (mid-point of the ssh round trip).
 case "$TARGET" in
   win)   REMOTE_CLOCK='powershell -NoProfile -Command "[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()"' ;;
@@ -119,7 +136,11 @@ if pgrep -f "Remote Keyboard Receiver.app/" >/dev/null 2>&1; then
     exit 3
   fi
 fi
+fi
 
+# The mac target reads the receiver log from here on, so that the `pointer open` of the connection made by the selection
+# step is inside the window.
+SELECT_LOG_START="$(date '+%Y-%m-%d %H:%M:%S')"
 TEST_RUNNER_RK_SELECT_HOST="$HOST_NAME" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
   -destination "id=$UDID" -allowProvisioningUpdates \
   -only-testing:RemoteKeyboardUITests/PairingUITests/testSelectComputer >"$XLOG_SELECT" 2>&1 </dev/null
@@ -151,6 +172,14 @@ sleep 2
 
 # Receiver log lines of the three timing events, from the newest few log files; the time window is applied locally.
 case "$TARGET" in
+  mac)
+    # RKTP times are UTC with milliseconds; log show takes local time in whole seconds. The window starts before the selection step.
+    LOG_START="$SELECT_LOG_START"
+    LOG_END="$(date -r $(( $(date -j -u -f '%Y-%m-%dT%H:%M:%S' "${T_END%%.*}" +%s) + 10 )) '+%Y-%m-%d %H:%M:%S')"
+    /usr/bin/log show --info --start "$LOG_START" --end "$LOG_END" \
+      --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver" AND category == "pointer"' --style compact >"$RAW" 2>/dev/null
+    SSH_STATUS=$?
+    ;;
   win)
     FETCH='powershell -NoProfile -Command "Get-ChildItem (Join-Path $env:LOCALAPPDATA '"'"'RemoteKeyboard\logs'"'"') -Filter '"'"'*.log'"'"' | Sort-Object LastWriteTime -Descending | Select-Object -First 3 | ForEach-Object { Select-String -Path $_.FullName -Pattern '"'"'ev=pointer_timing'"'"','"'"'ev=ble_rx_timing'"'"','"'"'ev=portal_motion_timing'"'"' | ForEach-Object { $_.Line } }"'
     ssh -n -o ConnectTimeout=10 -o BatchMode=yes -- "$SSH_HOST" "$FETCH" 2>/dev/null | tr -d '\r' >"$RAW"
@@ -168,18 +197,26 @@ REMOTE
     ;;
 esac
 if [ "$SSH_STATUS" -ne 0 ]; then
-  echo "could not read the receiver's log over ssh ($SSH_HOST, exit $SSH_STATUS)" >&2
+  echo "could not read the receiver's log ($TARGET${SSH_HOST:+ over ssh $SSH_HOST}, exit $SSH_STATUS)" >&2
   exit 5
 fi
 
-python3 "$SCRIPT_DIR/timing_report.py" --from "$T_START" --to "$T_END" --offset-s "$CLOCK_OFFSET" --grace-s 2 --print-lines <"$RAW" >"$KEPT"
+if [ "$TARGET" = mac ]; then
+  python3 "$SCRIPT_DIR/mac_pointer_report.py" --print-lines <"$RAW" >"$KEPT"
+else
+  python3 "$SCRIPT_DIR/timing_report.py" --from "$T_START" --to "$T_END" --offset-s "$CLOCK_OFFSET" --grace-s 2 --print-lines <"$RAW" >"$KEPT"
+fi
 KEPT_LINES="$(wc -l <"$KEPT" | tr -d ' ')"
 
 {
   echo "# measure-trackpad target=$TARGET host=\"$HOST_NAME\"${LABEL:+ label=$LABEL} strokes_asked=$COUNT strokes_drawn=$RAN window=$T_START..$T_END (Mac clock) receiver_clock_offset_s=$CLOCK_OFFSET xcodebuild_exit=$RUN_STATUS timing_lines=$KEPT_LINES"
   echo
   echo "## Aggregated"
-  python3 "$SCRIPT_DIR/timing_report.py" <"$KEPT"
+  if [ "$TARGET" = mac ]; then
+    python3 "$SCRIPT_DIR/mac_pointer_report.py" <"$KEPT"
+  else
+    python3 "$SCRIPT_DIR/timing_report.py" <"$KEPT"
+  fi
   echo "## Raw timing lines (numbers only)"
   cat "$KEPT"
 } >"$OUT"

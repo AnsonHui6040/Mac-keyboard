@@ -622,11 +622,106 @@ final class PointerReceiverTests: XCTestCase {
             rig.frame(after: 8_333)
         }
         rig.receiver.refreshLinkSummary()
-        XCTAssertEqual(rig.receiver.playoutSummary?.count, 4)
+        XCTAssertEqual(rig.receiver.playoutSummary?.count, 5)
         XCTAssertTrue(rig.receiver.playoutSummary?.first?.hasPrefix("播放中斷") == true)
         _ = rig.receiver.handleClose()
         XCTAssertNil(rig.receiver.playoutSummary)
         XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer diag") }.count, 1)
+    }
+
+    /// 30 strokes of one MOVE (span 16.6 ms) each `gap` microseconds apart, the frame source ticking once after each, then the close logs the window.
+    private func diagLineAfterMoves(gap: UInt64, dt: UInt16 = 166) -> String? {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<30 {
+            rig.send(PointerPayload(opcode: .move, buttons: 0, dx: 16, dy: 0, dt: dt, buttonSeq: 0))
+            rig.frame(after: gap)
+        }
+        _ = rig.receiver.handleClose()
+        return rig.logLines.first { $0.hasPrefix("pointer diag") }
+    }
+
+    func testMovesThatLeaveTheQueueEmptyMidStrokeAreLoggedAsStarvationWithTheStandstill() throws {
+        let line = try XCTUnwrap(diagLineAfterMoves(gap: 30_000))
+        XCTAssertTrue(line.contains(" starve=29 "), line)
+        XCTAssertTrue(line.contains(" starve95=13ms "), line)
+        XCTAssertTrue(line.contains(" starvemax=13ms"), line)
+    }
+
+    func testStarvationEndedByAPacketWithALargeDtMeansThePhoneMadeTheGap() throws {
+        let line = try XCTUnwrap(diagLineAfterMoves(gap: 85_000, dt: 850))
+        XCTAssertTrue(line.contains(" starvedt50=85ms"), line)
+        XCTAssertTrue(line.contains(" starvegap50=85ms"), line)
+    }
+
+    func testStarvationEndedByAPacketWithASmallDtButALateArrivalMeansTheRadioMadeTheGap() throws {
+        let line = try XCTUnwrap(diagLineAfterMoves(gap: 85_000, dt: 166))
+        XCTAssertTrue(line.contains(" starvedt50=17ms"), line)
+        XCTAssertTrue(line.contains(" starvegap50=85ms"), line)
+    }
+
+    func testMovesThatArriveBeforeTheQueueRunsOutAreNotStarvation() throws {
+        let line = try XCTUnwrap(diagLineAfterMoves(gap: 15_000))
+        XCTAssertTrue(line.contains(" starve=0 "), line)
+        XCTAssertTrue(line.contains(" starvemax=0ms"), line)
+    }
+
+    func testAPauseBetweenStrokesIsNotStarvation() throws {
+        // 150 ms between MOVEs: the cursor was not moving, so the gap is a pause and not a standstill.
+        let line = try XCTUnwrap(diagLineAfterMoves(gap: 150_000))
+        XCTAssertTrue(line.contains(" starve=0 "), line)
+    }
+
+    func testTheFrameIntervalIsNotMeasuredAcrossAStoppedFrameSource() throws {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<30 {
+            rig.send(PointerPayload(opcode: .move, buttons: 0, dx: 16, dy: 0, dt: 166, buttonSeq: 0))
+            rig.frame(after: 20_000)  // plays everything and stops the frame source
+            rig.now += 130_000
+        }
+        _ = rig.receiver.handleClose()
+        let line = try XCTUnwrap(rig.logLines.first { $0.hasPrefix("pointer diag") })
+        XCTAssertTrue(line.contains(" cb95=0ms "), line)
+    }
+
+    /// One second of moves at 15 ms spacing, then the once-a-second timer tick.
+    private func activeSecond(_ rig: PointerRig) {
+        for _ in 0..<67 {
+            rig.send(rig.move(dx: 16))
+            rig.now += 15_000
+        }
+        rig.receiver.refreshLinkSummary()
+    }
+
+    func testWhileOpenTheLinkAndDiagLinesAreLoggedEveryFiveSecondsOfActivity() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<4 { activeSecond(rig) }
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 0, "not before five seconds")
+        activeSecond(rig)
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 1)
+        for _ in 0..<5 { activeSecond(rig) }
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 2, "one line per five seconds")
+    }
+
+    func testNothingIsLoggedPeriodicallyWhileIdle() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<12 {
+            rig.now += 1_000_000
+            rig.receiver.refreshLinkSummary()
+        }
+        XCTAssertTrue(rig.logLines.filter { $0.hasPrefix("pointer link") || $0.hasPrefix("pointer diag") }.isEmpty)
+    }
+
+    func testClosingStillLogsTheLastWindowAfterPeriodicLines() {
+        let rig = PointerRig()
+        rig.openChannel()
+        for _ in 0..<6 { activeSecond(rig) }
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 1)
+        _ = rig.receiver.handleClose()
+        XCTAssertEqual(rig.logLines.filter { $0.hasPrefix("pointer link") }.count, 2, "the close-time line is kept")
     }
 
     // MARK: Log
