@@ -118,3 +118,4 @@ Result: NOT_STARTED
 
 **狀態聲明：**沒有在本次會話中存取 Xcode 專案、編譯、連接實機或運行測試。驗收欄全部為 `NOT_STARTED` 是事實，不是對技術可行性的否定。
 | 鍵盤版面優化 D26（branch `keyboard-layout`） | 自動通過（Core、MacReceiver、模擬器與 Release build、`HitAreaUITests`；`KeyboardT10UITests` 因模擬器沒有 Notes 未能執行）；實機 TBD | 狀態文字與顏色、頂部五格等寬、刪除版本行、觸控板鍵常駐（本機隱藏、遠端未連接灰色）、手寫候選字浮在書寫區 | 自動：`swift test` 907 項 0 失敗；預覽截圖 375 與 402 寬；實機：e2e/E2E-LAYOUT.md 全部 TBD |
+| Mac 常駐接收 D29（PR #105，main 8c934d5） | 自動通過：Core `swift test` 1108 項 0 失敗；`MacReceiverTests` 356 項 0 失敗；iOS 模擬器與 Mac build 成功；ecc:swift-reviewer 一輪（M1、L4–L9 已修）、bee:verifier PASS。實機自動：2026-11-15 iPhone 17 Pro 線接、Mac 前景為 Finder、未點任何欄位，`ReconnectUITests` 叫出／收起鍵盤 20 次全部連上；鍵盤出現到連上最短 143 ms、中位數 188 ms、最長 417 ms，點擊到連上 p95 1660 ms | 啟動即接收、無閒置逾時、手動停止到開始或重開、驗證失敗 hold 10 秒；焦點安全閘、D4、log 規則不變 | 證據：`evidence/D29-reopen-20-iphone.csv`、`evidence/D29-reopen-mac-reconnect.csv`；使用者實機：E2E-T16-RC B1、H12–H18 全部 TBD |

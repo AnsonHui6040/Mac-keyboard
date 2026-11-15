@@ -1,0 +1,22 @@
+index,app,tapStartMs,tapReturnMs,keyboardVisibleMs,connectedMs,latencyMs,keyboardToConnectedMs,result
+1,com.apple.mobilenotes,9508,10244,10395,10812,1304,417,connected
+2,com.apple.mobilesafari,14027,15224,15415,15603,1576,188,connected
+3,com.apple.mobilenotes,20512,21243,21392,21535,1023,143,connected
+4,com.apple.mobilesafari,24744,26024,26218,26412,1668,194,connected
+5,com.apple.mobilenotes,31421,32176,32324,32468,1047,144,connected
+6,com.apple.mobilesafari,35661,36877,37062,37254,1593,192,connected
+7,com.apple.mobilenotes,42178,42930,43078,43226,1048,148,connected
+8,com.apple.mobilesafari,46427,47696,47892,48080,1653,188,connected
+9,com.apple.mobilenotes,53052,53799,53947,54093,1041,146,connected
+10,com.apple.mobilesafari,57286,58548,58743,58933,1647,190,connected
+11,com.apple.mobilenotes,63852,64600,64754,64897,1045,143,connected
+12,com.apple.mobilesafari,68073,69315,69498,69688,1615,190,connected
+13,com.apple.mobilenotes,74555,75323,75475,75620,1065,145,connected
+14,com.apple.mobilesafari,78779,80050,80246,80435,1656,189,connected
+15,com.apple.mobilenotes,85405,86158,86308,86452,1047,144,connected
+16,com.apple.mobilesafari,89705,90969,91170,91365,1660,195,connected
+17,com.apple.mobilenotes,96370,97140,97287,97432,1062,145,connected
+18,com.apple.mobilesafari,100648,101902,102093,102283,1635,190,connected
+19,com.apple.mobilenotes,107271,108024,108172,108316,1045,144,connected
+20,com.apple.mobilesafari,111507,112723,112896,113082,1575,186,connected
+# attempts=20 successes=20 p95Ms=1660
