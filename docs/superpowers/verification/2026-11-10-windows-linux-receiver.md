@@ -1347,3 +1347,31 @@ WL13 之後使用者回報 Mac 觸控板「有比較好」但仍有卡頓。以 
 
 - 停頓的根本原因（AWDL 或 Wi-Fi 與藍牙共用晶片）：需要關閉 Wi-Fi 重量。
 - Windows／Linux 的 Rust 版本沒有加入自適應緩衝。
+
+## PK1–PK4：Windows 安裝程式、Linux `.deb`、草稿 release 與文件（2026-11-15）
+
+計畫：`docs/superpowers/plans/2026-11-15-windows-linux-packaging.md`。PR：#115（PK1）、#117（PK2）、#118（PK3）、#116（PK4）。
+
+### 自動驗證
+
+| Task | 證據 |
+|---|---|
+| PK1 Windows 安裝程式 | CI `Windows installer`（windows-latest）：Inno Setup 打包、靜默安裝、檔案與 `Run` 值存在、`rk-receiver`／`rk-diag --version` 為 `0.2.0-alpha.1`、接收端執行中再安裝一次（升級）成功、接收端執行中解除安裝後 exe、`Run` 值與行程都消失。`version_flag_prints_the_package_version` RED（`0.1.0`、`rk-diag` 不認得 `--version`）→ GREEN |
+| PK2 Linux `.deb` | CI `Linux .deb`（ubuntu-latest）：`cargo deb` 產生 `remote-keyboard_0.2.0~alpha.1_amd64.deb`、lintian 無 error、`apt-get install` 依賴可解、`dpkg-query` 版本 `0.2.0~alpha.1`、兩個 `--version` 正確、`apt-get remove` 後 `/usr/bin/rk-receiver` 消失。Linux 測試機暫存資料夾：`cargo test -p rk-receiver` 209 通過；`desktop-file-validate` 無輸出。自動啟動改寫測試 6 個 RED → GREEN |
+| PK3 草稿 release | `draft-release` 只在 `v*` tag 執行（PR 上為 skipping）；核對 tag 與 Cargo 版本、release notes、剛好兩個安裝檔、同 tag 已有 release（含草稿）則失敗 |
+| PK4 文件 | 禁用字、`n=`、個人路徑、主機名稱、廣東話用字 grep 為 0；中英章節標題一一對應；選單文字對照 `i18n.rs`、`windows.rs`、`linux.rs` |
+
+獨立 review：PK1 HIGH 1（`AppMutex` 擋住升級）已修，CI 改為接收端執行中測升級與解除安裝；PK2 MEDIUM 3（改寫自動啟動檔保留其他設定、不搶開發版、去掉 ` (deleted)`）已修；PK3 MEDIUM 2 已修；PK4 MEDIUM 2 已修。
+
+順帶修正：`rk-inject` 測試共用暫存 token 路徑造成 CI 偶發失敗，改為每個測試獨立路徑。
+
+### 實機（TBD）
+
+- rk-win：舊的手動安裝執行中，直接執行安裝程式 → 舊程式結束、新版啟動、配對仍在、iPhone 可打字。
+- rk-linux：移除 `~/.local/bin` 版、安裝 `.deb`、從選單開一次、重新登入 → 自動啟動用 `/usr/bin` 版、配對仍在、可打字。
+- Linux 第一次授權「遠端桌面」視窗的實際字眼。
+
+### 未做
+
+- 打 tag 與草稿 release：等使用者說「發佈」。
+- 套件沒有授權條款檔（lintian warning `copyright-without-copyright-notice`）。
