@@ -24,6 +24,7 @@ use crate::keysym::{
     PASTE_SETTLE, PASTE_WAIT, SCROLL_IDLE, XK_BACKSPACE, XK_CONTROL_L, XK_LOWER_V, XK_RETURN,
 };
 use crate::{Button, InjectError, Injector};
+use rk_core::timing::{IntervalHistogram, StrokeTracker};
 
 mod ashpd_portal;
 
@@ -203,6 +204,68 @@ enum Slot {
     Pointer,
 }
 
+/// Timing of the portal motion calls of one stroke (a burst of `Move` commands that ends after 300 ms without one), written
+/// as one `ev=portal_motion_timing` line: `moves_in` (`Move` commands received), `sends` (portal motion calls made),
+/// `call_p50_us`, `call_p99_us`, `call_max_us` (how long a call took) and the histogram of the time between the starts of
+/// consecutive calls under the keys `send_n`, `send_p50_us`, `send_p90_us`, `send_p99_us`, `send_max_us`, `send_b2` to
+/// `send_b150` and `send_bover`. Times and counts only; the movement is not kept.
+#[derive(Default)]
+struct MotionTiming {
+    tracker: StrokeTracker,
+    calls: IntervalHistogram,
+    gaps: IntervalHistogram,
+    last_send_us: Option<u64>,
+    moves_in: u64,
+}
+
+impl MotionTiming {
+    /// A `Move` command arrived.
+    fn on_move(&mut self, now_us: u64) {
+        if !self.tracker.is_open() {
+            *self = Self::default();
+        }
+        self.tracker.touch(now_us);
+        self.moves_in += 1;
+    }
+
+    /// A portal motion call started and ended at these times of the engine's clock.
+    fn on_send(&mut self, started_us: u64, ended_us: u64) {
+        if !self.tracker.is_open() {
+            return;
+        }
+        self.calls.record(ended_us.saturating_sub(started_us));
+        if let Some(last) = self.last_send_us {
+            self.gaps.record(started_us.saturating_sub(last));
+        }
+        self.last_send_us = Some(started_us);
+    }
+
+    fn deadline_us(&self) -> Option<u64> {
+        self.tracker.deadline()
+    }
+
+    /// The line of the stroke when it has ended at `now_us`, which then closes.
+    fn finish_if_ended(&mut self, now_us: u64) -> Option<String> {
+        if !self.tracker.ended(now_us) {
+            return None;
+        }
+        let done = std::mem::take(self);
+        let call = |percent| done.calls.percentile_us(percent).unwrap_or(0);
+        let mut line = format!(
+            "ev=portal_motion_timing moves_in={} sends={} call_p50_us={} call_p99_us={} call_max_us={}",
+            done.moves_in,
+            done.calls.count(),
+            call(50),
+            call(99),
+            done.calls.max_us()
+        );
+        for (key, value) in done.gaps.fields() {
+            line.push_str(&format!(" send_{key}={value}"));
+        }
+        Some(line)
+    }
+}
+
 struct Engine<C: PortalConnector> {
     connector: C,
     session: Option<C::Session>,
@@ -213,6 +276,7 @@ struct Engine<C: PortalConnector> {
     /// Wakes the worker loop (the closed hook runs on a portal task, the worker may be waiting for commands).
     wake: Closed,
     coalescer: MoveCoalescer,
+    motion_timing: MotionTiming,
     moves_held: usize,
     scroll_finish_at: Option<u64>,
     calls: u32,
@@ -249,6 +313,7 @@ impl<C: PortalConnector> Engine<C> {
             clock,
             wake,
             coalescer: MoveCoalescer::new(MOVE_MAX_HZ),
+            motion_timing: MotionTiming::default(),
             moves_held: 0,
             scroll_finish_at: None,
             calls: 0,
@@ -624,6 +689,8 @@ impl<C: PortalConnector> Engine<C> {
         }
         self.moves_held += 1;
         let now = self.now();
+        self.write_motion_timing_if_ended(now);
+        self.motion_timing.on_move(now);
         if let Some(whole) = self.coalescer.push(dx, dy, now) {
             self.send_motion(whole);
         }
@@ -631,7 +698,16 @@ impl<C: PortalConnector> Engine<C> {
 
     fn send_motion(&mut self, (dx, dy): (f64, f64)) {
         let units = std::mem::take(&mut self.moves_held);
+        let started = self.now();
         let _ = self.reported(Slot::Pointer, InjectPath::Keysym, units, |engine| engine.portal(|s| s.pointer_motion(dx, dy)));
+        let ended = self.now();
+        self.motion_timing.on_send(started, ended);
+    }
+
+    fn write_motion_timing_if_ended(&mut self, now: u64) {
+        if let Some(line) = self.motion_timing.finish_if_ended(now) {
+            self.emit(&line);
+        }
     }
 
     /// Sends the held-back movement now, so a click lands where the finger was.
@@ -697,7 +773,7 @@ impl<C: PortalConnector> Engine<C> {
 
     /// The time (microseconds on the engine's clock) at which `on_timer` has something to do.
     fn next_wakeup(&self) -> Option<u64> {
-        [self.coalescer.due_at(), self.scroll_finish_at, self.clear_retry_at].into_iter().flatten().min()
+        [self.coalescer.due_at(), self.scroll_finish_at, self.clear_retry_at, self.motion_timing.deadline_us()].into_iter().flatten().min()
     }
 
     fn on_timer(&mut self) {
@@ -705,6 +781,7 @@ impl<C: PortalConnector> Engine<C> {
         if let Some(whole) = self.coalescer.flush_due(now) {
             self.send_motion(whole);
         }
+        self.write_motion_timing_if_ended(now);
         if self.scroll_finish_at.is_some_and(|due| now >= due) {
             self.end_scroll();
         }
@@ -990,6 +1067,7 @@ impl Injector for LinuxInjector {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use rk_core::timing::STROKE_IDLE_US;
     use std::sync::atomic::AtomicI32;
 
     #[derive(Debug, Clone, PartialEq)]
@@ -1047,6 +1125,10 @@ mod tests {
         flags: Arc<Flags>,
         /// Runs inside every clipboard read (a user quitting while the original is being read).
         on_read: Arc<Mutex<Option<ReadHook>>>,
+        /// The engine's clock, when a test wants calls to take time on it.
+        clock: Arc<Mutex<Option<Arc<AtomicU64>>>>,
+        /// How long every pointer motion call takes on that clock, in microseconds.
+        motion_cost_us: Arc<AtomicU64>,
     }
 
     impl World {
@@ -1058,6 +1140,8 @@ mod tests {
                 closed_hooks: Arc::default(),
                 outcome: Arc::new(Mutex::new(Ok(()))),
                 on_read: Arc::default(),
+                clock: Arc::default(),
+                motion_cost_us: Arc::new(AtomicU64::new(0)),
                 flags: Arc::new(Flags {
                     fail_all: AtomicBool::new(false),
                     fail_keys: AtomicBool::new(false),
@@ -1153,6 +1237,9 @@ mod tests {
             self.record(Op::Key(sym, pressed))
         }
         fn pointer_motion(&mut self, dx: f64, dy: f64) -> Result<(), InjectError> {
+            if let Some(clock) = &*self.world.clock.lock().unwrap() {
+                clock.fetch_add(self.world.motion_cost_us.load(Ordering::SeqCst), Ordering::SeqCst);
+            }
             self.record(Op::Motion(dx, dy))
         }
         fn pointer_button(&mut self, code: i32, pressed: bool) -> Result<(), InjectError> {
@@ -1247,6 +1334,8 @@ mod tests {
         world: World,
         shared: Arc<Shared>,
         now_us: Arc<std::sync::atomic::AtomicU64>,
+        /// Every line the engine wrote to its log hook.
+        lines: Arc<Mutex<Vec<String>>>,
     }
 
     impl Rig {
@@ -1254,15 +1343,24 @@ mod tests {
             let shared = Shared::new(true);
             let now_us = Arc::new(std::sync::atomic::AtomicU64::new(1_000_000));
             let clock_source = now_us.clone();
+            *world.clock.lock().unwrap() = Some(now_us.clone());
+            let lines: Arc<Mutex<Vec<String>>> = Arc::default();
+            let sink = lines.clone();
             let engine = Engine::new(
                 connector,
                 temp_token_path(token_name),
                 shared.clone(),
-                Arc::new(|_| {}),
+                Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_string())),
                 Box::new(move || clock_source.load(Ordering::SeqCst)),
                 Arc::new(|| {}),
             );
-            Self { engine, world: world.clone(), shared, now_us }
+            Self { engine, world: world.clone(), shared, now_us, lines }
+        }
+
+        /// The log lines that start with `ev=<ev> `.
+        fn lines_of(&self, ev: &str) -> Vec<String> {
+            let prefix = format!("ev={ev} ");
+            self.lines.lock().unwrap().iter().filter(|line| line.starts_with(&prefix)).cloned().collect()
         }
 
         fn granted() -> Self {
@@ -1954,7 +2052,109 @@ mod tests {
         rig.now_us.store(due, Ordering::SeqCst);
         rig.engine.on_timer();
         assert_eq!(rig.world.ops(), vec![Op::Motion(5.0, 0.0), Op::Motion(3.0, 0.0)]);
+        // Nothing is held back any more; only the end of the stroke (where its timing is written) is still to come.
+        assert_eq!(rig.engine.next_wakeup(), Some(1_000_000 + STROKE_IDLE_US));
+    }
+
+
+    // ---- portal motion timing
+
+    fn field_of(line: &str, key: &str) -> u64 {
+        let prefix = format!("{key}=");
+        line.split(' ')
+            .find_map(|token| token.strip_prefix(&prefix))
+            .unwrap_or_else(|| panic!("{key} is missing in {line}"))
+            .parse()
+            .unwrap_or_else(|_| panic!("{key} is not a number in {line}"))
+    }
+
+    fn motions(world: &World) -> usize {
+        world.ops().iter().filter(|op| matches!(op, Op::Motion(..))).count()
+    }
+
+    /// `count` moves of `dx` pixels, `gap_us` apart, the timer given its turn after each.
+    fn stroke_of_moves(rig: &mut Rig, count: u64, dx: f64, gap_us: u64) {
+        let start = rig.now_us.load(Ordering::SeqCst);
+        for i in 0..count {
+            rig.now_us.store(start + i * gap_us, Ordering::SeqCst);
+            rig.engine.pointer_move(dx, 0.0);
+            rig.engine.on_timer();
+        }
+    }
+
+    #[test]
+    fn a_stroke_writes_one_portal_motion_timing_line_after_300_ms_without_a_move() {
+        let mut rig = Rig::granted();
+        rig.world.motion_cost_us.store(700, Ordering::SeqCst);
+        stroke_of_moves(&mut rig, 10, 2.0, 9_000);
+        let last_move_at = 1_000_000 + 9 * 9_000;
+        assert_eq!(rig.engine.next_wakeup(), Some(last_move_at + STROKE_IDLE_US), "the worker is woken for the end of the stroke");
+        rig.now_us.store(last_move_at + STROKE_IDLE_US - 1, Ordering::SeqCst);
+        rig.engine.on_timer();
+        assert!(rig.lines_of("portal_motion_timing").is_empty(), "the stroke is still open");
+        rig.now_us.store(last_move_at + STROKE_IDLE_US, Ordering::SeqCst);
+        rig.engine.on_timer();
+        let lines = rig.lines_of("portal_motion_timing");
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        let line = &lines[0];
+        assert_eq!((field_of(line, "moves_in"), field_of(line, "sends")), (10, motions(&rig.world) as u64));
+        assert_eq!(field_of(line, "sends"), 10);
+        assert_eq!((field_of(line, "call_p50_us"), field_of(line, "call_p99_us"), field_of(line, "call_max_us")), (700, 700, 700));
+        assert_eq!((field_of(line, "send_n"), field_of(line, "send_p50_us"), field_of(line, "send_max_us")), (9, 9_000, 9_000));
+        assert_eq!(field_of(line, "send_b10"), 9);
+        rig.now_us.store(last_move_at + 10 * STROKE_IDLE_US, Ordering::SeqCst);
+        rig.engine.on_timer();
+        assert_eq!(rig.lines_of("portal_motion_timing").len(), 1, "written once");
         assert_eq!(rig.engine.next_wakeup(), None);
+    }
+
+    #[test]
+    fn moves_that_are_joined_count_as_moves_in_but_not_as_sends() {
+        let mut rig = Rig::granted();
+        stroke_of_moves(&mut rig, 10, 2.0, 3_000);
+        rig.now_us.store(1_000_000 + 9 * 3_000 + STROKE_IDLE_US, Ordering::SeqCst);
+        rig.engine.on_timer();
+        let line = rig.lines_of("portal_motion_timing").remove(0);
+        assert_eq!(field_of(&line, "moves_in"), 10);
+        assert_eq!(field_of(&line, "sends"), motions(&rig.world) as u64);
+        assert!(field_of(&line, "sends") < 10, "120 Hz joins moves 3 ms apart: {line}");
+    }
+
+    #[test]
+    fn the_motion_timing_line_holds_times_and_counts_but_no_displacement() {
+        let mut rig = Rig::granted();
+        stroke_of_moves(&mut rig, 5, 1234.0, 9_000);
+        rig.now_us.store(1_000_000 + 4 * 9_000 + STROKE_IDLE_US, Ordering::SeqCst);
+        rig.engine.on_timer();
+        assert!(motions(&rig.world) > 0);
+        let line = rig.lines_of("portal_motion_timing").remove(0);
+        for forbidden in ["1234", "dx", "dy"] {
+            assert!(!line.contains(forbidden), "{forbidden} in {line}");
+        }
+    }
+
+    #[test]
+    fn a_move_after_a_quiet_gap_reports_the_old_stroke_and_starts_a_new_one() {
+        let mut rig = Rig::granted();
+        stroke_of_moves(&mut rig, 3, 2.0, 9_000);
+        rig.now_us.store(1_000_000 + 2 * 9_000 + 400_000, Ordering::SeqCst);
+        rig.engine.pointer_move(2.0, 0.0);
+        let lines = rig.lines_of("portal_motion_timing");
+        assert_eq!(lines.len(), 1, "the move itself closed the old stroke");
+        assert_eq!(field_of(&lines[0], "moves_in"), 3);
+        rig.now_us.fetch_add(STROKE_IDLE_US, Ordering::SeqCst);
+        rig.engine.on_timer();
+        let lines = rig.lines_of("portal_motion_timing");
+        assert_eq!(lines.len(), 2);
+        assert_eq!((field_of(&lines[1], "moves_in"), field_of(&lines[1], "send_n")), (1, 0));
+    }
+
+    #[test]
+    fn clicks_and_flushes_outside_a_stroke_write_no_timing() {
+        let mut rig = Rig::granted();
+        rig.engine.click(Button::Left, 1).unwrap();
+        rig.engine.on_timer();
+        assert!(rig.lines_of("portal_motion_timing").is_empty());
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 use crate::channel::{ChannelOpenError, ChannelSet};
 use crate::message::AckResult;
+use std::collections::VecDeque;
 use std::fmt;
 
 /// Length of the pointer plaintext (§8.3).
@@ -382,7 +383,12 @@ struct Segment {
 /// Each `enqueue` becomes a segment: its displacement is played out evenly over the time the phone measured for it (clamped
 /// to 4 to 50 ms; none given means 8 ms). A segment starts at `now`, or where the previous one ends when that is later.
 /// When the last segment would end more than the allowed lag after `now`, what is still to be played is squeezed so that it
-/// ends exactly that far ahead; the allowed lag is 20 ms, or the new segment's span plus 5 ms when that is more. `take`
+/// ends exactly that far ahead; the allowed lag is 20 ms, or the new segment's span plus 5 ms when that is more, or the
+/// measured arrival period plus 5 ms when that is more (capped at 60 ms). The arrival period is the median of the last 8
+/// gaps between burst starts: an enqueue more than 4 ms after the previous one opens a burst, and a gap between burst
+/// starts counts when it is at most 100 ms (a longer one is a pause; one over 300 ms also forgets the history). A link
+/// that delivers 3 packets every 45 ms thus gets a 50 ms bound instead of a 22 ms one and the cursor does not stop
+/// between bursts, while a link with one packet per 15 ms keeps the 20 ms bound. `take`
 /// hands out what has become due; movements with a different `dragging` state are never added into one output. `flush`
 /// hands out everything left, `discard` drops it. The displacement that goes in is the displacement that comes out, up to
 /// floating-point rounding. The constants are Provisional until measured on a device.
@@ -391,6 +397,14 @@ pub struct PointerPlayout {
     segments: Vec<Segment>,
     last_end: f64,
     squeeze_count: u64,
+    /// When the last `enqueue` happened.
+    last_enqueue: Option<u64>,
+    /// When the burst that is going started.
+    burst_start: Option<u64>,
+    /// The latest gaps between burst starts, oldest first.
+    gaps: VecDeque<u64>,
+    /// The lag bound the last `enqueue` used.
+    lag_bound: u64,
 }
 
 impl PointerPlayout {
@@ -404,6 +418,16 @@ impl PointerPlayout {
     pub const LAG_MARGIN_MICROS: u64 = 5_000;
     /// The span used when a packet did not say.
     pub const DEFAULT_SPAN_MICROS: u64 = 8_000;
+    /// The cap of the part of the lag bound that follows the arrival period.
+    pub const MAX_ADAPTIVE_LAG_MICROS: u64 = 60_000;
+    /// An enqueue this much later than the one before opens a new burst.
+    pub const BURST_GAP_MICROS: u64 = 4_000;
+    /// A gap between burst starts longer than this is a pause and is not counted.
+    pub const MAX_PERIOD_GAP_MICROS: u64 = 100_000;
+    /// A gap between burst starts longer than this also forgets the history.
+    pub const FORGET_GAP_MICROS: u64 = 300_000;
+    /// How many gaps the estimate looks at.
+    pub const PERIOD_HISTORY: usize = 8;
 
     /// Nothing queued.
     pub fn new() -> Self {
@@ -420,6 +444,40 @@ impl PointerPlayout {
         self.squeeze_count
     }
 
+    /// The lag bound the last `enqueue` allowed, in microseconds (the floor before the first one; a diagnostic).
+    pub fn lag_bound_micros(&self) -> u64 {
+        if self.lag_bound == 0 { Self::MAX_LAG_MICROS } else { self.lag_bound }
+    }
+
+    /// Notes an arrival: opens a burst when it comes more than `BURST_GAP_MICROS` after the previous one and then
+    /// records the gap between burst starts.
+    fn note_arrival(&mut self, now_micros: u64) {
+        let new_burst = self.last_enqueue.is_none_or(|last| now_micros.saturating_sub(last) > Self::BURST_GAP_MICROS);
+        self.last_enqueue = Some(now_micros);
+        if !new_burst {
+            return;
+        }
+        if let Some(start) = self.burst_start {
+            let gap = now_micros.saturating_sub(start);
+            if gap > Self::FORGET_GAP_MICROS {
+                self.gaps.clear();
+            } else if gap <= Self::MAX_PERIOD_GAP_MICROS {
+                if self.gaps.len() == Self::PERIOD_HISTORY {
+                    self.gaps.pop_front();
+                }
+                self.gaps.push_back(gap);
+            }
+        }
+        self.burst_start = Some(now_micros);
+    }
+
+    /// The median of the recorded gaps between burst starts; `None` while there are none.
+    fn arrival_period(&self) -> Option<u64> {
+        let mut sorted: Vec<u64> = self.gaps.iter().copied().collect();
+        sorted.sort_unstable();
+        sorted.get(sorted.len() / 2).copied()
+    }
+
     /// Queues one movement. `span_micros` is the time the finger took for it, from the packet; 0 when it did not say.
     pub fn enqueue(&mut self, dx: f64, dy: f64, dragging: bool, span_micros: u64, now_micros: u64) {
         let span = if span_micros == 0 {
@@ -432,7 +490,10 @@ impl PointerPlayout {
         let end = start + span as f64;
         self.segments.push(Segment { dx, dy, dragging, from: start, end });
         self.last_end = end;
-        let allowed = now + Self::MAX_LAG_MICROS.max(span + Self::LAG_MARGIN_MICROS) as f64;
+        self.note_arrival(now_micros);
+        let adaptive = self.arrival_period().map_or(0, |period| (period + Self::LAG_MARGIN_MICROS).min(Self::MAX_ADAPTIVE_LAG_MICROS));
+        self.lag_bound = Self::MAX_LAG_MICROS.max(span + Self::LAG_MARGIN_MICROS).max(adaptive);
+        let allowed = now + self.lag_bound as f64;
         if self.last_end <= allowed {
             return;
         }
@@ -503,6 +564,10 @@ impl PointerPlayout {
     /// Forgets everything that has not been played (the channel is over).
     pub fn discard(&mut self) {
         self.segments.clear();
+        self.last_enqueue = None;
+        self.burst_start = None;
+        self.gaps.clear();
+        self.lag_bound = 0;
     }
 }
 
@@ -531,6 +596,9 @@ pub struct PointerEffects {
     pub ack: Option<AckResult>,
     /// Set when a packet was dropped.
     pub rejection: Option<PointerRejection>,
+    /// The time the phone measured for a readable move packet, in microseconds (0 when it did not say); a diagnostic that
+    /// changes nothing.
+    pub move_span_micros: Option<u64>,
 }
 
 impl fmt::Debug for PointerEffects {
@@ -687,7 +755,9 @@ impl PointerReceiver {
                     None => effects.rejection = Some(PointerRejection::Unreadable),
                     Some(payload) => {
                         let actions = self.engine.handle(&payload, now_micros);
-                        effects.actions = self.route(actions, u64::from(payload.dt) * 100, now_micros);
+                        let span_micros = u64::from(payload.dt) * 100;
+                        effects.move_span_micros = (payload.opcode == Opcode::Move).then_some(span_micros);
+                        effects.actions = self.route(actions, span_micros, now_micros);
                     }
                 }
             }
@@ -713,6 +783,16 @@ impl PointerReceiver {
     /// A button is held or a scroll is going.
     pub fn needs_watchdog(&self) -> bool {
         self.engine.needs_watchdog()
+    }
+
+    /// How many times the playout squeezed its queue since the receiver was made (a diagnostic counter).
+    pub fn squeeze_count(&self) -> u64 {
+        self.playout.squeeze_count()
+    }
+
+    /// The lag bound the playout used last, in microseconds (a diagnostic).
+    pub fn lag_bound_micros(&self) -> u64 {
+        self.playout.lag_bound_micros()
     }
 
     /// Movement is waiting to be played.
@@ -1210,6 +1290,154 @@ mod tests {
         assert!(p.squeeze_count() > 0);
     }
 
+    // ---- playout: the lag bound follows the measured arrival period
+
+    /// One simulated stroke: bursts of moves arrive every `period` microseconds (the moves of a burst `intra` apart), the
+    /// frame tick runs every 8 ms. Returns the times of the non-empty outputs and the total displacement out.
+    struct Run {
+        outputs: Vec<u64>,
+        squeezes_at: Vec<(u64, u64)>,
+        total_out: f64,
+        total_in: f64,
+        bound_after_burst: Vec<u64>,
+    }
+
+    fn simulate(bursts: &[usize], period: u64, intra: u64, span: u64, count: usize) -> Run {
+        let mut p = PointerPlayout::new();
+        let mut run = Run { outputs: vec![], squeezes_at: vec![], total_out: 0.0, total_in: 0.0, bound_after_burst: vec![] };
+        let mut enqueues: Vec<(u64, f64)> = Vec::new();
+        for b in 0..count {
+            let n = bursts[b % bursts.len()];
+            for i in 0..n {
+                enqueues.push((b as u64 * period + i as u64 * intra, 1.0 + i as f64));
+            }
+        }
+        let end = enqueues.last().unwrap().0 + 100 * MS;
+        let mut next = 0;
+        let mut t = 0;
+        while t <= end {
+            while next < enqueues.len() && enqueues[next].0 <= t {
+                let (_, dx) = enqueues[next];
+                p.enqueue(dx, 0.0, false, span, enqueues[next].0);
+                run.total_in += dx;
+                next += 1;
+                run.squeezes_at.push((enqueues[next - 1].0, p.squeeze_count()));
+                run.bound_after_burst.push(p.lag_bound_micros());
+            }
+            if let Some(share) = p.take(t) {
+                run.outputs.push(t);
+                run.total_out += share.dx;
+            }
+            t += 8 * MS;
+        }
+        for share in p.flush() {
+            run.total_out += share.dx;
+        }
+        run
+    }
+
+    /// (largest gap between consecutive outputs, squeezes) over the part of the stroke after the first three bursts and
+    /// before the last burst.
+    fn steady_state(run: &Run, period: u64, count: usize) -> (u64, u64) {
+        let from = 3 * period;
+        let to = (count as u64 - 1) * period;
+        let times: Vec<u64> = run.outputs.iter().copied().filter(|t| *t >= from && *t <= to).collect();
+        let max_gap = times.windows(2).map(|w| w[1] - w[0]).max().unwrap();
+        let before = run.squeezes_at.iter().rev().find(|(t, _)| *t < from).map_or(0, |(_, c)| *c);
+        let after = run.squeezes_at.iter().rev().find(|(t, _)| *t <= to).map_or(0, |(_, c)| *c);
+        (max_gap, after - before)
+    }
+
+    #[test]
+    fn a_linux_style_burst_stream_plays_out_without_stop_and_go() {
+        // 3,3,2 moves of 16.6 ms every 45 ms, the moves of a burst 1 ms apart (the measured Linux link).
+        let run = simulate(&[3, 3, 2], 45 * MS, MS, 16_600, 24);
+        let (max_gap, squeezes) = steady_state(&run, 45 * MS, 24);
+        assert!(max_gap <= 12 * MS, "output stands still for {max_gap} us between bursts ({squeezes} squeezes)");
+        // A burst can land on a few ms of unplayed queue and then squeeze by a few percent, about once per 3,3,2 cycle (7
+        // cycles are measured); the old rule squeezed 34 times here.
+        assert!(squeezes <= 8, "{squeezes} squeezes after warm-up");
+    }
+
+    #[test]
+    fn a_burst_stream_keeps_every_bit_of_displacement() {
+        let run = simulate(&[3, 3, 2], 45 * MS, MS, 16_600, 24);
+        assert!((run.total_in - run.total_out).abs() < 1e-6, "in {} out {}", run.total_in, run.total_out);
+    }
+
+    #[test]
+    fn a_windows_style_stream_keeps_todays_lag_bound() {
+        let run = simulate(&[1], 15 * MS, 0, 15 * MS, 80);
+        assert!(run.bound_after_burst.iter().all(|b| *b == PointerPlayout::MAX_LAG_MICROS), "{:?}", run.bound_after_burst);
+        let (max_gap, squeezes) = steady_state(&run, 15 * MS, 80);
+        assert_eq!(squeezes, 0);
+        assert!(max_gap <= 8 * MS, "{max_gap}");
+    }
+
+    #[test]
+    fn one_long_gap_among_regular_ones_does_not_move_the_bound() {
+        let mut p = PointerPlayout::new();
+        let mut t = 0;
+        for gap in [45, 45, 45, 45, 90, 45, 45] {
+            t += gap * MS;
+            p.enqueue(1.0, 0.0, false, 16_600, t);
+        }
+        assert_eq!(p.lag_bound_micros(), 45 * MS + PointerPlayout::LAG_MARGIN_MICROS);
+    }
+
+    #[test]
+    fn a_pause_is_not_counted_as_an_arrival_period() {
+        let mut p = PointerPlayout::new();
+        let mut t = 0;
+        for _ in 0..4 {
+            t += 45 * MS;
+            p.enqueue(1.0, 0.0, false, 16_600, t);
+        }
+        t += 200 * MS;
+        p.enqueue(1.0, 0.0, false, 16_600, t);
+        assert_eq!(p.lag_bound_micros(), 45 * MS + PointerPlayout::LAG_MARGIN_MICROS, "a 200 ms gap is a pause");
+    }
+
+    #[test]
+    fn a_long_pause_forgets_the_history() {
+        let mut p = PointerPlayout::new();
+        let mut t = 0;
+        for _ in 0..5 {
+            t += 45 * MS;
+            p.enqueue(1.0, 0.0, false, 16_600, t);
+        }
+        assert_eq!(p.lag_bound_micros(), 50 * MS);
+        t += 400 * MS;
+        p.enqueue(1.0, 0.0, false, 10 * MS, t);
+        assert_eq!(p.lag_bound_micros(), PointerPlayout::MAX_LAG_MICROS, "the first burst after a long pause uses the plain rule");
+    }
+
+    #[test]
+    fn the_adaptive_bound_is_capped() {
+        let mut p = PointerPlayout::new();
+        for i in 0..10u64 {
+            p.enqueue(1.0, 0.0, false, 16_600, i * 100 * MS);
+        }
+        assert_eq!(p.lag_bound_micros(), PointerPlayout::MAX_ADAPTIVE_LAG_MICROS);
+        assert_eq!(PointerPlayout::MAX_ADAPTIVE_LAG_MICROS, 60 * MS);
+    }
+
+    #[test]
+    fn discard_forgets_the_arrival_history() {
+        let mut p = PointerPlayout::new();
+        for i in 1..=6u64 {
+            p.enqueue(1.0, 0.0, false, 16_600, i * 45 * MS);
+        }
+        assert_eq!(p.lag_bound_micros(), 50 * MS);
+        p.discard();
+        p.enqueue(1.0, 0.0, false, 16_600, 400 * MS);
+        p.enqueue(1.0, 0.0, false, 16_600, 445 * MS);
+        assert_eq!(p.lag_bound_micros(), 50 * MS, "one gap of 45 ms after the discard is the whole history");
+        p.discard();
+        p.enqueue(1.0, 0.0, false, 16_600, 500 * MS);
+        assert_eq!(p.lag_bound_micros(), PointerPlayout::MAX_LAG_MICROS.max(16_600 + PointerPlayout::LAG_MARGIN_MICROS));
+    }
+
     #[test]
     fn a_short_queue_is_not_compressed() {
         let mut p = PointerPlayout::new();
@@ -1340,6 +1568,28 @@ mod tests {
     fn open(r: &mut Rig) {
         let grant = r.host.grant().unwrap();
         assert_eq!(r.host.handle_open(grant).ack, Some(AckResult::Posted));
+    }
+
+    #[test]
+    fn a_move_packet_reports_the_time_the_phone_measured_for_it() {
+        let mut r = rig(true);
+        open(&mut r);
+        let moved = send(&mut r, &PointerPayload::new(Opcode::Move, 0, 16, 0, 123, 0), 0);
+        assert_eq!(moved.move_span_micros, Some(12_300), "tenths of a millisecond become microseconds");
+        let beat = send(&mut r, &payload(Opcode::Heartbeat, 0, 0), 1);
+        assert_eq!(beat.move_span_micros, None, "only a move has a span");
+        assert_eq!(r.host.handle_packet(&[0u8; 8], 2).move_span_micros, None, "a dropped packet has none");
+    }
+
+    #[test]
+    fn the_receiver_exposes_how_often_its_playout_squeezed() {
+        let mut r = rig(true);
+        open(&mut r);
+        assert_eq!(r.host.squeeze_count(), 0);
+        for _ in 0..8 {
+            send(&mut r, &mv(0, 0, 16, 0), 0);
+        }
+        assert!(r.host.squeeze_count() > 0, "eight 10 ms moves at the same instant exceed the lag bound");
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub mod icons;
 pub mod inject_log;
 pub mod log;
 pub mod platform;
+pub mod pointer_timing;
 pub mod random;
 pub mod runner;
 pub mod selftest;

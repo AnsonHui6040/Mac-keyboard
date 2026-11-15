@@ -7,6 +7,7 @@ use crate::clock::Clock;
 use crate::config::Config;
 use crate::inject_log::LoggingInjector;
 use crate::log::Logger;
+use crate::pointer_timing::PointerTiming;
 use crate::random::{RandomSource, SharedRandom};
 use crate::store::{ConfigStore, PhoneStore, StoreError};
 use crate::ui::{IconState, NoticeKind, PhoneEntry, TrayState, UiCommand, UiEvent};
@@ -20,8 +21,9 @@ use rk_core::pairing::{HostPairing, HostPairingOutput};
 use rk_core::pointer::{PointerAction, PointerEffects, PointerReceiver, PointerRejection, ScrollPhase};
 use rk_core::select_uuid::{select_uuid, PAIRING_ADVERT_UUID};
 use rk_inject::{Button, InjectError, Injector};
+use std::cell::Cell;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(test)]
 mod tests;
@@ -119,6 +121,10 @@ pub struct App {
     last_tray: Option<TrayState>,
     /// The key store could not be read when it was last looked at.
     keystore_down: bool,
+    /// Per-stroke timing of the pointer path, written to the log when a stroke ends (see `pointer_timing`).
+    pointer_timing: PointerTiming,
+    /// The wake-up `next_wake_ms` last asked for, to see how late `on_tick` ran against it.
+    wake_asked: Cell<Option<u64>>,
 }
 
 fn kind_word(kind: &EventKind) -> &'static str {
@@ -171,6 +177,8 @@ impl App {
             last_adv: None,
             last_tray: None,
             keystore_down: false,
+            pointer_timing: PointerTiming::new(),
+            wake_asked: Cell::new(None),
         }
     }
 
@@ -337,7 +345,13 @@ impl App {
         if !conn.handshake.is_authenticated() {
             return;
         }
-        let effects = self.pointer.handle_packet(packet, self.now_micros());
+        let now = self.now_micros();
+        self.flush_pointer_timing(now, Some(conn.id));
+        let squeeze_before = self.pointer.squeeze_count();
+        let effects = self.pointer.handle_packet(packet, now);
+        if effects.rejection.is_none() {
+            self.pointer_timing.on_packet(now, effects.move_span_micros, squeeze_before);
+        }
         if let Some(rejection) = effects.rejection {
             let why = match rejection {
                 PointerRejection::NotOpen => "not_open",
@@ -575,7 +589,12 @@ impl App {
         for action in &effects.actions {
             // A failed injection is in the log already; the pointer has no ack to carry it.
             let _ = match *action {
-                PointerAction::Move { dx, dy, .. } => self.injector.pointer_move(dx, dy),
+                PointerAction::Move { dx, dy, .. } => {
+                    let started = Instant::now();
+                    let result = self.injector.pointer_move(dx, dy);
+                    self.pointer_timing.on_inject(u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX));
+                    result
+                }
                 PointerAction::Click { count } => self.injector.click(Button::Left, count),
                 PointerAction::RightClick => self.injector.click(Button::Right, 1),
                 PointerAction::LeftButton { down } => self.injector.button(Button::Left, down),
@@ -802,14 +821,29 @@ impl App {
     pub fn on_tick(&mut self) -> Vec<Effect> {
         let mut fx = Vec::new();
         let now = self.now();
+        if let Some(asked) = self.wake_asked.take() {
+            self.pointer_timing.on_late(self.now_micros(), now.saturating_sub(asked).saturating_mul(1000));
+        }
         if self.pairing_until_ms.is_some_and(|until| now >= until) {
             self.close_pairing_window(&mut fx);
             self.discard_unconfirmed_attempt(&mut fx);
         }
         self.tick_connection(now, &mut fx);
         self.tick_pointer(&mut fx);
+        let conn_id = self.conn.as_ref().map(|c| c.id);
+        self.flush_pointer_timing(self.now_micros(), conn_id);
         self.flush_state(&mut fx);
         fx
+    }
+
+    /// Writes the report of a pointer stroke that has ended: `pointer_timing` and one line per measured interval, counts and
+    /// times only (see the `pointer_timing` module).
+    fn flush_pointer_timing(&mut self, now_micros: u64, conn: Option<u64>) {
+        let Some(lines) = self.pointer_timing.finish_if_ended(now_micros, self.pointer.squeeze_count(), self.pointer.lag_bound_micros()) else { return };
+        for (ev, fields) in lines {
+            let values: Vec<(&str, Value)> = fields.into_iter().map(|(key, value)| (key, Value::U(value))).collect();
+            self.log.info(ev, conn, &values);
+        }
     }
 
     fn tick_connection(&mut self, now: u64, fx: &mut Vec<Effect>) {
@@ -832,6 +866,7 @@ impl App {
         let mut conn = self.conn.take();
         if self.pointer.needs_frames() {
             let effects = self.pointer.frame_tick(now);
+            self.pointer_timing.on_frame(now, effects.actions.iter().filter(|a| matches!(a, PointerAction::Move { .. })).count());
             self.apply_pointer(effects, conn.as_mut(), fx);
         }
         if self.pointer.needs_watchdog() {
@@ -865,7 +900,11 @@ impl App {
         if self.pointer.needs_watchdog() {
             wakes.push(now + WATCHDOG_TICK_MS);
         }
-        wakes.into_iter().min()
+        // The end of a pointer stroke writes its timing report, so someone has to be awake for it.
+        wakes.extend(self.pointer_timing.deadline_us().map(|us| us.div_ceil(1000)));
+        let wake = wakes.into_iter().min();
+        self.wake_asked.set(wake);
+        wake
     }
 
     // ------------------------------------------------------------ tray state

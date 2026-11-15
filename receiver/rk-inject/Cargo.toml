@@ -12,6 +12,7 @@ thiserror = "2.0.21"
 windows = { version = "=0.61.3", features = ["Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+rk-core = { path = "../rk-core" }
 ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "remote_desktop", "screencast", "clipboard"] }
 futures-util = "0.3"
 rustix = { version = "1", default-features = false, features = ["std", "fs"] }
