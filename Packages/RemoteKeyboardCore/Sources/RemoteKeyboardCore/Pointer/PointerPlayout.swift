@@ -40,6 +40,21 @@ public struct PointerPlayout: Sendable {
     public static let forgetGapMicros: UInt64 = 300_000
     /// How many gaps the estimate looks at.
     public static let periodHistory = 8
+    /// The most start delay the jitter allowance can reach. Provisional.
+    public static let maxJitterMicros: UInt64 = 80_000
+    /// The time in which the jitter allowance halves when the link is clean. Provisional.
+    public static let jitterDecayHalfLifeMicros: UInt64 = 5_000_000
+    /// An allowance below this becomes 0. Provisional.
+    public static let jitterFloorMicros: UInt64 = 5_000
+    /// While the buffer is shorter than the allowance a segment plays this much slower to rebuild it. After a pause that can
+    /// last a few hundred milliseconds (the buffer refills by a quarter of each segment's span). Provisional.
+    public static let refillStretch: Double = 1.25
+    /// An arrival gap this much longer than the usual arrival period (and over twice that period) is a radio pause. Provisional.
+    public static let pauseThresholdMicros: UInt64 = 20_000
+    /// This many pause-sized gaps in a row are taken as a new arrival period, not as pauses. Provisional.
+    public static let pausesBeforeRelearning = 3
+    /// An enqueue within this time after the previous one belongs to the same stroke. Provisional.
+    public static let strokeGapMicros: UInt64 = 100_000
 
     private struct Segment {
         /// What is still to be played, spread evenly over `from`…`end`.
@@ -60,20 +75,37 @@ public struct PointerPlayout: Sendable {
     private var gaps: [UInt64] = []
     /// The lag bound the last `enqueue` used; 0 before the first one.
     private var lagBound: UInt64 = 0
+    /// How many arrivals in a row were pauses.
+    private var consecutivePauses = 0
+    /// The jitter allowance in microseconds and when it was last brought up to date.
+    private var jitterAllowance: Double = 0
+    private var lastJitterUpdate: UInt64?
     /// How many times an `enqueue` squeezed the queue (a diagnostic counter; it changes nothing).
     public private(set) var squeezeCount = 0
+
+    /// How many times the queue had run dry in the middle of a stroke when a packet arrived (a diagnostic; it changes nothing).
+    public private(set) var underrunCount = 0
+    /// How many radio pauses (arrival gaps well beyond the usual period) were seen in the middle of a stroke.
+    public private(set) var pauseCount = 0
+
+    /// The start delay a new stroke gets, in microseconds; grows with observed mid-stroke pauses and decays on a clean link.
+    public var jitterAllowanceMicros: UInt64 { UInt64(jitterAllowance.rounded()) }
 
     public init() {}
 
     /// The lag bound the last `enqueue` allowed, in microseconds (the floor before the first one; a diagnostic).
     public var lagBoundMicros: UInt64 { lagBound == 0 ? Self.maxLagMicros : lagBound }
 
+    /// When the last segment ends (after any squeeze), in microseconds; 0 before the first `enqueue`. Once this is in the past
+    /// the queue has run out (a diagnostic).
+    public var lastSegmentEndMicros: UInt64 { lastEnd > 0 ? UInt64(lastEnd) : 0 }
+
     /// Nothing is waiting to be played.
     public var isIdle: Bool { segments.isEmpty }
 
     /// Notes an arrival: opens a burst when it comes more than `burstGapMicros` after the previous one and then records the
-    /// gap between burst starts.
-    private mutating func noteArrival(nowMicros: UInt64) {
+    /// gap between burst starts (unless the arrival ends a radio pause: that gap says nothing about the usual period).
+    private mutating func noteArrival(nowMicros: UInt64, endsPause: Bool) {
         let newBurst = lastEnqueue.map { nowMicros.saturatingSubtract($0) > Self.burstGapMicros } ?? true
         lastEnqueue = nowMicros
         guard newBurst else { return }
@@ -81,7 +113,7 @@ public struct PointerPlayout: Sendable {
             let gap = nowMicros.saturatingSubtract(start)
             if gap > Self.forgetGapMicros {
                 gaps.removeAll()
-            } else if gap <= Self.maxPeriodGapMicros {
+            } else if gap <= Self.maxPeriodGapMicros && !endsPause {
                 if gaps.count == Self.periodHistory { gaps.removeFirst() }
                 gaps.append(gap)
             }
@@ -95,21 +127,67 @@ public struct PointerPlayout: Sendable {
         return gaps.sorted()[gaps.count / 2]
     }
 
+    /// Lets the allowance halve every `jitterDecayHalfLifeMicros` since it was last brought up to date; below the floor it is 0.
+    private mutating func decayAllowance(nowMicros: UInt64) {
+        defer { lastJitterUpdate = nowMicros }
+        guard jitterAllowance > 0, let last = lastJitterUpdate else { return }
+        let elapsed = Double(nowMicros.saturatingSubtract(last))
+        jitterAllowance *= pow(0.5, elapsed / Double(Self.jitterDecayHalfLifeMicros))
+        if jitterAllowance < Double(Self.jitterFloorMicros) { jitterAllowance = 0 }
+    }
+
+    /// Counts a pause in a row. Pauses are kept out of the arrival history, but this many in a row is no pause any more: the
+    /// link changed its interval (a renegotiated connection), so the history starts again from the new gaps. Returns whether
+    /// the arrival still counts as a pause for the history.
+    private mutating func settlePauseRun(isPause: Bool) -> Bool {
+        guard isPause else { consecutivePauses = 0; return false }
+        consecutivePauses += 1
+        guard consecutivePauses >= Self.pausesBeforeRelearning else { return true }
+        consecutivePauses = 0
+        gaps.removeAll()
+        return false
+    }
+
+    /// A packet came much later than the usual period (more than the threshold and more than one missed slot; with no period measured yet nothing counts as a pause): the allowance must cover the excess plus the margin.
+    private mutating func notePauseIfAny(gap: UInt64) -> Bool {
+        guard let period = arrivalPeriod, gap > max(period + Self.pauseThresholdMicros, 2 * period) else { return false }
+        pauseCount += 1
+        let wanted = Double(gap - period + Self.lagMarginMicros)
+        jitterAllowance = min(Double(Self.maxJitterMicros), max(jitterAllowance, wanted))
+        return true
+    }
+
     /// - Parameter spanMicros: the time the finger took for this movement, from the packet; 0 when it did not say.
     public mutating func enqueue(dx: Double, dy: Double, dragging: Bool, spanMicros: UInt64, nowMicros: UInt64) {
-        let span = spanMicros == 0 ? Self.defaultSpanMicros : min(max(spanMicros, Self.minSpanMicros), Self.maxSpanMicros)
         let now = Double(nowMicros)
-        let start = segments.isEmpty ? now : max(now, lastEnd)
+        decayAllowance(nowMicros: nowMicros)
+        var isPause = false
+        let inStroke = lastEnqueue.map { nowMicros.saturatingSubtract($0) <= Self.strokeGapMicros } ?? false
+        if inStroke && lastEnd > 0 && lastEnd < now { underrunCount += 1 }
+        if inStroke, let previous = lastEnqueue { isPause = notePauseIfAny(gap: nowMicros.saturatingSubtract(previous)) }
+        let depth = max(0, lastEnd - now)
+        let startsStroke = segments.isEmpty && !inStroke
+        let start = segments.isEmpty ? now + (startsStroke ? jitterAllowance : 0) : max(now, lastEnd)
+        let ownSpan = spanMicros == 0 ? Self.defaultSpanMicros : min(max(spanMicros, Self.minSpanMicros), Self.maxSpanMicros)
+        let refilling = jitterAllowance > 0 && depth < jitterAllowance
+        let span = refilling ? UInt64((Double(ownSpan) * Self.refillStretch).rounded()) : ownSpan
         let end = start + Double(span)
         segments.append(Segment(dx: dx, dy: dy, dragging: dragging, from: start, end: end))
         lastEnd = end
-        noteArrival(nowMicros: nowMicros)
+        noteArrival(nowMicros: nowMicros, endsPause: settlePauseRun(isPause: isPause))
         let adaptive = arrivalPeriod.map { min($0 + Self.lagMarginMicros, Self.maxAdaptiveLagMicros) } ?? 0
-        lagBound = max(Self.maxLagMicros, span + Self.lagMarginMicros, adaptive)
+        let buffered = jitterAllowanceMicros + span + Self.lagMarginMicros
+        let cap = Self.maxJitterMicros + Self.maxSpanMicros + Self.lagMarginMicros
+        lagBound = min(cap, max(Self.maxLagMicros, span + Self.lagMarginMicros, adaptive, buffered))
+        squeezeToLagBound(now: now)
+    }
+
+    /// When the last segment would end later than the lag bound allows, squeezes what lies after `now` so that it ends exactly there.
+    private mutating func squeezeToLagBound(now: Double) {
         let allowed = now + Double(lagBound)
         guard lastEnd > allowed else { return }
         squeezeCount += 1
-        // Squeeze the part that lies after `now`; what is already behind `now` stays where it is.
+        // What is already behind `now` stays where it is.
         let factor = (allowed - now) / (lastEnd - now)
         func squeezed(_ t: Double) -> Double { t > now ? now + (t - now) * factor : t }
         for index in segments.indices {
@@ -158,12 +236,17 @@ public struct PointerPlayout: Sendable {
             }
         }
         segments.removeAll()
+        lastEnd = 0  // nothing is queued any more: the next segment sees an empty buffer, not a stale end time
         return runs
     }
 
-    /// Forgets everything that has not been played, and the arrival history.
+    /// Forgets everything that has not been played, the arrival history and the jitter allowance (the channel is over).
     public mutating func discard() {
         segments.removeAll()
+        lastEnd = 0
+        consecutivePauses = 0
+        jitterAllowance = 0
+        lastJitterUpdate = nil
         lastEnqueue = nil
         burstStart = nil
         gaps.removeAll()

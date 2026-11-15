@@ -116,10 +116,81 @@ final class PointerPlayoutDiagnosticsTests: XCTestCase {
         var d = PointerPlayoutDiagnostics()
         feed(&d, frames: 100, deliveredEvery: { ![10, 11, 12, 40].contains($0) })
         let s = try XCTUnwrap(d.snapshot(nowMicros: 1_000_000 + 99 * 8_333))
-        XCTAssertEqual(s.lines.count, 4)
+        XCTAssertEqual(s.lines.count, 5)
         XCTAssertEqual(s.lines[0], "播放中斷 4%（最長 3 幀）")
         XCTAssertEqual(s.lines[1], "追趕壓縮 0 次")
         XCTAssertEqual(s.lines[2], "刷新回呼間隔 P50 8 ms，P95 8 ms，餘裕 P10 4 ms")
         XCTAssertEqual(s.lines[3], "加速倍率跳動 P50 0.00，P90 0.00")
+        XCTAssertEqual(s.lines[4], "佇列見底 0 次，P95 0 ms，最長 0 ms")
+    }
+
+    func testTheFirstFrameAfterTheFrameSourceStoppedHasNoInterval() throws {
+        var d = PointerPlayoutDiagnostics()
+        // Six runs of five frames at 120 Hz, half a second apart; the frame source was stopped between runs.
+        var last: UInt64 = 0
+        for run in 0..<6 {
+            d.frameSourceStopped()
+            for i in 0..<5 {
+                let now = 1_000_000 + UInt64(run) * 500 * ms + UInt64(i) * 8_333
+                d.recordFrame(nowMicros: now, timestampMicros: now, targetMicros: now + 4_000, delivered: true)
+                last = now
+            }
+        }
+        let s = try XCTUnwrap(d.snapshot(nowMicros: last))
+        XCTAssertEqual(s.callbackIntervalP95Millis, 8.333, accuracy: 1e-9)
+    }
+
+    func testWithoutStoppingTheIdleGapIsAnInterval() throws {
+        var d = PointerPlayoutDiagnostics()
+        var last: UInt64 = 0
+        for run in 0..<6 {
+            for i in 0..<5 {
+                let now = 1_000_000 + UInt64(run) * 500 * ms + UInt64(i) * 8_333
+                d.recordFrame(nowMicros: now, timestampMicros: now, targetMicros: now + 4_000, delivered: true)
+                last = now
+            }
+        }
+        let s = try XCTUnwrap(d.snapshot(nowMicros: last))
+        XCTAssertGreaterThan(s.callbackIntervalP95Millis, 400)
+    }
+
+    func testStarvationEventsAreCountedWithPercentilesAndMax() throws {
+        var d = PointerPlayoutDiagnostics()
+        feed(&d, frames: 100)
+        // Standstills of 2, 4, ... 40 ms.
+        for i in 1...20 {
+            d.recordStarvation(atMicros: 1_000_000 + UInt64(i) * 10 * ms, standstillMicros: UInt64(i) * 2 * ms)
+        }
+        let s = try XCTUnwrap(d.snapshot(nowMicros: 1_000_000 + 99 * 8_333))
+        XCTAssertEqual(s.starveCount, 20)
+        XCTAssertEqual(s.starveP95Millis, 38, accuracy: 1e-9)
+        XCTAssertEqual(s.starveMaxMillis, 40, accuracy: 1e-9)
+        XCTAssertEqual(s.lines[4], "佇列見底 20 次，P95 38 ms，最長 40 ms")
+    }
+
+    func testStarvationDtAndArrivalGapMediansAreTakenOverTheEvents() throws {
+        var d = PointerPlayoutDiagnostics()
+        feed(&d, frames: 100)
+        // dt 10, 20, 30 ms and arrival gaps 40, 50, 90 ms.
+        let dts: [UInt64] = [10, 20, 30], gaps: [UInt64] = [40, 50, 90]
+        for i in 0..<3 {
+            d.recordStarvation(atMicros: 1_000_000 + UInt64(i) * 10 * ms, standstillMicros: 5 * ms,
+                               phoneDtMicros: dts[i] * ms, arrivalGapMicros: gaps[i] * ms)
+        }
+        let s = try XCTUnwrap(d.snapshot(nowMicros: 1_000_000 + 99 * 8_333))
+        XCTAssertEqual(s.starveDtP50Millis, 20, accuracy: 1e-9)
+        XCTAssertEqual(s.starveGapP50Millis, 50, accuracy: 1e-9)
+    }
+
+    func testOldStarvationLeavesTheWindowAndResetClearsIt() throws {
+        var d = PointerPlayoutDiagnostics()
+        d.recordStarvation(atMicros: 1_000_000, standstillMicros: 10 * ms)
+        feed(&d, frames: 100, start: 7_000_000)
+        let s = try XCTUnwrap(d.snapshot(nowMicros: 7_000_000 + 99 * 8_333))
+        XCTAssertEqual(s.starveCount, 0)
+        d.recordStarvation(atMicros: 7_500_000, standstillMicros: 10 * ms)
+        d.reset()
+        feed(&d, frames: 100, start: 7_000_000)
+        XCTAssertEqual(try XCTUnwrap(d.snapshot(nowMicros: 7_000_000 + 99 * 8_333)).starveCount, 0)
     }
 }

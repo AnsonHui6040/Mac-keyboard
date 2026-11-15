@@ -361,6 +361,263 @@ final class PointerPlayoutTests: XCTestCase {
         playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: 500 * ms)
         XCTAssertEqual(playout.lagBoundMicros, max(PointerPlayout.maxLagMicros, 16_600 + PointerPlayout.lagMarginMicros))
     }
+
+    // MARK: The adaptive jitter buffer
+
+    private struct MacRun {
+        var outputs: [(time: UInt64, stroke: Int)] = []
+        var underrunsAtWarmUp = 0
+        var underruns = 0
+        var maxAllowance: UInt64 = 0
+        var totalIn = 0.0
+        var totalOut = 0.0
+    }
+
+    /// The Mac link: the phone sends a 16.6 ms MOVE every 16.6 ms, the Mac gets it at the next 15 ms connection event, and
+    /// every 16th packet is held back 60 ms with the ones after it bunched behind it. `strokes` strokes of `strokeMs` each,
+    /// 300 ms apart; the frame tick runs every 8 ms.
+    private func simulateMacStream(strokes: Int, strokeMs: UInt64) -> MacRun {
+        var playout = PointerPlayout()
+        var run = MacRun()
+        var arrivals: [(time: UInt64, dx: Double, stroke: Int)] = []
+        var previous: UInt64 = 0
+        var packet = 0
+        for stroke in 0..<strokes {
+            let origin = UInt64(stroke) * (strokeMs + 300) * ms
+            var sent = origin
+            while sent < origin + strokeMs * ms {
+                var arrival = (sent + 14_999) / 15_000 * 15_000
+                if packet % 16 == 15 { arrival += 60 * ms }
+                arrival = max(arrival, previous)
+                previous = arrival
+                arrivals.append((arrival, 1.0 + Double(packet % 3), stroke))
+                sent += 16_600
+                packet += 1
+            }
+        }
+        var next = 0
+        var strokeAt: [Int] = []
+        var t: UInt64 = 0
+        let end = arrivals.last!.time + 400 * ms
+        var warmUpTaken = false
+        while t <= end {
+            while next < arrivals.count && arrivals[next].time <= t {
+                let item = arrivals[next]
+                playout.enqueue(dx: item.dx, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: item.time)
+                run.totalIn += item.dx
+                run.maxAllowance = max(run.maxAllowance, playout.jitterAllowanceMicros)
+                strokeAt.append(item.stroke)
+                next += 1
+            }
+            if !warmUpTaken && t >= 1_000 * ms {
+                run.underrunsAtWarmUp = playout.underrunCount
+                warmUpTaken = true
+            }
+            if let share = playout.take(nowMicros: t) {
+                run.outputs.append((t, strokeAt.last ?? 0))
+                run.totalOut += share.dx
+            }
+            t += 8 * ms
+        }
+        for share in playout.flush() { run.totalOut += share.dx }
+        run.underruns = playout.underrunCount
+        return run
+    }
+
+    func testAMacStyleStreamWithRadioPausesStopsStandingStillAfterWarmUp() {
+        let run = simulateMacStream(strokes: 4, strokeMs: 2_200)
+        var longest: UInt64 = 0
+        for pair in zip(run.outputs, run.outputs.dropFirst())
+        where pair.0.time >= 1_000 * ms && pair.0.stroke == pair.1.stroke {
+            longest = max(longest, pair.1.time - pair.0.time)
+        }
+        XCTAssertLessThanOrEqual(longest, 25 * ms, "the cursor stood still for \(longest) us")
+        XCTAssertLessThanOrEqual(run.underruns - run.underrunsAtWarmUp, 3, "underruns after warm-up")
+    }
+
+    func testAMacStyleStreamKeepsEveryBitOfDisplacement() {
+        let run = simulateMacStream(strokes: 4, strokeMs: 2_200)
+        XCTAssertEqual(run.totalOut, run.totalIn, accuracy: 1e-6)
+    }
+
+    func testACleanFifteenMillisecondStreamBehavesExactlyAsToday() throws {
+        var playout = PointerPlayout()
+        var totalIn = 0.0, totalOut = 0.0
+        for i in 0..<660 as Range<UInt64> {  // 10 s
+            let now = i * 15 * ms
+            playout.enqueue(dx: 3, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: now)
+            totalIn += 3
+            XCTAssertEqual(playout.jitterAllowanceMicros, 0)
+            XCTAssertEqual(playout.lagBoundMicros, PointerPlayout.maxLagMicros)
+            if i == 0 {
+                XCTAssertNil(playout.take(nowMicros: now), "the first segment starts at now")
+                let half = try XCTUnwrap(playout.take(nowMicros: now + 7_500))
+                XCTAssertEqual(half.dx, 1.5, accuracy: 1e-9, "no start delay and no stretch")
+                totalOut += half.dx
+            }
+            if let share = playout.take(nowMicros: now + 14_999) { totalOut += share.dx }
+        }
+        XCTAssertEqual(playout.underrunCount, 0)
+        XCTAssertEqual(playout.squeezeCount, 0)
+        for share in playout.flush() { totalOut += share.dx }
+        XCTAssertEqual(totalOut, totalIn, accuracy: 1e-6)
+    }
+
+    /// A regular 15 ms stream of 15 ms packets whose last packet came at 60 ms.
+    private func regularPlayout() -> PointerPlayout {
+        var playout = PointerPlayout()
+        for i in 0..<5 as Range<UInt64> {
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: i * 15 * ms)
+        }
+        return playout
+    }
+
+    private func enqueueAfter(_ gap: UInt64, _ playout: inout PointerPlayout, previous: UInt64 = 60_000) {
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: previous + gap)
+    }
+
+    func testAnArrivalGapBeyondThePeriodPlusTheThresholdRaisesTheAllowanceByTheExcessPlusTheMargin() {
+        var playout = regularPlayout()
+        enqueueAfter(50 * ms, &playout)
+        XCTAssertEqual(playout.pauseCount, 1)
+        XCTAssertEqual(playout.underrunCount, 1)
+        XCTAssertEqual(playout.jitterAllowanceMicros, 40 * ms, "gap 50 - period 15 + margin 5")
+    }
+
+    func testAQuantisedThirtyMillisecondGapOnAFifteenMillisecondLinkIsNoPause() {
+        var playout = regularPlayout()
+        enqueueAfter(30 * ms, &playout)
+        XCTAssertEqual(playout.underrunCount, 1, "the queue did run dry")
+        XCTAssertEqual(playout.pauseCount, 0)
+        XCTAssertEqual(playout.jitterAllowanceMicros, 0, "a standstill alone raises nothing")
+    }
+
+    func testOneMissedSlotIsNoPauseAndNeitherIsAGapWithoutAMeasuredPeriod() {
+        var playout = PointerPlayout()
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: 0)
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: 90 * ms)
+        XCTAssertEqual(playout.pauseCount, 0, "no period is known yet")
+        var slow = PointerPlayout()
+        var t: UInt64 = 0
+        for gap: UInt64 in [45, 45, 45, 45, 90] {
+            t += gap * ms
+            slow.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: t)
+        }
+        XCTAssertEqual(slow.pauseCount, 0, "90 ms on a 45 ms period is one missed slot")
+    }
+
+    func testAClockThatGoesBackwardsNeitherTrapsNorCountsAPause() {
+        var playout = PointerPlayout()
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: 100_000)
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: 90_000)
+        XCTAssertEqual(playout.pauseCount, 0)
+        var warm = regularPlayout()
+        warm.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: 30_000)
+        XCTAssertEqual(warm.pauseCount, 0)
+    }
+
+    func testASustainedChangeOfTheArrivalIntervalIsLearnedAndTheAllowanceDecays() {
+        // A renegotiated connection: 15 ms intervals, then a steady 45 ms.
+        var playout = regularPlayout()
+        var now: UInt64 = 60_000
+        var pausesAfterSwitch = 0
+        for _ in 0..<(20_000 / 45) {
+            now += 45 * ms
+            let before = playout.pauseCount
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: now)
+            pausesAfterSwitch += playout.pauseCount - before
+        }
+        XCTAssertLessThanOrEqual(pausesAfterSwitch, 3, "after three pause-sized gaps in a row the new period is the norm")
+        XCTAssertEqual(playout.jitterAllowanceMicros, 0, "no new pauses: the allowance decayed away")
+        XCTAssertEqual(playout.lagBoundMicros, 45 * ms + PointerPlayout.lagMarginMicros, "the period follows the new interval")
+    }
+
+    func testPausesDoNotDriftTheMeasuredArrivalPeriod() {
+        // A 15 ms stream where every second gap is a 75 ms pause: if the pauses were recorded as periods the median would
+        // become 75 ms and the later pauses would no longer be seen.
+        var playout = regularPlayout()
+        var now: UInt64 = 60_000
+        for _ in 0..<12 {
+            now += 75 * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: now)
+            now += 15 * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: now)
+        }
+        XCTAssertEqual(playout.pauseCount, 12)
+    }
+
+    func testAMoveRightAfterAFlushIsNotAFalseUnderrunAndStillRefills() throws {
+        var playout = regularPlayout()
+        enqueueAfter(45 * ms, &playout)  // allowance 35 ms
+        _ = playout.flush()
+        playout.enqueue(dx: 8, dy: 0, dragging: false, spanMicros: 8 * ms, nowMicros: 500_000)  // a new stroke, starts after the allowance
+        _ = playout.flush()  // the click: lastEnd would stay about 45 ms ahead
+        let underruns = playout.underrunCount
+        playout.enqueue(dx: 8, dy: 0, dragging: false, spanMicros: 8 * ms, nowMicros: 505_000)
+        XCTAssertEqual(playout.underrunCount, underruns, "the emptied queue is not a run-out")
+        let part = try XCTUnwrap(playout.take(nowMicros: 513_000))
+        XCTAssertLessThan(part.dx, 8 - 1e-6, "the empty buffer is refilled: the segment plays stretched, and without a start delay")
+    }
+
+    func testTheAllowanceDecaysAfterACleanStretch() throws {
+        var playout = regularPlayout()
+        enqueueAfter(45 * ms, &playout)
+        let raised = playout.jitterAllowanceMicros
+        XCTAssertEqual(raised, 35 * ms)
+        var now = 105 * ms
+        var halfLifeValue: UInt64?
+        while now < 15_105 * ms {
+            now += 15 * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 15 * ms, nowMicros: now)
+            if now == 5_100 * ms { halfLifeValue = playout.jitterAllowanceMicros }
+        }
+        XCTAssertEqual(Double(try XCTUnwrap(halfLifeValue)), Double(raised) / 2, accuracy: Double(raised) * 0.02, "halves in 5 s")
+        XCTAssertEqual(playout.jitterAllowanceMicros, 0, "below the 5 ms floor after 15 s")
+    }
+
+    func testTheAllowanceIsCapped() {
+        var playout = regularPlayout()
+        enqueueAfter(95 * ms, &playout)
+        XCTAssertEqual(playout.jitterAllowanceMicros, PointerPlayout.maxJitterMicros, "95 - 15 + 5 = 85 ms is capped at 80 ms")
+    }
+
+    func testAGapLongerThanAStrokeGapIsANewStrokeNotAPause() {
+        var playout = regularPlayout()
+        enqueueAfter(200 * ms, &playout)
+        XCTAssertEqual(playout.pauseCount, 0)
+        XCTAssertEqual(playout.jitterAllowanceMicros, 0)
+    }
+
+    func testANewStrokeStartsAfterTheAllowance() throws {
+        var playout = regularPlayout()
+        enqueueAfter(45 * ms, &playout)
+        _ = playout.flush()
+        playout.enqueue(dx: 8, dy: 0, dragging: false, spanMicros: 8 * ms, nowMicros: 500 * ms)
+        let allowance = playout.jitterAllowanceMicros
+        XCTAssertGreaterThan(allowance, 0)
+        XCTAssertNil(playout.take(nowMicros: 500 * ms + allowance - ms), "nothing plays before the allowance has passed")
+        XCTAssertNotNil(playout.take(nowMicros: 500 * ms + allowance + 2 * ms))
+    }
+
+    func testDiscardForgetsTheAllowance() {
+        var playout = regularPlayout()
+        enqueueAfter(45 * ms, &playout)
+        XCTAssertGreaterThan(playout.jitterAllowanceMicros, 0)
+        playout.discard()
+        XCTAssertEqual(playout.jitterAllowanceMicros, 0)
+        playout.enqueue(dx: 8, dy: 0, dragging: false, spanMicros: 8 * ms, nowMicros: 200 * ms)
+        XCTAssertNil(playout.take(nowMicros: 200 * ms))
+        XCTAssertNotNil(playout.take(nowMicros: 204 * ms), "the stroke after a discard starts at once")
+    }
+
+    func testTheLimitsOfTheJitterBufferAreTheDocumentedOnes() {
+        XCTAssertEqual(PointerPlayout.maxJitterMicros, 80_000)
+        XCTAssertEqual(PointerPlayout.pauseThresholdMicros, 20_000)
+        XCTAssertEqual(PointerPlayout.jitterDecayHalfLifeMicros, 5_000_000)
+        XCTAssertEqual(PointerPlayout.jitterFloorMicros, 5_000)
+        XCTAssertEqual(PointerPlayout.refillStretch, 1.25)
+        XCTAssertEqual(PointerPlayout.strokeGapMicros, 100_000)
+    }
 }
 
 /// A fixed-seed generator, so a failure repeats.

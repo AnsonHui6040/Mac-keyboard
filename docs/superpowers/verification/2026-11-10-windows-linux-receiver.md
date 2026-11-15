@@ -1287,3 +1287,53 @@ Mac 的 Swift `PointerPlayout` 原本與 Linux 修正前相同：延遲上限是
 ### 未驗證（TBD）
 
 - 實機 log 中 `lag=` 與 `stalled=` 的數值：連線間隔短時應維持 20 ms，成批到達時應接近批次間隔 + 5 ms。
+
+## WL14：Mac 觸控板藍牙停頓與自適應緩衝（2026-11-15）
+
+WL13 之後使用者回報 Mac 觸控板「有比較好」但仍有卡頓。以 iPhone 自動畫 20 筆（`e2e/scripts/measure-trackpad.sh mac 20`）量度，Mac Receiver 每 5 秒寫一行 `pointer diag`／`pointer link`。
+
+### 原因
+
+| 量度 | 數值 | 判讀 |
+|---|---|---|
+| 連線間隔 `interval` | 15 ms | 不是 Linux 那種成批到達，WL13 的規則在 Mac 不起作用（`lag` 維持約 20 ms） |
+| 畫面刷新 `cb95` | 8 ms | 原先量到 25–75 ms 是把 playout 閒置的時間也算進去；修正後正常 |
+| 筆劃中途佇列見底 `starve` | 每 5 秒約 8 次，每次 66–74 ms | 肉眼可見的停頓 |
+| 見底時 iPhone 的 `dt` | 17 ms | iPhone 準時送出 |
+| 見底時 Mac 的到達間隔 | 中位數 46–60 ms，最長約 90 ms | 停頓發生在藍牙送達，不在 iPhone |
+
+關閉 AirDrop 與接力後重量，結果相同；`awdl0` 仍是 active，所以 AWDL 未能排除。
+
+### 修法：自適應緩衝（`PointerPlayout.swift`）
+
+- 筆劃中途，到達間隔大於 max(週期 + 20 ms, 2 × 週期) 時，視為藍牙停頓（需要已量到週期）。
+- 緩衝 = min(80 ms, 間隔 − 週期 + 5 ms)，每 5 秒沒有停頓就減半，低於 5 ms 歸零。
+- 新筆劃延後「緩衝」再開始播放；佇列深度不足時，每段放慢為 1.25 倍，把緩衝補回。
+- 延遲上限加上緩衝；連線乾淨時（沒有停頓）行為與之前相同。
+- 停頓的間隔不計入週期；連續 3 次停頓時重新學習週期（連線間隔改變時）。
+- 新增診斷：`starve`、`starvedt50`、`starvegap50`、`jit`，每 5 秒寫入 log（只有數字）。
+
+### 自動驗證
+
+- `swift test --package-path Packages/RemoteKeyboardCore`：1137 個測試，0 失敗。
+- `xcodebuild -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver test`：365 個測試，0 失敗。
+- RED：模擬 Mac 連線（15 ms，約 6% 的封包遲 60 ms）的測試，修正前最長停頓 64 ms（上限 25 ms）。
+- 獨立 reviewer（ecc:swift-reviewer）：第一輪 CHANGES REQUIRED（時鐘倒退會 crash 等 5 項），修正後 APPROVE；再補「連線間隔改變時重新學習週期」。
+
+### 實機自動量度（iPhone 17 Pro，各 20 筆，每 5 秒一行的中位數／最大）
+
+| 量度 | 修正前 | 修正後 |
+|---|---|---|
+| 見底次數（每 5 秒） | 8 / 11 | 2 / 4 |
+| 見底停頓 | 69 ms / 73 ms | 16 ms / 39 ms |
+| 壓縮次數 | 77 / 88 | 56 / 74 |
+| 緩衝 `jit` | 0 | 72 ms / 79 ms |
+| 延遲上限 `lag` | 21 ms | 93 ms / 104 ms |
+
+代價：這台 Mac 的藍牙停頓頻繁，緩衝長期接近上限，手指到游標約多 70 ms 延遲。
+
+### 未驗證（TBD）
+
+- 使用者親手試的手感，特別是延遲會不會太「黏」。
+- 停頓的根本原因（AWDL 或 Wi-Fi 與藍牙共用晶片）：需要關閉 Wi-Fi 重量。
+- Windows／Linux 的 Rust 版本沒有加入自適應緩衝。
