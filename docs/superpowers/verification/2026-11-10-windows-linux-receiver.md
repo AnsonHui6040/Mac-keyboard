@@ -1071,3 +1071,100 @@ TDD：`win_units.rs` 初版與測試一起寫，之後故意弄壞行為確認�
 - Linux 實機打字（iPhone 經 BLE）、觸控板；Windows 觸控板。
 - 系統匣各項操作、改名、刪除手機、匯出診斷資料、重開機自動啟動（兩個平台）。
 - Linux 鑰匙圈鎖住時的實際提示行為、控制器切換。
+
+## WL11：Linux 觸控板卡頓（2026-11-15）
+
+使用者實機回報：Linux 觸控板明顯卡頓，Windows 順（暫定 PASS）。做法：先量度、再修。
+
+### 量度工具
+
+- 三層計時，每段手勢（300 毫秒沒有封包即結束）各寫一行，只有時間與計數，不含文字、金鑰、指標位移：
+  - BLE 到達：`ble_rx_timing`，只在 Linux
+  - 應用程式：`pointer_timing`、`pointer_timing_arr`、`pointer_timing_dt`、`pointer_timing_out`，兩個平台都有
+  - portal 呼叫：`portal_motion_timing`，只在 Linux
+- 欄位說明見 `docs/troubleshooting-receiver.md`。
+- 一鍵量度：`e2e/scripts/measure-trackpad.sh <win|linux> [N]`。iPhone UI 測試 `testFixedStrokes` 自動畫 N 段直線，腳本經 SSH 取回計時行，再由 `timing_report.py` 彙整。
+
+### 修正前（使用者 01:26–01:28 UTC 親手操作，12 段手勢、996 個封包）
+
+| 層 | 實測 | 判讀 |
+|---|---|---|
+| iPhone 送出（封包 `dt`） | 84.5% 在 15–20 毫秒，中位數 16.6 毫秒 | iPhone 每秒送約 60 個 MOVE |
+| BLE 到達間隔 | 62.7% ≤2 毫秒（同一個連線事件）；31.1% 在 40–50 毫秒；2.5% 在 50–150 毫秒；1.7% >150 毫秒（最長 271 毫秒） | 連線間隔 45 毫秒，每次到 2–3 個封包 |
+| playout | 625／983 個 MOVE（64%）被壓縮；輸出間隔 67.8% ≤10 毫秒、25.5% 在 20–30 毫秒 | 45 毫秒的移動在約 22 毫秒內播完，之後停約 23 毫秒 |
+| portal `NotifyPointerMotion` | 呼叫 p50 1.3 毫秒、p99 2.2 毫秒（各段中位數）；送出間隔 63.4% ≤10 毫秒、25.0% 在 20–30 毫秒 | 跟著 playout 的節奏；呼叫本身不慢 |
+| 應用程式迴圈 | tick 延遲 p99 ≤2 毫秒（時鐘以毫秒計）；`pointer_move` 最長 181 微秒 | 沒有阻塞，portal 呼叫在注入器自己的執行緒 |
+
+### 根本原因
+
+- `PointerPlayout` 的延遲上限是 max(20 毫秒, 段長＋5 毫秒)，約 21.7 毫秒，比 Linux 的連線間隔 45 毫秒短。
+- 每批 2–3 個封包約有 50 毫秒的移動，被壓縮到約 22 毫秒內播完，之後游標停到下一個連線事件，形成每秒約 22 次的走停。
+- Windows 的連線間隔約 15 毫秒，每個連線事件約 1 個封包，所以不受影響。
+- 以下都已用數據排除：portal 逐筆等待、注入與 BLE 讀取在同一個 task、120 次／秒合併上限、log I/O。
+
+### 修正
+
+- `rk-core` `PointerPlayout`：記錄每批封包開頭之間的間隔（≤100 毫秒才算），取最近 8 個的中位數。延遲上限改為 max(原規則, 中位數＋5 毫秒)，最多 60 毫秒。
+- 停超過 300 毫秒，或通道結束（`discard`）時，忘記先前的間隔。
+- 單位測試（Linux 型態：每 45 毫秒一批 3、3、2 個 MOVE；每 8 毫秒取一次輸出）：
+
+| | 原規則 | 新規則 |
+|---|---|---|
+| 輸出之間最長空檔 | 24 毫秒 | 8 毫秒（每次取都有輸出） |
+| 壓縮次數 | 34 | 7 |
+| 延遲上限 | 約 21.6 毫秒 | 50 毫秒 |
+
+- Windows 型態（每 15 毫秒 1 個）的延遲上限維持 20 毫秒，輸出與原本相同。
+- 代價：Linux 穩定移動時，延遲上限由約 22 毫秒增加到約 50 毫秒。
+- `pointer_timing` 新增 `lag_us`，記錄當下的延遲上限。
+
+### 自動驗證
+
+- Mac：`cargo test --workspace` 0 失敗；clippy（本機與 `x86_64-pc-windows-msvc`）無警告。
+- rk-linux：`cargo test --workspace` 0 失敗；`-p rk-ble -p rk-inject -p rk-receiver` clippy 無警告；release build 通過。
+- rk-win：release build 通過。
+- 獨立 reviewer（ecc:rust-reviewer）：沒有 Critical、Important。
+- 新版已裝到 rk-linux（`~/.local/bin`，hci1）與 rk-win（`%LOCALAPPDATA%\Programs\RemoteKeyboard`），兩台都已重新啟動。舊版備份為 `*.bak-da86d82`。
+
+### 修正後實機自動量度
+
+TBD。iPhone 先是約 08:20–09:30（台灣時間）沒有廣播，使用者關開藍牙後恢復。之後到 10:48 為止，Xcode 都看不到這支 iPhone（`unavailable`）。iPhone 可用後：
+
+```bash
+RK_LABEL=after e2e/scripts/measure-trackpad.sh linux 30
+```
+
+```bash
+RK_LABEL=after RK_HOST_NAME=<Windows 主機名> e2e/scripts/measure-trackpad.sh win 30
+```
+
+Windows 那次同時是到達間隔的對照組。
+
+### 可選：縮短 hci1 連線間隔（需要 root，未執行，由使用者決定）
+
+```bash
+echo 6 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_min_interval
+echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
+```
+
+- 數值以 1.25 毫秒為單位，也就是 7.5–15 毫秒。只對之後的新連線有效，重開機後還原。
+- 只影響 hci1，不碰 hci0、`/etc/bluetooth/main.conf`，也不重啟 bluetoothd。
+- 效果：每個連線事件約 1 個封包，延遲上限回到約 20 毫秒，連線後的服務探索也會變快（WL1 推算約 1.1 秒）。
+- 風險：iPhone 不一定接受；功耗略增。
+
+### Mac 是否同類（推測，未量度）
+
+- Swift `PointerPlayout` 用同一條延遲規則：`Packages/RemoteKeyboardCore/Sources/RemoteKeyboardCore/Pointer/PointerPlayout.swift:21`（`maxLagMicros` 20 毫秒）、`:26`（`lagMarginMicros` 5 毫秒）、`:56`（`allowed = max(maxLag, span + margin)`）。
+- 使用處在 `macOS/MacReceiver/Input/PointerReceiver.swift:269`。
+- 先前量到 Mac 的指標封包到達間隔 p95 約 90 毫秒。只要 Mac 的連線事件一次帶來超過約 20 毫秒的移動，就會出現同樣的走停，這與「時順時卡」的現象一致。
+- 這次不改 Mac。要確認，需要在 Mac 量到達間隔與壓縮次數。
+
+### 過程中的事故（如實記錄）
+
+- 使用者在 01:08–01:09 UTC 從系統匣刪除手機、把控制器改成 hci0，之後重新配對。主代理依使用者選擇改回 hci1，原設定留在 `config.json.bak-hci0`。
+- iPhone 停止廣播：待查的 iOS 問題，沒有在接收端修。紀錄在共用筆記 `ios-advert-stop-2026-11-15.md`。
+
+### 未驗證（TBD）
+
+- 修正後的實機自動量度（Linux、Windows）。
+- 實機手感（Linux、Windows）：由使用者親手試。
