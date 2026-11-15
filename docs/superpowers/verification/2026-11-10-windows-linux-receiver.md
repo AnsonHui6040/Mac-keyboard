@@ -1371,8 +1371,10 @@ WL13 之後使用者回報 Mac 觸控板「有比較好」但仍有卡頓。以 
 
 | 項目 | 自動檢查（2026-11-16） | 使用者 |
 |---|---|---|
-| rk-win 覆蓋升級 | 舊版 `0.1.0` 在桌面工作階段執行中，以排程工作在同一工作階段靜默安裝：結束碼 0、1 秒；舊行程結束、新行程在工作階段 1 啟動；兩個 `--version` 為 `0.2.0-alpha.1`；`Run` 值不變；`unins000.exe` 存在；log `ev=start version=0.2.0-alpha.1 phones=1` | iPhone 打字 TBD |
-| rk-linux 換成 `.deb` | 使用者 `sudo apt install` 成功；`/usr/bin` 兩個 `--version` 正確；舊版停止，`~/.local/bin` 兩個檔改名為 `.bak-0.1.0`；`/usr/bin/rk-receiver` 啟動時 log `ev=autostart_repointed`，自動啟動檔 `Exec=/usr/bin/rk-receiver` | 重新登入後配對、打字 TBD |
+| rk-win 覆蓋升級 | 舊版 `0.1.0` 在桌面工作階段執行中，以排程工作在同一工作階段靜默安裝：結束碼 0、1 秒；舊行程結束、新行程在工作階段 1 啟動；兩個 `--version` 為 `0.2.0-alpha.1`；`Run` 值不變；`unins000.exe` 存在；log `ev=start version=0.2.0-alpha.1 phones=1` | iPhone 打字 PASS（2026-11-16） |
+| rk-linux 換成 `.deb` | 使用者 `sudo apt install` 成功；`/usr/bin` 兩個 `--version` 正確；舊版停止，`~/.local/bin` 兩個檔改名為 `.bak-0.1.0`；`/usr/bin/rk-receiver` 啟動時 log `ev=autostart_repointed`，自動啟動檔 `Exec=/usr/bin/rk-receiver` | 從應用程式選單開啟後 log `ev=start version=0.2.0-alpha.1 phones=1`、`portal_started`；配對、打字 PASS（2026-11-16）。重新登入後自動啟動：TBD（停掉 SSH 啟動的那一份後尚未重測） |
+
+第一次重新登入時沒有自動啟動，原因是測試時經 SSH 用 `systemd-run --user` 啟動的那一份在登出後仍在執行、佔住單一執行個體鎖，自動啟動的那一份因此結束；停掉它、改從選單開啟後正常。一般使用不會經 SSH 啟動，不是安裝檔的問題。
 
 rk-linux 在安裝前重新開機，自動登入沒有解鎖鑰匙圈：舊版與新版啟動時都是 `keystore_unavailable`、`phones=0`，與安裝無關，要用密碼登入一次。重開機也讓放在 `/tmp` 的 `.deb` 消失、hci1 短連線間隔還原。
 
@@ -1394,6 +1396,10 @@ rk-linux 在安裝前重新開機，自動登入沒有解鎖鑰匙圈：舊版�
 - CI：Build, test and lint（ubuntu、windows）、Windows installer、Linux .deb 通過。
 - 獨立 review：沒有 HIGH／MEDIUM。LOW：Windows 那一行沒有自動測試（`build_menu` 需要真的選單）。
 
-### 實機（TBD）
+### 實機
 
-- rk-win、rk-linux 安裝此版後，托盤選單看得到版本行，且點了沒有反應。
+- rk-win、rk-linux 安裝此版（PR #119 的 CI 產出）後，托盤選單「結束」上方看得到 `版本：0.2.0-alpha.1`：使用者 PASS（2026-11-16）。rk-linux 以 `apt install --reinstall` 安裝，`/usr/bin/rk-receiver` 與 `.deb` 內檔案 SHA-256 相同。
+
+### 文件
+
+- Linux 安裝手冊（中英）補上自動登入讓鑰匙圈不解鎖、接收端讀不到配對的處理方式。
