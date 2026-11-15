@@ -56,3 +56,19 @@ windows = { version = "=0.61.3", features = [
 ksni = "0.3.7"
 secret-service = { version = "5.2.0", features = ["rt-tokio-crypto-rust"] }
 tokio = { version = "1.54.1", features = ["process", "signal", "io-util"] }
+
+[package.metadata.deb]
+name = "remote-keyboard"
+maintainer = "Remote Keyboard <noreply@users.noreply.github.com>"
+section = "utils"
+revision = ""
+changelog = "../../packaging/linux/changelog"
+priority = "optional"
+extended-description = "Receives keystrokes from the Remote Keyboard iPhone app over Bluetooth Low Energy and types them on this computer."
+depends = "$auto, zenity, xdg-desktop-portal, xdg-desktop-portal-gnome, gnome-keyring, bluez"
+assets = [
+  ["target/release/rk-receiver", "usr/bin/", "755"],
+  ["target/release/rk-diag", "usr/bin/", "755"],
+  ["../../packaging/linux/remote-keyboard.desktop", "usr/share/applications/", "644"],
+  ["../../packaging/linux/remote-keyboard.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+]

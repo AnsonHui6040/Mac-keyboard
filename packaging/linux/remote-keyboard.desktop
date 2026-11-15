@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Remote Keyboard
+Name[zh_TW]=Remote Keyboard
+Comment=Use your iPhone as a keyboard for this computer
+Comment[zh_TW]=用 iPhone 當這台電腦的鍵盤
+Exec=/usr/bin/rk-receiver
+Icon=remote-keyboard
+Categories=Utility;
+Terminal=false

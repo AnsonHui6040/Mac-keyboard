@@ -69,6 +69,100 @@ pub fn write_autostart(file: &Path, exe: &Path, enabled: bool) -> bool {
     }
 }
 
+/// `std::env::current_exe` on Linux reads `/proc/self/exe`, which ends in ` (deleted)` once a package upgrade has replaced
+/// the running file. The path without that suffix is the program as it is installed now.
+pub fn running_exe_path(raw: PathBuf) -> PathBuf {
+    match raw.file_name().and_then(|name| name.to_str()).and_then(|name| name.strip_suffix(" (deleted)")) {
+        Some(clean) => raw.with_file_name(clean),
+        None => raw,
+    }
+}
+
+/// An autostart file that names another program is repointed only when that program is gone, or when the running one
+/// is the packaged one (under `/usr/`): a development build must not take over an install that still works.
+pub fn should_repoint(_old_program: &Path, old_exists: bool, exe: &Path) -> bool {
+    !old_exists || exe.starts_with("/usr/")
+}
+
+/// Splits the value of an `Exec=` line into the program (unquoted) and the raw text that follows it, arguments included.
+fn split_exec_value(value: &str) -> Option<(String, &str)> {
+    // First level: the escapes of a desktop-file string value, remembering where each character ended in the raw text.
+    let mut chars: Vec<(char, usize)> = Vec::new();
+    let mut raw = value.char_indices().peekable();
+    while let Some((i, c)) = raw.next() {
+        let (decoded, end) = match (c, raw.peek().copied()) {
+            ('\\', Some((j, next))) if matches!(next, '\\' | 's' | 'n' | 't' | 'r') => {
+                raw.next();
+                (match next { 's' => ' ', 'n' => '\n', 't' => '\t', 'r' => '\r', _ => '\\' }, j + next.len_utf8())
+            }
+            _ => (c, i + c.len_utf8()),
+        };
+        chars.push((decoded, end));
+    }
+    // Second level: the quoting of the Exec key.
+    let mut program = String::new();
+    let mut at = 0;
+    let quoted = chars.first().is_some_and(|&(c, _)| c == '"');
+    if quoted {
+        at = 1;
+    }
+    let mut end = None;
+    while at < chars.len() {
+        let (c, e) = chars[at];
+        if quoted && c == '"' {
+            end = Some(e);
+            break;
+        }
+        if !quoted && c.is_whitespace() {
+            end = Some(if at == 0 { 0 } else { chars[at - 1].1 });
+            break;
+        }
+        if c == '\\' && quoted && at + 1 < chars.len() {
+            at += 1;
+            program.push(chars[at].0);
+            at += 1;
+            continue;
+        }
+        program.push(c);
+        at += 1;
+    }
+    let end = match end {
+        Some(end) => end,
+        None if quoted => return None,
+        None => value.len(),
+    };
+    Some((program.replace("%%", "%"), &value[end..]))
+}
+
+/// Points an existing autostart file at `exe` when it names another program that is gone, or when `exe` is the packaged
+/// program, as after a move from `~/.local/bin` to a package. Only the program of the `Exec=` line changes: every other
+/// line, the arguments after the program and a disabled entry stay as they were. A missing file means autostart is off and
+/// stays off. `true` when the file was rewritten.
+pub fn ensure_autostart_points_to(file: &Path, exe: &Path) -> bool {
+    let Ok(current) = std::fs::read_to_string(file) else { return false };
+    let mut out = String::with_capacity(current.len() + 32);
+    let mut changed = false;
+    let mut seen = false;
+    for line in current.split_inclusive('\n') {
+        let body = line.strip_suffix('\n').unwrap_or(line);
+        let ending = &line[body.len()..];
+        match body.strip_prefix("Exec=").filter(|_| !seen) {
+            Some(value) => {
+                seen = true;
+                let Some((program, rest)) = split_exec_value(value) else { return false };
+                let old = PathBuf::from(&program);
+                if old == exe || !should_repoint(&old, old.exists(), exe) {
+                    return false;
+                }
+                out.push_str(&format!("Exec={}{rest}{ending}", desktop_exec_quote(exe)));
+                changed = true;
+            }
+            None => out.push_str(line),
+        }
+    }
+    changed && std::fs::write(file, out).is_ok()
+}
+
 // ---------------------------------------------------------------- paths and environment
 
 /// `$XDG_DATA_HOME/remote-keyboard/phones.json`, `~/.local/share/...` by default: the keys when there is no Secret Service.
