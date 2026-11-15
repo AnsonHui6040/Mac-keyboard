@@ -87,6 +87,11 @@ If you used to copy the receiver into `~/.local/bin` by hand, upgrade like this:
 
 When the receiver starts and autostart is on but the entry points to a different program, it rewrites the entry to `/usr/bin/rk-receiver`, so you do not need to check the box again.
 
+With automatic login turned on, no password is typed at start-up, so the GNOME keyring stays locked. The receiver then cannot read the pairing keys, the tray tooltip shows the keyring message, and the iPhone cannot connect. Pick one fix:
+
+- Turn off Automatic Login on the Users page of Settings and type your password at start-up.
+- Use Passwords and Keys (seahorse) to set an empty password on the Login keyring. The keyring then needs no unlocking, but anyone who can use this computer can read what is stored in it.
+
 ## 5. Upgrade and uninstall
 
 | Situation | What to do |
