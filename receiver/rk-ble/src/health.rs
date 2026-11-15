@@ -162,6 +162,18 @@ impl AdapterHealth {
         None
     }
 
+    /// What a health tick does: an owed power-on that is due comes before everything (while it is owed [`check`](Self::check)
+    /// judges nothing, so a scan would otherwise run deaf-blind until it ends), then the plain check.
+    pub fn tick(&self, now: Instant) -> Tick {
+        if self.power_on_due(now) {
+            return Tick::RestorePower;
+        }
+        match self.check(now) {
+            Some(reason) => Tick::Cycle(reason),
+            None => Tick::Idle,
+        }
+    }
+
     /// The adapter was power-cycled.
     pub fn cycled(&mut self, now: Instant, reason: ResetReason) {
         self.last_reason = Some(reason);
@@ -225,6 +237,15 @@ impl AdapterHealth {
         self.healthy_since_cycle = true;
         self.gap = MIN_GAP;
     }
+}
+
+/// What one health tick decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tick {
+    Idle,
+    /// A controller we switched off is to be switched on now.
+    RestorePower,
+    Cycle(ResetReason),
 }
 
 /// Why a power cycle could not be carried out (the `kind=` field of `adapter_reset_failed`).
@@ -994,6 +1015,28 @@ mod tests {
         let fake = Fake::new().on_script(&[Mode::Fault]);
         assert_eq!(cycle(&mut health, &fake).await, vec![Report::Started, Report::Cycled]);
         assert_eq!(fake.calls(), ["read", "busy?", "off", "on", "on"]);
+    }
+
+    #[tokio::test]
+    async fn a_health_tick_settles_an_owed_power_on_when_it_is_due_and_judges_nothing_else_meanwhile() {
+        let (mut health, _) = deaf();
+        let fake = Fake::new().on_script(&[Mode::Fault, Mode::Hang]);
+        cycle(&mut health, &fake).await;
+        assert!(health.power_on_owed());
+        let now = Instant::now();
+        assert_eq!(health.tick(now), Tick::RestorePower, "due at once: the scan does not wait for its end");
+        assert_eq!(health.tick(now + secs(7200)), Tick::RestorePower, "never turned into a new cycle while owed");
+        // A try that failed waits; until it is due the tick leaves the controller alone.
+        health.power_on_failed(now);
+        assert_eq!(health.tick(now), Tick::Idle);
+        assert_eq!(health.tick(now + secs(2)), Tick::RestorePower);
+    }
+
+    #[test]
+    fn a_health_tick_without_anything_owed_is_the_plain_check() {
+        let (health, t0) = start();
+        assert_eq!(health.tick(t0 + secs(59)), Tick::Idle);
+        assert_eq!(health.tick(t0 + secs(60)), Tick::Cycle(ResetReason::NoAdverts));
     }
 
     #[tokio::test]

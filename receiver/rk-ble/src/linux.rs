@@ -28,8 +28,8 @@
 use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase, ServiceUuids};
 use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
-use crate::health::{is_our_phone, power_cycle, reset_diag, reset_failed_diag, reset_skipped_diag, restore_power, restored_diag, AdapterHealth, CycleTiming, KnownDevices, PowerControl, PowerFault, Report, ResetReason};
+use crate::flow::{after_reset, drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
+use crate::health::{is_our_phone, power_cycle, reset_diag, reset_failed_diag, reset_skipped_diag, restore_power, restored_diag, AdapterHealth, CycleTiming, KnownDevices, PowerControl, PowerFault, Report, ResetReason, Tick};
 use crate::rx_timing::RxTiming;
 use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
@@ -231,8 +231,12 @@ async fn emit_diag(events: &mpsc::Sender<LinkEvent>, diag: Diag) -> bool {
     events.send(LinkEvent::Diag(diag)).await.is_ok()
 }
 
-/// The log line of what a power cycle did. Sent without waiting: the cycle is not held up by a full log channel.
-fn log_report(events: &mpsc::Sender<LinkEvent>, reason: ResetReason, hci: Option<u64>, report: Report) {
+/// The longest the log lines of one power cycle are waited for when the log channel is full.
+const REPORT_SEND_BOUND: Duration = Duration::from_millis(500);
+
+/// The log line of what a power cycle did. Sent without waiting (the cycle is not held up); a line that finds the channel
+/// full is kept in `pending` for [`flush_diags`], so the reset lines are not lost.
+fn log_report(events: &mpsc::Sender<LinkEvent>, reason: ResetReason, hci: Option<u64>, report: Report, pending: &mut Vec<Diag>) {
     let diag = match report {
         Report::Started => reset_diag(reason, hci),
         Report::Skipped(skip) => reset_skipped_diag(skip),
@@ -240,7 +244,19 @@ fn log_report(events: &mpsc::Sender<LinkEvent>, reason: ResetReason, hci: Option
         Report::Restored => restored_diag(),
         Report::Cycled => return,
     };
-    let _ = events.try_send(LinkEvent::Diag(diag));
+    if let Err(mpsc::error::TrySendError::Full(LinkEvent::Diag(diag))) = events.try_send(LinkEvent::Diag(diag)) {
+        pending.push(diag);
+    }
+}
+
+/// Sends the lines [`log_report`] had to keep, in order, waiting `bound` for all of them together at the most.
+async fn flush_diags(events: &mpsc::Sender<LinkEvent>, pending: Vec<Diag>, bound: Duration) {
+    let until = TokioInstant::now() + bound;
+    for diag in pending {
+        if tokio::time::timeout_at(until, events.send(LinkEvent::Diag(diag))).await.is_err() {
+            return;
+        }
+    }
 }
 
 impl Worker {
@@ -358,7 +374,12 @@ impl Worker {
                 Watched::Found(sighting) => return Some(sighting),
                 Watched::Gone => return None,
                 // Back to the top: the switch is off, so `park` waits there.
-                Watched::Paused | Watched::Reset => continue,
+                Watched::Paused => continue,
+                // A stop or quit that came during the cycle counts before the next scan.
+                Watched::Reset => match after_reset(self, |worker| worker.drain(rx), |worker| &worker.switch) {
+                    Ok(_) => continue,
+                    Err(ApplicationGone) => return None,
+                },
                 Watched::Failed(failure) => failure,
             };
             // A broken session (bluetoothd restarted) is made again next time.
@@ -449,10 +470,19 @@ impl Worker {
         loop {
             tokio::select! {
                 _ = health_tick.tick() => {
-                    if let Some(reason) = self.health.check(Instant::now()) {
-                        stop_discovery(stream.take(), changes, &scanner.adapter).await;
-                        self.power_cycle(reason).await;
-                        return Watched::Reset;
+                    match self.health.tick(Instant::now()) {
+                        Tick::Idle => {}
+                        Tick::RestorePower => {
+                            // The controller is ours to switch on; the scan starts over either way.
+                            stop_discovery(stream.take(), changes, &scanner.adapter).await;
+                            self.restore_power(false).await;
+                            return Watched::Reset;
+                        }
+                        Tick::Cycle(reason) => {
+                            stop_discovery(stream.take(), changes, &scanner.adapter).await;
+                            self.power_cycle(reason).await;
+                            return Watched::Reset;
+                        }
                     }
                 }
                 command = rx.recv() => {
@@ -599,10 +629,15 @@ impl Worker {
     /// always switched back on, how long it may take) are those of [`crate::health::power_cycle`]. Commands that arrive
     /// meanwhile are queued and handled after it, so a stop never finds the controller half switched.
     async fn power_cycle(&mut self, reason: ResetReason) {
-        let Some(power) = self.power.clone() else { return self.log_report(reason, Report::Failed(crate::health::ResetFailure::Unavailable)) };
+        let mut pending = Vec::new();
+        let Some(power) = self.power.clone() else {
+            log_report(&self.events, reason, None, Report::Failed(crate::health::ResetFailure::Unavailable), &mut pending);
+            return flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
+        };
         let events = self.events.clone();
         let hci = self.announced_adapter.as_deref().and_then(hci_index);
-        power_cycle(&mut self.health, &power, reason, CycleTiming::PRODUCTION, |report| log_report(&events, reason, hci, report)).await;
+        power_cycle(&mut self.health, &power, reason, CycleTiming::PRODUCTION, |report| log_report(&events, reason, hci, report, &mut pending)).await;
+        flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
     }
 
     /// Switches a controller we switched off back on, when that is due (`force`: now, whatever the wait).
@@ -612,12 +647,9 @@ impl Worker {
         }
         let Some(power) = self.power.clone() else { return self.health.power_on_failed(Instant::now()) };
         let events = self.events.clone();
-        let reason = ResetReason::NoAdverts;
-        restore_power(&mut self.health, &power, CycleTiming::PRODUCTION, |report| log_report(&events, reason, None, report)).await;
-    }
-
-    fn log_report(&self, reason: ResetReason, report: Report) {
-        log_report(&self.events, reason, None, report);
+        let mut pending = Vec::new();
+        restore_power(&mut self.health, &power, CycleTiming::PRODUCTION, |report| log_report(&events, ResetReason::NoAdverts, None, report, &mut pending)).await;
+        flush_diags(&self.events, pending, REPORT_SEND_BOUND).await;
     }
 
     async fn emit(&self, event: LinkEvent) -> bool {
@@ -934,4 +966,61 @@ pub async fn adapters() -> Vec<AdapterInfo> {
 /// `Disconnect`) are carried out first, in order, and the socket is closed before this returns.
 pub async fn run(cfg: LinkConfig, tx: mpsc::Sender<LinkEvent>, mut rx: mpsc::Receiver<LinkCommand>) {
     Worker::new(cfg, tx).run(&mut rx).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn filler() -> LinkEvent {
+        LinkEvent::Diag(Diag::new(0, "filler"))
+    }
+
+    #[tokio::test]
+    async fn reset_lines_that_find_the_channel_full_are_kept_and_delivered_in_order_afterwards() {
+        let (tx, mut rx) = mpsc::channel(1);
+        tx.send(filler()).await.unwrap();
+        let mut pending = Vec::new();
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Started, &mut pending);
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Failed(crate::health::ResetFailure::Timeout), &mut pending);
+        log_report(&tx, ResetReason::NoAdverts, Some(1), Report::Cycled, &mut pending);
+        assert_eq!(pending.len(), 2, "nothing is dropped, and `Cycled` has no line");
+        let reader = tokio::spawn(async move {
+            let mut seen = Vec::new();
+            while let Some(event) = rx.recv().await {
+                seen.push(event);
+                if seen.len() == 3 {
+                    break;
+                }
+            }
+            seen
+        });
+        flush_diags(&tx, pending, Duration::from_secs(1)).await;
+        let seen = reader.await.unwrap();
+        assert_eq!(seen[0], filler());
+        assert_eq!(seen[1], LinkEvent::Diag(reset_diag(ResetReason::NoAdverts, Some(1))));
+        assert_eq!(seen[2], LinkEvent::Diag(reset_failed_diag(crate::health::ResetFailure::Timeout)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_channel_that_stays_full_holds_the_cycle_up_for_the_bound_only() {
+        let (tx, _rx) = mpsc::channel(1);
+        tx.send(filler()).await.unwrap();
+        let mut pending = Vec::new();
+        for _ in 0..3 {
+            log_report(&tx, ResetReason::NoAdverts, None, Report::Started, &mut pending);
+        }
+        let before = TokioInstant::now();
+        flush_diags(&tx, pending, Duration::from_millis(500)).await;
+        assert!(before.elapsed() <= Duration::from_millis(500), "one bound for the whole batch, not one per line: {:?}", before.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_report_that_finds_room_is_sent_at_once() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut pending = Vec::new();
+        log_report(&tx, ResetReason::NoAdverts, Some(0), Report::Restored, &mut pending);
+        assert!(pending.is_empty());
+        assert_eq!(rx.try_recv().unwrap(), LinkEvent::Diag(restored_diag()));
+    }
 }

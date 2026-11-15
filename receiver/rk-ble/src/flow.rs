@@ -99,6 +99,12 @@ pub fn drain_then_admit<S, T>(state: &mut S, drain: impl FnOnce(&mut S) -> bool,
     Ok(switch_of(state).admit(target))
 }
 
+/// After a power cycle: the commands queued meanwhile (a stop, a quit) are looked at before anything scans again. `Ok(true)`
+/// when receiving is still on, `Ok(false)` when it went off and the worker is to park.
+pub fn after_reset<S>(state: &mut S, drain: impl FnOnce(&mut S) -> bool, switch_of: impl Fn(&S) -> &ScanSwitch) -> Result<bool, ApplicationGone> {
+    drain_then_admit(state, drain, switch_of, Some(())).map(|target| target.is_some())
+}
+
 /// How a connection attempt ended, as far as the switch is concerned.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Settled<L, E> {
@@ -247,6 +253,20 @@ mod tests {
         // No target: still none.
         let mut empty = Model::with(vec![]);
         assert_eq!(drain_then_admit::<_, u8>(&mut empty, Model::drain, |m| &m.switch, None), Ok(None));
+    }
+
+    #[test]
+    fn a_stop_queued_during_a_power_cycle_is_applied_before_the_next_scan() {
+        // The cycle takes seconds; the application's stop sits in the queue meanwhile.
+        let mut stopped = Model::with(vec![LinkCommand::SetScanning(false)]);
+        assert!(stopped.switch.is_on(), "the queued stop is not looked at yet");
+        assert_eq!(after_reset(&mut stopped, Model::drain, |m| &m.switch), Ok(false), "receiving is off: park, do not scan");
+        assert!(!stopped.switch.is_on());
+        let mut idle = Model::with(vec![]);
+        assert_eq!(after_reset(&mut idle, Model::drain, |m| &m.switch), Ok(true));
+        let mut gone = Model::with(vec![]);
+        gone.closed = true;
+        assert_eq!(after_reset(&mut gone, Model::drain, |m| &m.switch), Err(ApplicationGone));
     }
 
     #[test]
