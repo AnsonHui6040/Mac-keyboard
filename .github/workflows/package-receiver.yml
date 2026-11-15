@@ -1,0 +1,93 @@
+name: Package receiver
+
+on:
+  pull_request:
+    paths:
+      - "receiver/**"
+      - "packaging/**"
+      - ".github/workflows/package-receiver.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Make sure Inno Setup 6 is available
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed with exit code $LASTEXITCODE" }
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./packaging/windows/build-installer.ps1
+
+      - name: Install silently for the current user
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'installer not found in dist' }
+          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          if ($p.ExitCode -ne 0) { throw "installer exited with code $($p.ExitCode)" }
+
+      - name: Check the installed files, autostart value and versions
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          $exe = Join-Path $dir 'rk-receiver.exe'
+          foreach ($name in 'rk-receiver.exe', 'rk-diag.exe', 'unins000.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "missing $name in $dir" }
+          }
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction Stop).RemoteKeyboard
+          $want = '"' + $exe + '"'
+          if ($run -ne $want) { throw "Run value is [$run], expected [$want]" }
+
+          $version = (Select-String -Path 'receiver/rk-receiver/Cargo.toml' -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          # rk-receiver is a windows-subsystem program: with redirected output it writes to the file instead of a console.
+          foreach ($tool in 'rk-receiver', 'rk-diag') {
+            $out = Join-Path $env:RUNNER_TEMP "$tool-version.txt"
+            $p = Start-Process -FilePath (Join-Path $dir "$tool.exe") -ArgumentList '--version' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out
+            if ($p.ExitCode -ne 0) { throw "$tool --version exited with code $($p.ExitCode)" }
+            $text = (Get-Content $out -Raw).Trim()
+            if ($text -ne "$tool $version") { throw "$tool --version printed [$text]" }
+            Write-Host $text
+          }
+
+      - name: Stop any running receiver before uninstalling
+        shell: pwsh
+        run: |
+          Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue | Stop-Process -Force
+          Start-Sleep -Seconds 2
+
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          $p = Start-Process -FilePath (Join-Path $dir 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          if ($p.ExitCode -ne 0) { throw "uninstaller exited with code $($p.ExitCode)" }
+          # The uninstaller copies itself to a temp folder and relaunches, so the first process can return early.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path (Join-Path $dir 'rk-receiver.exe')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          if (Test-Path (Join-Path $dir 'rk-receiver.exe')) { throw 'rk-receiver.exe is still installed after 60 s' }
+          $value = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction SilentlyContinue
+          if ($value) { throw 'the Run value RemoteKeyboard is still present after uninstall' }
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/RemoteKeyboard-Setup-*.exe
+          if-no-files-found: error

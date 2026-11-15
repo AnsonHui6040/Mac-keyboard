@@ -20,6 +20,10 @@ fn log_files(path: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 fn run(args: &[String]) -> Result<(), String> {
+    if args.len() == 1 && args[0] == "--version" {
+        println!("rk-diag {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let mut it = args.iter();
     if it.next().map(String::as_str) != Some("stats") {
         return Err(USAGE.to_string());
