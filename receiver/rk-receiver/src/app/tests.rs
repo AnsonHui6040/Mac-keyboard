@@ -751,6 +751,23 @@ fn repeated_scan_failures_without_a_real_recovery_raise_one_notice() {
 }
 
 #[test]
+fn start_after_a_scan_failure_that_happened_while_stopped_repeats_the_bluetooth_notice() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetReceiving(false));
+    // Bluetooth went off while stopped: recorded, but nobody is told (the user stopped receiving).
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    assert!(rig.notices().is_empty());
+    // Starting again with the outage still on: the backend reports nothing new, so the app says it itself.
+    rig.command(UiCommand::SetReceiving(true));
+    assert_eq!(rig.notices(), vec![NoticeKind::BluetoothOff]);
+    // No outage on record: starting says nothing.
+    let mut clean = Rig::new();
+    clean.command(UiCommand::SetReceiving(false));
+    clean.command(UiCommand::SetReceiving(true));
+    assert!(clean.notices().is_empty());
+}
+
+#[test]
 fn pairing_window_opens_at_start_when_asked() {
     let rig = Rig::with_pairing_at_start();
     assert!(rig.link.pairing_scan(), "the backend is told to scan for the pairing UUID");
@@ -798,7 +815,8 @@ fn stop_disconnects_and_stops_scan() {
     assert_eq!(scanning_commands(&rig), vec![false]);
     let commands = rig.link.commands().to_vec();
     let disconnect = commands.iter().rposition(|c| *c == LinkCommand::Disconnect).expect("Disconnect was sent");
-    assert!(disconnect < commands.iter().rposition(|c| *c == LinkCommand::SetScanning(false)).unwrap());
+    // The switch goes off first: a worker that ends its link on `Disconnect` and looks at the switch next must find it off.
+    assert!(commands.iter().rposition(|c| *c == LinkCommand::SetScanning(false)).unwrap() < disconnect);
     let tray = rig.last_tray();
     assert!(!tray.receiving);
     assert!(tray.connected_phone.is_none());

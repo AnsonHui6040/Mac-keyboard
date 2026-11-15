@@ -16,7 +16,7 @@
 //! channels. All of it is invisible to the logic tests; it is exercised on a real Windows machine.
 
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff, ScanSwitch};
+use crate::flow::{drain_then_admit, pump_commands, settle_attempt, NotificationGate, Offer, ScanBackoff, ScanSwitch, Settled};
 use crate::stale::{age_at, is_stale_link, Advert, HeldLink, WatchRestart};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use std::collections::HashMap;
@@ -197,6 +197,8 @@ enum Failure {
     Gave(FailKind),
     /// The caller asked to disconnect while the link was being set up.
     Cancelled,
+    /// Receiving was switched off while the link was being set up: given up without a trace of failure.
+    Stopped,
 }
 
 struct Worker {
@@ -244,7 +246,8 @@ impl Worker {
             }
             // A stale link was replaced: its advertiser is the next target, no scan in between (unless receiving was
             // switched off meanwhile).
-            let sighting = match self.switch.admit(reconnect.take()) {
+            let Ok(replacement) = drain_then_admit(&mut self, Worker::drain_commands, |worker| &worker.switch, reconnect.take()) else { return };
+            let sighting = match replacement {
                 Some(sighting) => sighting,
                 None => match self.scan_until_found() {
                     Some(sighting) => sighting,
@@ -252,7 +255,7 @@ impl Worker {
                 },
             };
             // Found just as scanning was switched off: let it go.
-            let Some(sighting) = self.switch.admit(Some(sighting)) else { continue };
+            let Ok(Some(sighting)) = drain_then_admit(&mut self, Worker::drain_commands, |worker| &worker.switch, Some(sighting)) else { continue };
             let conn = self.next_conn;
             self.next_conn += 1;
             match self.connect_and_serve(conn, sighting) {
@@ -365,19 +368,40 @@ impl Worker {
         }
         self.diag(Diag::new(conn, "adv_seen").at(0).with("device", Value::Id(device_key.short())).with("route", Value::S(route_word(sighting.route))));
         self.diag(Diag::new(conn, "connect_start").at(millis(adv_at)));
-        match self.open_link(conn, &sighting, adv_at) {
-            Ok(link) => {
+        let result = self.open_link(conn, &sighting, adv_at);
+        // Whatever was queued while the last step ran counts before `Connected` is announced.
+        if !self.drain_commands() {
+            if let Ok(link) = result {
+                link.release();
+            }
+            return Served::Quit;
+        }
+        match settle_attempt(&self.switch, result) {
+            Settled::Opened(link) => {
                 self.failures = 0;
                 self.serve(conn, device_key, sighting.route, adv_at, link)
             }
-            Err(Failure::Gave(kind)) => {
+            Settled::Cancelled(link) => {
+                if let Some(link) = link {
+                    link.release();
+                }
+                self.cancelled(conn, adv_at)
+            }
+            // Stopped and started again while the attempt ran: the attempt was still given up.
+            Settled::Failed(Failure::Stopped) => self.cancelled(conn, adv_at),
+            Settled::Failed(Failure::Gave(kind)) => {
                 self.diag(Diag::new(conn, "connect_failed").at(millis(adv_at)).with("kind", Value::S(kind.as_str())));
                 let wait = RETRY_WAITS_MS[self.failures.min(RETRY_WAITS_MS.len() - 1)];
                 self.failures += 1;
                 Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Failed(kind) }) && self.wait(Duration::from_millis(wait)))
             }
-            Err(Failure::Cancelled) => Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local })),
+            Settled::Failed(Failure::Cancelled) => Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local })),
         }
+    }
+
+    /// The attempt was given up because receiving is off: no `Connected`, no failure count, no back-off.
+    fn cancelled(&self, conn: u64, adv_at: Instant) -> Served {
+        Served::of(self.diag(Diag::new(conn, "connect_cancelled").at(millis(adv_at)).with("why", Value::S("stopped"))))
     }
 
     fn wait(&mut self, duration: Duration) -> bool {
@@ -403,6 +427,15 @@ impl Worker {
     fn open_link(&mut self, conn: u64, sighting: &Sighting, adv_at: Instant) -> Result<Link, Failure> {
         let deadline = Instant::now() + DISCOVERY_DEADLINE;
         let opened = self.open_device(sighting).map_err(|_| Failure::Gave(FailKind::Unreachable))?;
+        // Stopped while the device object was being made (this can take a while): let go at once.
+        if !self.drain_commands() {
+            close_opened(opened);
+            return Err(Failure::Cancelled);
+        }
+        if !self.switch.is_on() {
+            close_opened(opened);
+            return Err(Failure::Stopped);
+        }
         let mut announced = false;
         let mut tries: u64 = 0;
         let mut last_kind = FailKind::Timeout;
@@ -410,6 +443,10 @@ impl Worker {
             if !self.drain_commands() {
                 close_opened(opened);
                 return Err(Failure::Cancelled);
+            }
+            if !self.switch.is_on() {
+                close_opened(opened);
+                return Err(Failure::Stopped);
             }
             let connected = opened.device.ConnectionStatus().is_ok_and(|s| s == BluetoothConnectionStatus::Connected);
             if connected && !announced {

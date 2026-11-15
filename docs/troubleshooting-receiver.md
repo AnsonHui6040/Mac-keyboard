@@ -56,6 +56,11 @@
 |---|---|
 | `receiving_stopped`（`by=user`） | 使用者按了「停止接收」 |
 | `receiving_started`（`by=user`） | 使用者按了「開始接收」；接收端剛啟動時不記這個事件，記的是 `start` |
+| `scan_stop` | 停止接收時沒有任何連線，掃描直接停止 |
+| `link_refused`（`why=stopped`） | 停止的瞬間剛好有連線完成，接收端不理它、直接掛斷；沒有 `hello`，手機會看到連線被結束 |
+| `connect_cancelled`（`why=stopped`） | 停止時正在連線的嘗試被放棄；它不算連線失敗，不會觸發暫停重試 |
+
+在 Linux 上更換藍牙卡（選單的「藍牙卡」）會讓接收端重新啟動，重新啟動後一律回到「接收中」，即使更換前是「已停止」。
 
 ## Linux
 

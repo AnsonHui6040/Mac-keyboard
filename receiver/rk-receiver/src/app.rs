@@ -738,9 +738,15 @@ impl App {
             self.log.info("receiving_started", None, &[("by", Value::S("user"))]);
             self.log.info("scan_start", None, &[("pairing", Value::B(false))]);
             fx.push(Effect::Link(LinkCommand::SetScanning(true)));
+            // A scan failure that happened while stopped was not announced; the backend will not repeat it, so it is said now.
+            if self.scan_failure.is_some() {
+                self.notice(NoticeKind::BluetoothOff, fx);
+            }
             return;
         }
         self.log.info("receiving_stopped", None, &[("by", Value::S("user"))]);
+        // First, so that a backend which ends its link on `Disconnect` and then looks at the switch finds it off.
+        fx.push(Effect::Link(LinkCommand::SetScanning(false)));
         self.close_pairing_window(fx);
         match self.conn.take() {
             Some(conn) => {
@@ -749,7 +755,6 @@ impl App {
             }
             None => self.log.info("scan_stop", None, &[]),
         }
-        fx.push(Effect::Link(LinkCommand::SetScanning(false)));
     }
 
     fn start_pairing(&mut self, fx: &mut Vec<Effect>) {

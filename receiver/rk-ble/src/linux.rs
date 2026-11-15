@@ -22,7 +22,7 @@
 use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase, ServiceUuids};
 use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{ScanBackoff, ScanSwitch};
+use crate::flow::{drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
 use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use bluer::l2cap::{SeqPacket, Socket, SocketAddr};
@@ -195,12 +195,33 @@ impl Worker {
         true
     }
 
+    /// Applies every command that is already queued, without waiting. `false` when the application is gone.
+    fn drain(&mut self, rx: &mut mpsc::Receiver<LinkCommand>) -> bool {
+        loop {
+            match rx.try_recv() {
+                Ok(command) => {
+                    if !self.apply(Some(command)) {
+                        return false;
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Empty) => return true,
+                Err(mpsc::error::TryRecvError::Disconnected) => return false,
+            }
+        }
+    }
+
+    /// `target` if it may still be connected to: the queued commands are looked at first, so a stop sent a moment ago counts.
+    fn admit_current<T>(&mut self, rx: &mut mpsc::Receiver<LinkCommand>, target: Option<T>) -> Result<Option<T>, ApplicationGone> {
+        drain_then_admit(self, |worker| worker.drain(rx), |worker| &worker.switch, target)
+    }
+
     async fn run(mut self, rx: &mut mpsc::Receiver<LinkCommand>) {
         let mut reconnect: Option<Sighting> = None;
         loop {
             // A stale link was replaced: its advertiser is the next target, no scan in between (unless receiving was
             // switched off meanwhile).
-            let sighting = match self.switch.admit(reconnect.take()) {
+            let Ok(replacement) = self.admit_current(rx, reconnect.take()) else { return };
+            let sighting = match replacement {
                 Some(sighting) => sighting,
                 None => match self.scan_until_found(rx).await {
                     Some(sighting) => sighting,
@@ -208,7 +229,7 @@ impl Worker {
                 },
             };
             // Found just as scanning was switched off: let it go.
-            let Some(sighting) = self.switch.admit(Some(sighting)) else { continue };
+            let Ok(Some(sighting)) = self.admit_current(rx, Some(sighting)) else { continue };
             let conn = self.next_conn;
             self.next_conn += 1;
             match self.connect_and_serve(rx, conn, sighting).await {
@@ -390,31 +411,52 @@ impl Worker {
         emit_diag(&events, Diag::new(conn, "adv_seen").at(0).with("device", Value::Id(key.short())).with("route", Value::S(route_word(sighting.route)))).await;
         emit_diag(&events, Diag::new(conn, "connect_start").at(millis(adv_at))).await;
         let cached = self.cache;
-        let opened = {
+        // `None`: receiving was switched off while the attempt ran; the attempt is dropped, which closes its socket.
+        let finished = {
             let attempt = open_link(&events, cached, conn, adv_at, &sighting);
             tokio::pin!(attempt);
             loop {
                 tokio::select! {
-                    result = &mut attempt => break result,
+                    result = &mut attempt => break Some(result),
                     // A `Disconnect` here was meant for the link before this one (it has no `Connected` yet): dropped, as on
-                    // Windows.
-                    command = rx.recv() => if !self.apply(command) { return Served::Quit },
+                    // Windows. A stop ends the attempt.
+                    command = rx.recv() => {
+                        if !self.apply(command) {
+                            return Served::Quit;
+                        }
+                        if !self.switch.is_on() {
+                            break None;
+                        }
+                    }
                 }
             }
         };
-        match opened {
-            Err(kind) => {
+        let Some(result) = finished else { return self.cancelled(conn, adv_at, None).await };
+        // Whatever was queued while the last step ran counts before `Connected` is announced.
+        if !self.drain(rx) {
+            return Served::Quit;
+        }
+        match settle_attempt(&self.switch, result) {
+            Settled::Cancelled(live) => self.cancelled(conn, adv_at, live).await,
+            Settled::Failed(kind) => {
                 if forgets_handles(kind) {
                     self.cache = None;
                 }
                 Served::of(self.failed_connect(rx, conn, key, adv_at, kind).await)
             }
-            Ok(live) => {
+            Settled::Opened(live) => {
                 self.failures = 0;
                 self.cache = Some(live.handles);
                 self.serve(rx, conn, key, sighting, adv_at, live).await
             }
         }
+    }
+
+    /// The attempt was given up because receiving is off: no `Connected`, no failure count, no back-off. A link that had
+    /// come up is let go of by dropping it.
+    async fn cancelled(&self, conn: u64, adv_at: Instant, live: Option<Live>) -> Served {
+        drop(live);
+        Served::of(emit_diag(&self.events, Diag::new(conn, "connect_cancelled").at(millis(adv_at)).with("why", Value::S("stopped"))).await)
     }
 
     async fn failed_connect(&mut self, rx: &mut mpsc::Receiver<LinkCommand>, conn: u64, device: DeviceKey, adv_at: Instant, kind: FailKind) -> bool {
