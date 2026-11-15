@@ -62,18 +62,18 @@ Click the Remote Keyboard icon in the top bar to open the menu. The menu languag
 | 匯出診斷資料 | Export diagnostics | Writes a zip file of diagnostics and opens its folder. For its contents see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
 | 結束 | Quit | Closes the receiver, and the iPhone can no longer reach this computer |
 
-When the receiver needs you to act, the icon's tooltip shows one of these messages, in Chinese or English by system language:
+When the receiver needs you to act, it shows one of these messages, in Chinese or English by system language. Tooltip means the text that appears when the pointer rests on the tray icon. Window means a dialog box, which you close with OK.
 
-| Tooltip | What to do |
-|---|---|
-| 這支手機需要重新配對 (This phone needs to be paired again) | Pair again on both the phone and the computer |
-| 請更新 iPhone App (Please update the iPhone app) | Update the iPhone app to the same version |
-| 配對失敗，請再試一次 (Pairing failed, please try again) | Choose Pair a new phone again |
-| 已配對 8 支手機，請先刪除一支 (Eight phones are paired already, delete one first) | Delete a phone you no longer use from Paired phones |
-| 無法儲存配對資料 (Could not store the pairing) | Pair again. If it still fails, export diagnostics |
-| 藍牙未開啟，無法掃描 (Bluetooth is off, scanning is not running) | Turn on Bluetooth on the computer |
-| 讀不到已配對手機的金鑰，鑰匙圈可能還沒解鎖 (The pairing keys cannot be read: the keyring may be locked) | Unlock the GNOME keyring. The receiver reads the keys again a little later |
-| 設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動 (The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone) | Export diagnostics, see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
+| Message | Shown as | What to do |
+|---|---|---|
+| 這支手機需要重新配對 (This phone needs to be paired again) | Tooltip | Pair again on both the phone and the computer |
+| 請更新 iPhone App (Please update the iPhone app) | Tooltip | Update the iPhone app to the same version |
+| 配對失敗，請再試一次 (Pairing failed, please try again) | Window | Choose Pair a new phone again |
+| 已配對 8 支手機，請先刪除一支 (Eight phones are paired already, delete one first) | Window | Delete a phone you no longer use from Paired phones |
+| 無法儲存配對資料 (Could not store the pairing) | Window | Pair again. If it still fails, export diagnostics |
+| 藍牙未開啟，無法掃描 (Bluetooth is off, scanning is not running) | Tooltip | Turn on Bluetooth on the computer |
+| 讀不到已配對手機的金鑰，鑰匙圈可能還沒解鎖 (The pairing keys cannot be read: the keyring may be locked) | Tooltip | Unlock the GNOME keyring. The receiver reads the keys again a little later |
+| 設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動 (The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone) | Window | Export diagnostics, see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
 
 ## 4. Start at sign-in, and upgrading from a manual copy
 
@@ -110,7 +110,7 @@ When it works, the status cell of the iPhone keyboard shows this computer's name
 
 ## 7. Optional: shorten the connection interval for a smoother trackpad
 
-By default Linux uses a longer Bluetooth connection interval, so the trackpad can feel laggy and a phone takes longer to connect. The two commands below shorten the connection interval of one Bluetooth adapter to 7.5 to 15 milliseconds. This is optional and needs root. The receiver never runs it for you, so you decide whether to do it.
+By default Linux uses a longer Bluetooth connection interval, so the trackpad can feel laggy. The two commands below shorten the connection interval of one Bluetooth adapter to 7.5 to 15 milliseconds. This is optional and needs root. The receiver never runs it for you, so you decide whether to do it.
 
 First find the name of the Bluetooth adapter the receiver uses, such as `hci0` or `hci1` (run `ls /sys/class/bluetooth` to list them), and replace `hciN` below with it:
 

@@ -26,7 +26,7 @@
 | 系統 | 位置 |
 |---|---|
 | Windows | `%LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe` |
-| Linux | `/usr/bin/rk-diag` (`.deb`), or `~/.local/bin/rk-diag` for a manual copy |
+| Linux | `/usr/bin/rk-diag`（`.deb` 安裝）；手動複製的在 `~/.local/bin/rk-diag` |
 
 自己建置：在 `receiver/` 執行 `cargo build --release -p rk-receiver --bin rk-diag`，把 `target/release/rk-diag`（Windows 為 `rk-diag.exe`）複製到上表位置。
 

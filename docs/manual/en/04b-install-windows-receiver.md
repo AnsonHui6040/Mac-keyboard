@@ -27,7 +27,7 @@ Get-FileHash .\RemoteKeyboard-Setup-0.2.0-alpha.1.exe -Algorithm SHA256
 3. Compare the hash in the output with the value for that file in `SHA256SUMS.txt`. The two must be exactly the same. If they differ, download the file again and do not install.
 4. Double-click the installer and follow the screens.
 
-The installer puts the receiver in `%LOCALAPPDATA%\Programs\RemoteKeyboard` and does not ask for administrator permission. The installer option Start when I sign in (開機時自動啟動) is checked by default. If you do not want the receiver to start after you sign in, clear it during installation. You can also change it later with Start at sign-in (開機自動啟動) in the tray menu. The last page lets you start the receiver right away.
+The installer puts the receiver in `%LOCALAPPDATA%\Programs\RemoteKeyboard` and does not ask for administrator permission. The installer option Start when I sign in (開機時自動啟動) is checked by default. If you do not want the receiver to start after you sign in, clear it during installation. You can also change it later with Start at sign-in (開機自動啟動) in the tray menu. The last page has an option to start the receiver, checked by default.
 
 ## 2. Run it for the first time
 
@@ -36,7 +36,7 @@ The first time you run the installer, Windows shows "Windows protected your PC".
 1. Click More info (其他資訊).
 2. Click Run anyway (仍要執行), which appears below.
 
-When it works, the installer opens, and after it finishes the receiver starts and a Remote Keyboard icon appears at the right end of the taskbar. If the icon is hidden under the "^" button, click "^" and drag the icon onto the taskbar. It stays visible from then on.
+When it works, the installer opens. If the launch option on the last page stays checked, the receiver starts when the installation finishes and a Remote Keyboard icon appears at the right end of the taskbar. If the icon is hidden under the "^" button, click "^" and drag the icon onto the taskbar. It stays visible from then on.
 
 ## 3. Turn on Bluetooth
 
@@ -63,17 +63,17 @@ Click the Remote Keyboard icon in the tray to open the menu. The menu language f
 | 匯出診斷資料 | Export diagnostics | Writes a zip file of diagnostics to the desktop. For its contents see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
 | 結束 | Quit | Closes the receiver, and the iPhone can no longer reach this computer |
 
-When the receiver needs you to act, the icon's tooltip shows one of these messages, in Chinese or English by display language:
+When the receiver needs you to act, it shows one of these messages, in Chinese or English by display language. Tooltip means the text that appears when the pointer rests on the tray icon. Window means a message box titled Remote Keyboard, which you close with OK.
 
-| Tooltip | What to do |
-|---|---|
-| 這支手機需要重新配對 (This phone needs to be paired again) | Pair again on both the phone and the computer |
-| 請更新 iPhone App (Please update the iPhone app) | Update the iPhone app to the same version |
-| 配對失敗，請再試一次 (Pairing failed, please try again) | Choose Pair a new phone again |
-| 已配對 8 支手機，請先刪除一支 (Eight phones are paired already, delete one first) | Delete a phone you no longer use from Paired phones |
-| 無法儲存配對資料 (Could not store the pairing) | Pair again. If it still fails, export diagnostics |
-| 藍牙未開啟，無法掃描 (Bluetooth is off, scanning is not running) | Turn on Bluetooth in Windows |
-| 設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動 (The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone) | Export diagnostics, see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
+| Message | Shown as | What to do |
+|---|---|---|
+| 這支手機需要重新配對 (This phone needs to be paired again) | Tooltip | Pair again on both the phone and the computer |
+| 請更新 iPhone App (Please update the iPhone app) | Tooltip | Update the iPhone app to the same version |
+| 配對失敗，請再試一次 (Pairing failed, please try again) | Window | Choose Pair a new phone again |
+| 已配對 8 支手機，請先刪除一支 (Eight phones are paired already, delete one first) | Window | Delete a phone you no longer use from Paired phones |
+| 無法儲存配對資料 (Could not store the pairing) | Window | Pair again. If it still fails, export diagnostics |
+| 藍牙未開啟，無法掃描 (Bluetooth is off, scanning is not running) | Tooltip | Turn on Bluetooth in Windows |
+| 設定檔無法讀取，也無法備份；這次的設定不會儲存，原檔保持不動 (The settings file cannot be read or backed up; this run's settings are not saved and the file is left alone) | Window | Export diagnostics, see [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese) |
 
 ## 5. Upgrade and uninstall
 
