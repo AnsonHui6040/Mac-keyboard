@@ -315,7 +315,12 @@ pub fn menu_entries(state: &TrayState, lang: Lang, adapters: &AdapterChoices) ->
         item("reauthorize", text(Text::Reauthorize)),
     ];
     entries.extend(adapter_menu(adapters, lang));
-    entries.extend([MenuEntry::Separator, item("export", text(Text::ExportDiagnostics)), item("quit", text(Text::Quit))]);
+    entries.extend([
+        MenuEntry::Separator,
+        item("export", text(Text::ExportDiagnostics)),
+        MenuEntry::Info { label: i18n::version_label(lang, env!("CARGO_PKG_VERSION")) },
+        item("quit", text(Text::Quit)),
+    ]);
     entries
 }
 

@@ -359,6 +359,7 @@ fn build_menu(state: &TrayState, lang: Lang) -> Menu {
     let _ = menu.append(&CheckMenuItem::with_id("autostart", i18n::text(lang, Text::Autostart), true, state.autostart, None));
     let _ = menu.append(&PredefinedMenuItem::separator());
     let _ = menu.append(&MenuItem::with_id("export", i18n::text(lang, Text::ExportDiagnostics), true, None));
+    let _ = menu.append(&MenuItem::with_id("version", i18n::version_label(lang, env!("CARGO_PKG_VERSION")), false, None));
     let _ = menu.append(&MenuItem::with_id("quit", i18n::text(lang, Text::Quit), true, None));
     menu
 }

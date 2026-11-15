@@ -620,3 +620,19 @@ fn the_status_line_and_the_tooltip_say_stopped() {
     s.pairing_open = true;
     assert_eq!(status_label(&s, Lang::ZhTw), "已停止接收");
 }
+
+#[test]
+fn the_menu_shows_the_package_version_above_quit() {
+    for lang in [Lang::ZhTw, Lang::En] {
+        let entries = menu_entries(&state(), lang, &no_adapters());
+        let quit_at = entries.iter().position(|e| matches!(e, MenuEntry::Item { id, .. } if id == "quit")).expect("quit item");
+        let expected = i18n::version_label(lang, env!("CARGO_PKG_VERSION"));
+        match &entries[quit_at - 1] {
+            MenuEntry::Info { label } => {
+                assert_eq!(label, &expected);
+                assert!(label.contains(env!("CARGO_PKG_VERSION")));
+            }
+            other => panic!("expected the version info above quit, got {other:?}"),
+        }
+    }
+}
