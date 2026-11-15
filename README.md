@@ -23,18 +23,21 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 | 項目 | 需求 |
 |---|---|
 | iPhone | iOS 18 以上 |
-| Mac | macOS 15 以上，Apple 晶片 |
-| 連線 | 藍牙；安裝與續簽 iPhone App 時需要 Wi-Fi |
+| 電腦（三選一） | Mac：macOS 15 以上，Apple 晶片。Windows：Windows 11，x64。Linux：Ubuntu 26.04，x86_64，GNOME 桌面，Wayland 工作階段 |
+| 連線 | 藍牙（電腦端需要支援 Bluetooth LE）；安裝與續簽 iPhone App 時需要 Wi-Fi |
 | Apple 帳號 | 你自己的免費 Apple 帳號，不需要付費的開發者計畫 |
-| 安裝時 | 一條 USB 線，連接 iPhone 與 Mac |
+| 安裝時 | 一條 USB 線，連接 iPhone 與 Mac 或電腦 |
 
 ## 如何取得
 
 | 項目 | 說明 |
 |---|---|
 | iPhone App | 用 SideStore 安裝開發者提供的 IPA，以你自己的免費 Apple 帳號簽署 |
-| Mac Receiver | 開發者提供的 zip 檔，解壓縮後放進「應用程式」 |
-| 公證 | Mac Receiver 沒有經過 Apple 公證，第一次打開要到系統設定手動允許 |
+| Mac Receiver | GitHub Release 的 zip 檔，解壓縮後放進「應用程式」 |
+| Windows 接收端 | GitHub Release 的安裝檔 `RemoteKeyboard-Setup-0.2.0-alpha.1.exe`，不需要系統管理員權限 |
+| Linux 接收端 | GitHub Release 的 `remote-keyboard_0.2.0~alpha.1_amd64.deb`，用 `sudo apt install ./檔名.deb` 安裝 |
+| 公證與簽章 | Mac Receiver 沒有經過 Apple 公證，第一次打開要到系統設定手動允許。Windows 安裝檔沒有簽章，SmartScreen 會警告，按「其他資訊」再按「仍要執行」 |
+| 從 v0.1 升級 | 通訊協定升到 v4，iPhone App 與 Mac Receiver 都要更新，所有電腦都要重新配對 |
 | 有效期 | 免費帳號簽署的 App 只有 7 天有效，要在到期前續簽 |
 | 名額 | 免費帳號同時最多 3 個側載 App，SideStore 自己佔 1 個 |
 
@@ -53,6 +56,8 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 | [02 安裝 SideStore](docs/manual/02-install-sidestore.md) | LocalDevVPN、iloader、信任開發者、開發者模式、登入與第一次續簽 |
 | [03 安裝 iPhone App](docs/manual/03-install-iphone-app.md) | 驗證並匯入 IPA、加入鍵盤、允許完整取用與藍牙 |
 | [04 安裝 Mac Receiver](docs/manual/04-install-mac-receiver.md) | 下載、解壓縮、第一次打開、藍牙與輔助使用權限、選單列面板 |
+| [04b 安裝 Windows 接收端](docs/manual/04b-install-windows-receiver.md) | 下載、驗證、安裝、SmartScreen、系統匣選單 |
+| [04c 安裝 Linux 接收端](docs/manual/04c-install-linux-receiver.md) | 安裝 `.deb`、允許遠端桌面、系統匣選單、選用的連線間隔設定 |
 | [05 配對](docs/manual/05-pairing.md) | 用六位數配對碼把 iPhone 與 Mac 配成一組 |
 | [06 使用鍵盤](docs/manual/06-using-the-keyboard.md) | 本機與遠端、即時與草稿、手寫、速成、狀態列提示、密碼的處理 |
 | [07 觸控板](docs/manual/07-trackpad.md) | 觸控板手勢與設定 |
@@ -65,6 +70,7 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 - 文字只經藍牙加密傳到你配對的 Mac，不會傳到開發者或任何伺服器。App 的紀錄只有事件種類、長度、時間與結果，不含文字內容。
 - 鍵盤需要「允許完整取用」，Mac Receiver 需要「藍牙」與「輔助使用」權限，用途都寫在隱私說明裡。
 - 手寫辨識使用 Google ML Kit，使用手寫時 ML Kit 會連到 Google 下載模型並傳送使用與效能資料。
+- Windows 與 Linux 接收端沒有焦點安全閘，文字會送到目前最前面的視窗，包括密碼欄。
 - 請不要用這個鍵盤輸入密碼。部分終端機的密碼提示、遠端桌面內的欄位等偵測不到，文字仍會送出。
 - 請不要把 Apple 帳號密碼或雙重驗證碼交給任何人，包括開發者。
 

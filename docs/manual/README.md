@@ -1,6 +1,6 @@
 # Remote Keyboard 使用手冊
 
-這份手冊說明如何在 iPhone 與 Mac 上安裝、設定並使用 Remote Keyboard v0.1.0 Alpha 版。每一章都按步驟編號，附上畫面截圖，並在章節結尾寫明成功時應該看到什麼。
+這份手冊說明如何在 iPhone 與電腦（Mac、Windows 11 或 Ubuntu 26.04）上安裝、設定並使用 Remote Keyboard v0.2.0 Alpha 版。每一章都按步驟編號，附上畫面截圖，並在章節結尾寫明成功時應該看到什麼。
 
 想先看一次完整流程，可以看安裝教學影片：[Remote Keyboard 安裝教學](https://youtu.be/dGhEuzRpAEg)。
 
@@ -12,6 +12,8 @@
 | [02 安裝 SideStore](02-install-sidestore.md) | 在 iPhone 安裝側載工具 SideStore | 第一次安裝 |
 | [03 安裝 iPhone App](03-install-iphone-app.md) | 用 SideStore 安裝 Remote Keyboard，加入鍵盤並開啟權限 | 第一次安裝 |
 | [04 安裝 Mac Receiver](04-install-mac-receiver.md) | 在 Mac 安裝接收程式並授權 | 第一次安裝 |
+| [04b 安裝 Windows 接收端](04b-install-windows-receiver.md) | 在 Windows 11 安裝接收程式，處理 SmartScreen 警告，認識系統匣選單 | 第一次安裝，電腦是 Windows 時 |
+| [04c 安裝 Linux 接收端](04c-install-linux-receiver.md) | 在 Ubuntu 26.04 安裝 `.deb`，允許遠端桌面，認識系統匣選單 | 第一次安裝，電腦是 Ubuntu 時 |
 | [05 配對](05-pairing.md) | 把 iPhone 與 Mac 配成一組 | 第一次安裝，或需要重新配對時 |
 | [06 使用鍵盤](06-using-the-keyboard.md) | 打字、手寫、速成、狀態提示與密碼的處理 | 每天使用 |
 | [07 觸控板](07-trackpad.md) | 用 iPhone 控制 Mac 的游標 | 每天使用 |
@@ -26,7 +28,7 @@
 | 1 | 01 | 先確認需要的東西與限制 |
 | 2 | 02 | 安裝 SideStore，並完成第一次續簽 |
 | 3 | 03 | 安裝 iPhone App，加入鍵盤 |
-| 4 | 04 | 安裝 Mac Receiver |
+| 4 | 04、04b 或 04c | 依你的電腦安裝接收端：Mac 看 04，Windows 看 04b，Ubuntu 看 04c |
 | 5 | 05 | 配對 |
 | 6 | 06、07 | 開始使用 |
 | 7 | 08 | 依需要調整設定 |
@@ -40,4 +42,5 @@
 |---|---|
 | [隱私說明](../distribution/privacy-note.md) | 文字的去向、需要的權限、手寫與 Google |
 | [風險說明](../distribution/risk-note.md) | 測試版的限制與注意事項 |
+| [接收端排錯](../troubleshooting-receiver.md) | Windows 與 Linux 接收端的 log、診斷資料與失敗種類 |
 | [SideStore 安裝指南](../distribution/sidestore-install-guide.md) | 本手冊第 02 至 04、09、10 章的精簡版 |
