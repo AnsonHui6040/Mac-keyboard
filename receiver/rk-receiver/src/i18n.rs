@@ -33,6 +33,9 @@ impl Lang {
 pub enum Text {
     AppName,
     StatusIdle,
+    StatusStopped,
+    StopReceiving,
+    StartReceiving,
     StatusPairing,
     StatusNeedsAuthorization,
     Rename,
@@ -56,9 +59,12 @@ pub enum Text {
 }
 
 impl Text {
-    pub const ALL: [Text; 22] = [
+    pub const ALL: [Text; 25] = [
         Text::AppName,
         Text::StatusIdle,
+        Text::StatusStopped,
+        Text::StopReceiving,
+        Text::StartReceiving,
         Text::StatusPairing,
         Text::StatusNeedsAuthorization,
         Text::Rename,
@@ -86,8 +92,14 @@ pub fn text(lang: Lang, key: Text) -> &'static str {
     use Lang::{En, ZhTw};
     match (key, lang) {
         (Text::AppName, _) => "Remote Keyboard",
-        (Text::StatusIdle, ZhTw) => "等待手機連線",
-        (Text::StatusIdle, En) => "Waiting for a phone",
+        (Text::StatusIdle, ZhTw) => "接收中，等待手機連線",
+        (Text::StatusIdle, En) => "Receiving, waiting for a phone",
+        (Text::StatusStopped, ZhTw) => "已停止接收",
+        (Text::StatusStopped, En) => "Receiving stopped",
+        (Text::StopReceiving, ZhTw) => "停止接收",
+        (Text::StopReceiving, En) => "Stop receiving",
+        (Text::StartReceiving, ZhTw) => "開始接收",
+        (Text::StartReceiving, En) => "Start receiving",
         (Text::StatusPairing, ZhTw) => "配對中，請在手機上開啟配對畫面",
         (Text::StatusPairing, En) => "Pairing: open the pairing screen on the phone",
         (Text::StatusNeedsAuthorization, ZhTw) => "電腦未授權，請選「重新授權」",

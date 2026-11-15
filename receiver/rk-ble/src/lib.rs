@@ -7,6 +7,8 @@
 //!   `LinkConfig::pairing`). While a link made through the selected UUID exists it keeps watching advertisements for the
 //!   selected UUID only, to find out that the phone has let go of it ([`stale`]); it connects to nothing else.
 //! - A device under `Hold` is not connected to until the hold has run out.
+//! - After `SetScanning(false)` ([`flow::ScanSwitch`]) the backend scans for nothing and connects to nothing, and neither its
+//!   scan retry nor the replacement of a stale link starts it again, until `SetScanning(true)`.
 //! - Every connection has a serial (`conn`), unique for the life of the process, and a `Diag` event for each phase.
 
 #![cfg_attr(not(windows), forbid(unsafe_code))]
@@ -129,6 +131,10 @@ pub enum LinkCommand {
     Hold { device: DeviceKey, for_: Duration },
     /// Scan for the pairing UUID as well, or stop doing so.
     SetPairingScan(bool),
+    /// Receive at all (the start-up state), or not. With `false` the backend scans for nothing, connects to nothing and
+    /// starts no scan by itself (its retry back-off included) until `SetScanning(true)`. A link that exists is not touched:
+    /// the application ends it with `Disconnect`.
+    SetScanning(bool),
 }
 
 /// What a backend scans for.

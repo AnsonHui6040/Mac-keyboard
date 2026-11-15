@@ -16,7 +16,7 @@
 //! channels. All of it is invisible to the logic tests; it is exercised on a real Windows machine.
 
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff};
+use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff, ScanSwitch};
 use crate::stale::{age_at, is_stale_link, Advert, HeldLink, WatchRestart};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use std::collections::HashMap;
@@ -166,6 +166,8 @@ struct Opened {
 enum Watched {
     Found(Sighting),
     Failed(ScanFailure),
+    /// The application switched scanning off (`SetScanning(false)`).
+    Paused,
     /// The application is gone.
     Gone,
 }
@@ -201,6 +203,8 @@ struct Worker {
     events: mpsc::Sender<LinkEvent>,
     commands: std_mpsc::Receiver<LinkCommand>,
     scan: Arc<Mutex<ScanFilter>>,
+    /// The application's receive switch; while it is off nothing here scans or connects.
+    switch: ScanSwitch,
     next_conn: u64,
     failures: usize,
     scan_backoff: ScanBackoff,
@@ -220,6 +224,7 @@ impl Worker {
     fn drain_commands(&mut self) -> bool {
         loop {
             match self.commands.try_recv() {
+                Ok(LinkCommand::SetScanning(on)) => self.switch.apply(&LinkCommand::SetScanning(on)),
                 Ok(LinkCommand::SetPairingScan(on)) => self.scan.lock().unwrap_or_else(|p| p.into_inner()).pairing_on = on,
                 Ok(LinkCommand::Hold { device, for_ }) => {
                     self.scan.lock().unwrap_or_else(|p| p.into_inner()).holds.insert(device.0, Instant::now() + for_);
@@ -237,14 +242,17 @@ impl Worker {
             if !self.drain_commands() {
                 return;
             }
-            // A stale link was replaced: its advertiser is the next target, no scan in between.
-            let sighting = match reconnect.take() {
+            // A stale link was replaced: its advertiser is the next target, no scan in between (unless receiving was
+            // switched off meanwhile).
+            let sighting = match self.switch.admit(reconnect.take()) {
                 Some(sighting) => sighting,
                 None => match self.scan_until_found() {
                     Some(sighting) => sighting,
                     None => return,
                 },
             };
+            // Found just as scanning was switched off: let it go.
+            let Some(sighting) = self.switch.admit(Some(sighting)) else { continue };
             let conn = self.next_conn;
             self.next_conn += 1;
             match self.connect_and_serve(conn, sighting) {
@@ -259,6 +267,9 @@ impl Worker {
     /// growing pause and started again. `None` when the application has gone away.
     fn scan_until_found(&mut self) -> Option<Sighting> {
         loop {
+            if !self.park() {
+                return None;
+            }
             let (tx, rx) = std_mpsc::channel();
             let failure = match start_watcher(self.scan.clone(), tx) {
                 Err(_) => ScanFailure::Unavailable,
@@ -268,6 +279,8 @@ impl Worker {
                     match outcome {
                         Watched::Found(sighting) => return Some(sighting),
                         Watched::Gone => return None,
+                        // Back to the top: the switch is off, so `park` waits there and no new watcher starts.
+                        Watched::Paused => continue,
                         Watched::Failed(failure) => failure,
                     }
                 }
@@ -280,12 +293,26 @@ impl Worker {
         }
     }
 
+    /// While the application has switched receiving off: no watcher, no retry timer; only commands are waited for. `false`
+    /// when the application is gone.
+    fn park(&mut self) -> bool {
+        while !self.switch.is_on() {
+            if !self.wait(Duration::from_millis(100)) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn watch(&mut self, watcher: &BluetoothLEAdvertisementWatcher, stopped_because: &StopReason, found: &std_mpsc::Receiver<Sighting>) -> Watched {
         let started = Instant::now();
         let mut confirmed = false;
         loop {
             if !self.drain_commands() {
                 return Watched::Gone;
+            }
+            if !self.switch.is_on() {
+                return Watched::Paused;
             }
             match found.recv_timeout(Duration::from_millis(100)) {
                 Ok(sighting) => {
@@ -542,6 +569,7 @@ impl Worker {
                     self.scan.lock().unwrap_or_else(|p| p.into_inner()).holds.insert(device.0, Instant::now() + for_);
                 }
                 Ok(LinkCommand::SetPairingScan(on)) => self.scan.lock().unwrap_or_else(|p| p.into_inner()).pairing_on = on,
+                Ok(LinkCommand::SetScanning(on)) => self.switch.apply(&LinkCommand::SetScanning(on)),
                 Err(std_mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => {
                     stop_watching(watching);
@@ -638,7 +666,7 @@ pub async fn run(cfg: LinkConfig, tx: mpsc::Sender<LinkEvent>, rx: mpsc::Receive
         // The thread owns WinRT: multi-threaded apartment, initialised once.
         // SAFETY: RoInitialize has no preconditions beyond being called on the thread that will use WinRT.
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        Worker { events: tx, commands: command_rx, scan, next_conn: 1, failures: 0, scan_backoff: ScanBackoff::new(), reported_scan: None }.run();
+        Worker { events: tx, commands: command_rx, scan, switch: ScanSwitch::new(), next_conn: 1, failures: 0, scan_backoff: ScanBackoff::new(), reported_scan: None }.run();
         let _ = done_tx.send(());
     });
     if thread.is_err() {

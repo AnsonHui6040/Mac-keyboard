@@ -334,13 +334,16 @@ fn build_menu(state: &TrayState, lang: Lang) -> Menu {
     let menu = Menu::new();
     let status = match &state.connected_phone {
         Some(phone) => i18n::status_connected(lang, phone),
+        None if !state.receiving => i18n::text(lang, Text::StatusStopped).to_string(),
         None if state.pairing_open => i18n::text(lang, Text::StatusPairing).to_string(),
         None => i18n::text(lang, Text::StatusIdle).to_string(),
     };
     let _ = menu.append(&MenuItem::with_id("status", status, false, None));
+    let toggle = if state.receiving { Text::StopReceiving } else { Text::StartReceiving };
+    let _ = menu.append(&MenuItem::with_id("receiving", i18n::text(lang, toggle), true, None));
     let _ = menu.append(&MenuItem::with_id("rename", format!("{}　{}", state.host_name, i18n::text(lang, Text::Rename)), true, None));
     let _ = menu.append(&PredefinedMenuItem::separator());
-    let _ = menu.append(&MenuItem::with_id("pair", i18n::text(lang, Text::PairNewPhone), true, None));
+    let _ = menu.append(&MenuItem::with_id("pair", i18n::text(lang, Text::PairNewPhone), state.receiving, None));
     let phones = Submenu::with_id("phones", i18n::text(lang, Text::PairedPhones), true);
     if state.phones.is_empty() {
         let _ = phones.append(&MenuItem::with_id("none", i18n::text(lang, Text::NoPairedPhones), false, None));
@@ -364,6 +367,7 @@ fn tooltip(state: &TrayState, lang: Lang, notice: Option<NoticeKind>) -> String 
     let line = match (&state.connected_phone, notice) {
         (_, Some(kind)) => i18n::notice(lang, kind).to_string(),
         (Some(phone), None) => i18n::status_connected(lang, phone),
+        (None, None) if !state.receiving => i18n::text(lang, Text::StatusStopped).to_string(),
         (None, None) => i18n::text(lang, Text::StatusIdle).to_string(),
     };
     format!("{} - {line}", i18n::text(lang, Text::AppName))
@@ -392,6 +396,7 @@ impl MenuActions {
         let flag = |pick: fn(&TrayState) -> bool| !state.as_ref().is_some_and(pick);
         let command = match id {
             "pair" => Some(UiCommand::StartPairing),
+            "receiving" => Some(UiCommand::SetReceiving(flag(|s| s.receiving))),
             "trackpad" => Some(UiCommand::SetTrackpad(flag(|s| s.trackpad))),
             "autostart" => {
                 let on = flag(|s| s.autostart);

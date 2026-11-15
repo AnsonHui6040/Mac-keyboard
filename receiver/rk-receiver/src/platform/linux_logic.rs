@@ -160,6 +160,7 @@ impl AdapterChoices {
 pub fn status_label(state: &TrayState, lang: Lang) -> String {
     match &state.connected_phone {
         Some(phone) => i18n::status_connected(lang, phone),
+        None if !state.receiving => i18n::text(lang, Text::StatusStopped).to_string(),
         None if state.needs_authorization => i18n::text(lang, Text::StatusNeedsAuthorization).to_string(),
         None if state.pairing_open => i18n::text(lang, Text::StatusPairing).to_string(),
         None => i18n::text(lang, Text::StatusIdle).to_string(),
@@ -207,9 +208,11 @@ pub fn menu_entries(state: &TrayState, lang: Lang, adapters: &AdapterChoices) ->
     };
     let mut entries = vec![
         MenuEntry::Info { label: status_label(state, lang) },
+        item("receiving", text(if state.receiving { Text::StopReceiving } else { Text::StartReceiving })),
         item("rename", &format!("{}　{}", state.host_name, text(Text::Rename))),
         MenuEntry::Separator,
-        item("pair", text(Text::PairNewPhone)),
+        // Pairing needs the scan that 停止 switched off: greyed out until 開始.
+        if state.receiving { item("pair", text(Text::PairNewPhone)) } else { MenuEntry::Info { label: text(Text::PairNewPhone).to_string() } },
         MenuEntry::Sub { label: text(Text::PairedPhones).to_string(), entries: phones },
         MenuEntry::Separator,
         check("trackpad", text(Text::AllowTrackpad), state.trackpad),
@@ -237,6 +240,7 @@ pub enum Action {
 pub fn action_for(id: &str, state: &TrayState) -> Option<Action> {
     let command = |c| Some(Action::Command(c));
     match id {
+        "receiving" => command(UiCommand::SetReceiving(!state.receiving)),
         "pair" => command(UiCommand::StartPairing),
         "trackpad" => command(UiCommand::SetTrackpad(!state.trackpad)),
         "paste" => command(UiCommand::SetPasteNonAscii(!state.paste_non_ascii)),

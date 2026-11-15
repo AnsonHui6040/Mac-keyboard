@@ -44,6 +44,43 @@ impl NotificationGate {
     }
 }
 
+/// The application's switch for receiving, as a backend keeps it: on at start, changed only by `SetScanning`. While it is
+/// off the backend starts no scan, makes no connection and does not let its scan retry (the back-off after a failure) or the
+/// replacement of a stale link bring either back; a link that exists is left to `Disconnect`.
+#[derive(Debug, Clone, Copy)]
+pub struct ScanSwitch {
+    on: bool,
+}
+
+impl Default for ScanSwitch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScanSwitch {
+    pub fn new() -> Self {
+        Self { on: true }
+    }
+
+    /// Takes note of a command; only `SetScanning` matters.
+    pub fn apply(&mut self, command: &LinkCommand) {
+        if let LinkCommand::SetScanning(on) = command {
+            self.on = *on;
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// A device the backend is about to connect to (found by a scan, or named by the end of a stale link): kept while the
+    /// switch is on, dropped while it is off.
+    pub fn admit<T>(&self, target: Option<T>) -> Option<T> {
+        target.filter(|_| self.on)
+    }
+}
+
 /// How long to wait before starting a scan again after it failed: 2 s, doubling, 30 s at most.
 #[derive(Debug, Default)]
 pub struct ScanBackoff {
@@ -102,6 +139,35 @@ mod tests {
         assert_eq!(gate.open(), vec![vec![1], vec![2]]);
         assert_eq!(gate.offer(vec![3]), Offer::Deliver(vec![3]));
         assert!(gate.open().is_empty());
+    }
+
+    #[test]
+    fn the_scan_switch_is_on_at_start_and_follows_only_set_scanning() {
+        let mut switch = ScanSwitch::new();
+        assert!(switch.is_on());
+        for other in [LinkCommand::Disconnect, LinkCommand::Write(vec![1]), LinkCommand::SetPairingScan(true), LinkCommand::SetPairingScan(false)] {
+            switch.apply(&other);
+            assert!(switch.is_on(), "{other:?} does not switch scanning");
+        }
+        switch.apply(&LinkCommand::SetScanning(false));
+        assert!(!switch.is_on());
+        // Neither time, nor a Disconnect, nor a pairing scan turns it back on.
+        switch.apply(&LinkCommand::Disconnect);
+        switch.apply(&LinkCommand::SetPairingScan(true));
+        assert!(!switch.is_on());
+        switch.apply(&LinkCommand::SetScanning(true));
+        assert!(switch.is_on());
+    }
+
+    #[test]
+    fn a_target_found_or_a_replacement_after_the_switch_went_off_is_dropped() {
+        let mut switch = ScanSwitch::new();
+        assert_eq!(switch.admit(Some(7)), Some(7));
+        assert_eq!(switch.admit::<u8>(None), None);
+        switch.apply(&LinkCommand::SetScanning(false));
+        assert_eq!(switch.admit(Some(7)), None, "a stale-link replacement or a late advert must not reconnect");
+        switch.apply(&LinkCommand::SetScanning(true));
+        assert_eq!(switch.admit(Some(7)), Some(7));
     }
 
     #[test]

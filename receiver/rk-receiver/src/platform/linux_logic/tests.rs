@@ -20,6 +20,7 @@ fn state() -> TrayState {
         icon: IconState::Disconnected,
         connected_phone: None,
         pairing_open: false,
+        receiving: true,
         host_name: "Linux".into(),
         phones: vec![PhoneEntry { id: [1; 16], name: "A".into() }, PhoneEntry { id: [2; 16], name: "B".into() }],
         trackpad: false,
@@ -172,7 +173,7 @@ fn checked_items_follow_the_state() {
 #[test]
 fn the_status_line_names_the_connected_phone_or_the_state() {
     let mut s = state();
-    assert_eq!(status_label(&s, Lang::ZhTw), "等待手機連線");
+    assert_eq!(status_label(&s, Lang::ZhTw), "接收中，等待手機連線");
     s.pairing_open = true;
     assert_eq!(status_label(&s, Lang::En), "Pairing: open the pairing screen on the phone");
     s.connected_phone = Some("我的 iPhone".into());
@@ -245,7 +246,7 @@ fn clicks_become_commands_with_the_state_flipped() {
 #[test]
 fn the_tooltip_shows_a_notice_before_the_state() {
     let s = state();
-    assert_eq!(tooltip_text(&s, Lang::En, None), "Remote Keyboard - Waiting for a phone");
+    assert_eq!(tooltip_text(&s, Lang::En, None), "Remote Keyboard - Receiving, waiting for a phone");
     assert_eq!(tooltip_text(&s, Lang::En, Some(NoticeKind::UpdatePhone)), "Remote Keyboard - Please update the iPhone app");
 }
 
@@ -494,4 +495,42 @@ fn a_key_store_that_refuses_is_an_error_not_a_quiet_fall_back_to_the_file() {
     assert!(chain.put(&phone(1)).is_err());
     assert!(!path.exists(), "no key was written in the clear");
     assert!(chain.remove(&[1; 16]).is_err());
+}
+
+#[test]
+fn the_menu_toggles_between_stop_and_start_receiving() {
+    let mut s = state();
+    let entries = menu_entries(&s, Lang::ZhTw, &no_adapters());
+    assert!(matches!(find(&entries, "receiving"), Some(MenuEntry::Item { label, .. }) if label == "停止接收"));
+    assert_eq!(action_for("receiving", &s), Some(Action::Command(UiCommand::SetReceiving(false))));
+    s.receiving = false;
+    let entries = menu_entries(&s, Lang::ZhTw, &no_adapters());
+    assert!(matches!(find(&entries, "receiving"), Some(MenuEntry::Item { label, .. }) if label == "開始接收"));
+    assert_eq!(action_for("receiving", &s), Some(Action::Command(UiCommand::SetReceiving(true))));
+    let english = menu_entries(&s, Lang::En, &no_adapters());
+    assert!(matches!(find(&english, "receiving"), Some(MenuEntry::Item { label, .. }) if label == "Start receiving"));
+}
+
+#[test]
+fn pairing_a_new_phone_is_greyed_out_while_stopped() {
+    let mut s = state();
+    assert!(find(&menu_entries(&s, Lang::ZhTw, &no_adapters()), "pair").is_some());
+    s.receiving = false;
+    let entries = menu_entries(&s, Lang::ZhTw, &no_adapters());
+    assert!(find(&entries, "pair").is_none(), "no clickable item");
+    assert!(entries.iter().any(|e| matches!(e, MenuEntry::Info { label } if label == "配對新手機")), "the label stays, disabled");
+}
+
+#[test]
+fn the_status_line_and_the_tooltip_say_stopped() {
+    let mut s = state();
+    assert_eq!(status_label(&s, Lang::ZhTw), "接收中，等待手機連線");
+    s.receiving = false;
+    assert_eq!(status_label(&s, Lang::ZhTw), "已停止接收");
+    assert_eq!(status_label(&s, Lang::En), "Receiving stopped");
+    assert_eq!(tooltip_text(&s, Lang::ZhTw, None), "Remote Keyboard - 已停止接收");
+    // Stopped outranks the other idle lines: nothing is waiting for anything.
+    s.needs_authorization = true;
+    s.pairing_open = true;
+    assert_eq!(status_label(&s, Lang::ZhTw), "已停止接收");
 }

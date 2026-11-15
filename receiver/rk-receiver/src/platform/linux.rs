@@ -637,6 +637,7 @@ pub fn run(cli: &Cli) -> i32 {
         icon: IconState::Disconnected,
         connected_phone: None,
         pairing_open: false,
+        receiving: true,
         host_name: config.host_name.clone(),
         phones: Vec::new(),
         trackpad: config.trackpad,
