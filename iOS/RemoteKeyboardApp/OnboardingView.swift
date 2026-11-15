@@ -20,11 +20,11 @@ struct OnboardingView: View {
             TabView(selection: $page) {
                 pageView(
                     symbol: "keyboard", title: "這個 App 做什麼",
-                    text: "把 iPhone 變成 Mac 的藍牙鍵盤與觸控板。在 iPhone 打字，文字會經藍牙加密送到 Mac 目前的欄位。"
+                    text: "把 iPhone 變成電腦的藍牙鍵盤與觸控板。在 iPhone 打字，文字會經藍牙加密送到電腦目前的欄位。電腦可以是 Mac、Windows 或 Linux。"
                 ).tag(0)
                 pageView(
-                    symbol: "desktopcomputer", title: "在 Mac 安裝 Receiver",
-                    text: "Mac 需要安裝 Remote Keyboard Receiver，它會在選單列顯示鍵盤圖示。安裝與開啟方式見手冊的「安裝 Mac Receiver」。"
+                    symbol: "desktopcomputer", title: "在電腦安裝接收端",
+                    text: "電腦需要安裝 Remote Keyboard 接收端。Mac 在選單列、Windows 與 Linux 在系統匣顯示圖示。安裝方式見手冊的「安裝 Mac Receiver」、「安裝 Windows 接收端」與「安裝 Linux 接收端」。"
                 ).tag(1)
                 pageView(
                     symbol: "lock.open", title: "開啟權限與加入鍵盤",

@@ -1,6 +1,6 @@
 # 10 Troubleshooting
 
-Find the situation that matches yours, then follow the steps in the last column. The problems are in four groups: install and refresh, keyboard and app installation, Mac Receiver, and keyboard connection and typing.
+Find the situation that matches yours, then follow the steps in the last column. The problems are in five groups: install and refresh, keyboard and app installation, Mac Receiver, Windows and Linux receivers, and keyboard connection and typing.
 
 Remote Keyboard and Mac Receiver show Chinese on your screen, so this chapter writes every message, button and setting name in English first, with the Chinese exactly as it appears on screen in parentheses after it. Match the Chinese text to what you see.
 
@@ -41,6 +41,23 @@ Official resources: [Prerequisites](https://docs.sidestore.io/docs/installation/
 | The panel shows Accessibility is not authorized, cannot type text (尚未授權輔助使用，無法輸入文字) | Red text at the top of the panel | Go to System Settings > Privacy & Security > Accessibility and turn on Remote Keyboard Receiver. If it is not in the list, click "+" to add it. If the switch is already on and the message still shows, remove it and add it again |
 | The panel shows red text about Bluetooth | Red text about Bluetooth at the top of the panel | Turn on Bluetooth on the Mac. Or click Open Bluetooth Settings (打開藍牙設定) and turn on the switch for Remote Keyboard Receiver |
 | Accessibility is asked for again after an update | The panel shows Accessibility is not authorized, cannot type text (尚未授權輔助使用，無法輸入文字) | This is normal. You have to allow it once more after an update. Your pairing is kept |
+
+## Windows and Linux receivers
+
+Log locations, exporting diagnostics, connection-time statistics, trackpad-timing statistics and the meaning of each failure kind are in [Receiver troubleshooting](../../troubleshooting-receiver.md) (in Chinese). The table below covers only the most common cases.
+
+| Problem | How to check | What to do |
+|---|---|---|
+| Windows blocks it the first time | "Windows protected your PC" appears | Click More info (其他資訊), then Run anyway (仍要執行). See [04b Install the Windows receiver](04b-install-windows-receiver.md) |
+| The tray menu status is Receiving stopped (已停止接收) | The first line of the menu | Choose Start receiving (開始接收). While stopped, the phone cannot connect |
+| The tooltip says Bluetooth is off, scanning is not running (藍牙未開啟，無法掃描) | The tray icon's tooltip | Turn on Bluetooth on the computer. The receiver starts scanning again by itself |
+| The tooltip says This phone needs to be paired again (這支手機需要重新配對) | The tray icon's tooltip | Pair again on both devices, see [05 Pairing](05-pairing.md). You always have to pair again after updating from v0.1 |
+| Linux status is Not authorized to type: choose Authorize again (電腦未授權，請選「重新授權」) | The first line of the tray menu | Choose Authorize again (重新授權) and click Allow in the window that opens. See [04c Install the Linux receiver](04c-install-linux-receiver.md) |
+| On Linux, the clipboard changes after typing Chinese | After entering non-ASCII text | By default such text is pasted, which overwrites the clipboard. Clear Paste non-ASCII text (非 ASCII 文字改用貼上) to stop that, but then only Latin-1 characters can be typed directly |
+| The trackpad feels laggy on Linux | The pointer trails your finger | You can run the optional commands that shorten the connection interval. See section 7 of [04c Install the Linux receiver](04c-install-linux-receiver.md) |
+| One Windows window ignores input | Other windows work, only this one does not respond | That window runs as administrator and does not receive input. Open it with normal permissions |
+| Text lands in the wrong window | After typing, the text appears somewhere else | Windows and Linux have no focus safety gate, so text goes to the window that is in front. Put the cursor in the field you want before you type |
+| You need to give diagnostics to the developer | The problem keeps coming back | Choose Export diagnostics (匯出診斷資料) in the tray menu. It holds event kinds, lengths, times and results only, with no typed text |
 
 ## Keyboard connection and typing
 
