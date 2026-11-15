@@ -1280,7 +1280,10 @@ Mac 的 Swift `PointerPlayout` 原本與 Linux 修正前相同：延遲上限是
 - 獨立 reviewer（ecc:swift-reviewer）：APPROVE，語意與 Rust 版本相同，沒有 UInt64 溢位的路徑。
 - Mac Receiver 的 `pointer diag` log 加了 `lag=…ms`，只記數字。
 
+### 實機
+
+- 2026-11-15 使用者在 Mac 試用新版（16:23 安裝）：回報觸控板「有比較好」。
+
 ### 未驗證（TBD）
 
-- Mac 實機手感：由使用者在 Mac 上試觸控板。
 - 實機 log 中 `lag=` 與 `stalled=` 的數值：連線間隔短時應維持 20 ms，成批到達時應接近批次間隔 + 5 ms。
