@@ -253,7 +253,7 @@ final class PointerReceiver: ObservableObject {
     private func logLinkSummary() {
         let now = clock()
         if let d = diagnostics.snapshot(nowMicros: now) {
-            log("pointer diag stalled=\(Int(d.stalledFramePercent.rounded()))% longest=\(d.longestStall) squeezes=\(d.squeezeCount) cb50=\(Int(d.callbackIntervalP50Millis.rounded()))ms cb95=\(Int(d.callbackIntervalP95Millis.rounded()))ms margin10=\(Int(d.marginP10Millis.rounded()))ms margin50=\(Int(d.marginP50Millis.rounded()))ms gain50=\(String(format: "%.2f", d.gainJumpP50)) gain90=\(String(format: "%.2f", d.gainJumpP90))")
+            log("pointer diag stalled=\(Int(d.stalledFramePercent.rounded()))% longest=\(d.longestStall) squeezes=\(d.squeezeCount) cb50=\(Int(d.callbackIntervalP50Millis.rounded()))ms cb95=\(Int(d.callbackIntervalP95Millis.rounded()))ms margin10=\(Int(d.marginP10Millis.rounded()))ms margin50=\(Int(d.marginP50Millis.rounded()))ms gain50=\(String(format: "%.2f", d.gainJumpP50)) gain90=\(String(format: "%.2f", d.gainJumpP90)) lag=\(playout.lagBoundMicros / 1000)ms")
         }
         guard let s = stats.snapshot(nowMicros: now) else { return }
         log("pointer link rate=\(Int(s.packetsPerSecond.rounded())) p50=\(Int(s.arrivalP50Millis.rounded()))ms p95=\(Int(s.arrivalP95Millis.rounded()))ms interval=\(Int(s.estimatedConnectionIntervalMillis.rounded()))ms backlog=\(Int(s.backlogGrowthMillis.rounded()))ms")

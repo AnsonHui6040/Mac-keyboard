@@ -9,8 +9,13 @@ import Foundation
 ///
 /// The queue never grows a delay without bound: when the last segment would end more than the allowed lag after `now`, what is
 /// still to be played is squeezed so that it ends exactly that far ahead. The allowed lag is `maxLagMicros` (20 ms), or the new
-/// segment's own span plus `lagMarginMicros` (5 ms) when that is more: in 自動 one packet carries a whole connection interval, and
-/// squeezing it below its own span would play it too fast and then stand still until the next one.
+/// segment's own span plus `lagMarginMicros` (5 ms) when that is more, or the measured arrival period plus 5 ms when that is
+/// more (capped at `maxAdaptiveLagMicros`, 60 ms): in 自動 one packet carries a whole connection interval, and squeezing it
+/// below its own span would play it too fast and then stand still until the next one. The arrival period is the median of the
+/// last 8 gaps between burst starts: an enqueue more than 4 ms after the previous one opens a burst, and a gap between burst
+/// starts counts when it is at most 100 ms (a longer one is a pause; one over 300 ms also forgets the history). A link that
+/// delivers 3 packets every 45 ms thus gets a 50 ms bound instead of a 22 ms one and the cursor does not stop between
+/// bursts, while a link with one packet per 15 ms keeps the 20 ms bound.
 ///
 /// `take` hands out what has become due. Movements with a different `dragging` state are never added into one output, so a
 /// button press in between keeps its place. `flush` hands out everything left at once (the order barrier before a click),
@@ -25,6 +30,16 @@ public struct PointerPlayout: Sendable {
     /// Added to a segment's own span for the lag bound. Provisional.
     public static let lagMarginMicros: UInt64 = 5_000
     public static let defaultSpanMicros: UInt64 = 8_000
+    /// The cap of the part of the lag bound that follows the arrival period. Provisional.
+    public static let maxAdaptiveLagMicros: UInt64 = 60_000
+    /// An enqueue this much later than the one before opens a new burst.
+    public static let burstGapMicros: UInt64 = 4_000
+    /// A gap between burst starts longer than this is a pause and is not counted.
+    public static let maxPeriodGapMicros: UInt64 = 100_000
+    /// A gap between burst starts longer than this also forgets the history.
+    public static let forgetGapMicros: UInt64 = 300_000
+    /// How many gaps the estimate looks at.
+    public static let periodHistory = 8
 
     private struct Segment {
         /// What is still to be played, spread evenly over `from`…`end`.
@@ -37,13 +52,48 @@ public struct PointerPlayout: Sendable {
 
     private var segments: [Segment] = []
     private var lastEnd: Double = 0
+    /// When the last `enqueue` happened.
+    private var lastEnqueue: UInt64?
+    /// When the burst that is going started.
+    private var burstStart: UInt64?
+    /// The latest gaps between burst starts, oldest first.
+    private var gaps: [UInt64] = []
+    /// The lag bound the last `enqueue` used; 0 before the first one.
+    private var lagBound: UInt64 = 0
     /// How many times an `enqueue` squeezed the queue (a diagnostic counter; it changes nothing).
     public private(set) var squeezeCount = 0
 
     public init() {}
 
+    /// The lag bound the last `enqueue` allowed, in microseconds (the floor before the first one; a diagnostic).
+    public var lagBoundMicros: UInt64 { lagBound == 0 ? Self.maxLagMicros : lagBound }
+
     /// Nothing is waiting to be played.
     public var isIdle: Bool { segments.isEmpty }
+
+    /// Notes an arrival: opens a burst when it comes more than `burstGapMicros` after the previous one and then records the
+    /// gap between burst starts.
+    private mutating func noteArrival(nowMicros: UInt64) {
+        let newBurst = lastEnqueue.map { nowMicros.saturatingSubtract($0) > Self.burstGapMicros } ?? true
+        lastEnqueue = nowMicros
+        guard newBurst else { return }
+        if let start = burstStart {
+            let gap = nowMicros.saturatingSubtract(start)
+            if gap > Self.forgetGapMicros {
+                gaps.removeAll()
+            } else if gap <= Self.maxPeriodGapMicros {
+                if gaps.count == Self.periodHistory { gaps.removeFirst() }
+                gaps.append(gap)
+            }
+        }
+        burstStart = nowMicros
+    }
+
+    /// The median of the recorded gaps between burst starts; `nil` while there are none.
+    private var arrivalPeriod: UInt64? {
+        guard !gaps.isEmpty else { return nil }
+        return gaps.sorted()[gaps.count / 2]
+    }
 
     /// - Parameter spanMicros: the time the finger took for this movement, from the packet; 0 when it did not say.
     public mutating func enqueue(dx: Double, dy: Double, dragging: Bool, spanMicros: UInt64, nowMicros: UInt64) {
@@ -53,7 +103,10 @@ public struct PointerPlayout: Sendable {
         let end = start + Double(span)
         segments.append(Segment(dx: dx, dy: dy, dragging: dragging, from: start, end: end))
         lastEnd = end
-        let allowed = now + Double(max(Self.maxLagMicros, span + Self.lagMarginMicros))
+        noteArrival(nowMicros: nowMicros)
+        let adaptive = arrivalPeriod.map { min($0 + Self.lagMarginMicros, Self.maxAdaptiveLagMicros) } ?? 0
+        lagBound = max(Self.maxLagMicros, span + Self.lagMarginMicros, adaptive)
+        let allowed = now + Double(lagBound)
         guard lastEnd > allowed else { return }
         squeezeCount += 1
         // Squeeze the part that lies after `now`; what is already behind `now` stays where it is.
@@ -108,8 +161,16 @@ public struct PointerPlayout: Sendable {
         return runs
     }
 
-    /// Forgets everything that has not been played.
+    /// Forgets everything that has not been played, and the arrival history.
     public mutating func discard() {
         segments.removeAll()
+        lastEnqueue = nil
+        burstStart = nil
+        gaps.removeAll()
+        lagBound = 0
     }
+}
+
+private extension UInt64 {
+    func saturatingSubtract(_ other: UInt64) -> UInt64 { self > other ? self - other : 0 }
 }

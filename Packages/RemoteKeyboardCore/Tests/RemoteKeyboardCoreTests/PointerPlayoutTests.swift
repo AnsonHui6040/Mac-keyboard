@@ -222,6 +222,145 @@ final class PointerPlayoutTests: XCTestCase {
             XCTAssertEqual(sumOut.y, sumIn.y, accuracy: 1e-9)
         }
     }
+
+    // MARK: The lag bound follows the measured arrival period
+
+    private struct Run {
+        var outputs: [UInt64] = []
+        var squeezesAt: [(time: UInt64, count: Int)] = []
+        var totalOut = 0.0
+        var totalIn = 0.0
+        var boundAfterEnqueue: [UInt64] = []
+    }
+
+    /// One simulated stroke: bursts of moves arrive every `period` microseconds (the moves of a burst `intra` apart), the
+    /// frame tick runs every 8 ms.
+    private func simulate(bursts: [Int], period: UInt64, intra: UInt64, span: UInt64, count: Int) -> Run {
+        var playout = PointerPlayout()
+        var run = Run()
+        var enqueues: [(time: UInt64, dx: Double)] = []
+        for b in 0..<count {
+            for i in 0..<bursts[b % bursts.count] {
+                enqueues.append((UInt64(b) * period + UInt64(i) * intra, 1.0 + Double(i)))
+            }
+        }
+        let end = enqueues.last!.time + 100 * ms
+        var next = 0
+        var t: UInt64 = 0
+        while t <= end {
+            while next < enqueues.count && enqueues[next].time <= t {
+                let item = enqueues[next]
+                playout.enqueue(dx: item.dx, dy: 0, dragging: false, spanMicros: span, nowMicros: item.time)
+                run.totalIn += item.dx
+                next += 1
+                run.squeezesAt.append((item.time, playout.squeezeCount))
+                run.boundAfterEnqueue.append(playout.lagBoundMicros)
+            }
+            if let share = playout.take(nowMicros: t) {
+                run.outputs.append(t)
+                run.totalOut += share.dx
+            }
+            t += 8 * ms
+        }
+        for share in playout.flush() { run.totalOut += share.dx }
+        return run
+    }
+
+    /// (largest gap between consecutive outputs, squeezes) over the part of the stroke after the first three bursts and
+    /// before the last burst.
+    private func steadyState(_ run: Run, period: UInt64, count: Int) -> (maxGap: UInt64, squeezes: Int) {
+        let from = 3 * period
+        let to = UInt64(count - 1) * period
+        let times = run.outputs.filter { $0 >= from && $0 <= to }
+        var maxGap: UInt64 = 0
+        for pair in zip(times, times.dropFirst()) { maxGap = max(maxGap, pair.1 - pair.0) }
+        let before = run.squeezesAt.last { $0.time < from }?.count ?? 0
+        let after = run.squeezesAt.last { $0.time <= to }?.count ?? 0
+        return (maxGap, after - before)
+    }
+
+    func testALinuxStyleBurstStreamPlaysOutWithoutStopAndGo() {
+        // 3,3,2 moves of 16.6 ms every 45 ms, the moves of a burst 1 ms apart (the measured Linux link).
+        let run = simulate(bursts: [3, 3, 2], period: 45 * ms, intra: ms, span: 16_600, count: 24)
+        let (maxGap, squeezes) = steadyState(run, period: 45 * ms, count: 24)
+        XCTAssertLessThanOrEqual(maxGap, 12 * ms, "output stands still for \(maxGap) us between bursts (\(squeezes) squeezes)")
+        // A burst can land on a few ms of unplayed queue and then squeeze by a few percent, about once per 3,3,2 cycle;
+        // the old rule squeezed 34 times here.
+        XCTAssertLessThanOrEqual(squeezes, 8, "\(squeezes) squeezes after warm-up")
+    }
+
+    func testABurstStreamKeepsEveryBitOfDisplacement() {
+        let run = simulate(bursts: [3, 3, 2], period: 45 * ms, intra: ms, span: 16_600, count: 24)
+        XCTAssertEqual(run.totalOut, run.totalIn, accuracy: 1e-6)
+    }
+
+    func testAWindowsStyleStreamKeepsTodaysLagBound() {
+        let run = simulate(bursts: [1], period: 15 * ms, intra: 0, span: 15 * ms, count: 80)
+        XCTAssertTrue(run.boundAfterEnqueue.allSatisfy { $0 == PointerPlayout.maxLagMicros }, "\(run.boundAfterEnqueue)")
+        let (maxGap, squeezes) = steadyState(run, period: 15 * ms, count: 80)
+        XCTAssertEqual(squeezes, 0)
+        XCTAssertLessThanOrEqual(maxGap, 8 * ms)
+    }
+
+    func testOneLongGapAmongRegularOnesDoesNotMoveTheBound() {
+        var playout = PointerPlayout()
+        var t: UInt64 = 0
+        for gap: UInt64 in [45, 45, 45, 45, 90, 45, 45] {
+            t += gap * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: t)
+        }
+        XCTAssertEqual(playout.lagBoundMicros, 45 * ms + PointerPlayout.lagMarginMicros)
+    }
+
+    func testAPauseIsNotCountedAsAnArrivalPeriod() {
+        var playout = PointerPlayout()
+        var t: UInt64 = 0
+        for _ in 0..<4 {
+            t += 45 * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: t)
+        }
+        t += 200 * ms
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: t)
+        XCTAssertEqual(playout.lagBoundMicros, 45 * ms + PointerPlayout.lagMarginMicros, "a 200 ms gap is a pause")
+    }
+
+    func testALongPauseForgetsTheHistory() {
+        var playout = PointerPlayout()
+        var t: UInt64 = 0
+        for _ in 0..<5 {
+            t += 45 * ms
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: t)
+        }
+        XCTAssertEqual(playout.lagBoundMicros, 50 * ms)
+        t += 400 * ms
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 10 * ms, nowMicros: t)
+        XCTAssertEqual(playout.lagBoundMicros, PointerPlayout.maxLagMicros, "the first burst after a long pause uses the plain rule")
+    }
+
+    func testTheAdaptiveBoundIsCapped() {
+        var playout = PointerPlayout()
+        for i in 0..<10 as Range<UInt64> {
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: i * 100 * ms)
+        }
+        XCTAssertEqual(playout.lagBoundMicros, PointerPlayout.maxAdaptiveLagMicros)
+        XCTAssertEqual(PointerPlayout.maxAdaptiveLagMicros, 60 * ms)
+    }
+
+    func testDiscardForgetsTheArrivalHistory() {
+        var playout = PointerPlayout()
+        XCTAssertEqual(playout.lagBoundMicros, PointerPlayout.maxLagMicros, "the floor before the first enqueue")
+        for i in 1...6 as ClosedRange<UInt64> {
+            playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: i * 45 * ms)
+        }
+        XCTAssertEqual(playout.lagBoundMicros, 50 * ms)
+        playout.discard()
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: 400 * ms)
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: 445 * ms)
+        XCTAssertEqual(playout.lagBoundMicros, 50 * ms, "one gap of 45 ms after the discard is the whole history")
+        playout.discard()
+        playout.enqueue(dx: 1, dy: 0, dragging: false, spanMicros: 16_600, nowMicros: 500 * ms)
+        XCTAssertEqual(playout.lagBoundMicros, max(PointerPlayout.maxLagMicros, 16_600 + PointerPlayout.lagMarginMicros))
+    }
 }
 
 /// A fixed-seed generator, so a failure repeats.

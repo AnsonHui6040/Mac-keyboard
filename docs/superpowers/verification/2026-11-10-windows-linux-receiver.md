@@ -1267,3 +1267,20 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
 - 安裝 att_error 修正後的版本，再量一次重連，確認不再誤判。
 - 真正變聾時能否自動觸發並恢復：需要長時間觀察 rk-linux 的 `adapter_reset*` log。
 - 變聾的觸發原因。
+
+## WL13：Mac 觸控板套用自適應延遲上限（2026-11-15）
+
+Mac 的 Swift `PointerPlayout` 原本與 Linux 修正前相同：延遲上限是 max(20 ms, 本包時長 + 5 ms)。封包成批到達時，游標會一陣走一陣停。這次照 WL11 的 Rust 版本移植：延遲上限另外取「最近 8 個批次間隔的中位數 + 5 ms」，最多 60 ms；間隔超過 100 ms 視為停頓，不計入；超過 300 ms 清空紀錄。
+
+### 自動驗證
+
+- RED：新增的 8 個測試先以固定 20 ms 的版本執行，7 個失敗。批次測試中，輸出停了 24 ms（上限 12 ms），壓縮 34 次（上限 8 次）。
+- GREEN：`swift test --package-path Packages/RemoteKeyboardCore` 1116 個測試、0 失敗；其中 `PointerPlayoutTests` 23 個。
+- `xcodebuild -workspace RemoteKeyboard.xcworkspace -scheme MacReceiver build`：BUILD SUCCEEDED。
+- 獨立 reviewer（ecc:swift-reviewer）：APPROVE，語意與 Rust 版本相同，沒有 UInt64 溢位的路徑。
+- Mac Receiver 的 `pointer diag` log 加了 `lag=…ms`，只記數字。
+
+### 未驗證（TBD）
+
+- Mac 實機手感：由使用者在 Mac 上試觸控板。
+- 實機 log 中 `lag=` 與 `stalled=` 的數值：連線間隔短時應維持 20 ms，成批到達時應接近批次間隔 + 5 ms。
