@@ -22,7 +22,6 @@ final class EventPipeline {
     private let switcher: InputSourceSwitcher
     private let injector: TextInjector
     private let sendAck: @MainActor (Ack) -> Void
-    private let noteValidEvent: @MainActor () -> Void
     private let onPing: @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void
     private let onInputSourceRestore: @MainActor (_ restoredOK: Bool) -> Void
 
@@ -47,7 +46,6 @@ final class EventPipeline {
 
     /// - Parameters:
     ///   - snapshot: a forced, fresh focus read (not a cached value).
-    ///   - noteValidEvent: called for every validly decoded event, whether or not it is injected.
     ///   - onPing: receives a reconnect probe's timestamps. A ping never reaches the focus read or the injector.
     ///   - onInputSourceRestore: called after every injection that switched input source; `false` means the original
     ///     source could not be selected again (the text was still typed and acked `posted`).
@@ -56,7 +54,6 @@ final class EventPipeline {
         switcher: InputSourceSwitcher,
         injector: TextInjector,
         sendAck: @escaping @MainActor (Ack) -> Void,
-        noteValidEvent: @escaping @MainActor () -> Void,
         onPing: @escaping @MainActor (_ shownAtMs: Int64, _ connectedAtMs: Int64) -> Void = { _, _ in },
         onInputSourceRestore: @escaping @MainActor (_ restoredOK: Bool) -> Void = { _ in }
     ) {
@@ -64,7 +61,6 @@ final class EventPipeline {
         self.switcher = switcher
         self.injector = injector
         self.sendAck = sendAck
-        self.noteValidEvent = noteValidEvent
         self.onPing = onPing
         self.onInputSourceRestore = onInputSourceRestore
         let (stream, continuation) = AsyncStream<Queued>.makeStream()
@@ -136,7 +132,6 @@ final class EventPipeline {
     /// Handles one event to completion. Internal so tests can drive it without the stream.
     func process(_ event: KeyboardEvent) async {
         let started = ContinuousClock.now
-        noteValidEvent()
         let code = await handle(event)
         sendAck(Ack(eventId: event.eventId, result: code))
         let elapsed = ContinuousClock.now - started

@@ -40,7 +40,6 @@ final class MeasurementEchoTests: XCTestCase {
         var refuseWrites = false
         var time: UInt64 = 1_000_000
         var step: UInt64 = 0
-        var activity = 0
         var echo: MeasurementEcho!
         private var seq: UInt32 = 0
 
@@ -67,7 +66,7 @@ final class MeasurementEchoTests: XCTestCase {
                     defer { time += step }
                     return time
                 },
-                cursor: cursor, flash: flash, csv: csv, noteActivity: { [unowned self] in activity += 1 })
+                cursor: cursor, flash: flash, csv: csv)
         }
 
         func attachAndStart() {
@@ -96,7 +95,6 @@ final class MeasurementEchoTests: XCTestCase {
         XCTAssertEqual(rig.flash.flashes, 0)
         XCTAssertEqual(rig.echo.counters.ignoredModeOff, 2)
         XCTAssertTrue(rig.csv.lines.isEmpty)
-        XCTAssertEqual(rig.activity, 0)
     }
 
     func testNoEchoBeforeAuthenticated() throws {
@@ -155,7 +153,6 @@ final class MeasurementEchoTests: XCTestCase {
         XCTAssertTrue(rig.cursor.moves.isEmpty)
         XCTAssertEqual(rig.flash.flashes, 0)
         XCTAssertTrue(rig.writes.isEmpty)
-        XCTAssertEqual(rig.activity, 0, "a forged packet is not activity")
         // The next genuine packet still works: the forged one did not move the window.
         rig.echo.handle(try rig.probe(.cursor, dx: 16))
         XCTAssertEqual(rig.cursor.moves, [4])
@@ -171,7 +168,6 @@ final class MeasurementEchoTests: XCTestCase {
         XCTAssertEqual(rig.cursor.moves, [8, -4])
         XCTAssertEqual(rig.flash.flashes, 2)
         XCTAssertTrue(rig.writes.isEmpty, "a cursor probe is not answered")
-        XCTAssertEqual(rig.activity, 2)
     }
 
     func testEchoAtMostOneWriteInFlight() throws {
@@ -337,7 +333,6 @@ final class MeasurementEchoTests: XCTestCase {
         XCTAssertEqual(rig.flash.flashes, 0, "and no corner flash")
         XCTAssertEqual(rig.echo.counters.received, 1)
         XCTAssertEqual(rig.csv.lines.count, 1, "the packet still gets its row")
-        XCTAssertEqual(rig.activity, 1)
     }
 
     // MARK: Long text check (M7)
@@ -399,8 +394,7 @@ final class MeasurementEchoTests: XCTestCase {
         let rig = SecurityRig(pairKey: pairKey)
         let cursor = CursorSpy()
         let echo = MeasurementEcho(
-            write: { [central = rig.central] in central.sendMeasure($0) }, cursor: cursor, flash: FlashSpy(), csv: CSVSpy(),
-            noteActivity: {})
+            write: { [central = rig.central] in central.sendMeasure($0) }, cursor: cursor, flash: FlashSpy(), csv: CSVSpy())
         echo.connect(central: rig.central, security: rig.security)
         echo.setMeasureMode(true)
         rig.connect()

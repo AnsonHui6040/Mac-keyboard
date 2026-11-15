@@ -1,16 +1,9 @@
 import Foundation
 import RemoteKeyboardCore
 
-/// Pure rules for what a new focus snapshot means for the session and for the status sent to the keyboard.
+/// Pure rules for what a new focus snapshot means for the status sent to the keyboard. Focus does not affect receiving (D29).
 enum FocusTransition {
     static let maxAppNameLength = 24
-
-    /// R17: a new snapshot that is editable and either follows a non-editable one or carries a new epoch.
-    static func gainedEditable(previous: FocusSnapshot?, next: FocusSnapshot) -> Bool {
-        guard next.editable else { return false }
-        guard let previous else { return true }
-        return !previous.editable || previous.epoch != next.epoch
-    }
 
     /// The keyboard must hear about a change of epoch, editable state, app, trust or blocked input (Secure Input can turn
     /// on or off with no focus change at all).
@@ -44,7 +37,7 @@ enum FocusTransition {
     #endif
 }
 
-/// Wires focus changes to the receive session (D13) and to the status the keyboard shows. Everything that goes to or
+/// Wires focus changes to the status the keyboard shows (receiving itself does not depend on focus, D29). Everything that goes to or
 /// comes from the keyboard passes through `ReceiverSecurity`.
 @MainActor
 final class ReceiverCoordinator: ObservableObject {
@@ -118,7 +111,6 @@ final class ReceiverCoordinator: ObservableObject {
         case .pointerClose: code = pointer?.handleClose() ?? .posted
         default: return false
         }
-        central.noteEvent()
         security.send(.ack(Ack(eventId: event.eventId, result: code)))
         return true
     }
@@ -129,7 +121,6 @@ final class ReceiverCoordinator: ObservableObject {
     func focusChanged(_ next: FocusSnapshot) {
         let previous = last
         last = next
-        if FocusTransition.gainedEditable(previous: previous, next: next) { central.focusGainedEditable() }
         if FocusTransition.statusChanged(previous: previous, next: next) { sendStatus() }
     }
 

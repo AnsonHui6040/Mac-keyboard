@@ -55,13 +55,11 @@ struct MacReceiverApp: App {
             switcher: switcher,
             injector: TextInjector(),
             sendAck: { [weak security] ack in security?.send(.ack(ack)) },
-            noteValidEvent: { [weak central] in central?.noteEvent() },
             onPing: { shown, connected in reconnectLog.record(shownAtMs: shown, connectedAtMs: connected) },
             onInputSourceRestore: { [weak notice] in notice?.report(restoredOK: $0) }
         )
-        // The touchpad: packets of the `0x03` route go to it, its grant goes into the status, and every valid packet keeps the
-        // receiving session going. Nothing is posted before the keyboard opens the channel with the current grant.
-        let pointer = PointerReceiver(output: PointerInjector(), noteActivity: { [weak central] in central?.noteEvent() })
+        // The touchpad: packets of the `0x03` route go to it, its grant goes into the status, and nothing is posted before the keyboard opens the channel with the current grant.
+        let pointer = PointerReceiver(output: PointerInjector())
         central.pointerHandler = { [weak pointer] in pointer?.handle($0) }
         let coordinator = ReceiverCoordinator(
             focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
@@ -71,6 +69,8 @@ struct MacReceiverApp: App {
             coordinator.start()
             notice.startObserving()
             focus.start()
+            // D29: receiving starts at launch and only the user stops it. The unit-test host never gets here.
+            central.startReceiving()
             // Quitting from the menu: an authenticated keyboard hears a goodbye before the connection goes away with the
             // process. Best effort; it holds the run loop for at most about half a second.
             NotificationCenter.default.addObserver(
@@ -84,18 +84,16 @@ struct MacReceiverApp: App {
         }
         #if DEBUG
         // TP1 measurement: answers the iPhone's encrypted probes while 「量測模式」 is on. Memory only; the mode is off after
-        // every launch unless `-rkMeasureMode YES` is passed, which also starts receiving.
+        // every launch unless `-rkMeasureMode YES` is passed. Receiving itself already starts at launch (D29).
         let measurement = MeasurementEcho(
             write: { [weak central] in central?.sendMeasure($0) ?? false },
-            cursor: MeasureCursorMover(), flash: MeasureFlashWindow(), csv: MeasureCSVFile(fileURL: MeasureCSVFile.defaultFileURL),
-            noteActivity: { [weak central] in central?.noteEvent() })
+            cursor: MeasureCursorMover(), flash: MeasureFlashWindow(), csv: MeasureCSVFile(fileURL: MeasureCSVFile.defaultFileURL))
         measurement.connect(central: central, security: security)
         coordinator.measureMode = { [weak measurement] in measurement?.isMeasureMode ?? false }
         measurement.onModeChange = { [weak coordinator] in coordinator?.sendStatus() }
         coordinator.measureTextArrived = { [weak measurement] in measurement?.noteText($0) }
         if !Self.isRunningUnitTests, UserDefaults.standard.bool(forKey: "rkMeasureMode") {
             measurement.setMeasureMode(true)
-            central.startReceiving()
         }
         self.measurement = measurement
         #endif
@@ -132,10 +130,6 @@ struct MacReceiverApp: App {
 }
 
 enum ReceiverMenu {
-    /// 「剩餘接收時間 mm:ss」 while armed, 「待命」 otherwise.
-    static func remainingText(_ seconds: TimeInterval?) -> String {
-        guard let seconds else { return "待命" }
-        let total = Int(seconds.rounded(.up))
-        return String(format: "剩餘接收時間 %02d:%02d", total / 60, total % 60)
-    }
+    /// 「接收中」 while receiving, 「已停止」 after the user pressed 停止接收.
+    static func receivingText(isArmed: Bool) -> String { isArmed ? "接收中" : "已停止" }
 }

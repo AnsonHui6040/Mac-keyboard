@@ -187,10 +187,6 @@ final class InputBlockedStatusTests: XCTestCase {
         XCTAssertTrue(FocusTransition.statusChanged(previous: snap(blocked: true), next: snap(blocked: false)))
         XCTAssertFalse(FocusTransition.statusChanged(previous: snap(blocked: true), next: snap(blocked: true)))
     }
-
-    func testInputBlockedDoesNotCountAsGainingEditable() {
-        XCTAssertFalse(FocusTransition.gainedEditable(previous: snap(editable: true, blocked: false), next: snap(blocked: true)))
-    }
 }
 
 /// The pipeline reads the monitor's fresh snapshot; it has no parallel secure-field check of its own.
@@ -218,8 +214,7 @@ final class SecureFieldPipelineTests: XCTestCase {
             snapshot: { await monitor.refreshNow() },
             switcher: InputSourceSwitcher(controller: Controller(), composition: nil, settle: { _ in }),
             injector: TextInjector(poster: poster),
-            sendAck: acks,
-            noteValidEvent: {}
+            sendAck: acks
         )
     }
 

@@ -113,21 +113,9 @@ final class ReceiverGoodbyeTests: XCTestCase {
         XCTAssertEqual(rig.cancels, [rig.peripheral])
     }
 
-    // MARK: Idle timeout and unpair
+    // MARK: Unpair
 
-    func testIdleTimeoutAndUnpairSendBye() throws {
-        // Idle timeout.
-        let (idle, idlePhone) = try authenticatedRig()
-        idle.now = idle.now.addingTimeInterval(ReceiverSession.idleTimeout + 1)
-        idle.central.handleSession(.timerFired)
-        XCTAssertFalse(idle.central.isArmed)
-        let idleWrites = idle.newWrites()
-        XCTAssertEqual(idleWrites.count, 1)
-        XCTAssertEqual(try delivered(idleWrites[0], to: idlePhone), .deliver(.bye))
-        XCTAssertTrue(idle.cancels.isEmpty)
-        idle.central.controlWriteCompleted()
-        XCTAssertEqual(idle.cancels, [idle.peripheral])
-
+    func testUnpairSendsBye() throws {
         // Unpair.
         let (unpair, unpairPhone) = try authenticatedRig()
         unpair.security.removePhone(id: TestIdentity.phone().id)

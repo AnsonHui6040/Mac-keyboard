@@ -57,7 +57,7 @@
 | A2 | 必要 | 請主代理再 build 並安裝一次（內容不必改）。重新叫出鍵盤，看鍵盤右上的小字，再看 Mac 面板的版本 | 兩邊時間都換成新的時間；鍵盤右上文字完整，沒有被截斷 | TBD | 交接文件「延至 T16」表（T05 build 時間與截斷） |
 | A3 | 必要 | Mac 系統設定 › 隱私權與安全性：確認 Remote Keyboard Receiver 已允許「輔助使用」與「藍牙」。開啟 TextEdit 新建純文字文件，游標停在文件內，打開 Mac 選單列面板 | 「目前欄位」那一行顯示「目前欄位：TextEdit（可輸入）」，沒有「授權輔助使用」按鈕 | TBD | E2E-T04-INJECT 步驟 1 |
 | A4 | 必要 | iPhone 設定 › 一般 › 鍵盤 › Remote Keyboard：確認「允許完整取用」已開。Mac 面板確認「配對：已配對 iPhone」；若顯示尚未配對，先照 H3 的配對步驟配對一次 | 兩邊都是已配對；iPhone 鍵盤在備忘錄叫得出來 | TBD | E2E-T09-PAIRING 前置條件 |
-| A5 | 必要 | Mac 輸入法切到 ABC，面板按「開始接收」。iPhone 備忘錄新建一則空白備忘錄，叫出 Remote Keyboard，按「遠端」並選「即時」 | iPhone 狀態列顯示 `Mac → TextEdit (N ms)`；Mac 面板顯示「已連線」 | TBD | E2E-T05-A-KEY 前置條件 |
+| A5 | 必要 | Mac 輸入法切到 ABC，確認面板顯示「接收中」。iPhone 備忘錄新建一則空白備忘錄，叫出 Remote Keyboard，按「遠端」並選「即時」 | iPhone 狀態列顯示 `Mac → TextEdit (N ms)`；Mac 面板顯示「已連線」 | TBD | E2E-T05-A-KEY 前置條件 |
 | A6 | 必要 | 開啟 iPhone 螢幕錄影，並確認 Mac 也可以錄螢幕。B2、B3、H2 要用到 | 錄影開得起來 | TBD | E2E-T05-A-KEY 步驟 2、3；E2E-T06-RECONNECT 步驟 3 |
 | A7 | 必要 | iPhone 主 App 最上方「設定進度」，按「加入鍵盤並允許完整取用」（三項都完成時，先按「設定完成」展開） | 直接進入 iPhone 設定中 Remote Keyboard 的頁面，裡面有「鍵盤」與「藍牙」；尚未全部完成時，「設定進度」下方的說明文字完整顯示 | TBD | 設定入口（rk.home.openSettings） |
 | A8 | 必要 | 到 iPhone 設定 › Remote Keyboard 把藍牙關閉，回主 App 的「設定進度」，按「到設定開啟藍牙」；測完把藍牙開回 | 藍牙顯示「已拒絕，請到設定開啟」時才出現這顆按鈕；按下後打開的是 Remote Keyboard 的設定頁，由自己開啟藍牙 | TBD | 設定入口（rk.home.openBluetoothSettings） |
@@ -70,7 +70,7 @@
 
 | 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
 |---|---|---|---|---|---|
-| B1 | 必要 | 面板先按「停止接收」到顯示「待命」，然後點進 TextEdit 文件 | 面板自動開始接收，顯示剩餘接收時間 30:00 附近並開始掃描；iPhone 狀態列回到 `Mac → TextEdit` | TBD | E2E-T05-A-KEY 步驟 1 |
+| B1 | 必要 | 結束 Receiver 並重新開啟，不點任何文字欄位；iPhone 叫出 Remote Keyboard | 面板一開啟就顯示「接收中」並開始掃描；數秒內鍵盤狀態列出現 `Mac → ...`，面板顯示「已連線」 | TBD | E2E-T05-A-KEY 步驟 1 |
 | B2 | 必要 | 開始錄影。在 Notes 重複 20 次：收起鍵盤、叫出鍵盤、按一次 `A`，確認 TextEdit 多一個 `A`。不得用主 App 代打 | 20 次都成功，沒有多出的字，錯誤焦點 0 次。記下成功次數與錄影檔名 | TBD | E2E-T05-A-KEY 步驟 2 |
 | B3 | 必要 | 同 B2，改在 Safari 網址列或網頁輸入框叫出鍵盤 | 20 次都成功，錯誤焦點 0 次。記下成功次數與錄影檔名 | TBD | E2E-T05-A-KEY 步驟 3 |
 | B4 | 必要 | 在遠端模式打 `Hello world`，倒退 2 次，再按一次換行 | TextEdit 顯示 `Hello wor` 並換行 | TBD | E2E-T05-A-KEY 步驟 4 |
@@ -195,7 +195,7 @@
 
 ## F Mac 輸入法與跨 App 矩陣（約 80 分鐘）
 
-準備狀態：改回 Debug 版。Mac 面板「開始接收」，TextEdit 純文字文件。每格請用 iPhone 遠端模式送出 `Hello`、`香港`、`café` 與一個 emoji，逐項看四件事：字元一致、組字取消、切回輸入法、錯誤焦點。結果同步填入 `docs/superpowers/verification/evidence/T14-matrix.csv`。
+準備狀態：改回 Debug 版。Mac 面板顯示「接收中」，TextEdit 純文字文件。每格請用 iPhone 遠端模式送出 `Hello`、`香港`、`café` 與一個 emoji，逐項看四件事：字元一致、組字取消、切回輸入法、錯誤焦點。結果同步填入 `docs/superpowers/verification/evidence/T14-matrix.csv`。
 
 | 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
 |---|---|---|---|---|---|
@@ -237,14 +237,14 @@
 | G9 | 必要 | 主 App「中文輸入與手寫」選速成，關閉完整取用後開啟鍵盤 | 中文頁為速成，可打字；沒有手寫頁 | TBD | E2E-T12B-QUICK 步驟 4 |
 | G10 | 可選 | 關閉完整取用時按幾個鍵 | 不震動；開回完整取用後按鍵震動 | TBD | E2E-T10-KEYBOARD 摘要（震動） |
 | G11 | 必要 | 3 次 iPhone 與 3 次 Mac：關閉藍牙，等 5 秒再開啟；Mac 關閉期間看面板 | 關閉時 fail closed，不補送；Mac 面板顯示「藍牙已關閉，請在 Mac 開啟藍牙」；開啟後自動恢復，可再打字 | TBD | E2E-T15-STABILITY B3；交接文件「延至 T16」表（T03b unavailable 原因） |
-| G12 | 必要 | 3 次：Mac 睡眠 1 分鐘後喚醒（喚醒後按「開始接收」或點輸入框） | 喚醒後可以重連並打字，睡眠期間沒有字入錯誤欄位 | TBD | E2E-T15-STABILITY B4 |
+| G12 | 必要 | 3 次：Mac 睡眠 1 分鐘後喚醒（喚醒後不做任何操作） | 喚醒後可以重連並打字，睡眠期間沒有字入錯誤欄位 | TBD | E2E-T15-STABILITY B4 |
 | G13 | 必要 | 3 次：iPhone 鎖屏後解鎖，回到備忘錄叫出鍵盤 | 解鎖後可重連並打字 | TBD | E2E-T15-STABILITY B5 |
 | G14 | 必要 | Mac 開 Console.app，左欄選這支 iPhone，篩選 subsystem `com.ansonhui.remotekeyboard`，做完 B、E、G 之後，分別搜尋自己打過的單字、聽寫過的句子、配對碼（只在搜尋欄輸入）、`TextEdit`、`Notes`、`pairKey`、`nonce`、`proof` | 每個搜尋都是 0 筆；只有固定句子與數字（`owner changed`、`manager created`、`handshake authenticated`、`goodbye received`、`link reset`、`liveness probe sent` 等），以及聽寫的次數與長度 | TBD | E2E-T09-PAIRING 步驟 7；E2E-T10-KEYBOARD 步驟 40；E2E-T11-SYMBOLS 步驟 15；E2E-T13-DICTATION 步驟 11 |
 | G15 | 必要 | 在 Mac 終端機執行下方「指令 G15」 | 輸出 0 | TBD | 回歸檢查；E2E-T15-STABILITY 備註；E2E-T09-PAIRING 步驟 6 |
 | G16 | 必要 | 在 Mac 終端機執行下方「指令 G16」 | 輸出 0 | TBD | 回歸檢查；E2E-T09-PAIRING 步驟 6 |
 | G17 | 必要 | G 組全部結束後，確認 Mac 輔助使用已重新允許、iPhone 完整取用已開、兩台藍牙已開 | 狀態恢復到 A 組結束時的樣子 | TBD | 收尾檢查 |
 | G18 | 必要 | Mac 系統設定撤銷輔助使用後打開面板，按「授權輔助使用」旁的「打開輔助使用設定」；測完重新允許 | 打開的是系統設定 › 隱私權與安全性 › 輔助使用，面板寬度不變，兩顆按鈕同一行 | TBD | 設定入口（Mac 面板） |
-| G19 | 必要 | Mac 關閉 Remote Keyboard Receiver 的藍牙授權（或在未授權狀態）按「開始接收」，面板紅字下方按「打開藍牙設定」；測完重新允許 | 紅字顯示「未授權藍牙」時才出現這顆按鈕；打開的是隱私權與安全性 › 藍牙 | TBD | 設定入口（Mac 面板） |
+| G19 | 必要 | Mac 關閉 Remote Keyboard Receiver 的藍牙授權（或在未授權狀態）重新開啟 Receiver，面板紅字下方按「打開藍牙設定」；測完重新允許 | 紅字顯示「未授權藍牙」時才出現這顆按鈕；打開的是隱私權與安全性 › 藍牙 | TBD | 設定入口（Mac 面板） |
 | G20 | 必要 | 在「登入時啟動」顯示「需在系統設定 › 登入項目 允許」時，按「打開登入項目設定」（沒有出現這行就寫「無法重現」） | 打開的是系統設定 › 一般 › 登入項目 | TBD | 設定入口（Mac 面板） |
 | G21 | 必要 | 面板底部「系統設定」區按「輔助使用」 | 打開隱私權與安全性 › 輔助使用；三顆小按鈕排在同一行，面板寬度不變 | TBD | 設定入口（Mac 面板） |
 | G22 | 必要 | 面板底部「系統設定」區按「藍牙」 | 打開隱私權與安全性 › 藍牙 | TBD | 設定入口（Mac 面板） |
@@ -272,26 +272,26 @@
 | H2 | 必要 | 開始錄影。鍵盤出現後重開 10 次，記錄每次狀態列 `Mac → TextEdit (N ms)` 的 N | 10 次都連上，N 都在 2000 ms 以內。寫下 10 個 N | TBD | E2E-T06-RECONNECT 步驟 3 |
 | H3 | 必要 | 兩邊先各按「解除配對」，Mac 按「配對新 iPhone」，iPhone 開「配對 Mac」。肉眼比對兩邊配對碼，都按「確認」，再按「完成」。這一列是 H4 的前置（T09 步驟 1 已 PASS）；記下配對碼是否相同（不要寫數字） | 兩邊配對碼相同，完成後 iPhone 顯示「已配對 Mac」，Mac 顯示「配對：已配對 iPhone」 | TBD | E2E-T09-PAIRING 步驟 1 |
 | H4 | 必要 | 再解除兩邊配對，重新配對一次。比對這次與 H3 的配對碼 | 兩邊配對碼相同，且與 H3 的不同；配對完成後鍵盤可打字 | TBD | E2E-T09-PAIRING 步驟 4 |
-| H5 | 必要 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面 | Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；這支 iPhone 在這次接收時段內被略過，再開鍵盤也連不上（設計如此）。之後 Mac 按「停止接收」再「開始接收」清除 | TBD | E2E-T09-PAIRING 步驟 4 |
+| H5 | 必要 | Mac 在接收中、沒有按「配對新 iPhone」時，iPhone 開啟「配對 Mac」畫面 | Mac 不顯示配對碼並中斷連線，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 先略過這支 iPhone 約 10 秒，之後會再連上並再次拒絕配對要求；不需要按「停止接收」再「開始接收」 | TBD | E2E-T09-PAIRING 步驟 4 |
 | H6 | 必要 | 解除兩邊配對後，Mac 按「配對新 iPhone」，iPhone 開「配對 Mac」，兩邊出現配對碼後只在 Mac 按「取消」 | iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；Mac 顯示「配對已取消」；兩邊都是未配對；鍵盤遠端打字顯示「尚未配對 Mac，請開啟主 App 配對」，TextEdit 收到 0 個字元 | TBD | E2E-T09-PAIRING 步驟 2a |
 | H7 | 必要 | 同 H6，兩邊出現配對碼後只在 iPhone 按「取消」 | Mac 顯示「配對失敗，未儲存」；兩邊都是未配對；TextEdit 收到 0 個字元 | TBD | E2E-T09-PAIRING 步驟 2b |
 | H8 | 必要 | 先開 Mac 的配對時段，再開 iPhone 的配對畫面；出現配對碼後兩邊都不按，等 2 分鐘 | 約 120 秒時 Mac 顯示「配對逾時，未儲存」，iPhone 顯示「Mac 已取消或連線中斷，未儲存。」；兩邊都是未配對；TextEdit 0 字元 | TBD | E2E-T09-PAIRING 步驟 2c |
 | H9 | 可選 | 先在 Mac 按「停止接收」並讓 TextEdit 不聚焦；先開 iPhone「配對 Mac」，約 10 秒後才按 Mac「配對新 iPhone」；出現配對碼後兩邊都不按，等 2 分鐘 | iPhone 先逾時，顯示「配對逾時，未儲存。」；Mac 顯示「配對失敗，未儲存」；兩邊都是未配對 | TBD | E2E-T09-PAIRING 步驟 2e |
 | H10 | 可選 | 兩邊出現配對碼後，只有 iPhone 按「確認」，Mac 按「取消」 | iPhone 已儲存、Mac 未儲存（已知行為）；鍵盤打字 TextEdit 收到 0 個字元；之後在 iPhone 按「解除配對」 | TBD | E2E-T09-PAIRING 步驟 2d |
 | H11 | 必要 | 重新完整配對一次（兩邊確認並按完成），然後在 iPhone 主 App「幫助 > 測試輸入」的輸入框點一下叫出鍵盤；Mac 按「配對新 iPhone」，再點 iPhone「設定進度 > 已配對 Mac > 配對 Mac」，然後在 Mac 終端機執行 `/usr/bin/log show --last 10m --predicate 'subsystem == "com.ansonhui.remotekeyboard.receiver"' --info \| grep "keyboard service"` | 輸出 `discovered 1 keyboard service(s)`，不是 2；配對仍可完成 | TBD | E2E-T09-PAIRING 步驟 8 |
-| H12 | 必要 | 終端機執行 `defaults write com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds 60`，結束並重開 MacReceiver，按「開始接收」。連上後每 20 秒按一次 `A`，共 2 分鐘 | 持續打字期間不斷線，倒數被重置 | TBD | E2E-T05-A-KEY 步驟 8 |
-| H13 | 必要 | 接續 H12：停止打字 60 秒 | Mac 面板回到「待命」並斷線；鍵盤狀態列離開 `Mac → ...`（變成 `BLE: publishing` 或 `BLE: advertising`）；再按「開始接收」後數秒內鍵盤自動回到 `Mac → ...` | TBD | E2E-T05-A-KEY 步驟 8；E2E-T09-PAIRING 步驟 10d |
-| H14 | 必要 | 鍵盤保持連線，Mac 面板按「解除配對」 | 鍵盤狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」（不是「尚未配對」）；之後鍵盤重新廣播（`BLE: advertising`），Mac 不再連上，直到重新配對。再完成一次配對 | TBD | E2E-T09-PAIRING 步驟 10d |
-| H15 | 可選 | 鍵盤在畫面上且已連線；Mac 終端機執行 `killall -KILL MacReceiver`，重新開啟 Receiver 並按「開始接收」，收起鍵盤，再點輸入欄位叫出鍵盤，不使用地球鍵 | 數秒內回到 `Mac → ...`；打 `abc`，Mac 收到 `abc`；iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷，則沒有這三行） | TBD | E2E-T09-PAIRING 步驟 10e（主體已 PASS，這裡重測；延後的只有 iPhone 端 log） |
-| H16 | 必要 | 做完 H12 到 H15 後，終端機執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.idleTimeoutSeconds` 並重啟 Receiver | 倒數回到 30 分鐘 | TBD | E2E-T03B-LINK 步驟 7 |
-| H17 | 必要 | 執行 `scripts/install-mac-receiver.sh`（或請主代理執行），確認「應用程式」資料夾有 `/Applications/Remote Keyboard Receiver.app` 並已開啟。面板確認「登入時啟動」已打勾；若顯示「需在系統設定 › 登入項目 允許」，到系統設定 › 一般 › 登入項目 允許。然後登出再登入，或重新開機 | 重新登入後選單列自動出現 Receiver，面板顯示「尚未開始接收」與「待命」 | TBD | E2E-T03B-LINK 步驟 1；交接文件「延至 T16」表（T03b 登入項目） |
-| H18 | 可選 | 面板按「停止接收」，在 iPhone 叫出鍵盤 | Mac 顯示「尚未開始接收」與「待命」；鍵盤狀態列維持 `BLE: advertising`，沒有進入 `BLE: connected` | TBD | E2E-T03B-LINK 步驟 6 |
+| H12 | 必要 | 結束並重開 MacReceiver，不點任何文字欄位，也不按面板的任何按鈕；iPhone 叫出鍵盤，按「遠端」。連上後每 20 秒按一次 `A`，共 2 分鐘（Mac 游標在 TextEdit 文件內） | 數秒內自動連上，面板顯示「接收中」與「已連線」；持續打字期間不斷線，Mac 收到每個 `A` | TBD | E2E-T05-A-KEY 步驟 8 |
+| H13 | 必要 | 接續 H12：停止打字 35 分鐘，期間不碰面板 | Mac 面板仍顯示「接收中」，沒有自行停止；鍵盤狀態列仍是 `Mac → ...`；再按一次 `A`，Mac 收到 `A` | TBD | D29 spec §2a R2 |
+| H14 | 必要 | 鍵盤保持連線，Mac 面板按「解除配對」 | 鍵盤狀態列離開 `Mac → ...`，短暫顯示「配對驗證失敗」（不是「尚未配對」）；之後鍵盤重新廣播（`BLE: advertising`），Mac 約每 10 秒連上一次並驗證失敗，鍵盤可能反覆短暫顯示「配對驗證失敗」；重新配對之前無法打字。再完成一次配對 | TBD | E2E-T09-PAIRING 步驟 10d |
+| H15 | 可選 | 鍵盤在畫面上且已連線；Mac 終端機執行 `killall -KILL MacReceiver`，重新開啟 Receiver，收起鍵盤，再點輸入欄位叫出鍵盤，不使用地球鍵 | 數秒內回到 `Mac → ...`；打 `abc`，Mac 收到 `abc`；iPhone 端 log 依序出現 `liveness probe sent`、`liveness probe unanswered`、`link reset`（若 iOS 已先通知中斷，則沒有這三行） | TBD | E2E-T09-PAIRING 步驟 10e（主體已 PASS，這裡重測；延後的只有 iPhone 端 log） |
+| H16 | 必要 | 鍵盤已連線時，面板按「停止接收」，再按「開始接收」 | 按「停止接收」後面板顯示「已停止」，「停止接收」變灰、「開始接收」可按，鍵盤狀態列離開 `Mac → ...`；按「開始接收」後面板顯示「接收中」，「開始接收」變灰，數秒內鍵盤自動回到 `Mac → ...` | TBD | E2E-T03B-LINK 步驟 7 |
+| H17 | 必要 | 執行 `scripts/install-mac-receiver.sh`（或請主代理執行），確認「應用程式」資料夾有 `/Applications/Remote Keyboard Receiver.app` 並已開啟。面板確認「登入時啟動」已打勾；若顯示「需在系統設定 › 登入項目 允許」，到系統設定 › 一般 › 登入項目 允許。然後登出再登入，或重新開機 | 重新登入後選單列自動出現 Receiver，面板顯示「接收中」 | TBD | E2E-T03B-LINK 步驟 1；交接文件「延至 T16」表（T03b 登入項目） |
+| H18 | 可選 | 面板按「停止接收」，在 iPhone 叫出鍵盤；再在 Mac 點進 TextEdit 文件，並把 iPhone 鍵盤收起再叫出 | Mac 顯示「已停止接收」與「已停止」，點欄位與鍵盤再次出現都不會自行恢復；鍵盤狀態列維持 `BLE: advertising`，沒有進入 `BLE: connected` | TBD | E2E-T03B-LINK 步驟 6 |
 | H19 | 必要 | 完成最後一次配對後，確認狀態與 A4 一致 | 兩邊都是已配對，鍵盤遠端打字正常 | TBD | 收尾檢查 |
 
 ## Z 收尾（約 5 分鐘）
 
 | 編號 | 必要／可選 | 步驟 | 預期 | 結果 | 來源 |
 |---|---|---|---|---|---|
-| Z1 | 必要 | 確認聽寫探測已關閉；執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.settleSeconds`（如果有設過），確認沒有殘留的 `rk.idleTimeoutSeconds` | 所有測試用設定已還原 | TBD | E2E-T13-DICTATION 前置條件；E2E-T04-INJECT 步驟 3 |
+| Z1 | 必要 | 確認聽寫探測已關閉；執行 `defaults delete com.ansonhui.remotekeyboard.receiver rk.settleSeconds`（如果有設過） | 所有測試用設定已還原 | TBD | E2E-T13-DICTATION 前置條件；E2E-T04-INJECT 步驟 3 |
 | Z2 | 必要 | 結束 Receiver（面板按「結束」） | 選單列沒有 Receiver，沒有殘留的 MacReceiver 行程（`pgrep -x MacReceiver` 無輸出） | TBD | 全域守則（收工檢查） |
 | Z3 | 必要 | 把 B6 的字元數、F2 的 settle 值、C3 的模型大小、G8 的 AppGroup 結果回報給主代理 | 主代理把 O5 與 settle 實測值寫入規格 §5 | TBD | 計劃 Task 16 Step 5 |

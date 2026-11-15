@@ -6,18 +6,14 @@ import XCTest
 /// builds only) to the measurement hook, anything else is skipped. Only 0x02 may touch the reassembler.
 @MainActor
 final class FirstByteRoutingTests: XCTestCase {
-    private var defaults: UserDefaults!
     private var driver: RecordingDriver!
 
     override func setUp() async throws {
-        let name = "rk.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: name)
-        defaults.removePersistentDomain(forName: name)
         driver = RecordingDriver()
     }
 
     private func readyCentral() -> ReceiverBLECentral {
-        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { [unowned self] _ in driver })
         let p = UUID()
         central.startReceiving()
         central.handleLink(.power(.poweredOn))
@@ -71,7 +67,7 @@ final class FirstByteRoutingTests: XCTestCase {
     }
 
     func testNothingIsRoutedUnlessTheLinkIsReady() {
-        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { [unowned self] _ in driver })
         var pointer = 0
         central.pointerHandler = { _ in pointer += 1 }
         central.receive(eventData: Data([0x03]) + Data(repeating: 9, count: 40))

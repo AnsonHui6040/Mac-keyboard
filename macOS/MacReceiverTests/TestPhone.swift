@@ -154,13 +154,10 @@ final class SecurityRig {
     }
 
     init(phones: [PairedPhone], handshakeTimeout: TimeInterval = 5) {
-        let name = "rk.tests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
         let driver = driver
         let clock = clock
         central = ReceiverBLECentral(
-            hostId: TestIdentity.hostId, defaults: defaults, clock: { clock.now },
+            hostId: TestIdentity.hostId, clock: { clock.now },
             uptime: { clock.now.timeIntervalSince1970 }, makeDriver: { _ in driver })
         store = FakePairingStore(phones: phones)
         security = ReceiverSecurity(

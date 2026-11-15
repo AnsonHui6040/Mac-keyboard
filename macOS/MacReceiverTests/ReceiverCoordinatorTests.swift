@@ -9,27 +9,6 @@ final class FocusTransitionTests: XCTestCase {
         FocusSnapshot(axTrusted: trusted, frontmostPID: 1, appName: app, editable: editable, epoch: epoch)
     }
 
-    func testGainedEditableOnFirstEditableSnapshot() {
-        XCTAssertTrue(FocusTransition.gainedEditable(previous: nil, next: snap(true, epoch: 1)))
-        XCTAssertFalse(FocusTransition.gainedEditable(previous: nil, next: snap(false, epoch: 1)))
-    }
-
-    func testGainedEditableWhenPreviousWasNotEditable() {
-        XCTAssertTrue(FocusTransition.gainedEditable(previous: snap(false, epoch: 3), next: snap(true, epoch: 3)))
-    }
-
-    func testGainedEditableWhenEpochChangedWhileEditable() {
-        XCTAssertTrue(FocusTransition.gainedEditable(previous: snap(true, epoch: 3), next: snap(true, epoch: 4)))
-    }
-
-    func testNoGainWhenStillTheSameEditableField() {
-        XCTAssertFalse(FocusTransition.gainedEditable(previous: snap(true, epoch: 3), next: snap(true, epoch: 3, app: "Renamed")))
-    }
-
-    func testNoGainWhenNextIsNotEditable() {
-        XCTAssertFalse(FocusTransition.gainedEditable(previous: snap(true, epoch: 3), next: snap(false, epoch: 4)))
-    }
-
     func testStatusCarriesAccessibilityTrustAndIsNeverReadyWithout() {
         let untrusted = FocusTransition.status(for: snap(true, epoch: 3, trusted: false))
         XCTAssertFalse(untrusted.trusted)
@@ -106,13 +85,10 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         let pointer: PointerReceiver?
         let pointerOutput = PointerOutputSpy()
 
-        init(pairKey: SymmetricKey, withPointer: Bool = false) {
+        init(pairKey: SymmetricKey, withPointer: Bool = false, receiving: Bool = true) {
             self.pairKey = pairKey
-            let name = "rk.tests.\(UUID().uuidString)"
-            let defaults = UserDefaults(suiteName: name)!
-            defaults.removePersistentDomain(forName: name)
             let driver = driver
-            central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { _ in driver })
+            central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { _ in driver })
             security = ReceiverSecurity(
                 central: central,
                 store: FakePairingStore(phones: [PairedPhone(identity: TestIdentity.phone(), pairKey: pairKey)]))
@@ -124,8 +100,7 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
                 snapshot: { current },
                 switcher: InputSourceSwitcher(controller: AsciiController(), composition: nil, settle: { _ in }),
                 injector: TextInjector(poster: poster),
-                sendAck: { [weak security] ack in security?.send(.ack(ack)) },
-                noteValidEvent: { [weak central] in central?.noteEvent() }
+                sendAck: { [weak security] ack in security?.send(.ack(ack)) }
             )
             let suite = "rk.tests.\(UUID().uuidString)"
             let pointerDefaults = UserDefaults(suiteName: suite)!
@@ -135,6 +110,7 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
                 focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
             phone = TestPhone(pairKey: pairKey)
             coordinator.start()
+            if receiving { central.startReceiving() }
         }
 
         /// Reads what the Mac wrote since the last call as the iPhone would: plain handshake messages drive the phone
@@ -165,7 +141,9 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         }
     }
 
-    private func rig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32))) }
+    private func rig(receiving: Bool = true) -> Rig {
+        Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32)), receiving: receiving)
+    }
 
     private func pointerRig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32)), withPointer: true) }
 
@@ -185,15 +163,21 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         for _ in 0..<200 where !condition() { try? await Task.sleep(for: .milliseconds(10)) }
     }
 
-    func testCoordinatorArmsOnEditableFocusAndForwardsEvents() async throws {
+    func testFocusOnEditableFieldDoesNotChangeReceiving() {
+        let paused = rig(receiving: false)
+        XCTAssertFalse(paused.central.isArmed)
+        paused.focus.onChange?(Self.editable(epoch: 3))
+        XCTAssertFalse(paused.central.isArmed, "a paused Receiver stays paused when a field gets focus")
+
+        let receiving = rig()
+        receiving.focus.onChange?(FocusSnapshot(axTrusted: true, frontmostPID: 42, appName: "Finder", editable: false, epoch: 2))
+        receiving.focus.onChange?(Self.editable(epoch: 3))
+        XCTAssertTrue(receiving.central.isArmed, "focus changes never stop receiving")
+    }
+
+    func testCoordinatorForwardsEventsAndStatus() async throws {
         let r = rig()
-        XCTAssertFalse(r.central.isArmed)
-
-        r.focus.onChange?(FocusSnapshot(axTrusted: true, frontmostPID: 42, appName: "Finder", editable: false, epoch: 2))
-        XCTAssertFalse(r.central.isArmed, "a non-editable focus does not arm the Receiver")
-
         r.focus.onChange?(Self.editable(epoch: 3))
-        XCTAssertTrue(r.central.isArmed, "clicking an editable field arms receiving")
 
         try bringLinkUp(r)
         XCTAssertEqual(r.delivered, [.status(ReceiverStatus(ready: true, appName: "TextEdit", focusEpoch: 3))],

@@ -161,7 +161,6 @@ final class MeasurementEcho: ObservableObject {
     private let cursor: MeasureCursorMoving
     private let flash: MeasureFlashing
     private let csv: MeasureCSVSink
-    private let noteActivity: @MainActor () -> Void
 
     private var channels: ChannelSet?
     private var writeInFlight = false
@@ -173,17 +172,15 @@ final class MeasurementEcho: ObservableObject {
     /// - Parameters:
     ///   - write: writes one sealed reply to the keyboard's `control` characteristic; `false` when no write was issued.
     ///   - clock: monotonic microseconds.
-    ///   - noteActivity: called for every probe that verified, to keep the receiving session from timing out mid-run.
     init(
         write: @escaping @MainActor (Data) -> Bool, clock: @escaping @MainActor () -> UInt64 = { MeasureClock.nowMicros() },
-        cursor: MeasureCursorMoving, flash: MeasureFlashing, csv: MeasureCSVSink, noteActivity: @escaping @MainActor () -> Void
+        cursor: MeasureCursorMoving, flash: MeasureFlashing, csv: MeasureCSVSink
     ) {
         self.write = write
         self.clock = clock
         self.cursor = cursor
         self.flash = flash
         self.csv = csv
-        self.noteActivity = noteActivity
     }
 
     /// Hooks this echo to the central's `0x7E` route and write answers, and to the channel set of each authenticated connection.
@@ -282,7 +279,6 @@ final class MeasurementEcho: ObservableObject {
             counters.malformed += 1
             return
         }
-        noteActivity()
         counters.received += 1
         // Every run starts with seq 1, whatever it sends first: the heartbeats of an earlier run are not part of this one.
         if payload.seq == 1 {
