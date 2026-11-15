@@ -15,6 +15,7 @@ jobs:
   windows-installer:
     name: Windows installer
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - name: Check out the repository
         uses: actions/checkout@v4
@@ -40,7 +41,10 @@ jobs:
         run: |
           $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'installer not found in dist' }
-          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          $p = Start-Process -FilePath $installer.FullName -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
           if ($p.ExitCode -ne 0) { throw "installer exited with code $($p.ExitCode)" }
 
       - name: Check that setup started the receiver
@@ -90,7 +94,10 @@ jobs:
           if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) { Write-Host 'a receiver is running before the upgrade' }
           else { Write-Host 'NOTE: the receiver did not stay running on this runner; the upgrade is still run' }
           $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
-          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          $p = Start-Process -FilePath $installer.FullName -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
           if ($p.ExitCode -ne 0) { throw "upgrade installer exited with code $($p.ExitCode)" }
           foreach ($name in 'rk-receiver.exe', 'rk-diag.exe', 'unins000.exe') {
             if (-not (Test-Path (Join-Path $dir $name))) { throw "missing $name after upgrade" }
@@ -108,7 +115,10 @@ jobs:
             Start-Process -FilePath (Join-Path $dir 'rk-receiver.exe')
             Start-Sleep -Seconds 3
           }
-          $p = Start-Process -FilePath (Join-Path $dir 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          $p = Start-Process -FilePath (Join-Path $dir 'unins000.exe') -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
           if ($p.ExitCode -ne 0) { throw "uninstaller exited with code $($p.ExitCode)" }
           # The uninstaller copies itself to a temp folder and relaunches, so the first process can return early.
           $deadline = (Get-Date).AddSeconds(60)
