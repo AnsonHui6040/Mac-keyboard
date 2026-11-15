@@ -839,7 +839,7 @@ impl App {
     /// Writes the report of a pointer stroke that has ended: `pointer_timing` and one line per measured interval, counts and
     /// times only (see the `pointer_timing` module).
     fn flush_pointer_timing(&mut self, now_micros: u64, conn: Option<u64>) {
-        let Some(lines) = self.pointer_timing.finish_if_ended(now_micros, self.pointer.squeeze_count()) else { return };
+        let Some(lines) = self.pointer_timing.finish_if_ended(now_micros, self.pointer.squeeze_count(), self.pointer.lag_bound_micros()) else { return };
         for (ev, fields) in lines {
             let values: Vec<(&str, Value)> = fields.into_iter().map(|(key, value)| (key, Value::U(value))).collect();
             self.log.info(ev, conn, &values);

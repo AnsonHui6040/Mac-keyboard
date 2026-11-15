@@ -39,7 +39,7 @@
 | 行（`ev=`） | 由誰寫 | 內容 |
 |---|---|---|
 | `ble_rx_timing` | Linux 藍牙層 | 觸控封包從連線收進來的間隔。`packets` 為封包數，`same_ci` 為與前一包相隔 1 毫秒內的封包數（多半是同一個連線事件一起送到），其餘為間隔的 `n`、`p50_us` 等欄位 |
-| `pointer_timing` | 接收端主程式（Windows 與 Linux 相同） | 一次滑動的總結：`packets`（收到的封包）、`moves`（其中的移動封包）、`frames`（播放用的畫面計時次數）、`idle`（沒有輸出任何移動的畫面計時次數）、`squeeze`（播放佇列被壓縮的次數）、`inj_max_us`（單次 `pointer_move` 呼叫最久花的時間）、`late_n`、`late_p99_us`、`late_max_us`（主程式的計時器比預定時間晚多少） |
+| `pointer_timing` | 接收端主程式（Windows 與 Linux 相同） | 一次滑動的總結：`packets`（收到的封包）、`moves`（其中的移動封包）、`frames`（播放用的畫面計時次數）、`idle`（沒有輸出任何移動的畫面計時次數）、`squeeze`（播放佇列被壓縮的次數）、`lag_us`（播放佇列最後採用的延遲上限，單位微秒；每個畫面約一個封包的連線是 20000，封包成批到達的連線會依到達週期升高，上限 60000）、`inj_max_us`（單次 `pointer_move` 呼叫最久花的時間）、`late_n`、`late_p99_us`、`late_max_us`（主程式的計時器比預定時間晚多少） |
 | `pointer_timing_arr` | 接收端主程式 | 相鄰觸控封包到達的間隔 |
 | `pointer_timing_dt` | 接收端主程式 | 手機回報每個移動封包涵蓋的時間（`dt`） |
 | `pointer_timing_out` | 接收端主程式 | 播放佇列相鄰兩次輸出移動的間隔 |
@@ -50,7 +50,7 @@
 判讀方向（由手機往游標）：
 
 1. `ble_rx_timing` 的間隔集中在 40 至 50 毫秒、`same_ci` 很高：封包受連線間隔影響，一批一批到。
-2. `pointer_timing_out` 的間隔忽大忽小，或 `idle`、`squeeze` 很高：播放佇列沒有把一批批到的移動攤平。
+2. `pointer_timing_out` 的間隔忽大忽小，或 `idle`、`squeeze` 很高：播放佇列沒有把一批批到的移動攤平。先看 `lag_us`：成批到達的連線（例如連線間隔 45 ms 的 Linux）應該約 50000；若仍停在 20000，表示到達週期沒有被量到。
 3. `inj_max_us`、`call_p99_us`、`call_max_us` 很大，或 `late_max_us` 很大：卡在注入層或主程式的計時器。
 4. `sends` 遠小於 `moves_in`，且 `send_` 間隔不均：120 Hz 合併或入口網站呼叫的節奏造成。
 

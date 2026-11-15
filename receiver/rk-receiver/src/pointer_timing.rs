@@ -11,7 +11,8 @@
 //! | `pointer_timing_out` | time between consecutive movements the playout hands out on frame ticks                   |
 //!
 //! The summary carries `packets` (accepted), `moves` (of them move packets), `frames` (frame ticks in the stroke), `idle`
-//! (frame ticks that handed out no movement), `squeeze` (how often the playout squeezed its queue), `inj_max_us` (the longest
+//! (frame ticks that handed out no movement), `squeeze` (how often the playout squeezed its queue), `lag_us` (the lag bound the playout used last: 20000 on a link with one packet per
+//! frame, more where packets arrive in bursts), `inj_max_us` (the longest
 //! `pointer_move` call in the application thread), `late_n`, `late_p99_us` and `late_max_us` (how late `on_tick` ran against
 //! the wake-up the application asked for). Only counts and times go in; the movement itself never reaches this module.
 //!
@@ -103,8 +104,8 @@ impl PointerTiming {
     }
 
     /// The report of the stroke when it has ended at `now_us`, which then closes; `None` while it is open or when there is
-    /// none. `squeeze_total` is the playout's counter now.
-    pub fn finish_if_ended(&mut self, now_us: u64, squeeze_total: u64) -> Option<Vec<TimingLine>> {
+    /// none. `squeeze_total` is the playout's counter now and `lag_micros` the lag bound it used last (a time, no movement).
+    pub fn finish_if_ended(&mut self, now_us: u64, squeeze_total: u64, lag_micros: u64) -> Option<Vec<TimingLine>> {
         if !self.tracker.ended(now_us) {
             return None;
         }
@@ -116,6 +117,7 @@ impl PointerTiming {
             ("frames", stroke.frames),
             ("idle", stroke.idle),
             ("squeeze", squeeze_total.saturating_sub(stroke.squeeze_base)),
+            ("lag_us", lag_micros),
             ("inj_max_us", stroke.inj_max_us),
             ("late_n", stroke.late.count()),
             ("late_p99_us", stroke.late.percentile_us(99).unwrap_or(0)),
@@ -142,12 +144,12 @@ mod tests {
     #[test]
     fn nothing_is_reported_without_a_stroke_or_while_it_is_open() {
         let mut t = PointerTiming::new();
-        assert!(t.finish_if_ended(10_000_000, 0).is_none());
+        assert!(t.finish_if_ended(10_000_000, 0, 20_000).is_none());
         t.on_packet(1_000_000, Some(8_000), 0);
         assert_eq!(t.deadline_us(), Some(1_000_000 + STROKE_IDLE_US));
-        assert!(t.finish_if_ended(1_000_000 + STROKE_IDLE_US - 1, 0).is_none());
-        assert!(t.finish_if_ended(1_000_000 + STROKE_IDLE_US, 0).is_some());
-        assert!(t.finish_if_ended(99_000_000, 0).is_none(), "reported once");
+        assert!(t.finish_if_ended(1_000_000 + STROKE_IDLE_US - 1, 0, 20_000).is_none());
+        assert!(t.finish_if_ended(1_000_000 + STROKE_IDLE_US, 0, 20_000).is_some());
+        assert!(t.finish_if_ended(99_000_000, 0, 20_000).is_none(), "reported once");
         assert_eq!(t.deadline_us(), None);
     }
 
@@ -162,11 +164,11 @@ mod tests {
         t.on_frame(24_000, 2);
         t.on_inject(150);
         t.on_inject(90);
-        let lines = t.finish_if_ended(1_000_000, 3).unwrap();
+        let lines = t.finish_if_ended(1_000_000, 3, 50_000).unwrap();
         let by = |name: &str| lines.iter().find(|l| l.0 == name).unwrap();
         let (summary, arr, dt, out) = (by("pointer_timing"), by("pointer_timing_arr"), by("pointer_timing_dt"), by("pointer_timing_out"));
         assert_eq!((get(summary, "packets"), get(summary, "moves"), get(summary, "frames"), get(summary, "idle")), (3, 2, 3, 1));
-        assert_eq!((get(summary, "squeeze"), get(summary, "inj_max_us")), (3, 150));
+        assert_eq!((get(summary, "squeeze"), get(summary, "inj_max_us"), get(summary, "lag_us")), (3, 150, 50_000));
         assert_eq!((get(arr, "n"), get(arr, "max_us")), (2, 28_000));
         assert_eq!((get(dt, "n"), get(dt, "max_us")), (2, 9_000));
         assert_eq!((get(out, "n"), get(out, "max_us")), (1, 16_000), "8 ms to 24 ms skipping the starved frame");
@@ -177,9 +179,9 @@ mod tests {
         let mut t = PointerTiming::new();
         t.on_packet(0, Some(8_000), 0);
         t.on_inject(500);
-        t.finish_if_ended(1_000_000, 4).unwrap();
+        t.finish_if_ended(1_000_000, 4, 20_000).unwrap();
         t.on_packet(2_000_000, Some(8_000), 4);
-        let lines = t.finish_if_ended(3_000_000, 6).unwrap();
+        let lines = t.finish_if_ended(3_000_000, 6, 20_000).unwrap();
         let summary = &lines[0];
         assert_eq!((get(summary, "packets"), get(summary, "squeeze"), get(summary, "inj_max_us")), (1, 2, 0));
         assert_eq!(get(&lines[1], "n"), 0, "no interval carries over from the first stroke");
@@ -192,7 +194,7 @@ mod tests {
         t.on_packet(0, None, 0);
         t.on_late(8_000, 3_000);
         t.on_late(STROKE_IDLE_US, 99_000);
-        let lines = t.finish_if_ended(STROKE_IDLE_US, 0).unwrap();
+        let lines = t.finish_if_ended(STROKE_IDLE_US, 0, 20_000).unwrap();
         assert_eq!((get(&lines[0], "late_n"), get(&lines[0], "late_max_us"), get(&lines[0], "late_p99_us")), (1, 3_000, 3_000));
     }
 }

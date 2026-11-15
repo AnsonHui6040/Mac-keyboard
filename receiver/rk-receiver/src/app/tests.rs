@@ -1203,8 +1203,9 @@ fn a_stroke_writes_one_pointer_timing_summary_when_300_ms_pass_without_a_packet(
     let summary = lines_of(&rig, "pointer_timing");
     assert_eq!(summary.len(), 1, "exactly one summary, written by the tick alone: {}", rig.log_text());
     assert_eq!((field(&summary[0], "packets"), field(&summary[0], "moves")), (5, 5));
+    assert_eq!(field(&summary[0], "lag_us"), 20_000, "a 10 ms stream keeps the plain 20 ms lag bound: {}", summary[0]);
     assert!(summary[0].contains("lvl=info") && summary[0].contains("conn="), "{}", summary[0]);
-    for key in ["frames", "idle", "squeeze", "inj_max_us", "late_p99_us", "late_max_us"] {
+    for key in ["frames", "idle", "squeeze", "lag_us", "inj_max_us", "late_p99_us", "late_max_us"] {
         field(&summary[0], key);
     }
     let arr = lines_of(&rig, "pointer_timing_arr");
@@ -1264,6 +1265,22 @@ fn a_packet_after_a_quiet_gap_closes_the_old_stroke_and_starts_a_new_one() {
     assert_eq!(field(&all[1], "packets"), 1, "the new stroke started fresh");
     let arr = lines_of(&rig, "pointer_timing_arr");
     assert_eq!((field(&arr[0], "n"), field(&arr[1], "n")), (1, 0), "the 400 ms gap is no interval of either stroke");
+}
+
+#[test]
+fn bursts_of_three_every_45_ms_raise_the_reported_lag_bound_to_50_ms() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    for _ in 0..6 {
+        rig.notify(move_packet(&mut channels, 160, 0, 166));
+        rig.advance(1);
+        rig.notify(move_packet(&mut channels, 160, 0, 166));
+        rig.advance(1);
+        rig.notify(move_packet(&mut channels, 160, 0, 166));
+        rig.advance(43);
+    }
+    rig.advance(400);
+    let summary = lines_of(&rig, "pointer_timing");
+    assert_eq!(field(&summary[0], "lag_us"), 50_000, "{}", summary[0]);
 }
 
 #[test]
