@@ -18,6 +18,7 @@ pub mod pointer;
 pub mod secret;
 pub mod select_uuid;
 pub mod session;
+pub mod timing;
 
 #[cfg(test)]
 mod rust_vectors;

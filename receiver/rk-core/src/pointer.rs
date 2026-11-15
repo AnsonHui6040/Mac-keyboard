@@ -531,6 +531,9 @@ pub struct PointerEffects {
     pub ack: Option<AckResult>,
     /// Set when a packet was dropped.
     pub rejection: Option<PointerRejection>,
+    /// The time the phone measured for a readable move packet, in microseconds (0 when it did not say); a diagnostic that
+    /// changes nothing.
+    pub move_span_micros: Option<u64>,
 }
 
 impl fmt::Debug for PointerEffects {
@@ -687,7 +690,9 @@ impl PointerReceiver {
                     None => effects.rejection = Some(PointerRejection::Unreadable),
                     Some(payload) => {
                         let actions = self.engine.handle(&payload, now_micros);
-                        effects.actions = self.route(actions, u64::from(payload.dt) * 100, now_micros);
+                        let span_micros = u64::from(payload.dt) * 100;
+                        effects.move_span_micros = (payload.opcode == Opcode::Move).then_some(span_micros);
+                        effects.actions = self.route(actions, span_micros, now_micros);
                     }
                 }
             }
@@ -713,6 +718,11 @@ impl PointerReceiver {
     /// A button is held or a scroll is going.
     pub fn needs_watchdog(&self) -> bool {
         self.engine.needs_watchdog()
+    }
+
+    /// How many times the playout squeezed its queue since the receiver was made (a diagnostic counter).
+    pub fn squeeze_count(&self) -> u64 {
+        self.playout.squeeze_count()
     }
 
     /// Movement is waiting to be played.
@@ -1340,6 +1350,28 @@ mod tests {
     fn open(r: &mut Rig) {
         let grant = r.host.grant().unwrap();
         assert_eq!(r.host.handle_open(grant).ack, Some(AckResult::Posted));
+    }
+
+    #[test]
+    fn a_move_packet_reports_the_time_the_phone_measured_for_it() {
+        let mut r = rig(true);
+        open(&mut r);
+        let moved = send(&mut r, &PointerPayload::new(Opcode::Move, 0, 16, 0, 123, 0), 0);
+        assert_eq!(moved.move_span_micros, Some(12_300), "tenths of a millisecond become microseconds");
+        let beat = send(&mut r, &payload(Opcode::Heartbeat, 0, 0), 1);
+        assert_eq!(beat.move_span_micros, None, "only a move has a span");
+        assert_eq!(r.host.handle_packet(&[0u8; 8], 2).move_span_micros, None, "a dropped packet has none");
+    }
+
+    #[test]
+    fn the_receiver_exposes_how_often_its_playout_squeezed() {
+        let mut r = rig(true);
+        open(&mut r);
+        assert_eq!(r.host.squeeze_count(), 0);
+        for _ in 0..8 {
+            send(&mut r, &mv(0, 0, 16, 0), 0);
+        }
+        assert!(r.host.squeeze_count() > 0, "eight 10 ms moves at the same instant exceed the lag bound");
     }
 
     #[test]

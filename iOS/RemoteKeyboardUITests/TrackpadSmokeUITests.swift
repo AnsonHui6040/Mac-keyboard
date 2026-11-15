@@ -46,6 +46,45 @@ final class TrackpadSmokeUITests: XCTestCase {
         print("RKTP state=ready swiped=1")
     }
 
+    /// Timing run (e2e/scripts/measure-trackpad.sh): `RK_STROKE_COUNT` fixed strokes (default 20) across the pad at mid height, alternating
+    /// left to right and right to left (normalized x 0.15 and 0.85) and cycling slow, default and fast velocity, 0.8 s apart so the
+    /// receiver sees every stroke end after its 300 ms idle. No tap, click or scroll. Prints only
+    /// `RKTP strokes=<N> start=<ISO8601 UTC ms> end=<ISO8601 UTC ms>`: no position, distance or text.
+    func testFixedStrokes() throws {
+        let asked = Int(ProcessInfo.processInfo.environment["RK_STROKE_COUNT"] ?? "") ?? 20
+        let count = asked > 0 ? asked : 20
+        try openOurKeyboardInRemoteMode()
+        let key = element("rk.trackpad.toggle")
+        guard key.waitForExistence(timeout: 15), wait(15, until: { key.isEnabled }) else {
+            attach("trackpad-key-missing")
+            throw XCTSkip("the 觸控板 key did not become usable (Mac not connected?)")
+        }
+        key.tap()
+
+        let pad = element("rk.trackpad.state")
+        guard pad.waitForExistence(timeout: 5) else { return XCTFail("the pad did not appear") }
+        let ready = wait(10) { (pad.value as? String) == Self.readyValue }
+        attach("trackpad-state")
+        guard ready else { return XCTFail("the pad never reported ready") }
+
+        let velocities: [XCUIGestureVelocity] = [.slow, .default, .fast]
+        let left = pad.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
+        let right = pad.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5))
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(identifier: "UTC")
+
+        let start = formatter.string(from: Date())
+        for index in 0..<count {
+            let from = index % 2 == 0 ? left : right
+            let to = index % 2 == 0 ? right : left
+            from.press(forDuration: 0.05, thenDragTo: to, withVelocity: velocities[index % velocities.count], thenHoldForDuration: 0)
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        let end = formatter.string(from: Date())
+        print("RKTP strokes=\(count) start=\(start) end=\(end)")
+    }
+
     // MARK: Steps
 
     private func element(_ identifier: String) -> XCUIElement {

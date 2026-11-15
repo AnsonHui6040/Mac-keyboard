@@ -1154,6 +1154,151 @@ fn turning_the_switch_off_sends_a_status_without_grant() {
     assert!(!rig.configs.last().unwrap().trackpad);
 }
 
+// ---------------------------------------------------------------- pointer timing
+
+/// A pointer rig whose channel is already open.
+fn open_pointer_rig() -> (Rig, ChannelSet) {
+    let (mut rig, mut phone, channels, grant) = pointer_rig();
+    rig.send_event(&phone, 1, EventKind::PointerOpen { grant });
+    rig.acks(&mut phone);
+    (rig, channels)
+}
+
+fn move_packet(channels: &mut ChannelSet, dx: i16, dy: i16, dt: u16) -> Vec<u8> {
+    packet(channels, PointerPayload::new(Opcode::Move, 0, dx, dy, dt, 0))
+}
+
+/// The log lines of one event kind, exactly (`pointer_timing` does not match `pointer_timing_arr`).
+fn lines_of(rig: &Rig, ev: &str) -> Vec<String> {
+    let key = format!("ev={ev} ");
+    rig.logs.lines().into_iter().filter(|line| line.contains(&key)).collect()
+}
+
+fn field(line: &str, key: &str) -> u64 {
+    let prefix = format!("{key}=");
+    line.split(' ')
+        .find_map(|token| token.strip_prefix(&prefix))
+        .unwrap_or_else(|| panic!("{key} is missing in {line}"))
+        .parse()
+        .unwrap_or_else(|_| panic!("{key} is not a number in {line}"))
+}
+
+/// Five move packets 10 ms apart, each carrying a time of 8 ms.
+fn five_moves(rig: &mut Rig, channels: &mut ChannelSet, dx: i16, dy: i16) {
+    for i in 0..5 {
+        if i > 0 {
+            rig.advance(10);
+        }
+        rig.notify(move_packet(channels, dx, dy, 80));
+    }
+}
+
+#[test]
+fn a_stroke_writes_one_pointer_timing_summary_when_300_ms_pass_without_a_packet() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    five_moves(&mut rig, &mut channels, 160, 32);
+    rig.advance(250);
+    assert!(lines_of(&rig, "pointer_timing").is_empty(), "the stroke is still open 250 ms after the last packet");
+    rig.advance(50);
+    let summary = lines_of(&rig, "pointer_timing");
+    assert_eq!(summary.len(), 1, "exactly one summary, written by the tick alone: {}", rig.log_text());
+    assert_eq!((field(&summary[0], "packets"), field(&summary[0], "moves")), (5, 5));
+    assert!(summary[0].contains("lvl=info") && summary[0].contains("conn="), "{}", summary[0]);
+    for key in ["frames", "idle", "squeeze", "inj_max_us", "late_p99_us", "late_max_us"] {
+        field(&summary[0], key);
+    }
+    let arr = lines_of(&rig, "pointer_timing_arr");
+    assert_eq!(arr.len(), 1);
+    assert_eq!((field(&arr[0], "n"), field(&arr[0], "p50_us"), field(&arr[0], "max_us"), field(&arr[0], "b10")), (4, 10_000, 10_000, 4));
+    let dt = lines_of(&rig, "pointer_timing_dt");
+    assert_eq!((field(&dt[0], "n"), field(&dt[0], "p50_us"), field(&dt[0], "b10")), (5, 8_000, 5));
+    let out = lines_of(&rig, "pointer_timing_out");
+    assert!(field(&out[0], "n") >= 3, "the frames played the moves out: {}", out[0]);
+    rig.advance(5_000);
+    assert_eq!(lines_of(&rig, "pointer_timing").len(), 1, "nothing more is written once the stroke is closed");
+}
+
+#[test]
+fn the_timing_lines_hold_counts_and_times_but_no_displacement() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    five_moves(&mut rig, &mut channels, 1234, -777);
+    rig.advance(400);
+    let text = lines_of(&rig, "pointer_timing")
+        .into_iter()
+        .chain(lines_of(&rig, "pointer_timing_arr"))
+        .chain(lines_of(&rig, "pointer_timing_dt"))
+        .chain(lines_of(&rig, "pointer_timing_out"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("ev=pointer_timing "), "the summary was written");
+    for forbidden in ["1234", "777", "dx", "dy"] {
+        assert!(!text.contains(forbidden), "{forbidden} must not appear in the timing lines: {text}");
+    }
+    let moved = rig.injector.calls().iter().filter(|c| matches!(c, Call::Move(..))).count();
+    assert!(moved > 0, "the moves really were injected");
+}
+
+#[test]
+fn the_wake_up_for_the_stroke_end_is_asked_for_once_the_frames_are_done() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    let at = rig.clock.mono_ms();
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    rig.advance(30);
+    assert_eq!(rig.app.next_wake_ms(), Some(at + 300), "the status poll is 500 ms away, the stroke ends first");
+}
+
+#[test]
+fn a_packet_after_a_quiet_gap_closes_the_old_stroke_and_starts_a_new_one() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    rig.advance(10);
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    rig.clock.advance(400);
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    let first = lines_of(&rig, "pointer_timing");
+    assert_eq!(first.len(), 1, "the packet itself flushed the earlier stroke");
+    assert_eq!(field(&first[0], "packets"), 2);
+    rig.advance(300);
+    let all = lines_of(&rig, "pointer_timing");
+    assert_eq!(all.len(), 2);
+    assert_eq!(field(&all[1], "packets"), 1, "the new stroke started fresh");
+    let arr = lines_of(&rig, "pointer_timing_arr");
+    assert_eq!((field(&arr[0], "n"), field(&arr[1], "n")), (1, 0), "the 400 ms gap is no interval of either stroke");
+}
+
+#[test]
+fn starved_frames_and_squeezes_are_counted_per_stroke() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    for _ in 0..8 {
+        rig.notify(move_packet(&mut channels, 160, 0, 100));
+    }
+    // A frame at the very instant of the packets has nothing due yet.
+    let effects = rig.app.on_tick();
+    rig.run(effects);
+    rig.advance(400);
+    let summary = lines_of(&rig, "pointer_timing");
+    assert_eq!(summary.len(), 1);
+    assert!(field(&summary[0], "squeeze") > 0, "eight 10 ms moves at one instant exceed the lag bound: {}", summary[0]);
+    assert!(field(&summary[0], "idle") >= 1, "{}", summary[0]);
+    // The next stroke starts counting from where this one ended.
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    rig.advance(400);
+    let second = lines_of(&rig, "pointer_timing");
+    assert_eq!(field(&second[1], "squeeze"), 0, "{}", second[1]);
+}
+
+#[test]
+fn a_tick_that_comes_late_is_measured_against_the_wake_up_that_was_asked_for() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    let asked = rig.app.next_wake_ms().expect("the frame tick is wanted");
+    let late_by = 42;
+    rig.advance(asked - rig.clock.mono_ms() + late_by);
+    rig.advance(400);
+    let summary = lines_of(&rig, "pointer_timing");
+    assert_eq!(field(&summary[0], "late_max_us"), late_by * 1_000, "{}", summary[0]);
+}
+
 // ---------------------------------------------------------------- end to end and the log
 
 #[test]

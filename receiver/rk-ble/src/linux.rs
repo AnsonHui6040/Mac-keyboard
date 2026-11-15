@@ -23,6 +23,7 @@ use crate::att::{establish, AttClient, AttError, AttTransport, HandleSet, Phase,
 use crate::connect::{choose_adapter, device_key, forgets_handles, hci_index, fail_kind, fail_kind_of_errno, match_route, with_retries, AdapterChoice, Holds, CONNECT_RETRIES};
 use crate::diag::{Diag, FailKind, Value};
 use crate::flow::{drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
+use crate::rx_timing::RxTiming;
 use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use bluer::l2cap::{SeqPacket, Socket, SocketAddr};
@@ -32,7 +33,7 @@ use std::collections::HashSet;
 use std::pin::Pin;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tokio::time::{interval, sleep, timeout, MissedTickBehavior};
+use tokio::time::{interval, sleep, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
 use uuid::Uuid;
 
 const SERVICE: Uuid = Uuid::from_u128(0x706AA642_68A3_41FA_889D_24E30709B0D0);
@@ -55,6 +56,15 @@ const RETRY_WAITS_MS: [u64; 4] = [0, 500, 1000, 2000];
 
 fn millis(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+fn micros_since(since: Instant) -> u64 {
+    u64::try_from(since.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// The `ble_rx_timing` event of a finished stroke: counts and times only.
+fn rx_timing_diag(conn: u64, fields: &[(&'static str, u64)]) -> Diag {
+    fields.iter().fold(Diag::new(conn, "ble_rx_timing"), |diag, (key, value)| diag.with(key, Value::U(*value)))
 }
 
 fn route_word(route: Route) -> &'static str {
@@ -493,8 +503,19 @@ impl Worker {
         };
         let mut replaced: Option<Sighting> = None;
         let mut gone = false;
+        // Arrival times of pointer notifications, one `ble_rx_timing` line per stroke (see `rx_timing`).
+        let clock_base = Instant::now();
+        let mut rx_timing = RxTiming::new();
         let reason = loop {
+            // The wake-up for the end of a stroke is armed only while one is open; the expression is built either way.
+            let rx_open = rx_timing.is_open();
+            let rx_wake = TokioInstant::from_std(clock_base + Duration::from_micros(rx_timing.deadline_us().unwrap_or(0)));
             tokio::select! {
+                () = sleep_until(rx_wake), if rx_open => {
+                    if let Some(fields) = rx_timing.finish_if_ended(micros_since(clock_base)) {
+                        emit_diag(&self.events, rx_timing_diag(conn, &fields)).await;
+                    }
+                }
                 Some(advert) = seen.recv(), if watcher.is_some() => {
                     if self.advert_is_stale(&advert, device, route, subscribed_at) {
                         replaced = Some(Sighting { route: Route::Selected, ..sighting });
@@ -504,6 +525,12 @@ impl Worker {
                 incoming = att.next_notification() => match incoming {
                     Ok((handle, bytes)) => {
                         if handle == handles.event {
+                            let arrived_us = micros_since(clock_base);
+                            // A stroke that ended without the timer having fired yet is reported before the next one opens.
+                            if let Some(fields) = rx_timing.finish_if_ended(arrived_us) {
+                                emit_diag(&self.events, rx_timing_diag(conn, &fields)).await;
+                            }
+                            rx_timing.on_notification(bytes.first().copied(), arrived_us);
                             let _ = self.events.send(LinkEvent::Notification { conn, bytes }).await;
                         }
                     }
