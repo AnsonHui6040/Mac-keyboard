@@ -1126,19 +1126,33 @@ TDD：`win_units.rs` 初版與測試一起寫，之後故意弄壞行為確認�
 - 獨立 reviewer（ecc:rust-reviewer）：沒有 Critical、Important。
 - 新版已裝到 rk-linux（`~/.local/bin`，hci1）與 rk-win（`%LOCALAPPDATA%\Programs\RemoteKeyboard`），兩台都已重新啟動。舊版備份為 `*.bak-da86d82`。
 
-### 修正後實機自動量度
+### 修正後實機自動量度（2026-11-15 11:28–11:31，台灣時間）
 
-TBD。iPhone 先是約 08:20–09:30（台灣時間）沒有廣播，使用者關開藍牙後恢復。之後到 10:48 為止，Xcode 都看不到這支 iPhone（`unavailable`）。iPhone 可用後：
+- 用 `measure-trackpad.sh` 各量 30 段。iPhone UI 測試 `testFixedStrokes` 以慢、中、快三種速度輪流畫直線。
+- 原始結果存在 `e2e/results/2026-11-15-trackpad-{linux,win}-after.txt`，不進 repo。
+- 修正前那一欄是使用者親手操作的數據，手勢來源不同，只能作趨勢比較。
 
-```bash
-RK_LABEL=after e2e/scripts/measure-trackpad.sh linux 30
-```
+| 項目 | Linux 修正前 | Linux 修正後 | Windows（對照） |
+|---|---|---|---|
+| 封包 `dt` 中位數 | 16.6 毫秒 | 16.6 毫秒 | 16.6 毫秒 |
+| 到達間隔 ≤2 毫秒 | 63.8% | 75.1% | 9.0% |
+| 到達間隔中位數 | ≤2 毫秒 | ≤2 毫秒 | 15 毫秒 |
+| 到達間隔 50–150 毫秒 | 2.5% | 10.7% | 0.8% |
+| 延遲上限 `lag_us`（各段中位數） | 約 21.7 毫秒（推算） | 50 毫秒 | 21.6 毫秒 |
+| 被壓縮的 MOVE | 625／983（64%） | 540／1241（44%） | 669／1243（54%） |
+| 輸出間隔 ≤10 毫秒 | 67.8% | 80.3% | 2.5% |
+| 輸出間隔 20–30 毫秒（走停） | 25.5% | 1.5% | 12.9% |
+| 輸出間隔 >40 毫秒 | 1.5% | 8.5% | 5.4% |
 
-```bash
-RK_LABEL=after RK_HOST_NAME=<Windows 主機名> e2e/scripts/measure-trackpad.sh win 30
-```
+判讀：
 
-Windows 那次同時是到達間隔的對照組。
+- 修正前每秒約 22 次的走停（輸出間隔 20–30 毫秒）由 25.5% 降到 1.5%，延遲上限依實測穩定在 50 毫秒。
+- 壓縮次數不再代表卡頓：Windows 的封包段長 16.6 毫秒比到達間隔 15 毫秒長，每次只壓縮幾個百分比。
+- Linux 剩下的 >40 毫秒輸出空檔（8.5%）對應到達端約 90 毫秒的空窗（各段 p90 中位數 86 毫秒）。
+  - 這個空窗在 BLE 層就已經出現（`ble_rx_timing` 50–150 毫秒佔 10.7%），超過 60 毫秒的上限，playout 無法補。
+  - 同時段 Windows 沒有連上 iPhone，所以不是兩台搶連線。
+  - 修正前那次只佔 2.5%，比例隨連線狀況變動；原因在連結層，未查。縮短連線間隔可以縮小這個空窗。
+- Windows 的輸出間隔中位數 16 毫秒，tick 延遲中位數 16 毫秒（Windows 計時器解析度約 15.6 毫秒），8 毫秒一次的 tick 實際約 16 毫秒一次。使用者回報 Windows 順，這次不改，只記錄。
 
 ### 可選：縮短 hci1 連線間隔（需要 root，未執行，由使用者決定）
 
@@ -1166,5 +1180,5 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
 
 ### 未驗證（TBD）
 
-- 修正後的實機自動量度（Linux、Windows）。
+- Linux 到達端約 90 毫秒空窗的原因（連結層，未查）。
 - 實機手感（Linux、Windows）：由使用者親手試。
