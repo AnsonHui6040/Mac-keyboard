@@ -1380,7 +1380,10 @@ mod tests {
     }
 
     fn temp_token_path(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("rk-inject-test-{}-{name}", std::process::id()));
+        // Tests run in parallel threads of one process, so every call gets its own directory.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let unique = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("rk-inject-test-{}-{unique}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir.join("remote-keyboard").join("portal-token")
     }
