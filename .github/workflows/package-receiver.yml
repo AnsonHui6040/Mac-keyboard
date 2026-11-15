@@ -134,3 +134,67 @@ jobs:
           name: windows-installer
           path: dist/RemoteKeyboard-Setup-*.exe
           if-no-files-found: error
+
+  linux-deb:
+    name: Linux .deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build tools and lintian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config lintian
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build the package
+        run: |
+          mkdir -p dist
+          cd receiver
+          cargo deb -p rk-receiver --output ../dist/
+          ls -l ../dist
+
+      - name: Lint the package
+        run: |
+          lintian dist/*.deb | tee lintian.txt || true
+          if grep -q '^E:' lintian.txt; then
+            echo 'lintian reported errors'
+            exit 1
+          fi
+
+      - name: Install the package
+        run: sudo apt-get install -y ./dist/*.deb
+
+      - name: Check the installed files and versions
+        run: |
+          files=$(dpkg -L remote-keyboard)
+          for want in /usr/bin/rk-receiver /usr/bin/rk-diag /usr/share/applications/remote-keyboard.desktop /usr/share/icons/hicolor/256x256/apps/remote-keyboard.png; do
+            echo "$files" | grep -qx "$want" || { echo "missing $want"; exit 1; }
+            test -e "$want" || { echo "$want is listed but not on disk"; exit 1; }
+          done
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' receiver/rk-receiver/Cargo.toml | head -n 1)
+          for tool in rk-receiver rk-diag; do
+            got=$("$tool" --version)
+            [ "$got" = "$tool $version" ] || { echo "$tool --version printed [$got], expected [$tool $version]"; exit 1; }
+            echo "$got"
+          done
+
+      - name: Remove the package
+        run: |
+          sudo apt-get remove -y remote-keyboard
+          if [ -e /usr/bin/rk-receiver ]; then echo '/usr/bin/rk-receiver is still there after removal'; exit 1; fi
+          if [ -e /usr/bin/rk-diag ]; then echo '/usr/bin/rk-diag is still there after removal'; exit 1; fi
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          if-no-files-found: error

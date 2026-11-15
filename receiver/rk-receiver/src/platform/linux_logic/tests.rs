@@ -104,6 +104,28 @@ fn set_autostart_writes_and_removes_the_file() {
     assert!(write_autostart(&file, Path::new("/opt/rk"), false), "removing what is not there is fine");
 }
 
+#[test]
+fn autostart_file_is_rewritten_when_it_points_to_another_exe() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("remote-keyboard.desktop");
+    std::fs::write(&file, autostart_desktop_file(Path::new("/home/x/.local/bin/rk-receiver"))).unwrap();
+    assert!(ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), autostart_desktop_file(Path::new("/usr/bin/rk-receiver")));
+}
+
+#[test]
+fn autostart_file_is_left_alone_when_disabled_or_already_ours() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("remote-keyboard.desktop");
+    assert!(!ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")));
+    assert!(!file.exists(), "a missing file means autostart is off and must stay missing");
+
+    let ours = autostart_desktop_file(Path::new("/usr/bin/rk-receiver"));
+    std::fs::write(&file, &ours).unwrap();
+    assert!(!ensure_autostart_points_to(&file, Path::new("/usr/bin/rk-receiver")));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), ours);
+}
+
 // ---------------------------------------------------------------- paths
 
 #[test]

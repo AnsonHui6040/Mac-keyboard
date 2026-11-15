@@ -10,7 +10,7 @@
 //! talks to the Secret Service for the application's synchronous key store.
 
 use super::linux_logic::{
-    action_for, argb_from_rgba, Begin, LoadSlot, autostart_file, data_file, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
+    action_for, argb_from_rgba, Begin, LoadSlot, autostart_file, data_file, ensure_autostart_points_to, entered_name, entry_args, export_dir, info_args, lang_from_env, lock_file, menu_entries,
     portal_token_file, pretty_name, question_args, restart_args, tooltip_text, write_autostart, Action, AdapterChoices, ChainedBackend, FilePhoneBackend, MenuEntry,
 };
 use super::{claim_instance, linux_paths, Instance, InstanceLock, Paths};
@@ -630,6 +630,13 @@ pub fn run(cli: &Cli) -> i32 {
     }
     if config_store.save(&config).is_err() && startup_notice.is_none() {
         logger.info("config_save_failed", None, &[]);
+    }
+    if config.autostart {
+        // After a move to a package, the autostart file may still name the old program.
+        let file = autostart_file(&home(), env_path("XDG_CONFIG_HOME").as_deref());
+        if std::env::current_exe().is_ok_and(|exe| ensure_autostart_points_to(&file, &exe)) {
+            logger.info("autostart_repointed", None, &[]);
+        }
     }
     let store = phone_store(Some(&logger));
     let injector = make_injector(&config, portal_token_file(&paths.config_file), Some(logger.clone()));

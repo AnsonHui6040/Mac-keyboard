@@ -69,6 +69,17 @@ pub fn write_autostart(file: &Path, exe: &Path, enabled: bool) -> bool {
     }
 }
 
+/// Points an existing autostart file at `exe` when it names another program, as after a move from `~/.local/bin` to a
+/// package. A missing file means autostart is off and stays off. `true` when the file was rewritten.
+pub fn ensure_autostart_points_to(file: &Path, exe: &Path) -> bool {
+    let Ok(current) = std::fs::read_to_string(file) else { return false };
+    let wanted = format!("Exec={}", desktop_exec_quote(exe));
+    if current.lines().any(|line| line == wanted) {
+        return false;
+    }
+    std::fs::write(file, autostart_desktop_file(exe)).is_ok()
+}
+
 // ---------------------------------------------------------------- paths and environment
 
 /// `$XDG_DATA_HOME/remote-keyboard/phones.json`, `~/.local/share/...` by default: the keys when there is no Secret Service.
