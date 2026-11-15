@@ -1,0 +1,204 @@
+name: Package receiver
+
+on:
+  pull_request:
+    paths:
+      - "receiver/**"
+      - "packaging/**"
+      - ".github/workflows/package-receiver.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Make sure Inno Setup 6 is available
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress
+            if ($LASTEXITCODE -ne 0) { throw "choco install innosetup failed with exit code $LASTEXITCODE" }
+          }
+
+      - name: Build the installer
+        shell: pwsh
+        run: ./packaging/windows/build-installer.ps1
+
+      - name: Install silently for the current user
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'installer not found in dist' }
+          $p = Start-Process -FilePath $installer.FullName -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
+          if ($p.ExitCode -ne 0) { throw "installer exited with code $($p.ExitCode)" }
+
+      - name: Check that setup started the receiver
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddSeconds(10)
+          while (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) {
+            Write-Host 'rk-receiver is running after setup'
+          } else {
+            # The runner has no Bluetooth adapter; if the tray program leaves by itself there, that is not a setup failure.
+            Write-Host 'NOTE: no rk-receiver process 10 s after setup; the runner may lack a desktop or Bluetooth. Not treated as a failure.'
+          }
+
+      - name: Check the installed files, autostart value and versions
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          $exe = Join-Path $dir 'rk-receiver.exe'
+          foreach ($name in 'rk-receiver.exe', 'rk-diag.exe', 'unins000.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "missing $name in $dir" }
+          }
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction Stop).RemoteKeyboard
+          $want = '"' + $exe + '"'
+          if ($run -ne $want) { throw "Run value is [$run], expected [$want]" }
+
+          $version = (Select-String -Path 'receiver/rk-receiver/Cargo.toml' -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          # rk-receiver is a windows-subsystem program: with redirected output it writes to the file instead of a console.
+          foreach ($tool in 'rk-receiver', 'rk-diag') {
+            $out = Join-Path $env:RUNNER_TEMP "$tool-version.txt"
+            $p = Start-Process -FilePath (Join-Path $dir "$tool.exe") -ArgumentList '--version' -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out
+            if ($p.ExitCode -ne 0) { throw "$tool --version exited with code $($p.ExitCode)" }
+            $text = (Get-Content $out -Raw).Trim()
+            if ($text -ne "$tool $version") { throw "$tool --version printed [$text]" }
+            Write-Host $text
+          }
+
+      - name: Upgrade over a running receiver
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          $exe = Join-Path $dir 'rk-receiver.exe'
+          if (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath $exe
+            Start-Sleep -Seconds 3
+          }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) { Write-Host 'a receiver is running before the upgrade' }
+          else { Write-Host 'NOTE: the receiver did not stay running on this runner; the upgrade is still run' }
+          $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
+          $p = Start-Process -FilePath $installer.FullName -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
+          if ($p.ExitCode -ne 0) { throw "upgrade installer exited with code $($p.ExitCode)" }
+          foreach ($name in 'rk-receiver.exe', 'rk-diag.exe', 'unins000.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "missing $name after upgrade" }
+          }
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction Stop).RemoteKeyboard
+          $want = '"' + $exe + '"'
+          if ($run -ne $want) { throw "Run value is [$run] after upgrade, expected [$want]" }
+
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          # The uninstaller has to end a running receiver itself.
+          if (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath (Join-Path $dir 'rk-receiver.exe')
+            Start-Sleep -Seconds 3
+          }
+          $p = Start-Process -FilePath (Join-Path $dir 'unins000.exe') -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          # -Wait would also wait for the receiver that setup starts; wait for this process only.
+          $null = $p.Handle
+          if (-not $p.WaitForExit(300000)) { throw 'setup did not finish within 5 minutes' }
+          if ($p.ExitCode -ne 0) { throw "uninstaller exited with code $($p.ExitCode)" }
+          # The uninstaller copies itself to a temp folder and relaunches, so the first process can return early.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path (Join-Path $dir 'rk-receiver.exe')) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 1 }
+          if (Test-Path (Join-Path $dir 'rk-receiver.exe')) { throw 'rk-receiver.exe is still installed after 60 s' }
+          $value = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction SilentlyContinue
+          if ($value) { throw 'the Run value RemoteKeyboard is still present after uninstall' }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) { throw 'an rk-receiver process is still running after uninstall' }
+
+      - name: Upload the installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/RemoteKeyboard-Setup-*.exe
+          if-no-files-found: error
+
+  linux-deb:
+    name: Linux .deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Install the stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build tools and lintian
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev pkg-config lintian
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build the package
+        run: |
+          mkdir -p dist
+          cd receiver
+          cargo deb -p rk-receiver --output ../dist/
+          ls -l ../dist
+
+      - name: Lint the package
+        run: |
+          lintian dist/*.deb | tee lintian.txt || true
+          if grep -q '^E:' lintian.txt; then
+            echo 'lintian reported errors'
+            exit 1
+          fi
+
+      - name: Install the package
+        run: sudo apt-get install -y ./dist/*.deb
+
+      - name: Check the installed files and versions
+        run: |
+          files=$(dpkg -L remote-keyboard)
+          for want in /usr/bin/rk-receiver /usr/bin/rk-diag /usr/share/applications/remote-keyboard.desktop /usr/share/icons/hicolor/256x256/apps/remote-keyboard.png; do
+            echo "$files" | grep -qx "$want" || { echo "missing $want"; exit 1; }
+            test -e "$want" || { echo "$want is listed but not on disk"; exit 1; }
+          done
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' receiver/rk-receiver/Cargo.toml | head -n 1)
+          for tool in rk-receiver rk-diag; do
+            got=$("$tool" --version)
+            [ "$got" = "$tool $version" ] || { echo "$tool --version printed [$got], expected [$tool $version]"; exit 1; }
+            echo "$got"
+          done
+          deb_version=$(dpkg-query -W -f='${Version}' remote-keyboard)
+          want_deb_version=$(echo "$version" | sed 's/-/~/')
+          [ "$deb_version" = "$want_deb_version" ] || { echo "installed version [$deb_version], expected [$want_deb_version]"; exit 1; }
+          echo "dpkg version $deb_version"
+
+      - name: Remove the package
+        run: |
+          sudo apt-get remove -y remote-keyboard
+          if [ -e /usr/bin/rk-receiver ]; then echo '/usr/bin/rk-receiver is still there after removal'; exit 1; fi
+          if [ -e /usr/bin/rk-diag ]; then echo '/usr/bin/rk-diag is still there after removal'; exit 1; fi
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-deb
+          path: dist/*.deb
+          if-no-files-found: error

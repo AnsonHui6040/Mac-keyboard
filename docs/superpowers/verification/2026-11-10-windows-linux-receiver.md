@@ -1262,9 +1262,15 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
   - 其中有一次誤判：手機收起鍵盤時，90 毫秒內出現 3 次 `att_error`，觸發了重設。重設後 2.9 秒就恢復連線。
   - 這個誤判已由「`att_error` 不算失敗」修正。
 
+- 實機（09:39 UTC，main 3e5e12b，已含 att_error 修正）：
+  - rk-linux：`cargo test --workspace` 725 個通過、0 失敗；release build 成功。clippy 有 1 個錯誤：`rk-core/src/pointer.rs:352` 的 `collapsible_match`。這是 rk-linux 較新的 Rust 1.99 新增的 lint，指到舊程式碼；Mac 與 CI 的版本不報。
+  - `measure-reconnect.sh linux 10`：10 次都跑了。`auth ok` 11 次，`adapter_reset` 0 次，沒有誤判。
+  - iPhone 端有 8 次在時限內連上：備忘錄 3/5，Safari 5/5。測試因備忘錄有 2 次沒連上而判失敗。
+  - 接收端：從看到廣播到通過驗證，中位數 1.1 秒，p95 8.3 秒。另外有 6 次 `stale_advert` 斷線、10 次 `enosys` 重試。這比重設後立即量到的 27/27（p95 3.7 秒）差，原因還沒查。
+
 ### 未驗證（TBD）
 
-- 安裝 att_error 修正後的版本，再量一次重連，確認不再誤判。
+- 重連變慢的原因：比對 `stale_advert`、`enosys` 與 27/27 那次的差別。
 - 真正變聾時能否自動觸發並恢復：需要長時間觀察 rk-linux 的 `adapter_reset*` log。
 - 變聾的觸發原因。
 
