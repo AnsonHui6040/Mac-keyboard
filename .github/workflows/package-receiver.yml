@@ -40,8 +40,20 @@ jobs:
         run: |
           $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'installer not found in dist' }
-          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
           if ($p.ExitCode -ne 0) { throw "installer exited with code $($p.ExitCode)" }
+
+      - name: Check that setup started the receiver
+        shell: pwsh
+        run: |
+          $deadline = (Get-Date).AddSeconds(10)
+          while (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) {
+            Write-Host 'rk-receiver is running after setup'
+          } else {
+            # The runner has no Bluetooth adapter; if the tray program leaves by itself there, that is not a setup failure.
+            Write-Host 'NOTE: no rk-receiver process 10 s after setup; the runner may lack a desktop or Bluetooth. Not treated as a failure.'
+          }
 
       - name: Check the installed files, autostart value and versions
         shell: pwsh
@@ -66,16 +78,36 @@ jobs:
             Write-Host $text
           }
 
-      - name: Stop any running receiver before uninstalling
+      - name: Upgrade over a running receiver
         shell: pwsh
         run: |
-          Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue | Stop-Process -Force
-          Start-Sleep -Seconds 2
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          $exe = Join-Path $dir 'rk-receiver.exe'
+          if (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath $exe
+            Start-Sleep -Seconds 3
+          }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) { Write-Host 'a receiver is running before the upgrade' }
+          else { Write-Host 'NOTE: the receiver did not stay running on this runner; the upgrade is still run' }
+          $installer = Get-ChildItem dist -Filter 'RemoteKeyboard-Setup-*.exe' | Select-Object -First 1
+          $p = Start-Process -FilePath $installer.FullName -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/TASKS=autostart'
+          if ($p.ExitCode -ne 0) { throw "upgrade installer exited with code $($p.ExitCode)" }
+          foreach ($name in 'rk-receiver.exe', 'rk-diag.exe', 'unins000.exe') {
+            if (-not (Test-Path (Join-Path $dir $name))) { throw "missing $name after upgrade" }
+          }
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction Stop).RemoteKeyboard
+          $want = '"' + $exe + '"'
+          if ($run -ne $want) { throw "Run value is [$run] after upgrade, expected [$want]" }
 
       - name: Uninstall silently
         shell: pwsh
         run: |
           $dir = Join-Path $env:LOCALAPPDATA 'Programs\RemoteKeyboard'
+          # The uninstaller has to end a running receiver itself.
+          if (-not (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue)) {
+            Start-Process -FilePath (Join-Path $dir 'rk-receiver.exe')
+            Start-Sleep -Seconds 3
+          }
           $p = Start-Process -FilePath (Join-Path $dir 'unins000.exe') -Wait -PassThru -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
           if ($p.ExitCode -ne 0) { throw "uninstaller exited with code $($p.ExitCode)" }
           # The uninstaller copies itself to a temp folder and relaunches, so the first process can return early.
@@ -84,6 +116,7 @@ jobs:
           if (Test-Path (Join-Path $dir 'rk-receiver.exe')) { throw 'rk-receiver.exe is still installed after 60 s' }
           $value = Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'RemoteKeyboard' -ErrorAction SilentlyContinue
           if ($value) { throw 'the Run value RemoteKeyboard is still present after uninstall' }
+          if (Get-Process -Name 'rk-receiver' -ErrorAction SilentlyContinue) { throw 'an rk-receiver process is still running after uninstall' }
 
       - name: Upload the installer
         uses: actions/upload-artifact@v4

@@ -1,4 +1,4 @@
-; Remote Keyboard receiver installer (Inno Setup 6, needs ISPP for #define).
+﻿; Remote Keyboard receiver installer (Inno Setup 6, needs ISPP for #define).
 ; Build: iscc /DAppVersion=<version> RemoteKeyboard.iss   (packaging/windows/build-installer.ps1 does this)
 ; ChineseTraditional.isl is the unofficial translation shipped with Inno Setup, copied unmodified from
 ; https://raw.githubusercontent.com/jrsoftware/issrc/is-6_7_3/Files/Languages/Unofficial/ChineseTraditional.isl
@@ -23,8 +23,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-AppMutex=Local\RemoteKeyboardReceiver
-CloseApplications=yes
+CloseApplications=no
 RestartApplications=no
 SetupIconFile=..\..\receiver\rk-receiver\assets\connected.ico
 UninstallDisplayIcon={app}\{#AppExe}
@@ -41,6 +40,8 @@ Name: "zhtw"; MessagesFile: "ChineseTraditional.isl"
 [CustomMessages]
 en.AutoStart=Start when I sign in
 zhtw.AutoStart=開機時自動啟動
+en.ReceiverStillRunning=Remote Keyboard is still running and could not be closed. Quit it from the tray icon and run setup again.
+zhtw.ReceiverStillRunning=Remote Keyboard 仍在執行，無法自動關閉。請從系統匣圖示結束它，再重新執行安裝程式。
 
 [Tasks]
 Name: "autostart"; Description: "{cm:AutoStart}"
@@ -57,11 +58,48 @@ Root: HKCU; Subkey: "{#RunKey}"; ValueType: string; ValueName: "{#RunValue}"; Va
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,Remote Keyboard}"; Flags: nowait postinstall skipifsilent
+; A silent upgrade ends the running receiver first (PrepareToInstall), so start it again.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 
 ; Settings, keys and pairing live in %APPDATA%\RemoteKeyboard and %LOCALAPPDATA%\RemoteKeyboard\logs.
 ; No [UninstallDelete] entry touches them, so a reinstall does not need to pair again.
 
 [Code]
+const
+  ReceiverMutex = 'Local\RemoteKeyboardReceiver';
+
+// The receiver is a tray program that holds ReceiverMutex for its whole life and does not answer WM_ENDSESSION, so neither
+// AppMutex nor the Restart Manager can close it: end it here and wait until the mutex is gone.
+function EndReceiver(): Boolean;
+var
+  ResultCode, I: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#AppExe}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  for I := 1 to 50 do
+  begin
+    if not CheckForMutexes(ReceiverMutex) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(200);
+  end;
+  Result := not CheckForMutexes(ReceiverMutex);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if not EndReceiver() then
+    Result := CustomMessage('ReceiverStillRunning');
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  EndReceiver();
+  Result := True;
+end;
+
 // The Run value can exist without the autostart task: the program writes it itself when the user turns
 // "start when I sign in" on in the tray menu, and an earlier install may have created it. The [Registry]
 // uninsdeletevalue flag only covers a value this install created, so remove it on every uninstall.
