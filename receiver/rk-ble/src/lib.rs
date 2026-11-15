@@ -22,6 +22,7 @@ pub mod connect;
 pub mod diag;
 pub mod fake;
 pub mod flow;
+pub mod health;
 pub mod rx_timing;
 pub mod stale;
 #[cfg(target_os = "linux")]
