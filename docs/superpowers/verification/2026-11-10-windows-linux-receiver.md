@@ -1185,7 +1185,7 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
 - 連線間隔生效。到達間隔主要落在 15–40 毫秒；仍有 42% ≤2 毫秒，表示 iPhone 常在同一個連線事件送出 2 個封包。
 - 約 90 毫秒的空窗幾乎消失，輸出 >40 毫秒的空檔由 8.5% 降到 0.5%。
 - 延遲上限由 50 毫秒降到 35 毫秒（依實測週期自動調整）。
-- 實機手感：TBD，等使用者親手試。
+- 實機手感：使用者 2026-11-15 親手試，回報「順了」（Linux，短連線間隔）。PASS。
 - 這兩個設定重開機會還原。要長期保留，需要使用者決定是否加開機設定（需要 root）。另一條路是查清楚 iPhone 的 `setDesiredConnectionLatency(.low)` 為什麼在 Linux 沒有生效（另開工作，可能要改 iOS）。
 
 ### Mac 是否同類（推測，未量度）
@@ -1203,4 +1203,5 @@ echo 12 | sudo tee /sys/kernel/debug/bluetooth/hci1/conn_max_interval
 ### 未驗證（TBD）
 
 - Linux 到達端約 90 毫秒空窗的原因（連結層，未查）。
-- 實機手感（Linux、Windows）：由使用者親手試。
+- Windows 修正版的實機手感（修正前已暫定 PASS）。
+- 重開機後 hci1 連線間隔還原，屆時 Linux 會回到 50 毫秒延遲上限。
