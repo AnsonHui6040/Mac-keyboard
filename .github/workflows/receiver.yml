@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "receiver/**"
+      - "packaging/**"
       - ".github/workflows/receiver.yml"
   workflow_dispatch:
 

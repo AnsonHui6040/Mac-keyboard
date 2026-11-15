@@ -1,6 +1,9 @@
 name: Package receiver
 
 on:
+  push:
+    tags:
+      - "v*"
   pull_request:
     paths:
       - "receiver/**"
@@ -202,3 +205,76 @@ jobs:
           name: linux-deb
           path: dist/*.deb
           if-no-files-found: error
+
+  draft-release:
+    name: Draft release
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    needs: [windows-installer, linux-deb]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Download the installers
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Check the tag, version and release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="$(sed -n 's/^version = "\(.*\)"$/\1/p' receiver/rk-receiver/Cargo.toml | head -n 1)"
+          if [ -z "$VERSION" ]; then
+            echo "::error::could not read the version from receiver/rk-receiver/Cargo.toml"
+            exit 1
+          fi
+          if [ "v${VERSION}" != "$TAG" ]; then
+            echo "::error::tag ${TAG} does not match the Cargo version v${VERSION}"
+            exit 1
+          fi
+          if [ ! -f "release-notes/${TAG}.md" ]; then
+            echo "::error::release-notes/${TAG}.md does not exist"
+            exit 1
+          fi
+          ls -l dist
+          exe_count="$(find dist -maxdepth 1 -name 'RemoteKeyboard-Setup-*.exe' | wc -l)"
+          deb_count="$(find dist -maxdepth 1 -name '*.deb' | wc -l)"
+          all_count="$(find dist -maxdepth 1 -type f | wc -l)"
+          if [ "$exe_count" != 1 ] || [ "$deb_count" != 1 ] || [ "$all_count" != 2 ]; then
+            echo "::error::dist must hold exactly one Windows installer and one .deb"
+            exit 1
+          fi
+
+      - name: Write SHA256SUMS.txt
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the draft pre-release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          # A draft has no tag ref yet, so `gh release view` may miss it; the list includes drafts.
+          if gh release list --limit 100 --json tagName -q '.[].tagName' | grep -qxF -- "$TAG"; then
+            echo "::error::a release for ${TAG} already exists; refusing to overwrite it"
+            exit 1
+          fi
+          gh release create "$TAG" --draft --prerelease \
+            --title "Remote Keyboard ${TAG}" \
+            --notes-file "release-notes/${TAG}.md" \
+            dist/*
