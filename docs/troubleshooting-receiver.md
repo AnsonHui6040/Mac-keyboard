@@ -94,12 +94,12 @@
 
 ### 藍牙卡自動重設
 
-藍牙卡用久了偶爾會「聽不到」：核心照常下掃描指令、回報都成功，但晶片完全沒有回傳任何裝置的廣播；之前通常先出現連線逾時或 `att_error`。把藍牙卡關掉再開（BlueZ 的 `Powered` 關再開）就會恢復。接收端會自動做這件事，不需要 sudo，也不針對特定廠牌或型號，任何 Linux 電腦、任何藍牙卡都適用。
+藍牙卡用久了偶爾會「聽不到」：核心照常下掃描指令、回報都成功，但晶片完全沒有回傳任何裝置的廣播；之前通常先出現連線逾時。把藍牙卡關掉再開（BlueZ 的 `Powered` 關再開）就會恢復。接收端會自動做這件事，不需要 sudo，也不針對特定廠牌或型號，任何 Linux 電腦、任何藍牙卡都適用。
 
 | 觸發條件 | log 的 `reason` |
 |---|---|
 | 接收中、正在掃描、沒有連線，且 60 秒內沒有聽到任何裝置的廣播（不限手機；連線嘗試花掉的時間不算） | `no_adverts` |
-| 連續 3 次連線嘗試失敗（`unreachable`、`enosys`、`abort_by_local`、`att_error`、`timeout`） | `connect_failures` |
+| 連續 3 次無線電層級的連線失敗（`unreachable`、`enosys`、`abort_by_local`、`timeout`） | `connect_failures` |
 
 下列情況不會重設：
 
@@ -107,7 +107,7 @@
 - 藍牙卡被使用者自己關掉（接收端不會替使用者開啟），記錄 `adapter_reset_skipped kind=off`。
 - 這張藍牙卡上有不是我們手機的裝置連線中（例如沒有指定 `--adapter` 而用到了別的程式也在用的 hci0），記錄 `adapter_reset_skipped kind=busy`，並依下面的間隔退避。
 
-`not_selected`、`auth_failed`、`unsupported_version` 表示無線電本身正常，不算失敗，還會讓連續失敗的計數歸零；因接收開關而取消的連線嘗試也不算。
+`att_error`、`not_selected`、`auth_failed`、`unsupported_version`、`peer_bye`、`link_lost` 都是手機在空中回應過（或連線曾經建立）的結果，表示無線電本身正常，不算失敗，還會讓連續失敗的計數歸零；因接收開關而取消的連線嘗試也不算。例如手機正在收起鍵盤、GATT 服務暫時消失時，短時間內連續出現 3 次 `att_error` 不會重設藍牙卡。
 
 兩次重設至少相隔 120 秒；重設之後如果沒有恢復，下一次的間隔加倍（120、240、480 秒……最長 30 分鐘）。什麼算恢復，看上一次重設的原因：
 

@@ -43,12 +43,19 @@ impl ResetReason {
     }
 }
 
-/// Whether a failed connection attempt says something about the controller. The phone's refusals and its app's version say
-/// nothing: the radio did its part.
+/// Whether a failed connection attempt says something about the controller. Only a failure at the radio level does:
+/// - `Unreachable`, `Enosys`, `AbortByLocal`, `Timeout`: the link never came up, or the controller itself dropped it.
+///
+/// Anything the phone answered over the air does not (the radio did its part), and it also ends a streak of failures:
+/// - `AttError`: the phone's GATT server replied with an error, typically while the phone is closing its keyboard and the
+///   service is momentarily gone (three of them within 90 ms must not power-cycle the adapter).
+/// - `NotSelected`, `AuthFailed`, `UnsupportedVersion`: the phone refused, or its app is the wrong version.
+/// - `PeerBye`: the phone ended the session itself.
+/// - `LinkLost`: the link had come up and carried traffic before it dropped, so the controller was working.
 pub fn counts_against_adapter(kind: FailKind) -> bool {
     match kind {
-        FailKind::Unreachable | FailKind::Enosys | FailKind::AbortByLocal | FailKind::AttError | FailKind::Timeout => true,
-        FailKind::NotSelected | FailKind::AuthFailed | FailKind::UnsupportedVersion | FailKind::PeerBye | FailKind::LinkLost => false,
+        FailKind::Unreachable | FailKind::Enosys | FailKind::AbortByLocal | FailKind::Timeout => true,
+        FailKind::AttError | FailKind::NotSelected | FailKind::AuthFailed | FailKind::UnsupportedVersion | FailKind::PeerBye | FailKind::LinkLost => false,
     }
 }
 
@@ -533,10 +540,38 @@ mod tests {
         let (mut health, t0) = start();
         health.advert(t0);
         health.connect_failed(FailKind::Timeout);
-        health.connect_failed(FailKind::AttError);
+        health.connect_failed(FailKind::AbortByLocal);
         assert_eq!(health.check(t0 + secs(1)), None);
         health.connect_failed(FailKind::Timeout);
         assert_eq!(health.check(t0 + secs(1)), Some(ResetReason::ConnectFailures));
+    }
+
+    #[test]
+    fn three_timeouts_in_a_row_still_trigger_a_reset() {
+        let (mut health, t0) = start();
+        for _ in 0..3 {
+            health.connect_failed(FailKind::Timeout);
+        }
+        assert_eq!(health.check(t0), Some(ResetReason::ConnectFailures));
+    }
+
+    #[test]
+    fn three_att_errors_in_a_row_do_not_reset_the_adapter() {
+        let (mut health, t0) = start();
+        for _ in 0..3 {
+            health.connect_failed(FailKind::AttError);
+        }
+        assert_eq!(health.check(t0), None, "the phone answered over the air: its GATT service was only gone for a moment");
+    }
+
+    #[test]
+    fn an_att_error_between_radio_failures_resets_the_count() {
+        let (mut health, t0) = start();
+        health.connect_failed(FailKind::Timeout);
+        health.connect_failed(FailKind::Timeout);
+        health.connect_failed(FailKind::AttError);
+        health.connect_failed(FailKind::Timeout);
+        assert_eq!(health.check(t0), None, "the answer from the phone ends the streak");
     }
 
     #[test]
@@ -553,7 +588,7 @@ mod tests {
     #[test]
     fn refusals_by_the_phone_are_not_counted_and_end_the_streak() {
         let (mut health, t0) = start();
-        for kind in [FailKind::NotSelected, FailKind::AuthFailed, FailKind::UnsupportedVersion] {
+        for kind in [FailKind::NotSelected, FailKind::AuthFailed, FailKind::UnsupportedVersion, FailKind::AttError] {
             health.connect_failed(kind);
             health.connect_failed(kind);
             health.connect_failed(kind);
@@ -568,7 +603,7 @@ mod tests {
 
     #[test]
     fn every_radio_level_failure_counts() {
-        for kind in [FailKind::Unreachable, FailKind::Enosys, FailKind::AbortByLocal, FailKind::AttError, FailKind::Timeout] {
+        for kind in [FailKind::Unreachable, FailKind::Enosys, FailKind::AbortByLocal, FailKind::Timeout] {
             assert!(counts_against_adapter(kind), "{kind:?}");
         }
     }
