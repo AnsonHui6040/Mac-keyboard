@@ -11,6 +11,8 @@ pub struct FakeLink {
     connected: Option<(u64, DeviceKey)>,
     route: Route,
     pairing_scan: bool,
+    /// `SetScanning`: the backend looks for the keyboard at all.
+    scanning_on: bool,
     commands: Vec<LinkCommand>,
     writes: Vec<Vec<u8>>,
     holds: Vec<(DeviceKey, Duration)>,
@@ -24,11 +26,15 @@ impl Default for FakeLink {
 
 impl FakeLink {
     pub fn new() -> Self {
-        Self { next_conn: 1, connected: None, route: Route::Selected, pairing_scan: false, commands: Vec::new(), writes: Vec::new(), holds: Vec::new() }
+        Self { next_conn: 1, connected: None, route: Route::Selected, pairing_scan: false, scanning_on: true, commands: Vec::new(), writes: Vec::new(), holds: Vec::new() }
     }
 
-    /// The device advertises, the backend connects: `adv_seen`, then `Connected`. Scanning stops.
+    /// The device advertises, the backend connects: `adv_seen`, then `Connected`. Scanning stops. A backend that was told
+    /// `SetScanning(false)` is not looking: nothing happens.
     pub fn connect(&mut self, device: DeviceKey, route: Route, mtu: usize) -> Vec<LinkEvent> {
+        if !self.scanning_on {
+            return Vec::new();
+        }
         let conn = self.next_conn;
         self.next_conn += 1;
         self.connected = Some((conn, device));
@@ -87,13 +93,17 @@ impl FakeLink {
                 self.pairing_scan = on;
                 None
             }
+            LinkCommand::SetScanning(on) => {
+                self.scanning_on = on;
+                None
+            }
         }
     }
 
-    /// The backend looks for new targets exactly when no connection exists (while one does, it only watches for the
-    /// selected UUID of the held link, see `advert_while_connected`).
+    /// The backend looks for new targets exactly when no connection exists and scanning is on (while a link does exist, it
+    /// only watches for the selected UUID of the held link, see `advert_while_connected`).
     pub fn is_scanning(&self) -> bool {
-        self.connected.is_none()
+        self.connected.is_none() && self.scanning_on
     }
 
     pub fn is_connected(&self) -> bool {
@@ -145,6 +155,29 @@ mod tests {
         let ended = link.apply(LinkCommand::Disconnect);
         assert!(matches!(ended, Some(LinkEvent::Disconnected { reason: DisconnectReason::Local, .. })));
         assert!(link.is_scanning());
+    }
+
+    #[test]
+    fn switched_off_it_scans_nothing_and_connects_to_nobody_until_switched_on() {
+        let mut link = FakeLink::new();
+        assert!(link.apply(LinkCommand::SetScanning(false)).is_none());
+        assert!(!link.is_scanning());
+        assert!(link.connect(DeviceKey(7), Route::Selected, 185).is_empty(), "an advert is not acted on while off");
+        assert!(!link.is_connected());
+        link.apply(LinkCommand::SetScanning(true));
+        assert!(link.is_scanning());
+        assert_eq!(link.connect(DeviceKey(7), Route::Selected, 185).len(), 2);
+    }
+
+    #[test]
+    fn a_link_that_exists_is_not_touched_by_switching_scanning_off() {
+        let mut link = FakeLink::new();
+        link.connect(DeviceKey(7), Route::Selected, 185);
+        link.apply(LinkCommand::SetScanning(false));
+        assert!(link.is_connected(), "the application ends it with Disconnect");
+        let ended = link.apply(LinkCommand::Disconnect);
+        assert!(matches!(ended, Some(LinkEvent::Disconnected { reason: DisconnectReason::Local, .. })));
+        assert!(!link.is_scanning(), "and scanning does not come back with the end of the link");
     }
 
     #[test]

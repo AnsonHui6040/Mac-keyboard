@@ -44,6 +44,82 @@ impl NotificationGate {
     }
 }
 
+/// The application's switch for receiving, as a backend keeps it: on at start, changed only by `SetScanning`. While it is
+/// off the backend starts no scan, makes no connection and does not let its scan retry (the back-off after a failure) or the
+/// replacement of a stale link bring either back; a link that exists is left to `Disconnect`.
+///
+/// Both backends drop `Disconnect` and `Write` while no link is open, so a connection that slips through just as receiving
+/// is switched off cannot be ended from the application's side by them; the application's refusal of the late `Connected`
+/// (`link_refused why=stopped`, answered with a `Disconnect` that the then-open link does honour) is the last guard.
+#[derive(Debug, Clone, Copy)]
+pub struct ScanSwitch {
+    on: bool,
+}
+
+impl Default for ScanSwitch {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ScanSwitch {
+    pub fn new() -> Self {
+        Self { on: true }
+    }
+
+    /// Takes note of a command; only `SetScanning` matters.
+    pub fn apply(&mut self, command: &LinkCommand) {
+        if let LinkCommand::SetScanning(on) = command {
+            self.on = *on;
+        }
+    }
+
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
+    /// A device the backend is about to connect to (found by a scan, or named by the end of a stale link): kept while the
+    /// switch is on, dropped while it is off.
+    pub fn admit<T>(&self, target: Option<T>) -> Option<T> {
+        target.filter(|_| self.on)
+    }
+}
+
+/// The application's side of the worker's commands has closed: the worker has to end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ApplicationGone;
+
+/// Decides whether a device found or named earlier may still be connected to: first every command already queued is looked
+/// at (`drain`, which applies them to the worker and says whether the application is still there), and only then does the
+/// switch get its say. Without the drain a stop that is queued but not read yet would let one more connection through.
+pub fn drain_then_admit<S, T>(state: &mut S, drain: impl FnOnce(&mut S) -> bool, switch_of: impl Fn(&S) -> &ScanSwitch, target: Option<T>) -> Result<Option<T>, ApplicationGone> {
+    if !drain(state) {
+        return Err(ApplicationGone);
+    }
+    Ok(switch_of(state).admit(target))
+}
+
+/// How a connection attempt ended, as far as the switch is concerned.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Settled<L, E> {
+    /// The link is up and receiving is on: announce it.
+    Opened(L),
+    /// The attempt failed while receiving is on: report it, back off.
+    Failed(E),
+    /// Receiving was switched off while the attempt ran: nothing is announced, nothing is counted as a failure, and a link
+    /// that did come up (`Some`) is only to be released.
+    Cancelled(Option<L>),
+}
+
+pub fn settle_attempt<L, E>(switch: &ScanSwitch, result: Result<L, E>) -> Settled<L, E> {
+    match (switch.is_on(), result) {
+        (true, Ok(link)) => Settled::Opened(link),
+        (true, Err(error)) => Settled::Failed(error),
+        (false, Ok(link)) => Settled::Cancelled(Some(link)),
+        (false, Err(_)) => Settled::Cancelled(None),
+    }
+}
+
 /// How long to wait before starting a scan again after it failed: 2 s, doubling, 30 s at most.
 #[derive(Debug, Default)]
 pub struct ScanBackoff {
@@ -92,6 +168,7 @@ pub async fn pump_commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::FailKind;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -102,6 +179,111 @@ mod tests {
         assert_eq!(gate.open(), vec![vec![1], vec![2]]);
         assert_eq!(gate.offer(vec![3]), Offer::Deliver(vec![3]));
         assert!(gate.open().is_empty());
+    }
+
+    #[test]
+    fn the_scan_switch_is_on_at_start_and_follows_only_set_scanning() {
+        let mut switch = ScanSwitch::new();
+        assert!(switch.is_on());
+        for other in [LinkCommand::Disconnect, LinkCommand::Write(vec![1]), LinkCommand::SetPairingScan(true), LinkCommand::SetPairingScan(false)] {
+            switch.apply(&other);
+            assert!(switch.is_on(), "{other:?} does not switch scanning");
+        }
+        switch.apply(&LinkCommand::SetScanning(false));
+        assert!(!switch.is_on());
+        // Neither time, nor a Disconnect, nor a pairing scan turns it back on.
+        switch.apply(&LinkCommand::Disconnect);
+        switch.apply(&LinkCommand::SetPairingScan(true));
+        assert!(!switch.is_on());
+        switch.apply(&LinkCommand::SetScanning(true));
+        assert!(switch.is_on());
+    }
+
+    #[test]
+    fn a_target_found_or_a_replacement_after_the_switch_went_off_is_dropped() {
+        let mut switch = ScanSwitch::new();
+        assert_eq!(switch.admit(Some(7)), Some(7));
+        assert_eq!(switch.admit::<u8>(None), None);
+        switch.apply(&LinkCommand::SetScanning(false));
+        assert_eq!(switch.admit(Some(7)), None, "a stale-link replacement or a late advert must not reconnect");
+        switch.apply(&LinkCommand::SetScanning(true));
+        assert_eq!(switch.admit(Some(7)), Some(7));
+    }
+
+    /// A worker's state as the flow functions see it: a queue of commands not yet looked at, and the switch.
+    struct Model {
+        queue: std::collections::VecDeque<LinkCommand>,
+        switch: ScanSwitch,
+        closed: bool,
+    }
+
+    impl Model {
+        fn with(commands: Vec<LinkCommand>) -> Self {
+            Self { queue: commands.into(), switch: ScanSwitch::new(), closed: false }
+        }
+
+        /// Looks at every queued command; `false` when the application is gone.
+        fn drain(&mut self) -> bool {
+            while let Some(command) = self.queue.pop_front() {
+                self.switch.apply(&command);
+            }
+            !self.closed
+        }
+    }
+
+    #[test]
+    fn an_advert_is_admitted_only_after_the_commands_queued_before_it_were_looked_at() {
+        // The stop is queued but the worker has not read it yet: without the drain the switch still says on.
+        let stale = Model::with(vec![LinkCommand::SetScanning(false)]);
+        assert_eq!(stale.switch.admit(Some(7)), Some(7), "the unread stop is invisible to a bare admit");
+        let mut model = Model::with(vec![LinkCommand::SetScanning(false)]);
+        assert_eq!(drain_then_admit(&mut model, Model::drain, |m| &m.switch, Some(7)), Ok(None));
+        // Nothing queued: the target stays.
+        let mut idle = Model::with(vec![]);
+        assert_eq!(drain_then_admit(&mut idle, Model::drain, |m| &m.switch, Some(7)), Ok(Some(7)));
+        // Stop then start in the queue: the last word counts.
+        let mut again = Model::with(vec![LinkCommand::SetScanning(false), LinkCommand::SetScanning(true)]);
+        assert_eq!(drain_then_admit(&mut again, Model::drain, |m| &m.switch, Some(7)), Ok(Some(7)));
+        // No target: still none.
+        let mut empty = Model::with(vec![]);
+        assert_eq!(drain_then_admit::<_, u8>(&mut empty, Model::drain, |m| &m.switch, None), Ok(None));
+    }
+
+    #[test]
+    fn a_gone_application_is_reported_instead_of_admitting() {
+        let mut model = Model::with(vec![]);
+        model.closed = true;
+        assert_eq!(drain_then_admit(&mut model, Model::drain, |m| &m.switch, Some(7)), Err(ApplicationGone));
+    }
+
+    #[test]
+    fn stop_sent_before_disconnect_leaves_the_switch_off_when_the_worker_ends_its_link() {
+        // The worker ends `serve` on `Disconnect` and then decides what to do next; it has seen exactly the commands up to
+        // and including that one. The order the application sends them in decides what it finds.
+        let found_next = |commands: Vec<LinkCommand>| {
+            let mut model = Model::with(vec![]);
+            for command in &commands {
+                model.switch.apply(command);
+                if *command == LinkCommand::Disconnect {
+                    break;
+                }
+            }
+            model.switch.is_on()
+        };
+        assert!(found_next(vec![LinkCommand::Disconnect, LinkCommand::SetScanning(false)]), "the old order: scanning would restart");
+        assert!(!found_next(vec![LinkCommand::SetScanning(false), LinkCommand::Disconnect]), "the new order: the worker parks");
+    }
+
+    #[test]
+    fn an_attempt_that_ends_while_the_switch_is_off_is_cancelled_not_failed_and_never_opens() {
+        let mut switch = ScanSwitch::new();
+        assert_eq!(settle_attempt(&switch, Ok::<_, FailKind>(1)), Settled::Opened(1));
+        assert_eq!(settle_attempt(&switch, Err::<u8, _>(FailKind::Timeout)), Settled::Failed(FailKind::Timeout));
+        switch.apply(&LinkCommand::SetScanning(false));
+        // A link that did get made is handed back to be released; it is not announced.
+        assert_eq!(settle_attempt(&switch, Ok::<_, FailKind>(1)), Settled::Cancelled(Some(1)));
+        // A failure after the stop is not a failure: no back-off, no hold.
+        assert_eq!(settle_attempt(&switch, Err::<u8, _>(FailKind::Timeout)), Settled::Cancelled(None));
     }
 
     #[test]

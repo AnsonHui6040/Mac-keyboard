@@ -16,7 +16,7 @@
 //! channels. All of it is invisible to the logic tests; it is exercised on a real Windows machine.
 
 use crate::diag::{Diag, FailKind, Value};
-use crate::flow::{pump_commands, NotificationGate, Offer, ScanBackoff};
+use crate::flow::{drain_then_admit, pump_commands, settle_attempt, NotificationGate, Offer, ScanBackoff, ScanSwitch, Settled};
 use crate::stale::{age_at, is_stale_link, Advert, HeldLink, WatchRestart};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use std::collections::HashMap;
@@ -166,6 +166,8 @@ struct Opened {
 enum Watched {
     Found(Sighting),
     Failed(ScanFailure),
+    /// The application switched scanning off (`SetScanning(false)`).
+    Paused,
     /// The application is gone.
     Gone,
 }
@@ -195,12 +197,16 @@ enum Failure {
     Gave(FailKind),
     /// The caller asked to disconnect while the link was being set up.
     Cancelled,
+    /// Receiving was switched off while the link was being set up: given up without a trace of failure.
+    Stopped,
 }
 
 struct Worker {
     events: mpsc::Sender<LinkEvent>,
     commands: std_mpsc::Receiver<LinkCommand>,
     scan: Arc<Mutex<ScanFilter>>,
+    /// The application's receive switch; while it is off nothing here scans or connects.
+    switch: ScanSwitch,
     next_conn: u64,
     failures: usize,
     scan_backoff: ScanBackoff,
@@ -220,6 +226,7 @@ impl Worker {
     fn drain_commands(&mut self) -> bool {
         loop {
             match self.commands.try_recv() {
+                Ok(LinkCommand::SetScanning(on)) => self.switch.apply(&LinkCommand::SetScanning(on)),
                 Ok(LinkCommand::SetPairingScan(on)) => self.scan.lock().unwrap_or_else(|p| p.into_inner()).pairing_on = on,
                 Ok(LinkCommand::Hold { device, for_ }) => {
                     self.scan.lock().unwrap_or_else(|p| p.into_inner()).holds.insert(device.0, Instant::now() + for_);
@@ -237,14 +244,18 @@ impl Worker {
             if !self.drain_commands() {
                 return;
             }
-            // A stale link was replaced: its advertiser is the next target, no scan in between.
-            let sighting = match reconnect.take() {
+            // A stale link was replaced: its advertiser is the next target, no scan in between (unless receiving was
+            // switched off meanwhile).
+            let Ok(replacement) = drain_then_admit(&mut self, Worker::drain_commands, |worker| &worker.switch, reconnect.take()) else { return };
+            let sighting = match replacement {
                 Some(sighting) => sighting,
                 None => match self.scan_until_found() {
                     Some(sighting) => sighting,
                     None => return,
                 },
             };
+            // Found just as scanning was switched off: let it go.
+            let Ok(Some(sighting)) = drain_then_admit(&mut self, Worker::drain_commands, |worker| &worker.switch, Some(sighting)) else { continue };
             let conn = self.next_conn;
             self.next_conn += 1;
             match self.connect_and_serve(conn, sighting) {
@@ -259,6 +270,9 @@ impl Worker {
     /// growing pause and started again. `None` when the application has gone away.
     fn scan_until_found(&mut self) -> Option<Sighting> {
         loop {
+            if !self.park() {
+                return None;
+            }
             let (tx, rx) = std_mpsc::channel();
             let failure = match start_watcher(self.scan.clone(), tx) {
                 Err(_) => ScanFailure::Unavailable,
@@ -268,6 +282,8 @@ impl Worker {
                     match outcome {
                         Watched::Found(sighting) => return Some(sighting),
                         Watched::Gone => return None,
+                        // Back to the top: the switch is off, so `park` waits there and no new watcher starts.
+                        Watched::Paused => continue,
                         Watched::Failed(failure) => failure,
                     }
                 }
@@ -280,12 +296,26 @@ impl Worker {
         }
     }
 
+    /// While the application has switched receiving off: no watcher, no retry timer; only commands are waited for. `false`
+    /// when the application is gone.
+    fn park(&mut self) -> bool {
+        while !self.switch.is_on() {
+            if !self.wait(Duration::from_millis(100)) {
+                return false;
+            }
+        }
+        true
+    }
+
     fn watch(&mut self, watcher: &BluetoothLEAdvertisementWatcher, stopped_because: &StopReason, found: &std_mpsc::Receiver<Sighting>) -> Watched {
         let started = Instant::now();
         let mut confirmed = false;
         loop {
             if !self.drain_commands() {
                 return Watched::Gone;
+            }
+            if !self.switch.is_on() {
+                return Watched::Paused;
             }
             match found.recv_timeout(Duration::from_millis(100)) {
                 Ok(sighting) => {
@@ -338,19 +368,40 @@ impl Worker {
         }
         self.diag(Diag::new(conn, "adv_seen").at(0).with("device", Value::Id(device_key.short())).with("route", Value::S(route_word(sighting.route))));
         self.diag(Diag::new(conn, "connect_start").at(millis(adv_at)));
-        match self.open_link(conn, &sighting, adv_at) {
-            Ok(link) => {
+        let result = self.open_link(conn, &sighting, adv_at);
+        // Whatever was queued while the last step ran counts before `Connected` is announced.
+        if !self.drain_commands() {
+            if let Ok(link) = result {
+                link.release();
+            }
+            return Served::Quit;
+        }
+        match settle_attempt(&self.switch, result) {
+            Settled::Opened(link) => {
                 self.failures = 0;
                 self.serve(conn, device_key, sighting.route, adv_at, link)
             }
-            Err(Failure::Gave(kind)) => {
+            Settled::Cancelled(link) => {
+                if let Some(link) = link {
+                    link.release();
+                }
+                self.cancelled(conn, adv_at)
+            }
+            // Stopped and started again while the attempt ran: the attempt was still given up.
+            Settled::Failed(Failure::Stopped) => self.cancelled(conn, adv_at),
+            Settled::Failed(Failure::Gave(kind)) => {
                 self.diag(Diag::new(conn, "connect_failed").at(millis(adv_at)).with("kind", Value::S(kind.as_str())));
                 let wait = RETRY_WAITS_MS[self.failures.min(RETRY_WAITS_MS.len() - 1)];
                 self.failures += 1;
                 Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Failed(kind) }) && self.wait(Duration::from_millis(wait)))
             }
-            Err(Failure::Cancelled) => Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local })),
+            Settled::Failed(Failure::Cancelled) => Served::of(self.emit(LinkEvent::Disconnected { conn, device: device_key, reason: DisconnectReason::Local })),
         }
+    }
+
+    /// The attempt was given up because receiving is off: no `Connected`, no failure count, no back-off.
+    fn cancelled(&self, conn: u64, adv_at: Instant) -> Served {
+        Served::of(self.diag(Diag::new(conn, "connect_cancelled").at(millis(adv_at)).with("why", Value::S("stopped"))))
     }
 
     fn wait(&mut self, duration: Duration) -> bool {
@@ -376,6 +427,15 @@ impl Worker {
     fn open_link(&mut self, conn: u64, sighting: &Sighting, adv_at: Instant) -> Result<Link, Failure> {
         let deadline = Instant::now() + DISCOVERY_DEADLINE;
         let opened = self.open_device(sighting).map_err(|_| Failure::Gave(FailKind::Unreachable))?;
+        // Stopped while the device object was being made (this can take a while): let go at once.
+        if !self.drain_commands() {
+            close_opened(opened);
+            return Err(Failure::Cancelled);
+        }
+        if !self.switch.is_on() {
+            close_opened(opened);
+            return Err(Failure::Stopped);
+        }
         let mut announced = false;
         let mut tries: u64 = 0;
         let mut last_kind = FailKind::Timeout;
@@ -383,6 +443,10 @@ impl Worker {
             if !self.drain_commands() {
                 close_opened(opened);
                 return Err(Failure::Cancelled);
+            }
+            if !self.switch.is_on() {
+                close_opened(opened);
+                return Err(Failure::Stopped);
             }
             let connected = opened.device.ConnectionStatus().is_ok_and(|s| s == BluetoothConnectionStatus::Connected);
             if connected && !announced {
@@ -542,6 +606,7 @@ impl Worker {
                     self.scan.lock().unwrap_or_else(|p| p.into_inner()).holds.insert(device.0, Instant::now() + for_);
                 }
                 Ok(LinkCommand::SetPairingScan(on)) => self.scan.lock().unwrap_or_else(|p| p.into_inner()).pairing_on = on,
+                Ok(LinkCommand::SetScanning(on)) => self.switch.apply(&LinkCommand::SetScanning(on)),
                 Err(std_mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std_mpsc::RecvTimeoutError::Disconnected) => {
                     stop_watching(watching);
@@ -638,7 +703,7 @@ pub async fn run(cfg: LinkConfig, tx: mpsc::Sender<LinkEvent>, rx: mpsc::Receive
         // The thread owns WinRT: multi-threaded apartment, initialised once.
         // SAFETY: RoInitialize has no preconditions beyond being called on the thread that will use WinRT.
         let _ = unsafe { RoInitialize(RO_INIT_MULTITHREADED) };
-        Worker { events: tx, commands: command_rx, scan, next_conn: 1, failures: 0, scan_backoff: ScanBackoff::new(), reported_scan: None }.run();
+        Worker { events: tx, commands: command_rx, scan, switch: ScanSwitch::new(), next_conn: 1, failures: 0, scan_backoff: ScanBackoff::new(), reported_scan: None }.run();
         let _ = done_tx.send(());
     });
     if thread.is_err() {

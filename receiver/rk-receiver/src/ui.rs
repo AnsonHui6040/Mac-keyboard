@@ -21,6 +21,8 @@ pub struct TrayState {
     pub icon: IconState,
     pub connected_phone: Option<String>,
     pub pairing_open: bool,
+    /// 接收中 (`true`) or 已停止 (`false`): the user's switch, see `UiCommand::SetReceiving`.
+    pub receiving: bool,
     pub host_name: String,
     pub phones: Vec<PhoneEntry>,
     pub trackpad: bool,
@@ -64,6 +66,8 @@ pub enum UiEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiCommand {
     StartPairing,
+    /// 開始 (`true`) or 停止 (`false`) receiving. Never saved: every start of the receiver receives.
+    SetReceiving(bool),
     /// The answer to the question of the given attempt.
     ConfirmPairing(u64, bool),
     Rename(String),

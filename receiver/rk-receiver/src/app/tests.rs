@@ -751,6 +751,23 @@ fn repeated_scan_failures_without_a_real_recovery_raise_one_notice() {
 }
 
 #[test]
+fn start_after_a_scan_failure_that_happened_while_stopped_repeats_the_bluetooth_notice() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetReceiving(false));
+    // Bluetooth went off while stopped: recorded, but nobody is told (the user stopped receiving).
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    assert!(rig.notices().is_empty());
+    // Starting again with the outage still on: the backend reports nothing new, so the app says it itself.
+    rig.command(UiCommand::SetReceiving(true));
+    assert_eq!(rig.notices(), vec![NoticeKind::BluetoothOff]);
+    // No outage on record: starting says nothing.
+    let mut clean = Rig::new();
+    clean.command(UiCommand::SetReceiving(false));
+    clean.command(UiCommand::SetReceiving(true));
+    assert!(clean.notices().is_empty());
+}
+
+#[test]
 fn pairing_window_opens_at_start_when_asked() {
     let rig = Rig::with_pairing_at_start();
     assert!(rig.link.pairing_scan(), "the backend is told to scan for the pairing UUID");
@@ -765,6 +782,163 @@ fn the_receiver_starts_by_scanning_and_logs_it() {
     let rig = Rig::new();
     assert!(rig.log_text().contains("ev=start"));
     assert!(rig.log_text().contains("ev=scan_start"));
+}
+
+// ---------------------------------------------------------------- 接收開關
+
+fn scanning_commands(rig: &Rig) -> Vec<bool> {
+    rig.link.commands().iter().filter_map(|c| if let LinkCommand::SetScanning(on) = c { Some(*on) } else { None }).collect()
+}
+
+#[test]
+fn receiving_on_at_start() {
+    let rig = Rig::new();
+    assert!(rig.last_tray().receiving, "a started receiver receives");
+    assert!(rig.link.is_scanning());
+    assert!(scanning_commands(&rig).is_empty(), "the backends scan from the start: nothing has to be switched on");
+    assert!(!rig.log_text().contains("ev=receiving_stopped"));
+    // `--pair` does not change it.
+    assert!(Rig::with_pairing_at_start().last_tray().receiving);
+}
+
+#[test]
+fn stop_disconnects_and_stops_scan() {
+    let mut rig = Rig::new();
+    let stored = rig.pair_phone(1);
+    let mut phone = rig.authenticate(&stored.pair_key);
+    assert!(rig.last_tray().connected_phone.is_some());
+    rig.command(UiCommand::SetReceiving(false));
+    // The phone is told `bye` the normal way, the link is released, and nothing scans.
+    assert_eq!(rig.inner_messages(&mut phone).last(), Some(&ControlMessage::Bye));
+    assert!(!rig.link.is_connected());
+    assert!(!rig.link.is_scanning());
+    assert_eq!(scanning_commands(&rig), vec![false]);
+    let commands = rig.link.commands().to_vec();
+    let disconnect = commands.iter().rposition(|c| *c == LinkCommand::Disconnect).expect("Disconnect was sent");
+    // The switch goes off first: a worker that ends its link on `Disconnect` and looks at the switch next must find it off.
+    assert!(commands.iter().rposition(|c| *c == LinkCommand::SetScanning(false)).unwrap() < disconnect);
+    let tray = rig.last_tray();
+    assert!(!tray.receiving);
+    assert!(tray.connected_phone.is_none());
+    assert_eq!(tray.icon, IconState::Disconnected, "stopping is not a fault");
+    // Not connected at all: the same.
+    let mut idle = Rig::new();
+    idle.command(UiCommand::SetReceiving(false));
+    assert!(!idle.link.is_scanning());
+    assert!(!idle.last_tray().receiving);
+}
+
+#[test]
+fn stop_closes_the_pairing_window_and_pairing_scan() {
+    let mut rig = Rig::with_pairing_at_start();
+    assert!(rig.link.pairing_scan());
+    rig.command(UiCommand::SetReceiving(false));
+    assert!(!rig.link.pairing_scan());
+    assert!(!rig.last_tray().pairing_open);
+    assert!(rig.log_text().contains("ev=pairing_window state=closed"));
+    // The tray item is greyed out, but a command that still arrives opens nothing.
+    rig.command(UiCommand::StartPairing);
+    assert!(!rig.link.pairing_scan());
+    assert!(!rig.last_tray().pairing_open);
+}
+
+#[test]
+fn stop_withdraws_a_pairing_question_that_is_open() {
+    let mut rig = Rig::with_pairing_at_start();
+    let (_phone, _sas) = rig.pair_up_to_confirmation("iPhone");
+    let attempt = rig.last_attempt();
+    rig.command(UiCommand::SetReceiving(false));
+    assert!(rig.ui.contains(&UiEvent::PairingDialogClose(attempt)));
+    assert!(rig.store.phones().is_empty(), "nothing is saved from a question nobody answered");
+    assert!(!rig.link.is_connected());
+}
+
+#[test]
+fn stop_persists_until_start() {
+    let mut rig = Rig::new();
+    rig.pair_phone(1);
+    rig.command(UiCommand::SetReceiving(false));
+    rig.link.clear_record();
+    // Time passes: no timer, no back-off, no hold-off ends the stop.
+    for _ in 0..40 {
+        rig.advance(30_000);
+    }
+    assert_eq!(rig.app.next_wake_ms(), None, "a stopped receiver plans no wake-up");
+    assert!(!rig.link.is_scanning());
+    // The backend does not connect while it is off, so a new advert does nothing.
+    assert!(rig.link.connect(DEVICE, Route::Selected, 185).is_empty());
+    assert!(!rig.link.is_connected());
+    // A scan failure and its recovery (the backend's own retry) neither raise a notice nor start anything.
+    rig.deliver(LinkEvent::Scan(ScanState::Failed(ScanFailure::RadioOff)));
+    rig.deliver(LinkEvent::Scan(ScanState::Running));
+    assert!(rig.notices().is_empty());
+    assert!(!rig.last_tray().receiving);
+    // A connection that slipped in before the backend heard of the stop is let go at once.
+    rig.deliver(LinkEvent::Connected { conn: 99, device: DEVICE, route: Route::Selected, mtu: 185 });
+    assert_eq!(rig.link.commands().last(), Some(&LinkCommand::Disconnect));
+    assert!(rig.link.writes().is_empty(), "no hello is sent to a connection nobody wanted");
+    // Nothing the app did since the stop asked for scanning, pairing or a connection.
+    assert!(scanning_commands(&rig).is_empty());
+    assert!(!rig.link.commands().iter().any(|c| matches!(c, LinkCommand::SetPairingScan(true))));
+    // Only 開始 ends it.
+    rig.command(UiCommand::SetReceiving(true));
+    assert_eq!(scanning_commands(&rig), vec![true]);
+    assert!(rig.link.is_scanning());
+    assert!(rig.last_tray().receiving);
+    assert_eq!(rig.link.connect(DEVICE, Route::Selected, 185).len(), 2);
+}
+
+#[test]
+fn start_while_receiving_changes_nothing() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetReceiving(true));
+    assert!(scanning_commands(&rig).is_empty());
+    assert!(!rig.log_text().contains("ev=receiving_started"));
+    rig.command(UiCommand::SetReceiving(false));
+    rig.command(UiCommand::SetReceiving(false));
+    assert_eq!(scanning_commands(&rig), vec![false], "a second stop is not sent again");
+}
+
+#[test]
+fn restart_resets_to_on() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetReceiving(false));
+    assert!(!rig.last_tray().receiving);
+    // Stopping is not a setting: nothing was written, and the configuration has no trace of it.
+    assert!(rig.configs.last().is_none());
+    let json = serde_json::to_string(rig.app.config()).unwrap().to_lowercase();
+    assert!(!json.contains("receiv") && !json.contains("stop") && !json.contains("scanning"), "{json}");
+    // A new application from the same saved configuration (a restart, the autostart at login) receives.
+    let clock = Arc::new(FakeClock::new(T0));
+    let logger = Logger::new(Box::new(MemorySink::new()), clock.clone(), Level::Info);
+    let mut again = App::new(AppDeps {
+        config: rig.app.config().clone(),
+        platform: HostPlatform::Windows,
+        store: Box::new(MemoryPhoneStore::new()),
+        config_store: Box::new(MemoryConfigStore::new()),
+        injector: Box::new(RecordingInjector::new()),
+        clock,
+        random: Box::new(SequenceRandom::default()),
+        logger,
+        pair_at_start: false,
+    });
+    let state = again.start().into_iter().find_map(|e| if let Effect::Ui(UiEvent::State(s)) = e { Some(s) } else { None }).expect("a tray state");
+    assert!(state.receiving);
+}
+
+#[test]
+fn stopping_and_starting_are_logged_as_events_only() {
+    let mut rig = Rig::new();
+    rig.command(UiCommand::SetReceiving(false));
+    rig.command(UiCommand::SetReceiving(true));
+    let log = rig.log_text();
+    let stopped = log.lines().find(|l| l.contains("ev=receiving_stopped")).expect("receiving_stopped is logged");
+    let started = log.lines().find(|l| l.contains("ev=receiving_started")).expect("receiving_started is logged");
+    assert!(stopped.contains("by=user"), "{stopped}");
+    assert!(started.contains("by=user"), "{started}");
+    assert!(log.find("ev=receiving_stopped") < log.find("ev=receiving_started"));
+    // The app starting is `start`, not `receiving_started`.
+    assert!(!Rig::new().log_text().contains("ev=receiving_started"));
 }
 
 #[test]

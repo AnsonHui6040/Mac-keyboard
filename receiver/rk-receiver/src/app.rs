@@ -111,6 +111,9 @@ pub struct App {
     pairing_until_ms: Option<u64>,
     attention: bool,
     scan_failure: Option<ScanFailure>,
+    /// 接收中. The user's switch: on at every start, only `UiCommand::SetReceiving(false)` turns it off and only
+    /// `SetReceiving(true)` turns it on again. Not part of the configuration.
+    receiving: bool,
     pair_at_start: bool,
     last_adv: Option<(u64, u64)>,
     last_tray: Option<TrayState>,
@@ -163,6 +166,7 @@ impl App {
             pairing_until_ms: None,
             attention: false,
             scan_failure: None,
+            receiving: true,
             pair_at_start: deps.pair_at_start,
             last_adv: None,
             last_tray: None,
@@ -241,7 +245,8 @@ impl App {
                     self.scan_failure = Some(failure);
                     self.log.info("scan_error", None, &[("kind", Value::S(failure.as_str()))]);
                 }
-                if first {
+                // A stopped receiver has switched scanning off itself: nothing to tell the user then.
+                if first && self.receiving {
                     self.notice(NoticeKind::BluetoothOff, fx);
                 }
             }
@@ -254,6 +259,12 @@ impl App {
     }
 
     fn on_connected(&mut self, id: u64, device: DeviceKey, route: Route, mtu: usize, fx: &mut Vec<Effect>) {
+        if !self.receiving {
+            // The link was made before the backend heard of the stop. Nobody wants it: no hello, no hold, just let go.
+            self.log.info("link_refused", Some(id), &[("why", Value::S("stopped"))]);
+            fx.push(Effect::Link(LinkCommand::Disconnect));
+            return;
+        }
         if let Some(old) = self.conn.take() {
             self.end_connection(&old, DisconnectReason::Local, fx);
         }
@@ -646,7 +657,9 @@ impl App {
         if conn.attempt.as_ref().is_some_and(|a| a.question_open) {
             fx.push(Effect::Ui(UiEvent::PairingDialogClose(conn.id)));
         }
-        self.log.info("scan_start", None, &[("pairing", Value::B(self.pairing_until_ms.is_some()))]);
+        if self.receiving {
+            self.log.info("scan_start", None, &[("pairing", Value::B(self.pairing_until_ms.is_some()))]);
+        }
     }
 
     fn log_phase(&self, ev: &'static str, conn: &Conn) {
@@ -669,11 +682,16 @@ impl App {
     pub fn on_ui(&mut self, command: UiCommand) -> Vec<Effect> {
         let mut fx = Vec::new();
         match command {
+            UiCommand::StartPairing if !self.receiving => {
+                // The tray greys the item out while stopped: pairing needs the scan that 停止 switched off.
+                self.log.info("pair_ignored", None, &[("why", Value::S("stopped"))]);
+            }
             UiCommand::StartPairing => {
                 // Saving the phone's key needs the keyring open: this is the moment the user may be asked to unlock it.
                 self.store.unlock_keys();
                 self.start_pairing(&mut fx);
             }
+            UiCommand::SetReceiving(on) => self.set_receiving(on, &mut fx),
             UiCommand::ConfirmPairing(attempt, accepted) => self.confirm_pairing(attempt, accepted, &mut fx),
             UiCommand::Rename(name) => {
                 self.cfg.set_host_name(&name, self.platform);
@@ -706,6 +724,37 @@ impl App {
         }
         self.flush_state(&mut fx);
         fx
+    }
+
+    /// 停止 / 開始. Stopping ends everything that looks for or holds a phone and says nothing is to resume by itself: the
+    /// pairing window closes, a connection gets its `bye` and `Disconnect`, and the backend is told to scan for nothing.
+    /// Starting tells it to scan again; the phone finds its way back through the normal advertisement.
+    fn set_receiving(&mut self, on: bool, fx: &mut Vec<Effect>) {
+        if on == self.receiving {
+            return;
+        }
+        self.receiving = on;
+        if on {
+            self.log.info("receiving_started", None, &[("by", Value::S("user"))]);
+            self.log.info("scan_start", None, &[("pairing", Value::B(false))]);
+            fx.push(Effect::Link(LinkCommand::SetScanning(true)));
+            // A scan failure that happened while stopped was not announced; the backend will not repeat it, so it is said now.
+            if self.scan_failure.is_some() {
+                self.notice(NoticeKind::BluetoothOff, fx);
+            }
+            return;
+        }
+        self.log.info("receiving_stopped", None, &[("by", Value::S("user"))]);
+        // First, so that a backend which ends its link on `Disconnect` and then looks at the switch finds it off.
+        fx.push(Effect::Link(LinkCommand::SetScanning(false)));
+        self.close_pairing_window(fx);
+        match self.conn.take() {
+            Some(conn) => {
+                self.say_bye(&conn, fx);
+                self.release(conn, fx);
+            }
+            None => self.log.info("scan_stop", None, &[]),
+        }
     }
 
     fn start_pairing(&mut self, fx: &mut Vec<Effect>) {
@@ -826,6 +875,9 @@ impl App {
         let needs_authorization = !self.injector.trusted();
         let icon = if authenticated {
             IconState::Connected
+        } else if !self.receiving {
+            // Stopping is the user's choice, not a fault: no orange.
+            IconState::Disconnected
         } else if self.attention || self.scan_failure.is_some() || needs_authorization || self.keystore_down {
             IconState::Attention
         } else {
@@ -835,6 +887,7 @@ impl App {
             icon,
             connected_phone: self.conn.as_ref().filter(|c| c.handshake.is_authenticated()).and_then(|c| c.phone.as_ref()).map(|(_, name)| name.clone()),
             pairing_open: self.pairing_until_ms.is_some(),
+            receiving: self.receiving,
             host_name: self.cfg.host_name.clone(),
             phones: self.store.phones().into_iter().map(|p: PairedPhone| PhoneEntry { id: p.identity.id, name: p.identity.name }).collect(),
             trackpad: self.cfg.trackpad,
