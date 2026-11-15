@@ -1365,13 +1365,35 @@ WL13 之後使用者回報 Mac 觸控板「有比較好」但仍有卡頓。以 
 
 順帶修正：`rk-inject` 測試共用暫存 token 路徑造成 CI 偶發失敗，改為每個測試獨立路徑。
 
-### 實機（TBD）
+### 實機
 
-- rk-win：舊的手動安裝執行中，直接執行安裝程式 → 舊程式結束、新版啟動、配對仍在、iPhone 可打字。
-- rk-linux：移除 `~/.local/bin` 版、安裝 `.deb`、從選單開一次、重新登入 → 自動啟動用 `/usr/bin` 版、配對仍在、可打字。
+安裝檔：main `bdb3caa` 的 CI（`workflow_dispatch`）產出；Windows SHA-256 `5000aa7a…6501c`，`.deb` `90a38591…484583`。
+
+| 項目 | 自動檢查（2026-11-16） | 使用者 |
+|---|---|---|
+| rk-win 覆蓋升級 | 舊版 `0.1.0` 在桌面工作階段執行中，以排程工作在同一工作階段靜默安裝：結束碼 0、1 秒；舊行程結束、新行程在工作階段 1 啟動；兩個 `--version` 為 `0.2.0-alpha.1`；`Run` 值不變；`unins000.exe` 存在；log `ev=start version=0.2.0-alpha.1 phones=1` | iPhone 打字 TBD |
+| rk-linux 換成 `.deb` | 使用者 `sudo apt install` 成功；`/usr/bin` 兩個 `--version` 正確；舊版停止，`~/.local/bin` 兩個檔改名為 `.bak-0.1.0`；`/usr/bin/rk-receiver` 啟動時 log `ev=autostart_repointed`，自動啟動檔 `Exec=/usr/bin/rk-receiver` | 重新登入後配對、打字 TBD |
+
+rk-linux 在安裝前重新開機，自動登入沒有解鎖鑰匙圈：舊版與新版啟動時都是 `keystore_unavailable`、`phones=0`，與安裝無關，要用密碼登入一次。重開機也讓放在 `/tmp` 的 `.deb` 消失、hci1 短連線間隔還原。
+
 - Linux 第一次授權「遠端桌面」視窗的實際字眼。
 
 ### 未做
 
 - 打 tag 與草稿 release：等使用者說「發佈」。
 - 套件沒有授權條款檔（lintian warning `copyright-without-copyright-notice`）。
+
+## 托盤選單顯示版本（2026-11-16）
+
+使用者回報：Windows／Linux 托盤看不到版本，無法確認裝了哪一版。PR #119：「匯出診斷資料」與「結束」之間加一行灰色 `版本：0.2.0-alpha.1`（英文 `Version: 0.2.0-alpha.1`），與 Mac 面板同一寫法。
+
+### 自動驗證
+
+- `version_label_reads_the_same_way_as_the_mac_panel`、`the_menu_shows_the_package_version_above_quit`：RED → GREEN。
+- `cargo test --workspace` 全部通過（rk-receiver 208）；clippy `-D warnings` 在 macOS 與 `x86_64-pc-windows-msvc` 皆無警告。
+- CI：Build, test and lint（ubuntu、windows）、Windows installer、Linux .deb 通過。
+- 獨立 review：沒有 HIGH／MEDIUM。LOW：Windows 那一行沒有自動測試（`build_menu` 需要真的選單）。
+
+### 實機（TBD）
+
+- rk-win、rk-linux 安裝此版後，托盤選單看得到版本行，且點了沒有反應。
