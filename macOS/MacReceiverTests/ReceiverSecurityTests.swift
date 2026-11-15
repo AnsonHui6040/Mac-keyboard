@@ -49,6 +49,48 @@ final class ReceiverSecurityTests: XCTestCase {
         XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "a new receiving session starts with an empty skip list")
     }
 
+    func testUnpairedPeripheralRediscoveredWithinTenSecondsIsHeldThenReleased() throws {
+        let rig = SecurityRig(pairKey: key)
+        rig.central.startReceiving()
+        rig.connect()
+        try rig.authenticate(TestPhone(pairKey: otherKey))
+        rig.driver.calls.removeAll()
+        rig.now = rig.now.addingTimeInterval(9.9)
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertFalse(rig.driver.calls.contains(.connect(rig.peripheral)), "still held at +9.9 s")
+        rig.now = rig.now.addingTimeInterval(0.2)
+        rig.central.handleLink(.discovered(rig.peripheral))
+        XCTAssertTrue(rig.driver.calls.contains(.connect(rig.peripheral)), "released after 10 s")
+    }
+
+    func testPairingEndsStoppedWhenTheUserStoppedDuringIt() {
+        let rig = SecurityRig(pairKey: nil)
+        rig.security.openPairingWindow()
+        XCTAssertTrue(rig.central.isArmed)
+        rig.central.userStopReceiving()
+        rig.security.cancelPairing()
+        XCTAssertFalse(rig.central.isArmed)
+    }
+
+    func testUserStartDuringPairingSurvivesThePairingEnding() {
+        let rig = SecurityRig(pairKey: nil)
+        rig.security.openPairingWindow()
+        rig.central.userStopReceiving()
+        rig.central.userStartReceiving()
+        rig.security.cancelPairing()
+        XCTAssertTrue(rig.central.isArmed, "the user's own start is not undone by the pairing window closing")
+    }
+
+    func testUserStartDuringPairingSurvivesWindowTimeout() {
+        let rig = SecurityRig(pairKey: nil)
+        rig.security.openPairingWindow()
+        rig.central.userStopReceiving()
+        rig.central.userStartReceiving()
+        rig.now = rig.now.addingTimeInterval(PairingWindow.duration + 1)
+        rig.security.windowTimerFired()
+        XCTAssertTrue(rig.central.isArmed)
+    }
+
     func testMacWithNoPairKeyRefusesWithoutSayingHello() {
         let rig = SecurityRig(pairKey: nil)
         rig.connect()

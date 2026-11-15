@@ -139,7 +139,7 @@ In Remote (遠端) mode, the status text is to the right of the Local (本機) a
 ### Not connected (未連接)
 
 1. Make sure the Receiver on the Mac is open and that the connection status on its panel is Connected (已連線) or Not connected, looking for iPhone (未連線，正在尋找 iPhone).
-2. On the Mac, click a text field, or open the Receiver from the menu bar and click Start receiving (開始接收). The Receiver stops receiving after 30 minutes of idle time.
+2. Open the Receiver from the menu bar and check that the receive status is Receiving (接收中). If it says Stopped (已停止), click Start receiving (開始接收). To type, the Mac cursor must be in a text field.
 3. Make sure Bluetooth is on for both the iPhone and the Mac.
 4. Hide the keyboard and bring it up again. The keyboard reconnects automatically.
 

@@ -24,23 +24,20 @@ private final class FakeDriver: CentralDriving {
 
 @MainActor
 final class ReceiverBLECentralTests: XCTestCase {
-    private var defaults: UserDefaults!
     private var driver: FakeDriver!
     private var madeDrivers = 0
 
     override func setUp() async throws {
-        let name = "rk.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: name)
-        defaults.removePersistentDomain(forName: name)
         driver = FakeDriver()
         madeDrivers = 0
     }
 
     private func make(
-        clock: @escaping () -> Date = Date.init, monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs
+        clock: @escaping () -> Date = Date.init, monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs,
+        uptime: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime }
     ) -> ReceiverBLECentral {
         ReceiverBLECentral(
-            hostId: TestIdentity.hostId, defaults: defaults, clock: clock, monotonicMs: monotonicMs,
+            hostId: TestIdentity.hostId, clock: clock, monotonicMs: monotonicMs, uptime: uptime,
             makeDriver: { [unowned self] _ in
                 madeDrivers += 1
                 return driver
@@ -51,8 +48,7 @@ final class ReceiverBLECentralTests: XCTestCase {
         let central = make()
         XCTAssertEqual(central.linkState, .idle)
         XCTAssertEqual(madeDrivers, 0)
-        XCTAssertEqual(central.linkLabel, "尚未開始接收")
-        XCTAssertNil(central.remainingSeconds)
+        XCTAssertEqual(central.linkLabel, "已停止接收")
     }
 
     func testManualStartArmsAndScansOncePowered() {
@@ -109,123 +105,104 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertFalse(central.isArmed)
         XCTAssertEqual(central.linkState, .idle)
         XCTAssertEqual(driver.calls.last, .cancel(p))
-        XCTAssertNil(central.remainingSeconds)
     }
 
-    func testIdleTimeoutOverrideDisarmsAfterFiring() async throws {
-        defaults.set(0.05, forKey: ReceiverBLECentral.idleTimeoutKey)
+    func testReceiverStartsPausedUntilStarted() {
         let central = make()
+        XCTAssertFalse(central.isArmed)
+        XCTAssertEqual(madeDrivers, 0)
         central.startReceiving()
         XCTAssertTrue(central.isArmed)
-        try await Task.sleep(for: .milliseconds(400))
-        XCTAssertFalse(central.isArmed)
-        XCTAssertEqual(central.linkState, .idle)
     }
 
-    func testIdleTimerFiresWhileMenuTracking() {
-        defaults.set(0.2, forKey: ReceiverBLECentral.idleTimeoutKey)
+    func testReceivingText() {
+        XCTAssertEqual(ReceiverMenu.receivingText(isArmed: true), "接收中")
+        XCTAssertEqual(ReceiverMenu.receivingText(isArmed: false), "已停止")
+    }
+
+    func testStoppedLinkLabel() {
         let central = make()
         central.startReceiving()
-        XCTAssertTrue(central.isArmed)
-        // AppKit registers this mode as common in the running app; make that explicit for the test host.
-        CFRunLoopAddCommonMode(CFRunLoopGetMain(), CFRunLoopMode(RunLoop.Mode.eventTracking.rawValue as CFString))
-        let end = Date().addingTimeInterval(1.0)
-        while Date() < end && central.isArmed {
-            RunLoop.main.run(mode: .eventTracking, before: Date().addingTimeInterval(0.05))
-        }
-        XCTAssertFalse(central.isArmed)
+        central.stopReceiving()
+        XCTAssertEqual(central.linkLabel, "已停止接收")
     }
 
-    func testReachingReadyExtendsDeadline() {
-        var current = Date(timeIntervalSince1970: 1000)
-        let central = make(clock: { current })
+    // MARK: Timed hold of a skipped peripheral
+
+    func testSkippedPeripheralHeldTenSeconds() {
+        var up = 1000.0
+        let central = make(uptime: { up })
         let p = UUID()
         central.startReceiving()
         central.handleLink(.power(.poweredOn))
         central.handleLink(.discovered(p))
         central.handleLink(.connected(p))
-        current = Date(timeIntervalSince1970: 1900)
-        XCTAssertEqual(central.remainingSeconds, 900)
         central.handleLink(.linkReady(p))
-        XCTAssertEqual(central.remainingSeconds, 1800)
-        // Repeated events while already ready are not new connections.
-        current = Date(timeIntervalSince1970: 2000)
-        central.handleLink(.linkReady(p))
-        XCTAssertEqual(central.remainingSeconds, 1700)
+        central.disconnectCurrent(hold: true)
+        driver.calls.removeAll()
+        up = 1009.9
+        central.handleLink(.discovered(p))
+        XCTAssertFalse(driver.calls.contains(.connect(p)), "still held at +9.9 s")
+        up = 1010.1
+        central.handleLink(.discovered(p))
+        XCTAssertTrue(driver.calls.contains(.connect(p)), "released after 10 s")
     }
 
-    func testRemainingSecondsTracksClockWithoutTick() {
+    func testStopAndStartClearsHolds() {
+        var up = 1000.0
+        let central = make(uptime: { up })
+        let p = UUID()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        central.handleLink(.discovered(p))
+        central.handleLink(.connected(p))
+        central.disconnectCurrent(hold: true)
+        central.stopReceiving()
+        central.startReceiving()
+        central.handleLink(.power(.poweredOn))
+        driver.calls.removeAll()
+        up = 1001
+        central.handleLink(.discovered(p))
+        XCTAssertTrue(driver.calls.contains(.connect(p)), "a manual restart releases every hold at once")
+    }
+
+    func testPanelTickRunsOnlyWhileVisibleAndAPairingWindowIsOpen() {
         var current = Date(timeIntervalSince1970: 1000)
         let central = make(clock: { current })
         central.startReceiving()
-        current = Date(timeIntervalSince1970: 1100)
-        XCTAssertEqual(central.remainingSeconds, 1700)
-    }
-
-    // MARK: Panel visibility and the tick
-
-    func testArmedWithThePanelClosedHasNoTickTimer() {
-        let central = make()
-        central.startReceiving()
-        XCTAssertTrue(central.isArmed)
-        XCTAssertFalse(central.isTicking)
-    }
-
-    func testOpeningThePanelWhileArmedUpdatesNowAndTicks() {
-        var current = Date(timeIntervalSince1970: 1000)
-        let central = make(clock: { current })
-        central.startReceiving()
+        central.setPanelVisible(true)
+        XCTAssertFalse(central.isTicking, "receiving alone needs no tick")
         current = Date(timeIntervalSince1970: 1050)
-        central.setPanelVisible(true)
-        XCTAssertEqual(central.now, current, "becoming visible refreshes now at once")
-        XCTAssertTrue(central.isTicking)
-    }
-
-    func testClosingThePanelStopsTheTick() {
-        let central = make()
-        central.startReceiving()
-        central.setPanelVisible(true)
+        central.setPairingScan(true)
+        XCTAssertTrue(central.isTicking, "visible with a pairing window open")
+        XCTAssertEqual(central.now, current, "the clock is refreshed when the tick starts")
         central.setPanelVisible(false)
         XCTAssertFalse(central.isTicking)
+        central.setPanelVisible(true)
+        XCTAssertTrue(central.isTicking)
+        central.setPairingScan(false)
+        XCTAssertFalse(central.isTicking, "window closed")
     }
 
-    func testDisarmedNeverTicksAndDisarmingStopsAnOpenPanelsTick() {
+    func testPanelTickWorksWhileReceivingIsStopped() {
         let central = make()
         central.setPanelVisible(true)
-        XCTAssertFalse(central.isTicking, "not armed")
+        central.setPairingScan(true)
+        XCTAssertTrue(central.isTicking, "a pairing window can be open while receiving is stopped")
+    }
+
+    func testUserStartAndStopReportThemselves() {
+        let central = make()
+        var changes = 0
+        central.onUserSessionChange = { changes += 1 }
+        central.userStartReceiving()
+        XCTAssertTrue(central.isArmed)
+        central.userStopReceiving()
+        XCTAssertFalse(central.isArmed)
+        XCTAssertEqual(changes, 2)
         central.startReceiving()
-        XCTAssertTrue(central.isTicking)
         central.stopReceiving()
-        XCTAssertFalse(central.isTicking)
-        central.startReceiving()
-        XCTAssertTrue(central.isTicking, "armed again with the panel still open")
-    }
-
-    func testIdleExpiryDoesNotDependOnThePanelTick() {
-        var current = Date(timeIntervalSince1970: 1000)
-        let central = make(clock: { current })
-        central.startReceiving()
-        XCTAssertFalse(central.isTicking)
-        current = Date(timeIntervalSince1970: 2800)
-        central.handleSession(.timerFired)
-        XCTAssertFalse(central.isArmed, "the idle timer, not the tick, ends the session")
-    }
-
-    func testDefaultIdleTimeoutIsThirtyMinutes() {
-        var current = Date(timeIntervalSince1970: 1000)
-        let central = make(clock: { current })
-        central.startReceiving()
-        XCTAssertEqual(central.deadline, Date(timeIntervalSince1970: 2800))
-        current = Date(timeIntervalSince1970: 1600)
-        central.noteEvent()
-        XCTAssertEqual(central.deadline, Date(timeIntervalSince1970: 3400))
-    }
-
-    func testRemainingTextFormat() {
-        XCTAssertEqual(ReceiverMenu.remainingText(nil), "待命")
-        XCTAssertEqual(ReceiverMenu.remainingText(1800), "剩餘接收時間 30:00")
-        XCTAssertEqual(ReceiverMenu.remainingText(59.2), "剩餘接收時間 01:00")
-        XCTAssertEqual(ReceiverMenu.remainingText(0), "剩餘接收時間 00:00")
+        XCTAssertEqual(changes, 2, "internal callers do not report")
     }
 
     // MARK: T05 wiring
@@ -380,14 +357,6 @@ final class ReceiverBLECentralTests: XCTestCase {
         XCTAssertTrue(seen.isEmpty)
         for frame in try FrameCodec.split(Data([1]), messageId: 5, maxFrameBytes: 182) { central.receive(eventData: frame) }
         XCTAssertEqual(seen, [Data([1])])
-    }
-
-    func testEditableFocusArmsAnIdleReceiver() {
-        let central = make()
-        XCTAssertFalse(central.isArmed)
-        central.focusGainedEditable()
-        XCTAssertTrue(central.isArmed)
-        XCTAssertEqual(madeDrivers, 1)
     }
 
     // MARK: T06 reconnect hardening
@@ -647,13 +616,9 @@ private final class FakeCBPeripheral: CBPeripheral {
 
 @MainActor
 final class CoreBluetoothDriverWiringTests: XCTestCase {
-    private var defaults: UserDefaults!
     private var driver: FakeDriver!
 
     override func setUp() async throws {
-        let name = "rk.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: name)
-        defaults.removePersistentDomain(forName: name)
         driver = FakeDriver()
     }
 
@@ -669,7 +634,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
     }
 
     private func rig() -> Rig {
-        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { [unowned self] _ in driver })
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { [unowned self] _ in driver })
         let manager = FakeCBManager.make()
         let cb = CoreBluetoothDriver(owner: central) { _ in manager }
         central.startReceiving()
@@ -749,7 +714,7 @@ final class CoreBluetoothDriverWiringTests: XCTestCase {
     private func scanRig() -> Rig {
         let manager = FakeCBManager.make()
         var driverBox: CoreBluetoothDriver?
-        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, defaults: defaults, makeDriver: { owner in
+        let central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { owner in
             let cb = CoreBluetoothDriver(owner: owner) { _ in manager }
             driverBox = cb
             return cb

@@ -41,7 +41,6 @@ final class PointerRig {
     let phone: ChannelSet
     let mac: ChannelSet
     var now: UInt64 = 1_000_000
-    var activity = 0
     var logLines: [String] = []
     var grantChanges = 0
     var nextGrant: UInt32 = 1_000
@@ -70,7 +69,6 @@ final class PointerRig {
                 defer { nextGrant += 1 }
                 return nextGrant
             },
-            noteActivity: { [unowned self] in activity += 1 },
             log: { [unowned self] in logLines.append($0) })
         receiver.onGrantChange = { [unowned self] in grantChanges += 1 }
     }
@@ -199,7 +197,6 @@ final class PointerReceiverTests: XCTestCase {
         rig.receiver.attach(rig.mac)
         rig.send(rig.move(dx: 160))
         XCTAssertEqual(rig.output.actions, [])
-        XCTAssertEqual(rig.activity, 0)
     }
 
     func testPacketsAreIgnoredWhenTheSwitchIsOffEvenIfTheChannelWasOpen() {
@@ -289,7 +286,6 @@ final class PointerReceiverTests: XCTestCase {
         XCTAssertGreaterThan(dx, 16)
         XCTAssertEqual(dy, 0)
         XCTAssertFalse(dragging)
-        XCTAssertEqual(rig.activity, 1)
     }
 
     func testActivityIsReportedAtMostOncePerSecond() {
@@ -299,10 +295,8 @@ final class PointerReceiverTests: XCTestCase {
             rig.send(rig.move(dx: 16))
             rig.now += 100_000
         }
-        XCTAssertEqual(rig.activity, 1)
         rig.now += 1_000_000
         rig.send(rig.move(dx: 16))
-        XCTAssertEqual(rig.activity, 2)
     }
 
     func testOlderButtonSeqDoesNotOverwriteANewerStateThroughTheWholePath() {

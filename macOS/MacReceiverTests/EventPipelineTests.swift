@@ -49,7 +49,6 @@ final class EventPipelineTests: XCTestCase {
         var snapshots: [FocusSnapshot?]
         var reads = 0
         var acks: [Ack] = []
-        var noted = 0
         var pings: [[Int64]] = []
         var restores: [Bool] = []
         init(_ snapshots: [FocusSnapshot?]) { self.snapshots = snapshots }
@@ -77,7 +76,6 @@ final class EventPipelineTests: XCTestCase {
             switcher: InputSourceSwitcher(controller: controller, composition: composition, settle: settle),
             injector: TextInjector(poster: poster, buildTextEvents: buildTextEvents),
             sendAck: { state.acks.append($0) },
-            noteValidEvent: { state.noted += 1 },
             onPing: { state.pings.append([$0, $1]) },
             onInputSourceRestore: { state.restores.append($0); notice.report(restoredOK: $0) }
         )
@@ -160,7 +158,6 @@ final class EventPipelineTests: XCTestCase {
         await h.pipeline.process(data)
         XCTAssertEqual(h.poster.batches.count, 1)
         XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .posted)])
-        XCTAssertEqual(h.state.noted, 1)
     }
 
     func testBackspaceAndReturnPostTheirKeys() async throws {
@@ -177,7 +174,6 @@ final class EventPipelineTests: XCTestCase {
         await h.pipeline.process(data)
         XCTAssertEqual(h.poster.batches.count, 0)
         XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .staleFocus)])
-        XCTAssertEqual(h.state.noted, 1, "a decoded event still counts as receive activity")
     }
 
     func testNonEditableFocusAcksNoFocus() async throws {
@@ -230,7 +226,6 @@ final class EventPipelineTests: XCTestCase {
         XCTAssertEqual(h.state.acks, [Ack(eventId: id, result: .staleFocus)])
         XCTAssertEqual(h.poster.batches.count, 0)
         XCTAssertEqual(h.state.reads, 0)
-        XCTAssertEqual(h.state.noted, 1)
     }
 
     func testFocusMovingWhileQueuedBehindTheGateNeverPostsEscape() async throws {
@@ -265,7 +260,6 @@ final class EventPipelineTests: XCTestCase {
         let h = harness(snapshots: [snapshot()])
         h.pipeline.processMalformed()
         XCTAssertEqual(h.state.acks, [Ack(eventId: Ack.unknownEventId, result: .malformed)])
-        XCTAssertEqual(h.state.noted, 0)
         XCTAssertEqual(h.poster.batches.count, 0)
     }
 
@@ -333,7 +327,6 @@ final class EventPipelineTests: XCTestCase {
         let (data, _) = try frame(.text("A"))
         await h.pipeline.process(data)
         await h.pipeline.process(data)
-        XCTAssertEqual(h.state.noted, 2)
     }
 
     func testOutOfOrderEventIsNotInjected() async throws {
@@ -408,7 +401,6 @@ final class EventPipelineTests: XCTestCase {
         let (key, keyId) = try frame(.text("A"), seq: 1, session: session)
         await h.pipeline.process(key)
         XCTAssertEqual(h.state.acks.last, Ack(eventId: keyId, result: .posted))
-        XCTAssertEqual(h.state.noted, 3, "a probe is receive activity like any valid event")
     }
 
     func testProbeIsAckedEvenWithoutAFocusEpochOrFocus() async throws {

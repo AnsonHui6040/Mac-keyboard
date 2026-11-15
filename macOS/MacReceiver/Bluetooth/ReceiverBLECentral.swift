@@ -21,14 +21,16 @@ protocol CentralDriving: AnyObject {
     func writeControl(_ data: Data) -> Bool
 }
 
-/// Resident BLE central. Idle until a receive session is armed, then looks for the keyboard peripheral.
+/// Resident BLE central. The app arms it at launch (D29) and it keeps looking for the keyboard peripheral until the user
+/// stops receiving.
 ///
 /// It scans for this Mac's selected UUID (docs/protocol/v4.md §1.3) and, while a pairing window is open, for the pairing UUID.
 /// Which of the two a peripheral advertised in the packet that was just reported is the route of that connection
 /// (`connectionRoute`): the selected route walks the handshake, the pairing route only carries pairing.
 @MainActor
 final class ReceiverBLECentral: ObservableObject {
-    static let idleTimeoutKey = "rk.idleTimeoutSeconds"
+    /// How long a peripheral that failed authentication is left alone (D29: a timed hold, not a session-long skip).
+    static let skipHoldSeconds = ReceiverLinkStateMachine.handshakeBackoffSeconds
     /// How long a deliberate disconnect waits for the goodbye's write response before it cancels anyway.
     static let goodbyeTimeout: TimeInterval = 0.5
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "link")
@@ -36,8 +38,7 @@ final class ReceiverBLECentral: ObservableObject {
     @Published private(set) var linkState: ReceiverLinkState = .idle
     @Published private(set) var readyMilliseconds: Int?
     @Published private(set) var isArmed = false
-    @Published private(set) var deadline: Date?
-    /// Refreshed once a second while armed so the countdown stays current.
+    /// Refreshed once a second while the panel is open so the pairing countdown stays current.
     @Published private(set) var now = Date()
 
     private var link: ReceiverLinkStateMachine
@@ -51,10 +52,10 @@ final class ReceiverBLECentral: ObservableObject {
     private let makeDriver: (ReceiverBLECentral) -> CentralDriving
     private let clock: () -> Date
     private var driver: CentralDriving?
-    private var idleTimer: Timer?
     private var connectTimer: Timer?
     private var tickTimer: Timer?
     private var panelVisible = false
+    private let uptime: () -> Double
     private let monotonicMs: () -> Int64
     private var rescanTimer: Timer?
     /// Last power state reported by CoreBluetooth. The radio is only commanded while it is on.
@@ -62,10 +63,9 @@ final class ReceiverBLECentral: ObservableObject {
     /// When the peripheral that is now being connected was accepted, not merely seen.
     private var discoveredAtMs: Int64?
 
-    /// Peripherals that failed authentication (or offered to pair outside a pairing window) in the current receiving
-    /// session. They are not connected to again until the session ends: the list is emptied when receiving arms and
-    /// when it disarms.
-    private var skippedPeripherals: Set<UUID> = []
+    /// Peripherals that failed authentication (or offered to pair outside a pairing window), with the uptime second at which
+    /// the hold on each ends. Emptied when receiving starts, stops or restarts scanning.
+    private var heldPeripherals: [UUID: Double] = [:]
 
     /// Puts the frames of each `event` notification back into whole messages. One per connected peripheral; the
     /// central holds a single connection, and the reassembler is reset whenever that connection stops being ready.
@@ -96,7 +96,7 @@ final class ReceiverBLECentral: ObservableObject {
     #endif
     /// Fires each time the link newly reaches ready (control characteristic is known by then).
     var onLinkReady: (@MainActor () -> Void)?
-    /// Fires each time the link leaves ready (disconnect, invalidation, stop, idle timeout or radio off).
+    /// Fires each time the link leaves ready (disconnect, invalidation, stop or radio off).
     var onLinkLost: (@MainActor () -> Void)?
     /// The sealed `bye` for the current connection, or `nil` when it is not authenticated. Asked once before every
     /// deliberate disconnect of a ready link.
@@ -108,14 +108,13 @@ final class ReceiverBLECentral: ObservableObject {
     ///     a version mismatch. Tests pass their own.
     init(
         hostId: Data,
-        defaults: UserDefaults = .standard,
         clock: @escaping () -> Date = Date.init,
         monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs,
         uptime: @escaping () -> Double = { ProcessInfo.processInfo.systemUptime },
         makeDriver: @escaping (ReceiverBLECentral) -> CentralDriving = { CoreBluetoothDriver(owner: $0) }
     ) {
-        let override = defaults.double(forKey: Self.idleTimeoutKey)
-        session = ReceiverSession(idleTimeout: override > 0 ? override : ReceiverSession.idleTimeout)
+        session = ReceiverSession()
+        self.uptime = uptime
         link = ReceiverLinkStateMachine(now: uptime)
         selectUUID = SelectUUID.make(hostId: hostId)
         self.clock = clock
@@ -126,7 +125,7 @@ final class ReceiverBLECentral: ObservableObject {
     /// Plain wording for the panel, Taiwan Traditional Chinese. The reason a radio is unusable is `linkReason`.
     var linkLabel: String {
         switch linkState {
-        case .idle: "尚未開始接收"
+        case .idle: "已停止接收"
         case .unavailable: "無法接收"
         case .scanning: "未連線，正在尋找 iPhone"
         case .connecting, .discovering: "正在連線 iPhone"
@@ -140,15 +139,16 @@ final class ReceiverBLECentral: ObservableObject {
     /// `true` while the radio is unusable because the user has not allowed Bluetooth for this app.
     var needsBluetoothPermission: Bool { linkState == .unavailable(.unauthorized) }
 
-    var remainingSeconds: TimeInterval? {
-        guard isArmed, let deadline else { return nil }
-        return max(0, deadline.timeIntervalSince(clock()))
-    }
-
     // MARK: Session
 
-    func startReceiving() { handleSession(.manualStart) }
-    func stopReceiving() { handleSession(.manualStop) }
+    func startReceiving() { handleSession(.start) }
+    func stopReceiving() { handleSession(.stop) }
+
+    /// Fires after the user starts or stops receiving by hand, so pairing knows receiving is no longer its own to undo.
+    var onUserSessionChange: (@MainActor () -> Void)?
+    /// The panel's 開始接收 / 停止接收. Internal callers (pairing) use `startReceiving()` / `stopReceiving()`.
+    func userStartReceiving() { startReceiving(); onUserSessionChange?() }
+    func userStopReceiving() { stopReceiving(); onUserSessionChange?() }
 
     /// The app is quitting: stop receiving (which says goodbye) and keep the run loop turning until the connection is
     /// cancelled, for at most about `goodbyeTimeout`. Best effort; returns at once when nothing is connected.
@@ -159,10 +159,6 @@ final class ReceiverBLECentral: ObservableObject {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
     }
-    /// Extends the idle deadline for one validly decoded event.
-    func noteEvent() { handleSession(.eventReceived) }
-    /// The focused Mac field became editable (D13): arms receiving, or extends it when already armed.
-    func focusGainedEditable() { handleSession(.editableFocusGained) }
 
     /// Called by the driver for every `event` notification. The first byte decides where it goes: `0x02` is a frame of the
     /// keyboard's message, `0x03` a pointer packet, `0x7E` (Debug builds) a measurement packet. Anything else is skipped and
@@ -186,7 +182,7 @@ final class ReceiverBLECentral: ObservableObject {
         }
     }
 
-    /// One `0x02` frame. Only a complete message reaches the handler; decoding and the idle deadline belong to the handler.
+    /// One `0x02` frame. Only a complete message reaches the handler; decoding belongs to the handler.
     private func receive(frame eventData: Data) {
         let droppedBefore = reassembler.droppedPartialMessages
         let result = reassembler.accept(eventData)
@@ -235,51 +231,44 @@ final class ReceiverBLECentral: ObservableObject {
         if pendingGoodbye != nil, goodbyeTimer != nil, controlWritesInFlight == 0 { finishGoodbye() }
     }
 
-    /// Drops the connection in progress (or ready), if any, and goes back to scanning. With `skipForSession` the
-    /// peripheral is also not connected to again for the rest of the receiving session.
-    func disconnectCurrent(skipForSession: Bool) {
+    /// Drops the connection in progress (or ready), if any, and goes back to scanning. With `hold` the peripheral is also
+    /// not connected to again for `skipHoldSeconds`.
+    func disconnectCurrent(hold: Bool) {
         let id: UUID
         switch link.state {
         case .connecting(let current), .discovering(let current), .ready(let current): id = current
         default: return
         }
-        if skipForSession {
-            skippedPeripherals.insert(id)
-            Self.log.info("peripheral skipped for this receiving session")
+        if hold {
+            heldPeripherals[id] = uptime() + Self.skipHoldSeconds
+            Self.log.info("peripheral held off for \(Self.skipHoldSeconds, privacy: .public) seconds")
         }
         // A service that went away is how the link machine already expresses "drop this peripheral and look again".
         endLinkDeliberately(.serviceInvalidated(id))
     }
 
-    /// Forgets every skipped peripheral and starts a fresh scan (the driver reports a peripheral once per scan), so a
+    /// Forgets every held peripheral and starts a fresh scan (the driver reports a peripheral once per scan), so a
     /// phone seen before is reported again. Also ends a live connection. Does nothing while receiving is not armed.
     func restartScanning() {
-        skippedPeripherals.removeAll()
+        heldPeripherals.removeAll()
         guard isArmed else { return }
         endLinkDeliberately(.stop)
         handleLink(.start)
     }
 
     func handleSession(_ input: ReceiverSessionInput) {
-        let effects = session.handle(input, now: clock())
+        let effects = session.handle(input)
         isArmed = session.isArmed
-        deadline = session.deadline
         now = clock()
         for effect in effects {
             switch effect {
             case .arm:
-                skippedPeripherals.removeAll()
+                heldPeripherals.removeAll()
                 if driver == nil { driver = makeDriver(self) }
-                refreshTicking()
                 handleLink(.start)
             case .disarm:
-                skippedPeripherals.removeAll()
-                refreshTicking()
-                idleTimer?.invalidate()
-                idleTimer = nil
+                heldPeripherals.removeAll()
                 endLinkDeliberately(.stop)
-            case .scheduleTimeout(let at):
-                scheduleIdleTimeout(at: at)
             }
         }
     }
@@ -294,6 +283,7 @@ final class ReceiverBLECentral: ObservableObject {
     func setPairingScan(_ enabled: Bool) {
         guard pairingScanEnabled != enabled else { return }
         pairingScanEnabled = enabled
+        refreshTicking()
         guard case .scanning = link.state else { return }
         // A backoff after failed handshakes is still running: the scan that ends it reads the new conditions, and one started
         // now would skip the wait.
@@ -332,7 +322,7 @@ final class ReceiverBLECentral: ObservableObject {
     /// The keyboard speaks another protocol version. With `hold` it is not connected to again for 60 seconds; without, it is only
     /// dropped (inside a pairing window it may be the phone about to pair, docs/protocol/v4.md §6.2).
     func peripheralUnsupportedVersion(hold: Bool) {
-        if hold { endReadyLink { .unsupportedVersion($0) } } else { disconnectCurrent(skipForSession: false) }
+        if hold { endReadyLink { .unsupportedVersion($0) } } else { disconnectCurrent(hold: false) }
     }
 
     private func endReadyLink(_ input: (UUID) -> ReceiverLinkInput) {
@@ -396,30 +386,24 @@ final class ReceiverBLECentral: ObservableObject {
         CommonModeTimer.make(interval, repeats: repeats, fire)
     }
 
-    private func scheduleIdleTimeout(at date: Date) {
-        idleTimer?.invalidate()
-        let interval = max(0, date.timeIntervalSince(clock()))
-        idleTimer = Self.makeTimer(interval, repeats: false) { [weak self] in self?.handleSession(.timerFired) }
-    }
-
-    /// Whether the one-second tick is running (armed and the panel open).
+    /// Whether the one-second tick is running (panel open and a pairing window open).
     var isTicking: Bool { tickTimer != nil }
 
-    /// The menu bar panel opened or closed. `now` only feeds the panel's countdowns, so the tick runs only while armed and
-    /// visible; nothing else (idle expiry, deadlines) reads `now`, they use their own timers and `clock()`.
+    /// The menu bar panel opened or closed. `now` only feeds the pairing countdown, so the tick runs only while the panel is
+    /// open and a pairing window is open (receiving or not).
     func setPanelVisible(_ visible: Bool) {
         panelVisible = visible
-        if visible { now = clock() }
         refreshTicking()
     }
 
     private func refreshTicking() {
-        guard isArmed, panelVisible else {
+        guard panelVisible, pairingScanEnabled else {
             tickTimer?.invalidate()
             tickTimer = nil
             return
         }
         guard tickTimer == nil else { return }
+        now = clock()
         tickTimer = Self.makeTimer(1, repeats: true) { [weak self] in self?.now = self?.clock() ?? Date() }
     }
 
@@ -427,7 +411,10 @@ final class ReceiverBLECentral: ObservableObject {
 
     /// - Parameter route: for `.discovered` only: how the peripheral was found (see `peripheralDiscovered`).
     func handleLink(_ input: ReceiverLinkInput, route: MacHandshake.Route = .selected) {
-        if case .discovered(let id) = input, skippedPeripherals.contains(id) { return }
+        if case .discovered(let id) = input, let until = heldPeripherals[id] {
+            if uptime() < until { return }
+            heldPeripherals[id] = nil
+        }
         // The connection that said goodbye is still closing; connecting now could be undone by its pending cancel.
         if case .discovered = input, pendingGoodbye != nil {
             discoveryDeferred = true
@@ -457,7 +444,6 @@ final class ReceiverBLECentral: ObservableObject {
             #if DEBUG
             writeTags.removeAll()
             #endif
-            handleSession(.linkReady)
             onLinkReady?()
         }
         if case .ready = before, after != before {

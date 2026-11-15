@@ -33,7 +33,6 @@ protocol PointerOutput: AnyObject {
 final class PointerReceiver: ObservableObject {
     static let enabledKey = "rk.pointerEnabled"
     static let maxConsecutiveFailures = 8
-    static let activityIntervalMicros: UInt64 = 1_000_000
     static let watchdogInterval: TimeInterval = 0.05
     /// Playout is waiting and the frame source has delivered nothing for this long: it is started again.
     static let frameStallMicros: UInt64 = 200_000
@@ -56,7 +55,6 @@ final class PointerReceiver: ObservableObject {
     private let frames: PointerFrameSource
     private let clock: () -> UInt64
     private let makeGrant: () -> UInt32
-    private let noteActivity: () -> Void
     private let log: (String) -> Void
 
     private var channels: ChannelSet?
@@ -67,7 +65,6 @@ final class PointerReceiver: ObservableObject {
     private var stats = PointerLinkStats()
     private var diagnostics = PointerPlayoutDiagnostics()
     private var consecutiveFailures = 0
-    private var lastActivityAt: UInt64?
     /// The later of the last frame and the moment the frame source was started.
     private var framesAliveAt: UInt64 = 0
     private var packets = 0
@@ -76,19 +73,17 @@ final class PointerReceiver: ObservableObject {
     /// - Parameters:
     ///   - clock: monotonic microseconds.
     ///   - makeGrant: a new grant value each call.
-    ///   - noteActivity: extends the receiving session (D13); called at most once a second.
     init(
         defaults: UserDefaults = .standard, output: PointerOutput, frames: PointerFrameSource = DisplayLinkFrameSource(),
         clock: @escaping () -> UInt64 = { PointerClock.nowMicros() },
         makeGrant: @escaping () -> UInt32 = { UInt32.random(in: 1...UInt32.max) },
-        noteActivity: @escaping () -> Void = {}, log: @escaping (String) -> Void = { PointerReceiver.osLog.info("\($0, privacy: .public)") }
+        log: @escaping (String) -> Void = { PointerReceiver.osLog.info("\($0, privacy: .public)") }
     ) {
         self.defaults = defaults
         self.output = output
         self.frames = frames
         self.clock = clock
         self.makeGrant = makeGrant
-        self.noteActivity = noteActivity
         self.log = log
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         frames.onFrame = { [weak self] timestamp, target in self?.frameTick(timestampMicros: timestamp, targetMicros: target) }
@@ -203,15 +198,8 @@ final class PointerReceiver: ObservableObject {
                 diagnostics.recordMove(arrivalMicros: now, dxSixteenths: payload.dx, dySixteenths: payload.dy, dtTenths: payload.dt)
             }
             route(engine.handle(payload, nowMicros: now), spanMicros: UInt64(payload.dt) * 100, nowMicros: now)
-            noteActivityIfDue(now)
             updateWatchdog()
         }
-    }
-
-    private func noteActivityIfDue(_ now: UInt64) {
-        if let last = lastActivityAt, now &- last < Self.activityIntervalMicros { return }
-        lastActivityAt = now
-        noteActivity()
     }
 
     // MARK: Watchdog

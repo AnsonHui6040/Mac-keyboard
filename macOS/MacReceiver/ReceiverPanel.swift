@@ -42,12 +42,13 @@ struct ReceiverPanel: View {
                 }
                 Text(FocusMenuText.line(focus.snapshot))
                     .fixedSize(horizontal: false, vertical: true)
-                Text(ReceiverMenu.remainingText(central.remainingSeconds))
+                Text(ReceiverMenu.receivingText(isArmed: central.isArmed))
                     .foregroundStyle(.secondary)
             }
             HStack(spacing: 8) {
-                Button("開始接收") { central.startReceiving() }
-                Button("停止接收") { central.stopReceiving() }
+                Button("開始接收") { central.userStartReceiving() }
+                    .disabled(central.isArmed)
+                Button("停止接收") { central.userStopReceiving() }
                     .disabled(!central.isArmed)
             }
             if Self.showsDeveloperTools {
@@ -153,7 +154,7 @@ struct ReceiverPanel: View {
         .controlSize(.small)
         .padding(12)
         .frame(width: Self.width, alignment: .leading)
-        // The countdown only needs its one-second tick while someone can see it.
+        // The pairing countdown only needs its one-second tick while someone can see it.
         .onAppear { central.setPanelVisible(true) }
         .onDisappear { central.setPanelVisible(false) }
     }

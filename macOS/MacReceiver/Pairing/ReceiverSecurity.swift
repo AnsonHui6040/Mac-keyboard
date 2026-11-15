@@ -12,8 +12,8 @@ import RemoteKeyboardCore
 ///   first with its pairing offer. After the handshake every `ack`, `status` and `bye` goes out sealed (`sealControl`), and
 ///   events are accepted only as sealed payloads that open under this connection's session key.
 /// - A plaintext event, a failed proof, a failed open, bytes that are not a message, a message of the wrong route, or a second
-///   keyboard session on the same connection ends in `authFailed`, a disconnect, and no reconnection to that peripheral in this
-///   receiving session (inside a pairing window the peripheral is not skipped: it may be the phone the user is about to pair).
+///   keyboard session on the same connection ends in `authFailed`, a disconnect, and no reconnection to that peripheral for 10
+///   seconds (inside a pairing window the peripheral is not skipped: it may be the phone the user is about to pair).
 /// - Three things end a connection without `authFailed`: the keyboard says `notSelected` (it types to another host), the
 ///   handshake does not finish in 5 seconds, and a message of another protocol version arrives. The first two hold that device
 ///   off for 10 seconds, the third for 60 (not inside a pairing window); no error is shown, except 「請更新 iPhone App」.
@@ -123,6 +123,8 @@ final class ReceiverSecurity: ObservableObject {
         central.onLinkReady = { [weak self] in self?.linkReady() }
         central.onLinkLost = { [weak self] in self?.linkLost() }
         central.goodbye = { [weak self] in self?.goodbyeMessage() }
+        // A start or stop by hand makes receiving the user's own: closing the pairing window must not undo it.
+        central.onUserSessionChange = { [weak self] in self?.armedByPairing = false }
     }
 
     func refreshPairedState() {
@@ -188,7 +190,7 @@ final class ReceiverSecurity: ObservableObject {
             // pair with (it closed between the scan and the connection).
             guard window.isOpen(at: clock()) else {
                 handshake = nil
-                central.disconnectCurrent(skipForSession: false)
+                central.disconnectCurrent(hold: false)
                 return
             }
             handshake = next
@@ -213,7 +215,7 @@ final class ReceiverSecurity: ObservableObject {
         onLinkLost?()
     }
 
-    /// Fail closed: tell the peripheral, drop it, and do not connect to it again in this receiving session.
+    /// Fail closed: tell the peripheral, drop it, and do not connect to it again for 10 seconds.
     private func failAuth() {
         handshakeTimer?.invalidate()
         handshakeTimer = nil
@@ -226,7 +228,7 @@ final class ReceiverSecurity: ObservableObject {
         // an open window alone, and inside it the peripheral is not skipped: it may be the iPhone the user is about to pair
         // (a keyboard that was still on screen when the window opened).
         if attempt != nil { return endPairing(.failed) }
-        central.disconnectCurrent(skipForSession: phase == .idle)
+        central.disconnectCurrent(hold: phase == .idle)
     }
 
     private func startHandshakeTimer() {
@@ -272,7 +274,7 @@ final class ReceiverSecurity: ObservableObject {
     }
 
     /// The keyboard types to another host. Not an error: nothing is written, nothing is shown, the device is held off for
-    /// 10 seconds and is not on the skip list.
+    /// 10 seconds, the same hold as any other failed handshake.
     private func notSelected() {
         Self.log.info("keyboard types to another host, peripheral dropped")
         dropConnectionState()
@@ -392,7 +394,7 @@ final class ReceiverSecurity: ObservableObject {
         farewell = goodbyeMessage()
         defer { farewell = nil }
         dropConnectionState()
-        central.disconnectCurrent(skipForSession: false)
+        central.disconnectCurrent(hold: false)
     }
 
     private func pairingMessage(_ message: PeripheralMessage) {
@@ -400,12 +402,12 @@ final class ReceiverSecurity: ObservableObject {
         guard phase != .confirmed else { return }
         guard window.isOpen(at: clock()) else {
             // Outside the window an offer is ignored. The peripheral is dropped and, so that a phone that keeps offering
-            // cannot make this a reconnect loop, not connected to again until the receiving session ends.
+            // cannot make this a reconnect loop, not connected to again for 10 seconds.
             Self.log.info("pair message ignored outside the pairing window")
             handshake = nil
             handshakeTimer?.invalidate()
             handshakeTimer = nil
-            central.disconnectCurrent(skipForSession: true)
+            central.disconnectCurrent(hold: true)
             return
         }
         if case .pairOffer = message {
@@ -459,7 +461,7 @@ final class ReceiverSecurity: ObservableObject {
             armedByPairing = false
             central.stopReceiving()
         } else {
-            central.disconnectCurrent(skipForSession: false)
+            central.disconnectCurrent(hold: false)
         }
     }
 }
