@@ -11,14 +11,16 @@ use crate::pointer_timing::PointerTiming;
 use crate::random::{RandomSource, SharedRandom};
 use crate::store::{ConfigStore, PhoneStore, StoreError};
 use crate::ui::{IconState, NoticeKind, PhoneEntry, TrayState, UiCommand, UiEvent};
+use crate::wifi::{is_pointer_datagram, DropLog, Probing, WifiCommand};
 use rk_ble::{DeviceKey, DisconnectReason, FailKind, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState, Value};
+use rk_core::channel::ProbeSealer;
 use rk_core::dedup::{DedupDecision, EventDeduplicator};
 use rk_core::frame::{FrameReassembler, Reassembly};
 use rk_core::handshake::{HostHandshake, HostOutput};
 use rk_core::identity::{HostPlatform, PairedPhone, PhonePlatform, MAX_PHONES};
-use rk_core::message::{encode_control, Ack, AckResult, ControlMessage, EventKind, KeyboardEvent, ReceiverStatus, UNKNOWN_EVENT_ID};
+use rk_core::message::{encode_control, Ack, AckResult, ControlMessage, EventKind, KeyboardEvent, ReceiverStatus, WifiOffer, UNKNOWN_EVENT_ID};
 use rk_core::pairing::{HostPairing, HostPairingOutput};
-use rk_core::pointer::{PointerAction, PointerEffects, PointerReceiver, PointerRejection, ScrollPhase};
+use rk_core::pointer::{PointerAction, PointerEffects, PointerReceiver, PointerRejection, ScrollPhase, Transport};
 use rk_core::select_uuid::{select_uuid, PAIRING_ADVERT_UUID};
 use rk_inject::{Button, InjectError, Injector};
 use std::cell::Cell;
@@ -64,6 +66,8 @@ pub struct AppDeps {
 pub enum Effect {
     Link(LinkCommand),
     Ui(UiEvent),
+    /// Something to put on the local network (the Wi-Fi assist, §8.6).
+    Wifi(WifiCommand),
 }
 
 /// What the phone was last told, to know when a new `status` is due.
@@ -96,6 +100,11 @@ struct Conn {
     attempt: Option<Attempt>,
     phone: Option<([u8; 16], String)>,
     last_status: Option<StatusKey>,
+    /// The probe counter of this connection (§8.6), kept for as long as the connection lasts so that closing and reopening
+    /// the pointer channel never restarts it at 1 under the same key.
+    probe: Option<ProbeSealer>,
+    /// Probes are going out: the pointer channel is open and its `pointerOpen` carried a valid `wifi`.
+    probing: Option<Probing>,
 }
 
 pub struct App {
@@ -125,6 +134,12 @@ pub struct App {
     pointer_timing: PointerTiming,
     /// The wake-up `next_wake_ms` last asked for, to see how late `on_tick` ran against it.
     wake_asked: Cell<Option<u64>>,
+    /// The Wi-Fi socket exists. Without it no probe is started: nothing could send one.
+    wifi_ready: bool,
+    /// Debug lines about what the local network can make us drop are held to one a second each (see `DropLog`).
+    wifi_drop_log: DropLog,
+    udp_pointer_drop_log: DropLog,
+    wifi_io_log: DropLog,
 }
 
 fn kind_word(kind: &EventKind) -> &'static str {
@@ -179,6 +194,10 @@ impl App {
             keystore_down: false,
             pointer_timing: PointerTiming::new(),
             wake_asked: Cell::new(None),
+            wifi_ready: true,
+            wifi_drop_log: DropLog::default(),
+            udp_pointer_drop_log: DropLog::default(),
+            wifi_io_log: DropLog::default(),
         }
     }
 
@@ -301,6 +320,8 @@ impl App {
             attempt: None,
             phone: None,
             last_status: None,
+            probe: None,
+            probing: None,
         };
         let output = conn.handshake.begin();
         if self.handle_output(&mut conn, output, fx) {
@@ -313,7 +334,7 @@ impl App {
         let keep = match bytes.first() {
             Some(&FRAME_MAGIC) => self.on_frame(&mut conn, bytes, fx),
             Some(&POINTER_PACKET_MAGIC) => {
-                self.on_pointer_packet(&mut conn, bytes, fx);
+                self.on_pointer_packet(&mut conn, bytes, Transport::Ble, fx);
                 true
             }
             other => {
@@ -341,16 +362,19 @@ impl App {
         }
     }
 
-    fn on_pointer_packet(&mut self, conn: &mut Conn, packet: &[u8], fx: &mut Vec<Effect>) {
+    /// One `0x03` packet from the phone, over Bluetooth or (when it came from a probed address) over UDP. Both go through
+    /// the same checks, the same replay window and the same button logic; only the failure count differs (`Transport`).
+    fn on_pointer_packet(&mut self, conn: &mut Conn, packet: &[u8], transport: Transport, fx: &mut Vec<Effect>) {
         if !conn.handshake.is_authenticated() {
             return;
         }
         let now = self.now_micros();
         self.flush_pointer_timing(now, Some(conn.id));
         let squeeze_before = self.pointer.squeeze_count();
-        let effects = self.pointer.handle_packet(packet, now);
+        let effects = self.pointer.handle_packet_from(packet, now, transport);
         if effects.rejection.is_none() {
             self.pointer_timing.on_packet(now, effects.move_span_micros, squeeze_before);
+            self.pointer_timing.on_transport(transport);
         }
         if let Some(rejection) = effects.rejection {
             let why = match rejection {
@@ -358,7 +382,15 @@ impl App {
                 PointerRejection::Channel(_) => "channel",
                 PointerRejection::Unreadable => "unreadable",
             };
-            self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why))]);
+            let via = Value::S(transport.as_str());
+            match transport {
+                Transport::Ble => self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why)), ("via", via)]),
+                Transport::Udp => {
+                    if let Some(n) = self.udp_pointer_drop_log.note(self.now()) {
+                        self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why)), ("via", via), ("n", Value::U(n))]);
+                    }
+                }
+            }
         }
         self.apply_pointer(effects, Some(conn), fx);
     }
@@ -426,6 +458,7 @@ impl App {
         conn.deadline_ms = None;
         let name = self.store.phones().into_iter().find(|p| p.identity.id == phone_id).map(|p| p.identity.name);
         conn.phone = Some((phone_id, name.unwrap_or_default()));
+        conn.probe = conn.handshake.take_probe_sealer();
         self.attention = false;
         if let Some(channels) = conn.handshake.take_channel_set() {
             let effects = self.pointer.attach(channels);
@@ -567,12 +600,19 @@ impl App {
             EventKind::Backspace => inject_result(self.injector.backspace()),
             EventKind::ReturnKey => inject_result(self.injector.enter()),
             EventKind::Ping { .. } | EventKind::Probe => AckResult::Pong,
-            EventKind::PointerOpen { grant, .. } => {
+            EventKind::PointerOpen { grant, wifi } => {
                 let effects = self.pointer.handle_open(*grant);
-                self.finish_pointer_event(effects, conn, fx)
+                let ack = self.finish_pointer_event(effects, conn, fx);
+                match (ack, wifi) {
+                    (AckResult::Posted, Some(offer)) => self.start_probing(conn, offer, fx),
+                    (AckResult::Posted, None) => self.stop_probing(conn, "no_wifi"),
+                    _ => self.stop_probing(conn, "refused"),
+                }
+                ack
             }
             EventKind::PointerClose => {
                 let effects = self.pointer.handle_close();
+                self.stop_probing(conn, "close");
                 self.finish_pointer_event(effects, conn, fx)
             }
         }
@@ -603,10 +643,113 @@ impl App {
             };
         }
         if effects.status_changed {
-            if let Some(conn) = conn.filter(|c| c.handshake.is_authenticated()) {
-                self.send_status(conn, fx);
+            if let Some(conn) = conn {
+                // A new grant ends whatever was opened with the old one, and the probes with it.
+                self.stop_probing(conn, "grant_changed");
+                if conn.handshake.is_authenticated() {
+                    self.send_status(conn, fx);
+                }
             }
         }
+    }
+
+    // ------------------------------------------------------------ Wi-Fi assist (§8.6)
+
+    /// The socket of the Wi-Fi assist could not be made: the receiver goes on over Bluetooth alone.
+    pub fn on_wifi_unavailable(&mut self, kind: std::io::ErrorKind) {
+        self.wifi_ready = false;
+        self.log.info("wifi_unavailable", None, &[("kind", Value::S(crate::wifi::io_kind_word(kind)))]);
+    }
+
+    /// A send or a receive on the Wi-Fi socket failed. Never fatal; only the kind of error is written, and only in the debug log.
+    pub fn on_wifi_io(&mut self, what: &'static str, kind: std::io::ErrorKind) {
+        if let Some(n) = self.wifi_io_log.note(self.now()) {
+            self.log.debug("wifi_io", None, &[("what", Value::S(what)), ("kind", Value::S(crate::wifi::io_kind_word(kind))), ("n", Value::U(n))]);
+        }
+    }
+
+    /// One UDP datagram arrived on the Wi-Fi socket (§8.6 rule 4). It is looked at only while probes are going out, only when
+    /// it comes from an address and port that is being probed and only when it has the shape of a pointer packet; then it is
+    /// handled as a pointer packet that arrived over UDP. Everything else is dropped without a trace in the state: nobody on
+    /// the local network can use the socket to close the channel, burn a grant or move the cursor.
+    pub fn on_wifi_datagram(&mut self, from: std::net::SocketAddr, bytes: &[u8]) -> Vec<Effect> {
+        let mut fx = Vec::new();
+        match self.conn.take() {
+            None => self.log_wifi_drop(None, "no_probing"),
+            Some(mut conn) => {
+                let drop_why = match conn.probing.as_ref() {
+                    None => Some("no_probing"),
+                    Some(probing) if !probing.is_target(from) => Some("source"),
+                    Some(_) if !is_pointer_datagram(bytes) => Some("shape"),
+                    Some(_) => None,
+                };
+                match drop_why {
+                    Some(why) => self.log_wifi_drop(Some(conn.id), why),
+                    None => self.on_pointer_packet(&mut conn, bytes, Transport::Udp, &mut fx),
+                }
+                self.conn = Some(conn);
+            }
+        }
+        self.flush_state(&mut fx);
+        fx
+    }
+
+    /// A datagram that was not let in. Anyone on the network can send these as fast as they like, so the line is rate-limited
+    /// and carries a count; it never names a source.
+    fn log_wifi_drop(&mut self, conn: Option<u64>, why: &'static str) {
+        if let Some(n) = self.wifi_drop_log.note(self.now()) {
+            self.log.debug("wifi_drop", conn, &[("why", Value::S(why)), ("n", Value::U(n))]);
+        }
+    }
+
+    /// The pointer channel opened with a valid `wifi`: the targets are now these (replacing any earlier ones) and the first
+    /// probe goes out at once. Every 250 ms after that, `tick_wifi` sends the next.
+    fn start_probing(&mut self, conn: &mut Conn, offer: &WifiOffer, fx: &mut Vec<Effect>) {
+        if !self.wifi_ready {
+            self.stop_probing(conn, "no_socket");
+            return;
+        }
+        if conn.probe.is_none() {
+            // Nothing to seal a probe with: do not probe, and do not go on with targets from before.
+            conn.probing = None;
+            self.log.info("wifi_probe_stop", Some(conn.id), &[("why", Value::S("no_sealer"))]);
+            return;
+        }
+        let probing = Probing::new(offer, self.now());
+        self.log.info("wifi_probe_start", Some(conn.id), &[("targets", Value::U(probing.target_count() as u64))]);
+        conn.probing = Some(probing);
+        self.send_probe(conn, fx);
+    }
+
+    /// No more probes. Says why in the log when there was any probing to stop.
+    fn stop_probing(&mut self, conn: &mut Conn, why: &'static str) {
+        if conn.probing.take().is_some() {
+            self.log.info("wifi_probe_stop", Some(conn.id), &[("why", Value::S(why))]);
+        }
+    }
+
+    /// One freshly sealed probe for all targets; the next one is due 250 ms from now.
+    fn send_probe(&mut self, conn: &mut Conn, fx: &mut Vec<Effect>) {
+        let now = self.now();
+        let (Some(probing), Some(sealer)) = (conn.probing.as_mut(), conn.probe.as_mut()) else { return };
+        probing.sent(now);
+        match sealer.seal() {
+            Ok(bytes) => fx.push(Effect::Wifi(WifiCommand::Send { to: probing.targets().to_vec(), bytes: bytes.to_vec() })),
+            Err(_) => self.log.info("wifi_seal_failed", Some(conn.id), &[]),
+        }
+    }
+
+    fn tick_wifi(&mut self, fx: &mut Vec<Effect>) {
+        let Some(mut conn) = self.conn.take() else { return };
+        // Whatever ended the channel, probes do not outlive it.
+        if conn.probing.is_some() && !self.pointer.is_open() {
+            self.stop_probing(&mut conn, "closed");
+        }
+        let now = self.now();
+        if conn.probing.as_ref().is_some_and(|p| p.due(now)) {
+            self.send_probe(&mut conn, fx);
+        }
+        self.conn = Some(conn);
     }
 
     // ------------------------------------------------------------ writing to the phone
@@ -669,6 +812,9 @@ impl App {
 
     /// Bookkeeping when a connection is over, whoever ended it.
     fn end_connection(&mut self, conn: &Conn, reason: DisconnectReason, fx: &mut Vec<Effect>) {
+        if conn.probing.is_some() {
+            self.log.info("wifi_probe_stop", Some(conn.id), &[("why", Value::S("disconnect"))]);
+        }
         let effects = self.pointer.detach();
         self.apply_pointer(effects, None, fx);
         let ms = self.now().saturating_sub(conn.adv_base_ms);
@@ -722,6 +868,9 @@ impl App {
                 self.save_config("trackpad", &mut fx);
                 let effects = self.pointer.set_enabled(on);
                 let mut conn = self.conn.take();
+                if let (false, Some(conn)) = (on, conn.as_mut()) {
+                    self.stop_probing(conn, "switch_off");
+                }
                 self.apply_pointer(effects, conn.as_mut(), &mut fx);
                 self.conn = conn;
             }
@@ -830,6 +979,7 @@ impl App {
         }
         self.tick_connection(now, &mut fx);
         self.tick_pointer(&mut fx);
+        self.tick_wifi(&mut fx);
         let conn_id = self.conn.as_ref().map(|c| c.id);
         self.flush_pointer_timing(self.now_micros(), conn_id);
         self.flush_state(&mut fx);
@@ -900,6 +1050,7 @@ impl App {
         if self.pointer.needs_watchdog() {
             wakes.push(now + WATCHDOG_TICK_MS);
         }
+        wakes.extend(self.conn.as_ref().and_then(|c| c.probing.as_ref()).map(Probing::next_wake_ms));
         // The end of a pointer stroke writes its timing report, so someone has to be awake for it.
         wakes.extend(self.pointer_timing.deadline_us().map(|us| us.div_ceil(1000)));
         let wake = wakes.into_iter().min();

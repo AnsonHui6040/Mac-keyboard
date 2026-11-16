@@ -21,3 +21,4 @@ pub mod runner;
 pub mod selftest;
 pub mod store;
 pub mod ui;
+pub mod wifi;

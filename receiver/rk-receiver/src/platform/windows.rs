@@ -543,7 +543,8 @@ pub fn run(cli: &Cli) -> i32 {
     let worker = std::thread::spawn(move || {
         // Whatever ends this thread, the tray loop must end too, or the process would sit in the tray with nothing behind it.
         let _quit = QuitTrayOnDrop(thread_id);
-        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_time().build() else { return };
+        // Timers and I/O: the runner's UDP socket (Wi-Fi assist) needs the I/O driver.
+        let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
         runtime.block_on(async move {
             let (event_tx, event_rx) = mpsc::channel(256);
             let (link_tx, link_rx) = mpsc::channel(64);
