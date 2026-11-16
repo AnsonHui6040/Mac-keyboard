@@ -213,7 +213,7 @@ mod tests {
     use rk_ble::{DeviceKey, Route};
     use rk_core::identity::HostPlatform;
     use rk_inject::RecordingInjector;
-    use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+    use std::net::{SocketAddr, SocketAddrV4};
     use std::sync::Mutex;
 
     #[derive(Clone, Default)]
@@ -303,7 +303,7 @@ mod tests {
         let good = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let ours = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         // A broadcast address needs SO_BROADCAST, which this socket does not set: the send is refused.
-        let refused = SocketAddrV4::new(Ipv4Addr::BROADCAST, 9);
+        let refused = SocketAddrV4::new(std::net::Ipv4Addr::BROADCAST, 9);
         let errors = send_wifi(&ours, &[refused, loopback_target(&good)], &[1; 41]).await;
         assert_eq!(errors.len(), 1, "one error, for the one target");
         let mut buf = [0u8; 64];
