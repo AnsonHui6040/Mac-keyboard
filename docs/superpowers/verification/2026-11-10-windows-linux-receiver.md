@@ -1434,3 +1434,24 @@ Windows 沒有掉字、沒有收到別台的字。兩台都沒有收到另一台
 ### 實機（使用者，TBD）
 
 清單 B1–B10：中文、手寫、快速輸入、語音、觸控板、刪除一台電腦、兩支手機、開機自動啟動、Linux 重新授權、Windows 管理員視窗。
+
+## Linux：確認連線過時再斷開（2026-11-16）
+
+成因（iPhone sysdiagnose 與接收端 log 對照）：Linux 接收端把 iPhone 一則 ManufacturerData 沒變的 Apple 廣播（BlueZ 只送 RSSI 變化）誤認為鍵盤廣播，判定連線過時而斷開，再在同一條無線連線（`connected ms=0`）送第二個 `hello`；iPhone 在已認證的連線收到第二個 `hello`，記錄 `handshake failed reason=secondHello` 並重設，期間按的鍵被丟棄。
+
+修正：疑似過時時先讀 event 特徵值的 CCCD（逾時 1 秒），仍訂閱（notify 位元）就保留連線，5 秒內不再檢查；未訂閱、ATT 錯誤或逾時才斷開重連。
+
+### 自動驗證
+
+- `cargo test --workspace`、clippy `-D warnings`（macOS）；rk-linux 暫存資料夾 `cargo test -p rk-ble -p rk-receiver`、clippy。新增測試：ATT 讀取、讀取期間通知依序保留、CCCD 判斷、保留或斷開的決定、退避邊界。
+- CI：Build, test and lint（ubuntu、windows）、Linux .deb、Windows installer 通過。
+- 獨立 review：沒有 HIGH；MEDIUM 2（決定流程沒有測試：已改為純函式並加測試；iOS CCCD 行為：以下實機確認）。
+
+### 實機（rk-linux，安裝 PR 的 `.deb`）
+
+| 測試 | 修正前 | 修正後 |
+|---|---|---|
+| 同一連線連打 50 個字串：`stale_advert` 斷線 | 每次 1–2 次 | 0；`stale_suspect result=subscribed` 2 次，連線保留（109、159 ms） |
+| 收起再打開鍵盤 20 次：過時連線 | 立即斷開 | `not_subscribed` 8 次，全部立即斷開重連；認證 21／21；廣播到認證中位數 2426 ms、p95 6827 ms |
+
+仍未解決：無線斷線 `link_lost`（iPhone 記錄 `unsubscribed`），50 個字串中 3 次，斷線期間的按鍵仍會掉。
