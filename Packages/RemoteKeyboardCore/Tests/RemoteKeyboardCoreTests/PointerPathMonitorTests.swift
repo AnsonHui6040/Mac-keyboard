@@ -98,6 +98,84 @@ final class PointerPathMonitorTests: XCTestCase {
         monitor.probeAccepted(atMicros: 10_100 * ms)
         XCTAssertEqual(monitor.path(atMicros: 10_200 * ms), .wifi)
     }
+
+    // MARK: Backing off after repeated failures
+
+    /// Fails the path at `now`, then waits for the pause to run out and lets a probe bring Wi-Fi back.
+    private func failAndRecover(_ monitor: inout PointerPathMonitor, failAt now: UInt64, expectedPause: UInt64) {
+        monitor.sendFailed(atMicros: now)
+        monitor.probeAccepted(atMicros: now + expectedPause - 1)
+        XCTAssertEqual(monitor.path(atMicros: now + expectedPause - 1), .bluetooth, "still inside the pause of \(expectedPause / 1_000_000) s")
+        monitor.probeAccepted(atMicros: now + expectedPause)
+        XCTAssertEqual(monitor.path(atMicros: now + expectedPause), .wifi, "the pause is over")
+    }
+
+    func testThePauseDoublesWithEveryFailure() {
+        var monitor = PointerPathMonitor(maxFailures: 10)
+        monitor.probeAccepted(atMicros: 0)
+        var now: UInt64 = 100 * ms
+        for seconds: UInt64 in [5, 10, 20, 40] {
+            failAndRecover(&monitor, failAt: now, expectedPause: seconds * 1_000_000)
+            now += seconds * 1_000_000 + 100 * ms
+        }
+    }
+
+    func testThePauseStopsGrowingAtTheCap() {
+        var monitor = PointerPathMonitor(maxFailures: 10)
+        monitor.probeAccepted(atMicros: 0)
+        var now: UInt64 = 100 * ms
+        for seconds: UInt64 in [5, 10, 20, 40, 60, 60, 60] {
+            failAndRecover(&monitor, failAt: now, expectedPause: seconds * 1_000_000)
+            now += seconds * 1_000_000 + 100 * ms
+        }
+    }
+
+    func testTheThirdFailureEndsWifiForTheChannel() {
+        var monitor = PointerPathMonitor()
+        monitor.probeAccepted(atMicros: 0)
+        var now: UInt64 = 100 * ms
+        failAndRecover(&monitor, failAt: now, expectedPause: 5_000_000)
+        now += 5_000_000 + 100 * ms
+        failAndRecover(&monitor, failAt: now, expectedPause: 10_000_000)
+        now += 10_000_000 + 100 * ms
+        XCTAssertFalse(monitor.isWifiDisabled)
+        monitor.sendFailed(atMicros: now)
+        XCTAssertTrue(monitor.isWifiDisabled)
+        for later in [now + 1_000_000, now + 120_000_000, now + 9_000_000_000] {
+            monitor.probeAccepted(atMicros: later)
+            XCTAssertEqual(monitor.path(atMicros: later), .bluetooth, "no probe counts once Wi-Fi is given up")
+        }
+    }
+
+    func testResetStartsTheBackoffOver() {
+        var monitor = PointerPathMonitor()
+        monitor.probeAccepted(atMicros: 0)
+        monitor.sendFailed(atMicros: 100 * ms)
+        monitor.probeAccepted(atMicros: 5_200 * ms)
+        monitor.sendFailed(atMicros: 5_300 * ms)
+        monitor.probeAccepted(atMicros: 15_400 * ms)
+        monitor.sendFailed(atMicros: 15_500 * ms)
+        XCTAssertTrue(monitor.isWifiDisabled)
+        monitor.reset()
+        XCTAssertFalse(monitor.isWifiDisabled)
+        monitor.probeAccepted(atMicros: 20_000 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 20_001 * ms), .wifi)
+        monitor.sendFailed(atMicros: 20_100 * ms)
+        monitor.probeAccepted(atMicros: 25_100 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 25_101 * ms), .wifi, "the first failure of the new channel pauses for 5 s again")
+    }
+
+    func testFailuresReportedInsideOnePauseCountOnce() {
+        // Several sends in flight can all report the same broken flow.
+        var monitor = PointerPathMonitor()
+        monitor.probeAccepted(atMicros: 0)
+        monitor.sendFailed(atMicros: 100 * ms)
+        monitor.sendFailed(atMicros: 101 * ms)
+        monitor.sendFailed(atMicros: 102 * ms)
+        XCTAssertFalse(monitor.isWifiDisabled)
+        monitor.probeAccepted(atMicros: 5_100 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 5_101 * ms), .wifi, "still the first 5 s pause, not 20")
+    }
 }
 
 /// A probe only counts when it opens (spec W6; Review Focus 5): a forged, mangled or replayed datagram never extends the path.

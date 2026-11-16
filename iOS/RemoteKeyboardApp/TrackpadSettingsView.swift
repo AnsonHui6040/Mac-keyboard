@@ -61,7 +61,7 @@ struct TrackpadSettingsView: View {
         }
         .navigationTitle("觸控板")
         .onAppear {
-            if wifiPointerOn { LocalNetworkPermission.triggerOnce() }
+            if wifiPointerOn { LocalNetworkPermission.trigger() }
         }
         .onChange(of: wifiPointerOn) { _, isOn in
             UserDefaults(suiteName: AppGroup.identifier)?.set(isOn, forKey: AppGroup.Key.wifiPointer)

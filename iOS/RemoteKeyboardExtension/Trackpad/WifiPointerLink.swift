@@ -39,8 +39,6 @@ final class WifiPointerLink {
     private var inbound: [NWEndpoint: Inbound] = [:]
     private var target: NWEndpoint?
 
-    var hasTarget: Bool { target != nil }
-
     // MARK: Listener
 
     /// Reports the listener's UDP port once, or `nil` when it was not ready within `readyTimeout` (or could not start). Called
@@ -53,7 +51,10 @@ final class WifiPointerLink {
         }
         pendingReady.append(onReady)
         guard listener == nil else { return }
-        guard let listener = try? NWListener(using: .udp) else {
+        // The Receiver is on the local network; a flow over the mobile network is never wanted.
+        let parameters = NWParameters.udp
+        parameters.prohibitedInterfaceTypes = [.cellular]
+        guard let listener = try? NWListener(using: parameters) else {
             finishReady(nil)
             return
         }
@@ -79,10 +80,22 @@ final class WifiPointerLink {
             port = value
             finishReady(value)
         case .failed, .cancelled:
+            // A listener that failed after it was ready is gone for good: its port must not be offered again, so a later
+            // `start` begins a new one. Its flows belonged to it.
+            discardListener()
             finishReady(nil)
         default:
             break
         }
+    }
+
+    private func discardListener() {
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        listener = nil
+        port = nil
+        for endpoint in order { remove(endpoint) }
     }
 
     private func finishReady(_ value: UInt16?) {
@@ -155,7 +168,19 @@ final class WifiPointerLink {
         switch state {
         case .ready:
             inbound[endpoint]?.isReady = true
-        case .waiting, .failed, .cancelled:
+        case .waiting:
+            if endpoint == target {
+                // Local network permission refused: sends can never work. Any other wait may pass, so the target stays and
+                // `send` just declines until it is ready again.
+                if connection.currentPath?.unsatisfiedReason == .localNetworkDenied {
+                    flowEnded(endpoint)
+                } else {
+                    inbound[endpoint]?.isReady = false
+                }
+            } else {
+                remove(endpoint)
+            }
+        case .failed, .cancelled:
             flowEnded(endpoint)
         default:
             break
@@ -191,8 +216,9 @@ final class WifiPointerLink {
         if let target { remove(target) }
     }
 
-    /// Hands one datagram to the target's flow. `false` when there is no target or its flow is not ready; the packet is then not
-    /// sent. A failure that the system reports later is `onSendFailure`.
+    /// Hands one datagram to the target's flow. `false` when there is no target or its flow is not ready yet: the packet is then not
+    /// sent, and that is not a failure (nothing is dropped, no pause starts). A real failure, a send that completes with an error or
+    /// a flow that fails or is refused the local network, comes back through `onSendFailure`.
     func send(_ packet: Data) -> Bool {
         guard !isStopped, let target, let entry = inbound[target], entry.isReady else { return false }
         let connection = entry.connection

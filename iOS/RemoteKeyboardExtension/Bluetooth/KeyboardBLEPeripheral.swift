@@ -273,6 +273,8 @@ final class KeyboardBLEPeripheral: NSObject {
         setPointerLatency(open: true)
         let group = UserDefaults(suiteName: AppGroup.identifier)
         guard WifiPointerSetting.isEnabled(stored: group?.object(forKey: AppGroup.Key.wifiPointer)) else {
+            // Switched off since an earlier attempt: a listener left over from it is not wanted.
+            stopWifi()
             sendPointerOpen(grant: grant, wifi: nil)
             return
         }
@@ -290,21 +292,21 @@ final class KeyboardBLEPeripheral: NSObject {
             if let newer = latestStatus?.pointerGrant, mayOpenPointer(grant: newer) {
                 openPointer()
             } else {
-                stopWifi(reason: .closed)
+                stopWifi()
                 setPointerLatency(open: false)
             }
             return
         }
         let offer = port.flatMap { WifiOffer(addrs: LocalAddresses.current(), port: $0) }
         // No port or no usable address: the Mac is not asked to probe, and a listener nobody uses is not kept.
-        if offer == nil { stopWifi(reason: .closed) }
+        if offer == nil { stopWifi() }
         sendPointerOpen(grant: grant, wifi: offer)
     }
 
     private func sendPointerOpen(grant: UInt32, wifi: WifiOffer?) {
         guard let id = send(.pointerOpen(grant: grant, wifi: wifi)) else {
             setPointerLatency(open: false)
-            stopWifi(reason: .closed)
+            stopWifi()
             return
         }
         pointerAttempts += 1
@@ -329,8 +331,7 @@ final class KeyboardBLEPeripheral: NSObject {
         pointerAttempts = 0
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
-        pointerState = .closed
-        stopWifi(reason: .closed)
+        endPointerChannel(as: .closed)
         setPointerLatency(open: false)
     }
 
@@ -357,8 +358,7 @@ final class KeyboardBLEPeripheral: NSObject {
             pointerState = .closed
             openPointer()
         } else {
-            pointerState = .timedOut
-            stopWifi(reason: .closed)
+            endPointerChannel(as: .timedOut)
             setPointerLatency(open: false)
         }
     }
@@ -427,8 +427,7 @@ final class KeyboardBLEPeripheral: NSObject {
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
         radioBlocked = false
-        pointerState = .closed
-        stopWifi(reason: .closed)
+        endPointerChannel(as: .closed)
     }
 
     /// The Mac's answer to the latest `pointerOpen`.
@@ -439,8 +438,7 @@ final class KeyboardBLEPeripheral: NSObject {
             pointerSender = PointerSender(rate: pointerSendRate)
             pointerState = .open
         } else {
-            pointerState = .denied
-            stopWifi(reason: .closed)
+            endPointerChannel(as: .denied)
             setPointerLatency(open: false)
         }
     }
@@ -455,8 +453,16 @@ final class KeyboardBLEPeripheral: NSObject {
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
         setPointerLatency(open: false)
-        pointerState = status.pointerGrant == nil ? .denied : .closed
-        stopWifi(reason: .closed)
+        endPointerChannel(as: status.pointerGrant == nil ? .denied : .closed)
+    }
+
+    /// The channel ended or was refused. The Wi-Fi listener is closed **before** the state changes: setting `pointerState` calls
+    /// `onPointerChange` at once, and the page may answer by calling `openPointer()`. Done the other way round, that open would
+    /// find the old listener still running, offer its port, and the listener would be closed a moment later, so the Receiver
+    /// would probe a dead port. With the listener gone first, the open starts a new one.
+    private func endPointerChannel(as state: PointerChannelPhase) {
+        stopWifi()
+        pointerState = state
     }
 
     // MARK: Wi-Fi assist
@@ -497,14 +503,14 @@ final class KeyboardBLEPeripheral: NSObject {
     }
 
     /// The listener, the target and the monitor go with the channel; the path is Bluetooth again.
-    private func stopWifi(reason: WifiPathDownReason) {
+    private func stopWifi() {
         wifiOpenPending = false
         wifiLink?.stop()
         wifiLink = nil
         wifiMonitor.reset()
         if pointerPath == .wifi {
             pointerPath = .bluetooth
-            KeyboardLifecycleLog.note(.wifiPathDown(reason: reason))
+            KeyboardLifecycleLog.note(.wifiPathDown(reason: .closed))
         }
     }
 
@@ -847,8 +853,9 @@ final class KeyboardBLEPeripheral: NSObject {
                     sender.handedOff(nowMicros: now)
                     continue
                 }
-                wifiSendFailed()
-                route = PointerRoute.choose(path: pointerPath, radioBlocked: radioBlocked)
+                // Not sent because there is no target flow yet, or it is not ready yet. That is not a failure (a real one comes
+                // back through `onSendFailure`): this one packet goes by Bluetooth, sealed again, and the path stays as it is.
+                route = PointerRoute.choose(path: .bluetooth, radioBlocked: radioBlocked)
             }
             // Frames only ever use the radio.
             guard !radioBlocked else { return }
@@ -898,8 +905,7 @@ final class KeyboardBLEPeripheral: NSObject {
     /// The counter is used up: nothing more can be sealed on this connection.
     private func pointerCountersUsedUp() {
         pointerSender = nil
-        pointerState = .closed
-        stopWifi(reason: .closed)
+        endPointerChannel(as: .closed)
         setPointerLatency(open: false)
     }
 

@@ -4,22 +4,14 @@ import Foundation
 /// Makes iOS ask for the 「區域網路」 permission while the App is in front (spec W12, F3).
 ///
 /// The keyboard extension uses the permission the host App holds (F2), but a process that is not in the foreground is refused
-/// without a prompt while the answer is still open. So the App touches the local network itself, once, from its settings page,
+/// without a prompt while the answer is still open. So the App touches the local network itself, from its settings page,
 /// the way Apple's TN3179 describes: a UDP socket is connected to the link-local IPv6 address of each broadcast-capable
 /// interface on port 9 (the discard port). `connect` on a UDP socket only sets the default destination: no datagram is sent.
-/// The permission is the system's to remember; there is no way to read it back.
+/// It is done every time the page opens with the switch on and every time the switch is turned on, with no memory of having
+/// done it: the system shows its alert only once, and an attempt that found no interface (no Wi-Fi at that moment) must be
+/// able to try again. The permission is the system's to remember; there is no way to read it back.
 enum LocalNetworkPermission {
-    /// The page has already triggered the prompt once on this install.
-    private static let triggeredKey = "rk.localNetworkPromptTriggered"
-
-    /// When the settings page opens with the switch on: only the first time.
-    static func triggerOnce() {
-        guard !UserDefaults.standard.bool(forKey: triggeredKey) else { return }
-        UserDefaults.standard.set(true, forKey: triggeredKey)
-        trigger()
-    }
-
-    /// When the switch is turned on, every time: the person just asked for Wi-Fi, and a prompt that was missed can come again.
+    /// Touches the local network so that the system asks, if it has not been answered yet.
     static func trigger() {
         for address in linkLocalDestinations() {
             let descriptor = socket(AF_INET6, SOCK_DGRAM, 0)
