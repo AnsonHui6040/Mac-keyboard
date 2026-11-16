@@ -99,6 +99,29 @@ final class PointerPathMonitorTests: XCTestCase {
         XCTAssertEqual(monitor.path(atMicros: 10_200 * ms), .wifi)
     }
 
+    // MARK: The send flow must be ready too
+
+    func testLiveProbesWithoutAReadyFlowAreStillBluetooth() {
+        var monitor = PointerPathMonitor()
+        monitor.probeAccepted(atMicros: 10_000 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 10_100 * ms, targetReady: false), .bluetooth, "packets cannot leave yet")
+        XCTAssertEqual(monitor.path(atMicros: 10_100 * ms, targetReady: true), .wifi)
+    }
+
+    func testAReadyFlowWithoutLiveProbesIsBluetooth() {
+        var monitor = PointerPathMonitor()
+        XCTAssertEqual(monitor.path(atMicros: 10_000 * ms, targetReady: true), .bluetooth, "no probe yet")
+        monitor.probeAccepted(atMicros: 10_000 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 11_001 * ms, targetReady: true), .bluetooth, "probes ran out")
+    }
+
+    func testTheFlowBecomingReadyBringsWifiWithoutANewProbe() {
+        var monitor = PointerPathMonitor()
+        monitor.probeAccepted(atMicros: 10_000 * ms)
+        XCTAssertEqual(monitor.path(atMicros: 10_050 * ms, targetReady: false), .bluetooth)
+        XCTAssertEqual(monitor.path(atMicros: 10_200 * ms, targetReady: true), .wifi)
+    }
+
     // MARK: Backing off after repeated failures
 
     /// Fails the path at `now`, then waits for the pause to run out and lets a probe bring Wi-Fi back.

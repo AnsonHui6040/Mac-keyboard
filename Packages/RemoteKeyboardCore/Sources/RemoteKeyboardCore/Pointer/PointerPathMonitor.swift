@@ -66,8 +66,10 @@ public struct PointerPathMonitor: Sendable {
         return count(atMicros: now)
     }
 
-    public func path(atMicros now: UInt64) -> PointerPath {
-        guard let last = lastProbeAt else { return .bluetooth }
+    /// Wi-Fi only while probes are live **and** the flow that packets would leave on is ready (`targetReady`): a path that is
+    /// announced but cannot take a packet yet would show Wi-Fi while everything still goes by Bluetooth.
+    public func path(atMicros now: UInt64, targetReady: Bool = true) -> PointerPath {
+        guard targetReady, let last = lastProbeAt else { return .bluetooth }
         let elapsed = now >= last ? now - last : 0
         return elapsed <= liveWindowMicros ? .wifi : .bluetooth
     }

@@ -205,6 +205,9 @@ final class WifiPointerLink {
 
     // MARK: Send side
 
+    /// The target flow exists and is ready: a packet handed to `send` would leave.
+    var isTargetReady: Bool { target.flatMap { inbound[$0]?.isReady } ?? false }
+
     /// The flow of `endpoint` becomes the send target: the owner has just opened a valid probe that came from it.
     func adopt(_ endpoint: NWEndpoint) {
         guard !isStopped, inbound[endpoint] != nil else { return }

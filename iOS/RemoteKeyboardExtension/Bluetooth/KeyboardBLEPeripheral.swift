@@ -273,8 +273,12 @@ final class KeyboardBLEPeripheral: NSObject {
         setPointerLatency(open: true)
         let group = UserDefaults(suiteName: AppGroup.identifier)
         guard WifiPointerSetting.isEnabled(stored: group?.object(forKey: AppGroup.Key.wifiPointer)) else {
-            // Switched off since an earlier attempt: a listener left over from it is not wanted.
+            // Switched off since an earlier attempt: a listener left over from it is not wanted. Closing it can publish a path
+            // change, which asks the page to refresh, which calls `openPointer()` again before this one is done; that nested
+            // call sends the open (the setting is off there too). If it did, this one must not send a second.
+            let attempts = pointerAttempts
             stopWifi()
+            guard pointerAttempts == attempts else { return }
             sendPointerOpen(grant: grant, wifi: nil)
             return
         }
@@ -496,7 +500,7 @@ final class KeyboardBLEPeripheral: NSObject {
 
     /// Brings `pointerPath` in line with the monitor and logs the change. A change to Bluetooth seen here is the probes running out.
     private func refreshPointerPath(atMicros now: UInt64, downReason: WifiPathDownReason) {
-        let path = wifiMonitor.path(atMicros: now)
+        let path = wifiMonitor.path(atMicros: now, targetReady: wifiLink?.isTargetReady ?? false)
         guard path != pointerPath else { return }
         pointerPath = path
         KeyboardLifecycleLog.note(path == .wifi ? .wifiPathUp : .wifiPathDown(reason: downReason))
