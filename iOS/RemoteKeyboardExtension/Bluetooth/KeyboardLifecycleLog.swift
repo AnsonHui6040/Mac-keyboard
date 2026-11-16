@@ -23,7 +23,11 @@ enum KeyboardLifecycleLog {
         case pairKeyMissing
         case handshakeStarted
         case handshakeAuthenticated
-        case handshakeFailed
+        /// `reason` is a fixed word from `PhoneHandshakeFailure.reason`; `failureLength` the sealed payload length when the
+        /// reason has one; `pieces` and `payloadLength` describe the write; `wasAuthenticated` is the state before the write.
+        case handshakeFailed(reason: String, failureLength: Int?, pieces: Int, payloadLength: Int, wasAuthenticated: Bool)
+        /// A write to `control` that `ControlCodec.decode` rejected (answered with invalidAttributeValueLength).
+        case controlDecodeFailed(pieces: Int, length: Int)
         /// A liveness probe left because a keyboard appeared on a link that looked connected.
         case probeSent
         case probeAnswered
@@ -69,8 +73,10 @@ enum KeyboardLifecycleLog {
             logger.notice("handshake started")
         case .handshakeAuthenticated:
             logger.notice("handshake authenticated")
-        case .handshakeFailed:
-            logger.notice("handshake failed")
+        case .handshakeFailed(let reason, let failureLength, let pieces, let payloadLength, let wasAuthenticated):
+            logger.notice("handshake failed reason=\(reason, privacy: .public) length=\(failureLength ?? -1, privacy: .public) pieces=\(pieces, privacy: .public) payloadLength=\(payloadLength, privacy: .public) authenticated=\(wasAuthenticated, privacy: .public)")
+        case .controlDecodeFailed(let pieces, let length):
+            logger.notice("control decode failed pieces=\(pieces, privacy: .public) length=\(length, privacy: .public)")
         case .probeSent:
             logger.notice("liveness probe sent")
         case .probeAnswered:

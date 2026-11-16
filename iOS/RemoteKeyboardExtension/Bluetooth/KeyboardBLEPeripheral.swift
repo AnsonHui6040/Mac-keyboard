@@ -1020,6 +1020,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         }
         #endif
         guard !pieces.isEmpty, let message = try? ControlCodec.decode(payload) else {
+            KeyboardLifecycleLog.note(.controlDecodeFailed(pieces: pieces.count, length: payload.count))
             peripheral.respond(to: first, withResult: .invalidAttributeValueLength)
             return
         }
@@ -1031,6 +1032,7 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         // The ATT request is answered either way; only the bound central's bytes reach the handshake.
         guard binding.shouldAcceptWrite(from: first.central.identifier) else { return }
         guard var current = handshake else { return }
+        let wasAuthenticated = current.canSendEvents
         let output = current.receive(message)
         handshake = current
         switch output {
@@ -1047,7 +1049,9 @@ extension KeyboardBLEPeripheral: @preconcurrency CBPeripheralManagerDelegate {
         case .deliver(let inner):
             deliver(inner)
         case .failed:
-            KeyboardLifecycleLog.note(.handshakeFailed)
+            KeyboardLifecycleLog.note(.handshakeFailed(
+                reason: current.failure?.reason ?? "unknown", failureLength: current.failure?.length,
+                pieces: pieces.count, payloadLength: payload.count, wasAuthenticated: wasAuthenticated))
             // An unpaired keyboard already says so in the status line; only a failed proof needs a note.
             if pairKey != nil { onNote?("配對驗證失敗") }
             onStateChange?(machine.state)
