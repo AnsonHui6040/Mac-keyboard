@@ -4,6 +4,7 @@ use crate::identity::{HostPlatform, PhonePlatform};
 use crate::json::Json;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::net::Ipv4Addr;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -116,6 +117,42 @@ impl fmt::Debug for ReceiverStatus {
     }
 }
 
+/// Where the host may send Wi-Fi probes: the phone's IPv4 addresses and the UDP port of its listener, from the optional
+/// `wifi` field of `pointerOpen` (§3.4). Only valid offers exist.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WifiOffer {
+    pub addrs: Vec<Ipv4Addr>,
+    pub port: u16,
+}
+
+impl WifiOffer {
+    /// The most addresses an offer may carry.
+    pub const MAX_ADDRS: usize = 4;
+
+    /// `None` unless there are 1 to 4 addresses, none of them `0.0.0.0`, a loopback, the broadcast or a multicast
+    /// address, and the port is not 0.
+    pub fn new(addrs: Vec<Ipv4Addr>, port: u16) -> Option<Self> {
+        let usable = |a: &Ipv4Addr| !(a.is_unspecified() || a.is_loopback() || a.is_broadcast() || a.is_multicast());
+        ((1..=Self::MAX_ADDRS).contains(&addrs.len()) && port != 0 && addrs.iter().all(usable)).then_some(Self { addrs, port })
+    }
+
+    fn to_json(&self) -> Json {
+        Json::object([
+            ("addrs", Json::Array(self.addrs.iter().map(|a| Json::string(&a.to_string())).collect())),
+            ("port", Json::uint(u64::from(self.port))),
+        ])
+    }
+
+    /// Reads a `wifi` value; anything that is not a valid offer is `None`, never an error (§3.4).
+    fn from_json(value: &Json) -> Option<Self> {
+        let o = value.as_object()?;
+        let Some(Json::Array(items)) = o.get("addrs") else { return None };
+        let addrs = items.iter().map(|v| v.as_str()?.parse::<Ipv4Addr>().ok()).collect::<Option<Vec<_>>>()?;
+        let port = u16::try_from(o.get("port")?.as_u64()?).ok()?;
+        Self::new(addrs, port)
+    }
+}
+
 /// What one key press means (§3.4).
 #[derive(Clone, PartialEq, Eq)]
 pub enum EventKind {
@@ -124,7 +161,7 @@ pub enum EventKind {
     ReturnKey,
     Ping { shown_at_ms: i64, connected_at_ms: i64 },
     Probe,
-    PointerOpen { grant: u32 },
+    PointerOpen { grant: u32, wifi: Option<WifiOffer> },
     PointerClose,
 }
 
@@ -282,7 +319,13 @@ impl EventKind {
                 single("ping", Json::object([("c", Json::int(*connected_at_ms)), ("s", Json::int(*shown_at_ms))]))
             }
             Self::Probe => single("probe", Json::object([])),
-            Self::PointerOpen { grant } => single("pointerOpen", Json::object([("grant", Json::uint(u64::from(*grant)))])),
+            Self::PointerOpen { grant, wifi } => {
+                let mut body = vec![("grant", Json::uint(u64::from(*grant)))];
+                if let Some(wifi) = wifi {
+                    body.push(("wifi", wifi.to_json()));
+                }
+                single("pointerOpen", Json::object(body))
+            }
             Self::PointerClose => single("pointerClose", Json::object([])),
         }
     }
@@ -449,7 +492,9 @@ fn parse_kind(o: &Object) -> Result<EventKind, CodecError> {
         "returnKey" => EventKind::ReturnKey,
         "ping" => EventKind::Ping { shown_at_ms: i64_field(body, "s")?, connected_at_ms: i64_field(body, "c")? },
         "probe" => EventKind::Probe,
-        "pointerOpen" => EventKind::PointerOpen { grant: u32_field(body, "grant")? },
+        "pointerOpen" => {
+            EventKind::PointerOpen { grant: u32_field(body, "grant")?, wifi: optional(body, "wifi").and_then(WifiOffer::from_json) }
+        }
         _ => EventKind::PointerClose,
     })
 }
@@ -534,6 +579,115 @@ mod tests {
         decode_control(json.as_bytes())
     }
 
+    fn offer(addrs: &[&str], port: u16) -> WifiOffer {
+        WifiOffer::new(addrs.iter().map(|a| a.parse().unwrap()).collect(), port).expect("a valid offer")
+    }
+
+    fn open_kind(wifi: &str) -> String {
+        format!(r#"{{"pointerOpen":{{"grant":7,"wifi":{wifi}}}}}"#)
+    }
+
+    fn kind_of(json: &str) -> EventKind {
+        let Ok(PeripheralMessage::Event(e)) = peripheral(&event_json(json)) else { panic!("an event expected for {json}") };
+        e.kind
+    }
+
+    #[test]
+    fn pointer_open_with_wifi_has_the_canonical_bytes_of_the_spec_example() {
+        let kind = EventKind::PointerOpen { grant: 305_419_896, wifi: Some(offer(&["192.168.1.23"], 50_123)) };
+        assert_eq!(
+            kind.to_json().to_bytes(),
+            br#"{"pointerOpen":{"grant":305419896,"wifi":{"addrs":["192.168.1.23"],"port":50123}}}"#
+        );
+    }
+
+    #[test]
+    fn pointer_open_without_wifi_keeps_the_old_bytes() {
+        let kind = EventKind::PointerOpen { grant: 305_419_896, wifi: None };
+        assert_eq!(kind.to_json().to_bytes(), br#"{"pointerOpen":{"grant":305419896}}"#);
+    }
+
+    #[test]
+    fn several_addresses_keep_their_order_on_the_wire() {
+        let kind = EventKind::PointerOpen { grant: 1, wifi: Some(offer(&["10.0.0.9", "192.168.1.23", "172.16.4.2"], 1)) };
+        assert_eq!(
+            kind.to_json().to_bytes(),
+            br#"{"pointerOpen":{"grant":1,"wifi":{"addrs":["10.0.0.9","192.168.1.23","172.16.4.2"],"port":1}}}"#
+        );
+    }
+
+    #[test]
+    fn an_absent_or_null_wifi_reads_as_none() {
+        assert_eq!(kind_of(r#"{"pointerOpen":{"grant":7}}"#), EventKind::PointerOpen { grant: 7, wifi: None });
+        assert_eq!(kind_of(&open_kind("null")), EventKind::PointerOpen { grant: 7, wifi: None });
+    }
+
+    #[test]
+    fn a_valid_wifi_is_read() {
+        assert_eq!(
+            kind_of(&open_kind(r#"{"addrs":["192.168.1.23"],"port":50123}"#)),
+            EventKind::PointerOpen { grant: 7, wifi: Some(offer(&["192.168.1.23"], 50_123)) }
+        );
+    }
+
+    #[test]
+    fn each_invalid_wifi_reads_as_none_and_the_event_stays_valid() {
+        for wifi in [
+            r#"{"addrs":[],"port":50123}"#,
+            r#"{"addrs":["10.0.0.1","10.0.0.2","10.0.0.3","10.0.0.4","10.0.0.5"],"port":50123}"#,
+            r#"{"addrs":["127.0.0.1"],"port":50123}"#,
+            r#"{"addrs":["127.1.2.3"],"port":50123}"#,
+            r#"{"addrs":["224.0.0.1"],"port":50123}"#,
+            r#"{"addrs":["239.255.255.255"],"port":50123}"#,
+            r#"{"addrs":["255.255.255.255"],"port":50123}"#,
+            r#"{"addrs":["0.0.0.0"],"port":50123}"#,
+            r#"{"addrs":["192.168.1.23"],"port":0}"#,
+            r#"{"addrs":["192.168.1.23"],"port":65536}"#,
+            r#"{"addrs":["192.168.1.23"],"port":-1}"#,
+            r#"{"addrs":["192.168.1.23"],"port":"50123"}"#,
+            r#"{"addrs":["192.168.1.23"]}"#,
+            r#"{"port":50123}"#,
+            r#"{"addrs":"192.168.1.23","port":50123}"#,
+            r#"{"addrs":[1],"port":50123}"#,
+            r#"{"addrs":["192.168.1.256"],"port":50123}"#,
+            r#"{"addrs":["192.168.1"],"port":50123}"#,
+            r#"{"addrs":["192.168.1.23.4"],"port":50123}"#,
+            r#"{"addrs":["192.168.01.23"],"port":50123}"#,
+            r#"{"addrs":[" 192.168.1.23"],"port":50123}"#,
+            r#"{"addrs":["fe80::1"],"port":50123}"#,
+            r#"{"addrs":["example.com"],"port":50123}"#,
+            r#"{"addrs":["192.168.1.23","127.0.0.1"],"port":50123}"#,
+            "[]",
+            r#""192.168.1.23""#,
+            "5",
+        ] {
+            assert_eq!(kind_of(&open_kind(wifi)), EventKind::PointerOpen { grant: 7, wifi: None }, "wifi {wifi}");
+        }
+    }
+
+    #[test]
+    fn a_bad_grant_is_still_malformed_even_with_a_good_wifi() {
+        let json = r#"{"pointerOpen":{"wifi":{"addrs":["192.168.1.23"],"port":1}}}"#;
+        assert_eq!(peripheral(&event_json(json)), Err(CodecError::Malformed));
+    }
+
+    #[test]
+    fn wifi_offer_rules() {
+        let ip = |s: &str| -> Ipv4Addr { s.parse().unwrap() };
+        assert!(WifiOffer::new(vec![ip("192.168.1.23")], 50_123).is_some());
+        assert!(WifiOffer::new(vec![ip("10.0.0.1"), ip("10.0.0.2"), ip("10.0.0.3"), ip("10.0.0.4")], 1).is_some());
+        for ok in ["169.254.10.20", "223.255.255.255", "240.0.0.1", "126.255.255.255", "128.0.0.0", "0.1.2.3"] {
+            assert!(WifiOffer::new(vec![ip(ok)], 9).is_some(), "{ok}");
+        }
+        assert!(WifiOffer::new(vec![], 1).is_none());
+        assert!(WifiOffer::new(vec![ip("10.0.0.1"); 5], 1).is_none());
+        assert!(WifiOffer::new(vec![ip("192.168.1.23")], 0).is_none());
+        for bad in ["0.0.0.0", "127.0.0.1", "127.255.255.255", "224.0.0.0", "224.0.0.251", "239.1.2.3", "255.255.255.255"] {
+            assert!(WifiOffer::new(vec![ip(bad)], 1).is_none(), "{bad}");
+            assert!(WifiOffer::new(vec![ip("192.168.1.23"), ip(bad)], 1).is_none(), "second address {bad}");
+        }
+    }
+
     #[test]
     fn every_event_kind_round_trips() {
         let id = Uuid::from_u128(1);
@@ -543,7 +697,8 @@ mod tests {
             EventKind::ReturnKey,
             EventKind::Ping { shown_at_ms: -5, connected_at_ms: i64::MAX },
             EventKind::Probe,
-            EventKind::PointerOpen { grant: u32::MAX },
+            EventKind::PointerOpen { grant: u32::MAX, wifi: None },
+            EventKind::PointerOpen { grant: 1, wifi: Some(offer(&["192.168.1.23", "10.0.0.7"], 65_535)) },
             EventKind::PointerClose,
         ];
         for kind in kinds {
@@ -721,7 +876,7 @@ mod tests {
         assert!(EventKind::ReturnKey.carries_focus_epoch());
         assert!(!EventKind::Probe.carries_focus_epoch());
         assert!(!EventKind::Ping { shown_at_ms: 0, connected_at_ms: 0 }.carries_focus_epoch());
-        assert!(!EventKind::PointerOpen { grant: 1 }.carries_focus_epoch());
+        assert!(!EventKind::PointerOpen { grant: 1, wifi: None }.carries_focus_epoch());
         assert!(!EventKind::PointerClose.carries_focus_epoch());
     }
 

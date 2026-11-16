@@ -567,7 +567,7 @@ impl App {
             EventKind::Backspace => inject_result(self.injector.backspace()),
             EventKind::ReturnKey => inject_result(self.injector.enter()),
             EventKind::Ping { .. } | EventKind::Probe => AckResult::Pong,
-            EventKind::PointerOpen { grant } => {
+            EventKind::PointerOpen { grant, .. } => {
                 let effects = self.pointer.handle_open(*grant);
                 self.finish_pointer_event(effects, conn, fx)
             }

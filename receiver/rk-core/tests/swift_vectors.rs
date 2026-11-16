@@ -1,12 +1,14 @@
 //! Checks rk-core against `receiver/testdata/swift-vectors-v4.json`, which the Swift implementation generates from the fixed
 //! inputs of docs/protocol/v4.md. Nothing here edits that file.
 
-use rk_core::channel::{derive_pointer_key, ChannelOpenError, ChannelSet, PACKET_LEN, POINTER_MAGIC};
+use rk_core::channel::{
+    derive_pointer_key, derive_probe_key, ChannelOpenError, ChannelSet, ProbeOpener, ProbeSealer, PACKET_LEN, POINTER_MAGIC, PROBE_MAGIC,
+};
 use rk_core::frame::{split_frames, FrameReassembler, Reassembly};
 use rk_core::identity::{clamp_name, identity_hash, HostIdentity, HostPlatform, PhoneIdentity, PhonePlatform};
 use rk_core::message::{
     decode_control, decode_peripheral, encode_control, encode_peripheral, Ack, AckResult, ControlMessage, EventKind,
-    KeyboardEvent, PeripheralMessage, ReceiverStatus,
+    KeyboardEvent, PeripheralMessage, ReceiverStatus, WifiOffer,
 };
 use rk_core::pairing::{
     commitment, derive_pair_key, ecdh_x, host_proof, phone_proof, public_key, sas, verify_host_proof, verify_phone_proof,
@@ -18,6 +20,7 @@ use rk_core::select_uuid::{select_uuid, PAIRING_ADVERT_UUID};
 use rk_core::session::{derive_session_key, OpenedEvent, SessionCrypto, SessionDirection};
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::net::Ipv4Addr;
 use uuid::Uuid;
 
 fn vectors() -> Value {
@@ -99,7 +102,7 @@ fn event(seq: u64, focus_epoch: Option<u64>, kind: EventKind) -> KeyboardEvent {
     KeyboardEvent { event_id, session_id, seq, focus_epoch, kind }
 }
 
-/// Builds each of the 18 messages from its structure, using only the fixed inputs and the vector's own byte strings.
+/// Builds each of the 19 messages from its structure, using only the fixed inputs and the vector's own byte strings.
 fn rebuild(v: &Value) -> BTreeMap<String, Msg> {
     let inp = inputs(v);
     let host_public = unhex(text(v, &["pairing", "hostPublic"]));
@@ -158,7 +161,18 @@ fn rebuild(v: &Value) -> BTreeMap<String, Msg> {
     );
     put(
         "eventPointerOpen",
-        Msg::Peripheral(PeripheralMessage::Event(event(4, None, EventKind::PointerOpen { grant: 305_419_896 }))),
+        Msg::Peripheral(PeripheralMessage::Event(event(4, None, EventKind::PointerOpen { grant: 305_419_896, wifi: None }))),
+    );
+    put(
+        "eventPointerOpenWifi",
+        Msg::Peripheral(PeripheralMessage::Event(event(
+            5,
+            None,
+            EventKind::PointerOpen {
+                grant: 305_419_896,
+                wifi: Some(WifiOffer::new(vec![Ipv4Addr::new(192, 168, 1, 23)], 50_123).expect("a valid offer")),
+            },
+        ))),
     );
     m
 }
@@ -175,7 +189,7 @@ fn encodes_every_message_byte_for_byte() {
     let v = vectors();
     let built = rebuild(&v);
     let listed = v["messages"].as_array().expect("messages");
-    assert_eq!(listed.len(), 18, "the vector file lists 18 messages");
+    assert_eq!(listed.len(), 19, "the vector file lists 19 messages");
     let mut with_escaped_slash = 0;
     for entry in listed {
         let name = text(entry, &["name"]);
@@ -335,6 +349,32 @@ fn opens_swift_pointer_packet() {
 
     let payload = PointerPayload::decode(&plain).expect("readable");
     assert_eq!(payload, PointerPayload::new(Opcode::Move, 0x10, 24, -8, 83, 0));
+}
+
+#[test]
+fn opens_swift_wifi_probe_packet() {
+    let v = vectors();
+    let inp = inputs(&v);
+    let key = pair_key(&v);
+    let p = &v["wifiProbe"];
+    let probe_key = derive_probe_key(&key, &inp.host_nonce, &inp.phone_nonce);
+    assert_eq!(hex(probe_key.expose()), text(p, &["key"]));
+    assert_ne!(hex(probe_key.expose()), hex(derive_pointer_key(&key, &inp.host_nonce, &inp.phone_nonce).expose()));
+
+    let packet = unhex(text(p, &["packetHex"]));
+    assert_eq!(packet.len(), PACKET_LEN);
+    assert_eq!(packet[0], PROBE_MAGIC);
+    assert_eq!(hex(&packet[..9]), text(p, &["associatedDataHex"]));
+    assert_eq!(p["counter"].as_u64(), Some(1));
+    assert_eq!(text(p, &["plaintextHex"]), "00000000000000000000000000000000");
+
+    let mut phone = ProbeOpener::new(probe_key.clone());
+    assert_eq!(phone.open(&packet).expect("Swift probe opens"), vec![0u8; 16]);
+    assert_eq!(phone.last_opened_counter(), 1);
+    assert_eq!(phone.open(&packet), Err(ChannelOpenError::Replayed), "the same datagram twice");
+
+    // The first probe Rust seals under the same key is byte for byte the Swift packet.
+    assert_eq!(ProbeSealer::new(probe_key).seal().unwrap().to_vec(), packet);
 }
 
 #[test]
