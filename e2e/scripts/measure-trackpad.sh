@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Measures trackpad timing against a Windows, Linux or Mac receiver without any manual step: the iPhone draws fixed strokes on the
-# Remote Keyboard trackpad (TrackpadSmokeUITests/testFixedStrokes), then the receiver's timing summary lines (pointer_timing*,
+# Remote Keyboard trackpad (TrackpadSmokeUITests/testFixedStrokes, or testTurnStrokes with RK_STROKE_PATTERN=turns), then the receiver's timing summary lines (pointer_timing*,
 # ble_rx_timing, portal_motion_timing) are pulled over ssh, filtered to the run and aggregated by timing_report.py.
 # For mac the target is this Mac: the receiver app stays running and its `pointer diag` / `pointer link` lines (one pair per
 # 5 s of activity) are read with /usr/bin/log show and aggregated by mac_pointer_report.py (count, median, max per field).
@@ -28,6 +28,11 @@
 # The result is written to e2e/results/<date>-trackpad-<target>[-<label>].txt (not committed): the aggregated table, then the
 # raw timing lines (numbers only). Nothing typed or any pointer displacement is read or stored.
 #
+#   RK_STROKE_PATTERN  fixed (default): straight left/right strokes. turns: each stroke is one finger-down path of 20 segments of
+#                    0.1 s (40 pt, so 400 pt/s) that goes up, down, left or right at random from the pad centre
+#                    (TrackpadSmokeUITests/testTurnStrokes). Any other value exits 2. With turns the default label is pattern=turns
+#                    and the RKTP line ends with pattern=turns seed=<n>.
+#   RK_TURN_SEED     seed of the turns pattern (default 1); stroke i uses seed+i, so Bluetooth and Wi-Fi runs draw the same paths.
 # Needs: the receiver armed with 「允許觸控板控制」 on and the iPhone paired with it; Remote Keyboard selected as the keyboard;
 # the iPhone unlocked.
 
@@ -40,7 +45,7 @@ COUNT="${2:-20}"
 
 case "$TARGET" in
   win|linux|mac) ;;
-  -h|--help|"") sed -n '2,32p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
+  -h|--help|"") sed -n '2,37p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
   *) echo "target must be win, linux or mac" >&2; exit 2 ;;
 esac
 case "$COUNT" in
@@ -54,8 +59,20 @@ case "$WIFI_POINTER" in
   ''|on|off) ;;
   *) echo "RK_WIFI_POINTER must be on or off" >&2; exit 2 ;;
 esac
+STROKE_PATTERN="${RK_STROKE_PATTERN:-fixed}"
+case "$STROKE_PATTERN" in
+  fixed|turns) ;;
+  *) echo "RK_STROKE_PATTERN must be fixed or turns" >&2; exit 2 ;;
+esac
+TURN_SEED="${RK_TURN_SEED:-1}"
+case "$TURN_SEED" in
+  ''|*[!0-9]*) echo "RK_TURN_SEED must be a whole number" >&2; exit 2 ;;
+esac
 LABEL_RAW="${RK_LABEL:-}"
 [ -z "$LABEL_RAW" ] && [ -n "$WIFI_POINTER" ] && LABEL_RAW="wifi_pointer=$WIFI_POINTER"
+if [ "$STROKE_PATTERN" = turns ]; then
+  LABEL_RAW="${LABEL_RAW:+${LABEL_RAW}_}pattern=turns"
+fi
 LABEL="$(printf '%s' "$LABEL_RAW" | tr -c 'A-Za-z0-9._=-' '_')"
 MAC_RECEIVER_APP="/Applications/Remote Keyboard Receiver.app"
 
@@ -184,9 +201,15 @@ if [ -n "$WIFI_POINTER" ]; then
   [ "$WIFI_POINTER" = on ] && EXPECT_PATH=wifi
 fi
 
-TEST_RUNNER_RK_EXPECT_PATH="$EXPECT_PATH" TEST_RUNNER_RK_STROKE_COUNT="$COUNT" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
+STROKE_TEST=testFixedStrokes
+PATTERN_NOTE=""
+if [ "$STROKE_PATTERN" = turns ]; then
+  STROKE_TEST=testTurnStrokes
+  PATTERN_NOTE=" pattern=turns seed=$TURN_SEED"
+fi
+TEST_RUNNER_RK_EXPECT_PATH="$EXPECT_PATH" TEST_RUNNER_RK_STROKE_COUNT="$COUNT" TEST_RUNNER_RK_TURN_SEED="$TURN_SEED" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
   -destination "id=$UDID" -allowProvisioningUpdates \
-  -only-testing:RemoteKeyboardUITests/TrackpadSmokeUITests/testFixedStrokes >"$XLOG_RUN" 2>&1 </dev/null
+  -only-testing:RemoteKeyboardUITests/TrackpadSmokeUITests/$STROKE_TEST >"$XLOG_RUN" 2>&1 </dev/null
 RUN_STATUS=$?
 grep -E "TEST (SUCCEEDED|FAILED)|Test Case .* (passed|failed)" "$XLOG_RUN" | tail -3
 
@@ -244,7 +267,7 @@ KEPT_LINES="$(wc -l <"$KEPT" | tr -d ' ')"
 
 {
   echo "# measure-trackpad target=$TARGET host=\"$HOST_NAME\"${LABEL:+ label=$LABEL} strokes_asked=$COUNT strokes_drawn=$RAN window=$T_START..$T_END (Mac clock) receiver_clock_offset_s=$CLOCK_OFFSET xcodebuild_exit=$RUN_STATUS timing_lines=$KEPT_LINES"
-  echo "# wifi_pointer=${WIFI_POINTER:-unset} ${RKWIFI:-RKWIFI not run} path_start=${PATH_START:-unknown} path_end=${PATH_END:-unknown}"
+  echo "# wifi_pointer=${WIFI_POINTER:-unset} ${RKWIFI:-RKWIFI not run} path_start=${PATH_START:-unknown} path_end=${PATH_END:-unknown}${PATTERN_NOTE}"
   echo
   echo "## Aggregated"
   if [ "$TARGET" = mac ]; then

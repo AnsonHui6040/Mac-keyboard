@@ -1,0 +1,72 @@
+# measure-trackpad target=win host="Windows" label=wifi_pointer=on_pattern=turns strokes_asked=20 strokes_drawn=20 window=2026-11-16T23:13:17.168Z..2026-11-16T23:14:24.784Z (Mac clock) receiver_clock_offset_s=0 xcodebuild_exit=0 timing_lines=80
+# wifi_pointer=on RKWIFI setting=on alert=none path_start=wifi path_end=wifi pattern=turns seed=1
+
+## Aggregated
+event pointer_timing  strokes=20
+  histogram late  n=2901 (sum of buckets 0)
+  per-stroke statistics (median / max across strokes)
+    inj_max_us             4950 / 34856
+    lag_us                24500 / 28000
+    late_max_us           29500 / 75000
+    late_p99_us           23000 / 31000
+  counts  ble=1 frames=2871 idle=0 moves=2785 packets=2785 squeeze=1172 udp=2784
+
+event pointer_timing_arr  strokes=20
+  histogram  n=2765 (sum of buckets 2765)
+    <=2ms         295   10.7%
+    <=5ms          92    3.3%
+    <=10ms        284   10.3%
+    <=15ms        552   20.0%
+    <=20ms        698   25.2%
+    <=30ms        642   23.2%
+    <=40ms        123    4.4%
+    <=50ms         57    2.1%
+    <=75ms         22    0.8%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=30ms  p99<=50ms
+  per-stroke statistics (median / max across strokes)
+    max_us                52000 / 66000
+    p50_us                16000 / 17000
+    p90_us                27500 / 49000
+    p99_us                44000 / 59000
+
+event pointer_timing_dt  strokes=20
+  histogram  n=2785 (sum of buckets 2785)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms         63    2.3%
+    <=15ms          0    0.0%
+    <=20ms       2661   95.5%
+    <=30ms         30    1.1%
+    <=40ms         30    1.1%
+    <=50ms          1    0.0%
+    <=75ms          0    0.0%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=20ms  p99<=40ms
+  per-stroke statistics (median / max across strokes)
+    max_us                33300 / 41000
+    p50_us                16600 / 16600
+    p90_us                17200 / 24300
+    p99_us                25000 / 33400
+
+event pointer_timing_out  strokes=20
+  histogram  n=2851 (sum of buckets 2851)
+    <=2ms          19    0.7%
+    <=5ms          42    1.5%
+    <=10ms        138    4.8%
+    <=15ms       1074   37.7%
+    <=20ms       1330   46.7%
+    <=30ms        117    4.1%
+    <=40ms        100    3.5%
+    <=50ms         25    0.9%
+    <=75ms          4    0.1%
+    <=150ms         2    0.1%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=20ms  p99<=50ms
+  per-stroke statistics (median / max across strokes)
+    max_us                46000 / 81000
+    p50_us                16000 / 16000
+    p90_us                18000 / 32000
+    p99_us                32500 / 58000
