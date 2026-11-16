@@ -24,5 +24,7 @@
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Remote Keyboard Receiver 會在同一個 Wi-Fi 上直接接收 iPhone 觸控板的游標資料，讓游標移動更順。</string>
 </dict>
 </plist>
