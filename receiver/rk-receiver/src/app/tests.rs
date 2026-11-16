@@ -1327,6 +1327,105 @@ fn a_tick_that_comes_late_is_measured_against_the_wake_up_that_was_asked_for() {
     assert_eq!(field(&summary[0], "late_max_us"), late_by * 1_000, "{}", summary[0]);
 }
 
+// ---------------------------------------------------------------- frame clock
+
+/// What the runner does: sleep until `next_wake_ms`, unless an event comes first. Moves 3 ms apart for `span_ms`; returns the
+/// times at which a tick ran and the wake-up that was asked for right after each arrival.
+fn drive_arrivals(rig: &mut Rig, channels: &mut ChannelSet, span_ms: u64) -> (Vec<u64>, Vec<(u64, Option<u64>)>) {
+    let start = rig.clock.mono_ms();
+    let mut ticks = Vec::new();
+    let mut after_arrival = Vec::new();
+    let mut next_arrival = start;
+    let mut wake: Option<u64> = None;
+    while rig.clock.mono_ms() < start + span_ms {
+        match wake {
+            Some(at) if at < next_arrival => {
+                rig.clock.advance(at - rig.clock.mono_ms());
+                let effects = rig.app.on_tick();
+                rig.run(effects);
+                ticks.push(at);
+            }
+            _ => {
+                rig.clock.advance(next_arrival - rig.clock.mono_ms());
+                rig.notify(move_packet(channels, 160, 0, 30));
+                next_arrival += 3;
+                wake = rig.app.next_wake_ms();
+                after_arrival.push((rig.clock.mono_ms(), wake));
+                continue;
+            }
+        }
+        wake = rig.app.next_wake_ms();
+    }
+    (ticks, after_arrival)
+}
+
+#[test]
+fn packets_every_3_ms_do_not_push_the_frame_tick_back() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    let t0 = rig.clock.mono_ms();
+    let (ticks, arrivals) = drive_arrivals(&mut rig, &mut channels, 60);
+    assert_eq!(arrivals[0], (t0, Some(t0 + 8)), "the first frame is due one tick after the first packet");
+    for (at, wake) in &arrivals {
+        let due = ticks.iter().copied().find(|t| t >= at).map(|t| t.max(*at));
+        if let (Some(wake), Some(due)) = (wake, due) {
+            assert!(*wake <= due.max(at + 8), "arrival at {at} asked for {wake}");
+        }
+        assert!(wake.unwrap() <= at + 8, "arrival at {at} asked for {wake:?}: the deadline moved with the arrival");
+    }
+    let expected: Vec<u64> = (1..=ticks.len() as u64).map(|i| t0 + 8 * i).collect();
+    assert_eq!(ticks, expected, "a frame every 8 ms of clock time, none starved");
+    assert!(ticks.len() >= 6, "{ticks:?}");
+}
+
+#[test]
+fn a_wake_before_the_frame_is_due_runs_no_frame() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    let t0 = rig.clock.mono_ms();
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 8));
+    rig.clock.advance(3);
+    let effects = rig.app.on_tick();
+    rig.run(effects);
+    assert!(moves(&rig).is_empty(), "nothing was due at +3 ms");
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 8), "an unrelated wake does not move the frame clock");
+    rig.clock.advance(5);
+    let effects = rig.app.on_tick();
+    rig.run(effects);
+    assert!(!moves(&rig).is_empty(), "the frame ran at its due time");
+}
+
+#[test]
+fn a_tick_that_is_a_whole_tick_late_starts_the_frame_clock_over_without_a_burst() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    for _ in 0..10 {
+        rig.notify(move_packet(&mut channels, 160, 0, 80));
+    }
+    let t0 = rig.clock.mono_ms();
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 8));
+    rig.clock.advance(16);
+    let effects = rig.app.on_tick();
+    rig.run(effects);
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 24), "a whole tick late: resynced to now + one tick, not t0 + 16 (a tick on the old grid)");
+}
+
+#[test]
+fn no_frame_wake_remains_once_frames_are_not_needed() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    let t0 = rig.clock.mono_ms();
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 8));
+    let mut guard = 0;
+    while rig.app.next_wake_ms().is_some_and(|at| at <= rig.clock.mono_ms() + 8) && guard < 100 {
+        rig.advance(8);
+        guard += 1;
+    }
+    assert!(!rig.app.pointer.needs_frames(), "the playout drained");
+    assert_ne!(rig.app.next_wake_ms(), Some(rig.clock.mono_ms() + 8), "no frame wake");
+    rig.notify(move_packet(&mut channels, 160, 0, 80));
+    let now = rig.clock.mono_ms();
+    assert_eq!(rig.app.next_wake_ms(), Some(now + 8), "frames start again from the new packet");
+}
+
 // ---------------------------------------------------------------- end to end and the log
 
 #[test]
@@ -1947,4 +2046,18 @@ fn socket_errors_write_at_most_one_debug_line_a_second() {
     w.rig.app.on_wifi_io("recv", std::io::ErrorKind::ConnectionReset);
     let lines = lines_of(&w.rig, "wifi_io");
     assert_eq!((lines.len(), field(&lines[1], "n")), (2, 50));
+}
+
+#[test]
+fn a_tick_less_than_a_tick_late_keeps_the_anchored_frame_clock() {
+    let (mut rig, mut channels) = open_pointer_rig();
+    for _ in 0..4 {
+        rig.notify(move_packet(&mut channels, 160, 0, 80));
+    }
+    let t0 = rig.clock.mono_ms();
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 8));
+    rig.clock.advance(12);
+    let effects = rig.app.on_tick();
+    rig.run(effects);
+    assert_eq!(rig.app.next_wake_ms(), Some(t0 + 16), "4 ms late: the next frame stays on the 8 ms grid");
 }
