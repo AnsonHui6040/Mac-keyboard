@@ -154,10 +154,16 @@ final class WifiPointerLink {
                 if let data, !data.isEmpty { self.onDatagram?(data, endpoint) }
                 // The callback may have stopped the link or replaced this flow.
                 guard self.inbound[endpoint]?.connection === connection else { return }
-                if error == nil {
+                if error == nil, let data, !data.isEmpty {
                     self.receive(on: connection, endpoint: endpoint)
                 } else {
-                    self.flowEnded(endpoint)
+                    // An empty datagram arrives as `nil` data with the message complete and final, and after it every further
+                    // `receiveMessage` on that flow fails (ENODATA): the flow is dead for receiving. A receive error means the
+                    // same. Either way the flow goes, so the endpoint's next datagram makes a new one through the listener and
+                    // the next valid probe adopts it. It is not a send failure: nothing is counted and no pause starts, so a
+                    // stranger who spoofs the Receiver's address and sends 0 bytes cannot talk Wi-Fi down for the channel. No
+                    // receive is re-armed here, so a flood of them cannot spin; the flows are capped (`maxInbound`) as well.
+                    self.remove(endpoint)
                 }
             }
         }
