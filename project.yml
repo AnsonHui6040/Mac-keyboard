@@ -92,6 +92,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         NSBluetoothAlwaysUsageDescription: Remote Keyboard Receiver 需要藍牙，才能接收 iPhone 鍵盤送出的文字。
+        NSLocalNetworkUsageDescription: Remote Keyboard Receiver 會在同一個 Wi-Fi 上直接接收 iPhone 觸控板的游標資料，讓游標移動更順。
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.receiver
