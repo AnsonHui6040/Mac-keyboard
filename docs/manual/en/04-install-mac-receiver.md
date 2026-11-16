@@ -67,7 +67,16 @@ Depending on the macOS version, the heading of this list page may read different
 
 When it works, the red text in the panel disappears, and the Current field (目前欄位) line shows the name of the app you are in.
 
-## 5. The menu bar panel
+## 5. Allow Local Network
+
+When the iPhone and the Mac are on the same Wi-Fi network, the trackpad cursor goes over Wi-Fi, see [07 Trackpad](07-trackpad.md). This needs the Local Network permission. The trackpad still works without it, and the cursor goes over Bluetooth instead.
+
+1. The first time you use the trackpad, macOS asks whether Remote Keyboard Receiver may find and connect to devices on your local network. Click Allow.
+2. If you clicked Don't Allow, open System Settings > Privacy & Security > Local Network and turn on the switch for Remote Keyboard Receiver.
+
+When it works, the top right corner of the trackpad shows Wi-Fi.
+
+## 6. The menu bar panel
 
 Click the keyboard icon in the menu bar to open the panel. The panel contains the following, from top to bottom.
 

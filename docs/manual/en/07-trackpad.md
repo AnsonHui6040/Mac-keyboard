@@ -47,6 +47,30 @@ A few tips:
 
 You can adjust the trackpad's sensitivity (靈敏度) and send rate (傳輸次數) under Trackpad (觸控板) in the app, see [08 App settings](08-app-settings.md).
 
+## Sending the cursor over Wi-Fi
+
+When the iPhone and the computer are on the same Wi-Fi network, the cursor data goes over Wi-Fi, and the cursor moves more smoothly. Typing, pairing and everything else still go over Bluetooth and are not affected.
+
+The top right corner of the trackpad shows which one is in use:
+
+| Corner text | What it means |
+|---|---|
+| Wi-Fi | Cursor data is going over Wi-Fi |
+| Bluetooth (藍牙) | Cursor data is going over Bluetooth |
+
+If Wi-Fi stops working, for example because you left the network, it switches back to Bluetooth by itself within about a second. You do not need to do anything.
+
+Setting and permissions:
+
+| Item | Details |
+|---|---|
+| Switch | In the app, open Settings (設定) > Trackpad (觸控板). Send cursor over Wi-Fi (經 Wi-Fi 傳送游標) is on by default. When it is off, cursor data always goes over Bluetooth. A change takes effect the next time you open the trackpad |
+| Local Network permission on the iPhone | The first time you open Settings > Trackpad or turn the switch on, the iPhone asks whether Remote Keyboard may find and connect to devices on your local network. Tap Allow. To change it later, go to iPhone Settings > Privacy & Security > Local Network and turn on the switch for Remote Keyboard |
+| Local Network permission on the Mac | The Mac Receiver asks once as well. Click Allow. To change it later, go to System Settings > Privacy & Security > Local Network on the Mac. See [04 Install the Mac Receiver](04-install-mac-receiver.md) |
+| Windows and Linux | Nothing extra to set up |
+
+If the corner keeps showing Bluetooth (藍牙), see Keyboard connection and typing in [10 Troubleshooting](10-troubleshooting.md).
+
 ## If the trackpad is missing or does not work
 
 | On-screen text | What it means | What to do |
