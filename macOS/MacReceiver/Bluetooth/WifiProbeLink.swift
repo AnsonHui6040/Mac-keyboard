@@ -88,8 +88,10 @@ final class WifiProbeLink {
     /// is the connection's probe sealer: its counter runs for as long as the connection lasts, so no probe is a replay of another.
     func start(offer: WifiOffer, sealer: ChannelSealer) {
         cancelTimer?()
-        let list = offer.addrs.map { WifiTarget(address: $0, port: offer.port) }
-        targets = Set(list)
+        // An address the phone wrote twice is one target: one connection, one probe.
+        var seen: Set<WifiTarget> = []
+        let list = offer.addrs.map { WifiTarget(address: $0, port: offer.port) }.filter { seen.insert($0).inserted }
+        targets = seen
         self.sealer = sealer
         isProbing = true
         transport.open(list)
@@ -150,48 +152,63 @@ final class WifiProbeLink {
 /// phone's answers arrive on the very connection that probed it. That is the source filter of spec W9 at the socket, and the link
 /// checks the source again. All callbacks run on the main queue.
 ///
+/// **A receive path can die while the connection looks fine.** One zero-length datagram on a connected UDP connection ends its
+/// message stream: the receive that got it reports no data and `isComplete`, and every receive after it fails with ENODATA while the
+/// state stays `ready`. Anybody who can spoof the phone's address could freeze the touchpad with one packet. So a receive that fails,
+/// or ends with nothing and `isComplete`, and a connection that reaches `failed`, all count as a dead receive path: that target's
+/// connection is cancelled and made again (a new local port), at most once per `rebuildInterval` for each target. Until it is made
+/// again nothing is sent to that target. The phone answers a probe to its source, so the next probe on the new connection is what
+/// brings the answers back.
+///
 /// Nothing here is fatal. A connection that cannot be made, a send that fails and a path that waits (the Mac has not allowed the
 /// local network, spec F4) are each written once per `open` as a fixed word, never an address, and the Receiver goes on over
 /// Bluetooth.
 @MainActor
 final class NWWifiProbeTransport: WifiProbeTransport {
-    /// After a failed receive the next one is armed this much later, so a path that keeps failing does not spin.
-    static let receiveRetrySeconds: TimeInterval = 0.25
-
     var onDatagram: (@MainActor (WifiTarget, Data) -> Void)?
 
+    /// One target: its connection (`nil` while the receive path is dead and the new one is not yet made), which one it is, and when
+    /// it was made.
+    private struct Slot {
+        var connection: NWConnection?
+        var serial = 0
+        var builtAt: ContinuousClock.Instant?
+    }
+
     private let log: WifiProbeLog
-    private var connections: [WifiTarget: NWConnection] = [:]
+    private let rebuildInterval: TimeInterval
+    private var slots: [WifiTarget: Slot] = [:]
     /// Bumped by every `open` and `close`: a callback of an earlier set sees a different number and does nothing.
     private var generation = 0
     private var reported: Set<String> = []
+    private var rebuildsThisOpen = 0
 
-    init(log: @escaping WifiProbeLog = WifiProbeLink.systemLog) {
+    /// Targets with a connection that can send and receive right now.
+    var liveConnectionCount: Int { slots.values.filter { $0.connection != nil }.count }
+    /// Connections made again since this transport was made.
+    private(set) var rebuilds = 0
+
+    init(log: @escaping WifiProbeLog = WifiProbeLink.systemLog, rebuildInterval: TimeInterval = 0.25) {
         self.log = log
+        self.rebuildInterval = rebuildInterval
     }
 
     func open(_ targets: [WifiTarget]) {
         close()
-        let current = generation
-        for target in targets {
-            guard let address = IPv4Address(target.address), let port = NWEndpoint.Port(rawValue: target.port) else {
+        for target in targets where slots[target] == nil {
+            guard IPv4Address(target.address) != nil, NWEndpoint.Port(rawValue: target.port) != nil else {
                 report("bad_target")
                 continue
             }
-            let connection = NWConnection(host: .ipv4(address), port: port, using: .udp)
-            connection.stateUpdateHandler = { [weak self, weak connection] state in
-                MainActor.assumeIsolated { self?.stateChanged(state, of: connection, generation: current) }
-            }
-            connections[target] = connection
-            connection.start(queue: .main)
-            receive(on: connection, from: target, generation: current)
+            slots[target] = Slot()
+            build(target)
         }
     }
 
     func send(_ datagram: Data) {
         let current = generation
-        for connection in connections.values {
-            connection.send(content: datagram, completion: .contentProcessed { [weak self] error in
+        for slot in slots.values {
+            slot.connection?.send(content: datagram, completion: .contentProcessed { [weak self] error in
                 guard let error else { return }
                 MainActor.assumeIsolated {
                     guard let self, current == self.generation else { return }
@@ -203,44 +220,89 @@ final class NWWifiProbeTransport: WifiProbeTransport {
 
     func close() {
         generation += 1
+        if rebuildsThisOpen > 1 { log("wifi_path rebuilds=\(rebuildsThisOpen)") }
+        rebuildsThisOpen = 0
         reported = []
-        for connection in connections.values {
-            connection.stateUpdateHandler = nil
-            connection.cancel()
+        for slot in slots.values {
+            slot.connection?.stateUpdateHandler = nil
+            slot.connection?.cancel()
         }
-        connections = [:]
+        slots = [:]
     }
 
-    // MARK: Callbacks
+    // MARK: Connections
 
-    private func receive(on connection: NWConnection, from target: WifiTarget, generation current: Int) {
-        connection.receiveMessage { [weak self, weak connection] data, _, _, error in
+    /// A new connection for `target`, which must have a slot and no connection.
+    private func build(_ target: WifiTarget) {
+        guard var slot = slots[target], slot.connection == nil,
+              let address = IPv4Address(target.address), let port = NWEndpoint.Port(rawValue: target.port) else { return }
+        slot.serial += 1
+        let serial = slot.serial
+        let current = generation
+        let connection = NWConnection(host: .ipv4(address), port: port, using: .udp)
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            MainActor.assumeIsolated { self?.stateChanged(state, of: connection, target: target, serial: serial, generation: current) }
+        }
+        slot.connection = connection
+        slot.builtAt = .now
+        slots[target] = slot
+        connection.start(queue: .main)
+        receive(on: connection, target: target, serial: serial, generation: current)
+    }
+
+    /// The receive path of this connection is dead: cancel it, send nothing to the target, and make a new connection once
+    /// `rebuildInterval` has passed since the last one was made.
+    private func markDead(_ target: WifiTarget, serial: Int, generation current: Int) {
+        guard current == generation, var slot = slots[target], slot.serial == serial, let connection = slot.connection else { return }
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+        slot.connection = nil
+        slots[target] = slot
+        report("rebuild")
+        let waited = slot.builtAt.map { $0.duration(to: .now).inSeconds } ?? rebuildInterval
+        let delay = max(0, rebuildInterval - waited)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             MainActor.assumeIsolated {
-                guard let self, let connection, current == self.generation else { return }
-                if let error {
-                    self.report("receive_\(Self.word(error))")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.receiveRetrySeconds) { [weak self, weak connection] in
-                        MainActor.assumeIsolated {
-                            guard let self, let connection, current == self.generation else { return }
-                            self.receive(on: connection, from: target, generation: current)
-                        }
-                    }
-                    return
-                }
-                if let data, !data.isEmpty { self.onDatagram?(target, data) }
-                self.receive(on: connection, from: target, generation: current)
+                guard let self, current == self.generation, self.slots[target]?.connection == nil, self.slots[target] != nil else { return }
+                self.rebuilds += 1
+                self.rebuildsThisOpen += 1
+                self.build(target)
             }
         }
     }
 
-    private func stateChanged(_ state: NWConnection.State, of connection: NWConnection?, generation current: Int) {
-        guard current == generation else { return }
+    // MARK: Callbacks
+
+    private func receive(on connection: NWConnection, target: WifiTarget, serial: Int, generation current: Int) {
+        connection.receiveMessage { [weak self, weak connection] data, context, isComplete, error in
+            MainActor.assumeIsolated {
+                guard let self, let connection, current == self.generation, self.slots[target]?.serial == serial else { return }
+                if let error {
+                    self.report("receive_\(Self.word(error))")
+                    return self.markDead(target, serial: serial, generation: current)
+                }
+                if data?.isEmpty ?? true {
+                    // A zero-length datagram ends the stream of a connected UDP connection (see the type's comment).
+                    if isComplete || context?.isFinal == true { return self.markDead(target, serial: serial, generation: current) }
+                } else if let data {
+                    self.onDatagram?(target, data)
+                }
+                self.receive(on: connection, target: target, serial: serial, generation: current)
+            }
+        }
+    }
+
+    private func stateChanged(
+        _ state: NWConnection.State, of connection: NWConnection?, target: WifiTarget, serial: Int, generation current: Int
+    ) {
+        guard current == generation, slots[target]?.serial == serial else { return }
         switch state {
         case .waiting:
             // No API says whether the local network is allowed; a path that waits for this reason says it (TN3179).
             report(connection?.currentPath?.unsatisfiedReason == .localNetworkDenied ? "local_network_denied" : "waiting")
         case .failed(let error):
             report("failed_\(Self.word(error))")
+            markDead(target, serial: serial, generation: current)
         default:
             break
         }
@@ -261,4 +323,8 @@ final class NWWifiProbeTransport: WifiProbeTransport {
         default: "other"
         }
     }
+}
+
+private extension Duration {
+    var inSeconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

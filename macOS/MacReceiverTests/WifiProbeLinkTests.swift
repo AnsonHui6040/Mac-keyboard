@@ -96,6 +96,13 @@ final class WifiProbeLinkTests: XCTestCase {
         XCTAssertTrue(r.link.isProbing)
     }
 
+    func testAnAddressTheOfferRepeatsIsOneTarget() {
+        let r = WifiLinkRig()
+        r.start(WifiOffer(addrs: ["192.168.1.23", "192.168.1.23", "10.0.0.5"], port: 50_123)!)
+        XCTAssertEqual(r.transport.opened, [[WifiTestData.target, WifiTestData.second]])
+        XCTAssertEqual(r.logLines, ["wifi_probe_start targets=2"])
+    }
+
     func testTheNextProbesComeEvery250MillisecondsEachFreshlySealed() throws {
         let r = WifiLinkRig()
         r.start()
