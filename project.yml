@@ -79,6 +79,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard.uitests
         GENERATE_INFOPLIST_FILE: YES
         TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_OBJC_BRIDGING_HEADER: iOS/RemoteKeyboardUITests/RemoteKeyboardUITests-Bridging-Header.h
   MacReceiver:
     type: application
     platform: macOS

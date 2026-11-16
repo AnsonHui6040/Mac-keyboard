@@ -91,6 +91,58 @@ final class TrackpadSmokeUITests: XCTestCase {
         print("RKTP strokes=\(count) start=\(start) end=\(end) path_start=\(pathStart) path_end=\(path(of: pad))")
     }
 
+    /// Timing run with sudden turns (`RK_STROKE_PATTERN=turns` in e2e/scripts/measure-trackpad.sh): `RK_STROKE_COUNT` strokes (default 20), each
+    /// one continuous finger-down path of 20 segments of 0.1 s that goes up, down, left or right by 40 pt (400 pt/s) at random and
+    /// starts at the pad centre; a direction that would leave the inner 10%...90% box turns around. Stroke i uses seed `RK_TURN_SEED`
+    /// (default 1) plus i, so the same seed draws the same paths on Bluetooth and Wi-Fi. Strokes are 0.8 s apart. The stroke is sent as
+    /// one synthesized touch path (private XCTest event synthesis, see TouchSynthesizer.m); if that is unavailable the test fails.
+    /// Prints the same line as testFixedStrokes plus ` pattern=turns seed=<seed>`: no position, distance or text.
+    func testTurnStrokes() throws {
+        let environment = ProcessInfo.processInfo.environment
+        let asked = Int(environment["RK_STROKE_COUNT"] ?? "") ?? 20
+        let count = asked > 0 ? asked : 20
+        let seed = UInt64(environment["RK_TURN_SEED"] ?? "") ?? 1
+        try openOurKeyboardInRemoteMode()
+        let key = element("rk.trackpad.toggle")
+        guard key.waitForExistence(timeout: 15), wait(15, until: { key.isEnabled }) else {
+            attach("trackpad-key-missing")
+            throw XCTSkip("the 觸控板 key did not become usable (Mac not connected?)")
+        }
+        key.tap()
+
+        let pad = element("rk.trackpad.state")
+        guard pad.waitForExistence(timeout: 5) else { return XCTFail("the pad did not appear") }
+        let ready = wait(10) { (pad.value as? String) == Self.readyValue }
+        attach("trackpad-state")
+        guard ready else { return XCTFail("the pad never reported ready") }
+        if environment["RK_EXPECT_PATH"] == "wifi" {
+            _ = wait(5) { pad.label.contains("Wi-Fi") }
+        }
+        let pathStart = path(of: pad)
+
+        let frame = pad.frame
+        let box = frame.insetBy(dx: frame.width * 0.1, dy: frame.height * 0.1)
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        formatter.timeZone = TimeZone(identifier: "UTC")
+
+        let start = formatter.string(from: Date())
+        for index in 0..<count {
+            let ends = TurnPath.make(seed: seed &+ UInt64(index), segments: 20, segmentLength: 40, box: box, start: centre)
+            let samples = TurnPath.samples(start: centre, ends: ends, segmentDuration: 0.1)
+            do {
+                try RKTouchSynthesizer.drag(through: samples.points.map { NSValue(cgPoint: $0) },
+                                            offsets: samples.offsets.map { NSNumber(value: $0) })
+            } catch {
+                return XCTFail("touch synthesis failed at stroke \(index + 1): \(error.localizedDescription)")
+            }
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        let end = formatter.string(from: Date())
+        print("RKTP strokes=\(count) start=\(start) end=\(end) path_start=\(pathStart) path_end=\(path(of: pad)) pattern=turns seed=\(seed)")
+    }
+
     // MARK: Steps
 
     private func element(_ identifier: String) -> XCUIElement {
