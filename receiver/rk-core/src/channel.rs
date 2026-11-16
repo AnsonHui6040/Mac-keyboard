@@ -1,4 +1,4 @@
-//! Counter-AEAD packets for the pointer channel (protocol v4 §8.1, §8.2).
+//! Counter-AEAD packets for the pointer channel (protocol v4 §8.1, §8.2) and the Wi-Fi probe channel (§8.6).
 
 use crate::secret::{PairKey, SecretBytes};
 use crate::session::hkdf32;
@@ -9,7 +9,9 @@ use thiserror::Error;
 
 /// First byte of a pointer packet (§8.1).
 pub const POINTER_MAGIC: u8 = 0x03;
-/// Length of a pointer packet (§8.1).
+/// First byte of a Wi-Fi probe packet (§8.6).
+pub const PROBE_MAGIC: u8 = 0x05;
+/// Length of a pointer packet and of a probe packet (§8.1, §8.6).
 pub const PACKET_LEN: usize = 41;
 /// Length of the pointer plaintext (§8.3).
 pub const PLAINTEXT_LEN: usize = 16;
@@ -30,7 +32,7 @@ pub enum ChannelError {
 pub enum ChannelOpenError {
     #[error("length is not 41")]
     BadLength,
-    #[error("first byte is not 0x03")]
+    #[error("first byte is not the magic of this channel")]
     BadMagic,
     #[error("counter already seen, or 0")]
     Replayed,
@@ -42,18 +44,46 @@ pub enum ChannelOpenError {
 
 const HEADER_LEN: usize = 9;
 const TAG_LEN: usize = 16;
-const NONCE_PREFIX: &[u8; 4] = b"PTR3";
+
+/// The counter channels that share one envelope (§8.1, §8.6). A kind fixes the magic and the AEAD nonce prefix; the
+/// key, the counter and the replay window belong to the sealer and the opener.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Pointer,
+    Probe,
+}
+
+impl Kind {
+    fn magic(self) -> u8 {
+        match self {
+            Self::Pointer => POINTER_MAGIC,
+            Self::Probe => PROBE_MAGIC,
+        }
+    }
+
+    fn nonce_prefix(self) -> &'static [u8; 4] {
+        match self {
+            Self::Pointer => b"PTR3",
+            Self::Probe => b"WFP3",
+        }
+    }
+
+    fn nonce(self, counter: u64) -> [u8; 12] {
+        let mut n = [0u8; 12];
+        n[..4].copy_from_slice(self.nonce_prefix());
+        n[4..].copy_from_slice(&counter.to_be_bytes());
+        n
+    }
+}
 
 /// `K_ptr` (§8.1): HKDF-SHA256 over the pair key, empty salt, info `"rk-pointer-p2m" ‖ hostNonce ‖ phoneNonce`.
 pub fn derive_pointer_key(pair_key: &PairKey, host_nonce: &[u8; 16], phone_nonce: &[u8; 16]) -> SecretBytes<32> {
     SecretBytes::new(hkdf32(pair_key.expose(), &[b"rk-pointer-p2m", host_nonce, phone_nonce]))
 }
 
-fn nonce(counter: u64) -> [u8; 12] {
-    let mut n = [0u8; 12];
-    n[..4].copy_from_slice(NONCE_PREFIX);
-    n[4..].copy_from_slice(&counter.to_be_bytes());
-    n
+/// `K_probe` (§8.6): HKDF-SHA256 over the pair key, empty salt, info `"rk-wfprobe-h2p" ‖ hostNonce ‖ phoneNonce`.
+pub fn derive_probe_key(pair_key: &PairKey, host_nonce: &[u8; 16], phone_nonce: &[u8; 16]) -> SecretBytes<32> {
+    SecretBytes::new(hkdf32(pair_key.expose(), &[b"rk-wfprobe-h2p", host_nonce, phone_nonce]))
 }
 
 /// What the replay window says about a counter (§8.2).
@@ -121,6 +151,7 @@ impl ReplayWindow {
 
 /// Seals the packets of one connection; the counter is handed out inside `seal` (§8.2 sender rules).
 pub struct ChannelSealer {
+    kind: Kind,
     key: SecretBytes<32>,
     last_counter: u64,
 }
@@ -138,11 +169,11 @@ impl ChannelSealer {
         self.last_counter += 1;
         let counter = self.last_counter;
         let mut packet = Vec::with_capacity(PACKET_LEN);
-        packet.push(POINTER_MAGIC);
+        packet.push(self.kind.magic());
         packet.extend_from_slice(&counter.to_be_bytes());
         let cipher = ChaCha20Poly1305::new(self.key.expose().into());
         let body = cipher
-            .encrypt((&nonce(counter)).into(), Payload { msg: plaintext, aad: &packet[..HEADER_LEN] })
+            .encrypt((&self.kind.nonce(counter)).into(), Payload { msg: plaintext, aad: &packet[..HEADER_LEN] })
             .map_err(|_| ChannelError::SealFailed)?;
         packet.extend_from_slice(&body);
         Ok(packet)
@@ -156,18 +187,19 @@ impl ChannelSealer {
 
 /// Opens the packets of one connection; the window moves only after the tag verified (§8.2 receiver rules).
 pub struct ChannelOpener {
+    kind: Kind,
     key: SecretBytes<32>,
     window: ReplayWindow,
     last_opened_counter: u64,
 }
 
 impl ChannelOpener {
-    /// Checks and opens one packet: length 41, magic `0x03`, replay window, then the AEAD.
+    /// Checks and opens one packet: length 41, the channel's magic, replay window, then the AEAD.
     pub fn open(&mut self, packet: &[u8]) -> Result<Vec<u8>, ChannelOpenError> {
         if packet.len() != PACKET_LEN {
             return Err(ChannelOpenError::BadLength);
         }
-        if packet[0] != POINTER_MAGIC {
+        if packet[0] != self.kind.magic() {
             return Err(ChannelOpenError::BadMagic);
         }
         let mut counter_bytes = [0u8; 8];
@@ -180,7 +212,7 @@ impl ChannelOpener {
         }
         let cipher = ChaCha20Poly1305::new(self.key.expose().into());
         let plain = cipher
-            .decrypt((&nonce(counter)).into(), Payload { msg: &packet[HEADER_LEN..], aad: &packet[..HEADER_LEN] })
+            .decrypt((&self.kind.nonce(counter)).into(), Payload { msg: &packet[HEADER_LEN..], aad: &packet[..HEADER_LEN] })
             .map_err(|_| ChannelOpenError::AuthFailed)?;
         debug_assert_eq!(packet.len() - HEADER_LEN - TAG_LEN, plain.len());
         self.window.commit(counter);
@@ -223,8 +255,8 @@ impl ChannelSet {
     ) -> Self {
         let key = derive_pointer_key(pair_key, host_nonce, phone_nonce);
         Self {
-            sealer: ChannelSealer { key: key.clone(), last_counter: starting_counter },
-            opener: ChannelOpener { key, window: ReplayWindow::new(), last_opened_counter: 0 },
+            sealer: ChannelSealer { kind: Kind::Pointer, key: key.clone(), last_counter: starting_counter },
+            opener: ChannelOpener { kind: Kind::Pointer, key, window: ReplayWindow::new(), last_opened_counter: 0 },
         }
     }
 
@@ -236,6 +268,48 @@ impl ChannelSet {
     /// The receiving side (host).
     pub fn opener(&mut self) -> &mut ChannelOpener {
         &mut self.opener
+    }
+}
+
+/// The host's sending side of the Wi-Fi probe channel (§8.6): 41-byte packets whose plaintext is 16 zero bytes. The
+/// counter is handed out inside `seal`, from 1, and runs for the life of the authenticated connection.
+pub struct ProbeSealer(ChannelSealer);
+
+impl ProbeSealer {
+    /// A sealer under `K_probe` (`derive_probe_key`), counter 0 so the first packet carries 1.
+    pub fn new(key: SecretBytes<32>) -> Self {
+        Self(ChannelSealer { kind: Kind::Probe, key, last_counter: 0 })
+    }
+
+    /// The next probe packet. A packet that is not sent is lost, not re-sealed.
+    pub fn seal(&mut self) -> Result<[u8; PACKET_LEN], ChannelError> {
+        self.0.seal(&[0u8; PLAINTEXT_LEN])?.try_into().map_err(|_| ChannelError::SealFailed)
+    }
+
+    /// The counter of the packet sealed last; 0 before the first.
+    pub fn last_counter(&self) -> u64 {
+        self.0.last_counter()
+    }
+}
+
+/// The phone's receiving side of the probe channel. The host never opens a probe; this is for the tests of the host and
+/// for anything that plays the phone.
+pub struct ProbeOpener(ChannelOpener);
+
+impl ProbeOpener {
+    /// An opener under `K_probe` with an empty replay window.
+    pub fn new(key: SecretBytes<32>) -> Self {
+        Self(ChannelOpener { kind: Kind::Probe, key, window: ReplayWindow::new(), last_opened_counter: 0 })
+    }
+
+    /// Checks and opens one probe: length 41, magic `0x05`, replay window, then the AEAD. The plaintext is not inspected.
+    pub fn open(&mut self, packet: &[u8]) -> Result<Vec<u8>, ChannelOpenError> {
+        self.0.open(packet)
+    }
+
+    /// The counter of the packet accepted last; 0 before the first.
+    pub fn last_opened_counter(&self) -> u64 {
+        self.0.last_opened_counter()
     }
 }
 
@@ -434,6 +508,90 @@ mod tests {
         assert_ne!(lost, next);
         assert_eq!(next[1..9], 2u64.to_be_bytes());
         assert!(host.opener().open(&next).is_ok());
+    }
+
+    // ---- Wi-Fi probe channel (§8.6)
+
+    fn probe_key() -> SecretBytes<32> {
+        derive_probe_key(&PairKey::new([0x42; 32]), &HOST_NONCE, &PHONE_NONCE)
+    }
+
+    #[test]
+    fn a_probe_is_41_bytes_with_magic_05_and_counter_one() {
+        let mut sealer = ProbeSealer::new(probe_key());
+        let p = sealer.seal().unwrap();
+        assert_eq!(p.len(), PACKET_LEN);
+        assert_eq!(p[0], PROBE_MAGIC);
+        assert_eq!(PROBE_MAGIC, 0x05);
+        assert_eq!(p[1..9], 1u64.to_be_bytes());
+        assert_eq!(sealer.seal().unwrap()[1..9], 2u64.to_be_bytes());
+        assert_eq!(sealer.last_counter(), 2);
+    }
+
+    #[test]
+    fn a_probe_round_trips_and_opens_to_sixteen_zero_bytes() {
+        let mut sealer = ProbeSealer::new(probe_key());
+        let mut opener = ProbeOpener::new(probe_key());
+        let p = sealer.seal().unwrap();
+        assert_eq!(opener.open(&p).unwrap(), [0u8; 16]);
+        assert_eq!(opener.last_opened_counter(), 1);
+    }
+
+    #[test]
+    fn a_replayed_probe_is_refused_and_does_not_move_the_window() {
+        let mut sealer = ProbeSealer::new(probe_key());
+        let mut opener = ProbeOpener::new(probe_key());
+        let p = sealer.seal().unwrap();
+        assert!(opener.open(&p).is_ok());
+        assert_eq!(opener.open(&p), Err(ChannelOpenError::Replayed));
+        assert_eq!(opener.last_opened_counter(), 1);
+    }
+
+    #[test]
+    fn the_probe_key_differs_from_the_pointer_key_and_follows_the_documented_derivation() {
+        let pair = PairKey::new([0x42; 32]);
+        assert_ne!(probe_key(), derive_pointer_key(&pair, &HOST_NONCE, &PHONE_NONCE));
+        let mut expected = [0u8; 32];
+        let info = [b"rk-wfprobe-h2p".as_slice(), &HOST_NONCE, &PHONE_NONCE].concat();
+        assert_eq!(b"rk-wfprobe-h2p".len(), 14);
+        hkdf::Hkdf::<sha2::Sha256>::new(None, pair.expose()).expand(&info, &mut expected).unwrap();
+        assert_eq!(probe_key().expose(), &expected);
+    }
+
+    #[test]
+    fn a_pointer_packet_does_not_open_as_a_probe_and_the_other_way_round() {
+        let mut phone = set();
+        let pointer = phone.sealer().seal(&plain(0)).unwrap();
+        let probe = ProbeSealer::new(probe_key()).seal().unwrap();
+        assert_eq!(ProbeOpener::new(probe_key()).open(&pointer), Err(ChannelOpenError::BadMagic));
+        assert_eq!(set().opener().open(&probe), Err(ChannelOpenError::BadMagic));
+        let mut relabelled = pointer.clone();
+        relabelled[0] = PROBE_MAGIC;
+        assert_eq!(ProbeOpener::new(probe_key()).open(&relabelled), Err(ChannelOpenError::AuthFailed), "different keys");
+    }
+
+    #[test]
+    fn a_probe_of_another_connection_or_with_a_flipped_bit_does_not_open() {
+        let other = derive_probe_key(&PairKey::new([0x42; 32]), &HOST_NONCE, &[0xB1; 16]);
+        let p = ProbeSealer::new(other).seal().unwrap();
+        let mut opener = ProbeOpener::new(probe_key());
+        assert_eq!(opener.open(&p), Err(ChannelOpenError::AuthFailed));
+        let good = ProbeSealer::new(probe_key()).seal().unwrap();
+        for i in 1..PACKET_LEN {
+            let mut bad = good;
+            bad[i] ^= 0x80;
+            assert_eq!(opener.open(&bad), Err(ChannelOpenError::AuthFailed), "byte {i}");
+        }
+        assert_eq!(opener.open(&good[..40]), Err(ChannelOpenError::BadLength));
+        assert!(opener.open(&good).is_ok(), "the forgeries did not consume counter 1");
+    }
+
+    #[test]
+    fn probe_and_pointer_counters_are_independent() {
+        let mut phone = set();
+        phone.sealer().seal(&plain(0)).unwrap();
+        phone.sealer().seal(&plain(0)).unwrap();
+        assert_eq!(ProbeSealer::new(probe_key()).seal().unwrap()[1..9], 1u64.to_be_bytes());
     }
 
     #[test]

@@ -164,7 +164,7 @@ mod tests {
         for kind in [
             EventKind::Ping { shown_at_ms: 1, connected_at_ms: 2 },
             EventKind::Probe,
-            EventKind::PointerOpen { grant: 7 },
+            EventKind::PointerOpen { grant: 7, wifi: None },
             EventKind::PointerClose,
         ] {
             // Same id as a recorded event and a stale seq: still exempt.

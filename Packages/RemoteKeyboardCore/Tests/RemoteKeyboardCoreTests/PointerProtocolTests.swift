@@ -23,7 +23,7 @@ final class PointerProtocolTests: XCTestCase {
     }
 
     func testPointerOpenAndCloseEventsRoundTrip() throws {
-        for kind in [EventKind.pointerOpen(grant: 77), .pointerClose] {
+        for kind in [EventKind.pointerOpen(grant: 77, wifi: nil), .pointerClose] {
             let event = KeyboardEvent(
                 protocolVersion: KeyboardEvent.currentVersion, eventId: UUID(), sessionId: UUID(), seq: 3, focusEpoch: nil, kind: kind)
             let data = try EventCodec.encode(event, maxBytes: 4_096)
@@ -32,10 +32,10 @@ final class PointerProtocolTests: XCTestCase {
     }
 
     func testPointerEventsCarryNoFocusEpochAndAreNotPendingKeys() {
-        XCTAssertFalse(EventKind.pointerOpen(grant: 1).carriesFocusEpoch)
+        XCTAssertFalse(EventKind.pointerOpen(grant: 1, wifi: nil).carriesFocusEpoch)
         XCTAssertFalse(EventKind.pointerClose.carriesFocusEpoch)
         var sender = EventSender(sessionId: UUID())
-        let open = sender.make(.pointerOpen(grant: 5), focusEpoch: 9)
+        let open = sender.make(.pointerOpen(grant: 5, wifi: nil), focusEpoch: 9)
         _ = sender.make(.pointerClose, focusEpoch: 9)
         XCTAssertNil(open.focusEpoch)
         XCTAssertEqual(sender.pendingCount, 0, "a pointer switch is not an unconfirmed typed key")

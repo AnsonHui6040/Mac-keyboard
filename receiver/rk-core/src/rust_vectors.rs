@@ -4,15 +4,16 @@
 //! `rust_vectors_file_is_current` fails when the committed file differs from what this code produces. The output is
 //! deterministic: every key, nonce, AEAD nonce and message is fixed here.
 
-use crate::channel::ChannelSet;
+use crate::channel::{derive_probe_key, ChannelSet, ProbeOpener, ProbeSealer, PACKET_LEN, PROBE_MAGIC};
 use crate::frame::split_frames;
 use crate::json::Json;
 use crate::message::{
-    encode_control, encode_peripheral, Ack, AckResult, ControlMessage, EventKind, KeyboardEvent, PeripheralMessage, ReceiverStatus,
+    encode_control, encode_peripheral, Ack, AckResult, ControlMessage, EventKind, KeyboardEvent, PeripheralMessage, ReceiverStatus, WifiOffer,
 };
 use crate::pointer::{Opcode, PointerPayload, ScrollPhase};
 use crate::secret::PairKey;
 use crate::session::{derive_session_key, SessionCrypto, SessionDirection};
+use std::net::Ipv4Addr;
 use uuid::Uuid;
 
 const FILE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../testdata/rust-vectors-v4.json");
@@ -131,7 +132,20 @@ fn generate() -> String {
         seal_event("textWithEscapes", &p2m, aead_nonce(0x30), &event(2, Some(7), EventKind::Text("tab\there \"quoted\" back\\slash \u{1} \u{8}\u{c}\r\u{7f}\u{2028}\u{2029}".into()))),
         seal_event("backspace", &p2m, aead_nonce(0x40), &event(3, Some(7), EventKind::Backspace)),
         seal_event("ping", &p2m, aead_nonce(0x50), &event(4, None, EventKind::Ping { shown_at_ms: 120, connected_at_ms: 480 })),
-        seal_event("pointerOpen", &p2m, aead_nonce(0x60), &event(5, None, EventKind::PointerOpen { grant: u32::MAX })),
+        seal_event("pointerOpen", &p2m, aead_nonce(0x60), &event(5, None, EventKind::PointerOpen { grant: u32::MAX, wifi: None })),
+        seal_event(
+            "pointerOpenWifi",
+            &p2m,
+            aead_nonce(0xD0),
+            &event(
+                6,
+                None,
+                EventKind::PointerOpen {
+                    grant: 0x1234_5678,
+                    wifi: Some(WifiOffer::new(vec![Ipv4Addr::new(192, 168, 1, 23)], 50_123).expect("a valid offer")),
+                },
+            ),
+        ),
         seal_event("longText", &p2m, aead_nonce(0x70), &event(u64::MAX, Some(u64::MAX), EventKind::Text(long_text))),
     ];
     assert!(
@@ -184,6 +198,18 @@ fn generate() -> String {
         })
         .collect();
 
+    // ---- Wi-Fi probe (§8.6): counter 1, sealed by the host.
+    let probe_key = derive_probe_key(&pair_key, &host_nonce, &phone_nonce);
+    let probe_packet = ProbeSealer::new(probe_key.clone()).seal().expect("seal probe");
+    let wifi_probe = Json::object([
+        ("aeadNonce", str_json(&hex(&[b"WFP3".as_slice(), &1u64.to_be_bytes()].concat()))),
+        ("associatedDataHex", str_json(&hex(&probe_packet[..9]))),
+        ("counter", Json::uint(1)),
+        ("key", str_json(&hex(probe_key.expose()))),
+        ("packetHex", str_json(&hex(&probe_packet))),
+        ("plaintextHex", str_json(&hex(&[0u8; 16]))),
+    ]);
+
     // ---- segmentation of one long message at two notification sizes.
     let long_message = encode_peripheral(&phone_to_host.last().map(|s| PeripheralMessage::Sealed(s.sealed.clone())).expect("long message"));
     let segmentation: Vec<Json> = [(185usize, 0x0102u16), (23, 0xFFFE)]
@@ -219,6 +245,7 @@ fn generate() -> String {
             ]),
         ),
         ("pointer", Json::Array(pointer)),
+        ("wifiProbe", wifi_probe),
         ("protocolVersion", Json::int(4)),
         ("segmentation", Json::Array(segmentation)),
         (
@@ -278,7 +305,7 @@ fn generated_vectors_are_deterministic_end_with_a_newline_and_have_the_documente
     assert!(text.ends_with("}\n") && !text.ends_with("\n\n"));
     let doc = Json::parse(text.as_bytes()).expect("the file is JSON");
     assert_eq!(doc.get("protocolVersion").and_then(Json::as_u64), Some(4));
-    for key in ["about", "inputs", "session", "pointer", "segmentation"] {
+    for key in ["about", "inputs", "session", "pointer", "wifiProbe", "segmentation"] {
         assert!(doc.get(key).is_some(), "{key}");
     }
     let session = doc.get("session").expect("session");
@@ -320,4 +347,28 @@ fn every_vector_opens_again_with_the_documented_keys() {
         assert_eq!(hex(&plain), field(&case, "plaintextHex"));
         assert_eq!(hex(&plain).len(), 32);
     }
+
+    // The probe: the documented key opens the packet to 16 zero bytes, and sealing again gives the same bytes.
+    let probe = doc.get("wifiProbe").expect("wifiProbe");
+    let key = derive_probe_key(&pair_key, &host_nonce, &phone_nonce);
+    assert_eq!(hex(key.expose()), field(probe, "key"));
+    let packet = bytes(&field(probe, "packetHex"));
+    assert_eq!(packet.len(), PACKET_LEN);
+    assert_eq!(packet[0], PROBE_MAGIC);
+    assert_eq!(hex(&packet[..9]), field(probe, "associatedDataHex"));
+    assert_eq!(probe.get("counter").and_then(Json::as_u64), Some(1));
+    assert_eq!(hex(&ProbeOpener::new(key.clone()).open(&packet).expect("probe opens")), "00000000000000000000000000000000");
+    assert_eq!(ProbeSealer::new(key).seal().expect("seal").to_vec(), packet);
+
+    // The sealed `pointerOpen` with a `wifi` field opens to the typed event.
+    let sealed = list(doc.get("session").expect("session"), "phoneToHost")
+        .into_iter()
+        .find(|c| field(c, "name") == "pointerOpenWifi")
+        .expect("a pointerOpen with wifi is among the vectors");
+    let PeripheralMessage::Event(opened) = crate::message::decode_peripheral(&p2m.open(&bytes(&field(&sealed, "sealedHex"))).expect("opens")).expect("decodes")
+    else {
+        panic!("an event")
+    };
+    assert_eq!(opened.kind, EventKind::PointerOpen { grant: 0x1234_5678, wifi: Some(WifiOffer::new(vec![Ipv4Addr::new(192, 168, 1, 23)], 50_123).expect("offer")) });
+    assert!(field(&sealed, "plaintext").contains(r#""wifi":{"addrs":["192.168.1.23"],"port":50123}"#));
 }

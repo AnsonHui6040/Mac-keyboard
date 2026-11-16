@@ -92,6 +92,7 @@ final class RustVectorTests: XCTestCase {
         XCTAssertFalse(try objects(session, "hostToPhone").isEmpty)
         XCTAssertFalse(try objects(session, "phoneToHost").isEmpty)
         XCTAssertFalse(try objects(root, "pointer").isEmpty)
+        XCTAssertFalse(try string(try object(root, "wifiProbe"), "packetHex").isEmpty)
         let segmentation = try objects(root, "segmentation")
         XCTAssertFalse(segmentation.isEmpty)
         for item in segmentation { XCTAssertFalse((item["frames"] as? [String] ?? []).isEmpty) }
@@ -116,7 +117,8 @@ final class RustVectorTests: XCTestCase {
         "textWithEscapes": event(2, 7, .text("tab\there \"quoted\" back\\slash \u{01} \u{08}\u{0C}\r\u{7F}\u{2028}\u{2029}")),
         "backspace": event(3, 7, .backspace),
         "ping": event(4, nil, .ping(shownAtMs: 120, connectedAtMs: 480)),
-        "pointerOpen": event(5, nil, .pointerOpen(grant: 4_294_967_295)),
+        "pointerOpen": event(5, nil, .pointerOpen(grant: 4_294_967_295, wifi: nil)),
+        "pointerOpenWifi": event(6, nil, .pointerOpen(grant: 305_419_896, wifi: WifiOffer(addrs: ["192.168.1.23"], port: 50_123))),
         "longText": event(UInt64.max, UInt64.max, .text(longText)),
     ]
 
@@ -160,7 +162,35 @@ final class RustVectorTests: XCTestCase {
         try checkPhoneToHost(try objects(session, "phoneToHost"), p2m: p2m, m2p: m2p)
         try checkHostToPhone(try objects(session, "hostToPhone"), m2p: m2p, p2m: p2m)
         try checkPointer(try objects(root, "pointer"), pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        try checkWifiProbe(try object(root, "wifiProbe"), pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
         try checkSegmentation(try objects(root, "segmentation"))
+    }
+
+    // MARK: Wi-Fi probe (docs/protocol/v4.md §8.6)
+
+    private func checkWifiProbe(_ item: [String: Any], pairKey: SymmetricKey, hostNonce: Data, phoneNonce: Data) throws {
+        let channels = ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        XCTAssertEqual(channels.keyDataForTesting(.wifiProbe), try bytes(item, "key"), "K_probe")
+        XCTAssertNotEqual(channels.keyDataForTesting(.wifiProbe), channels.keyDataForTesting(.pointer))
+        let packet = try bytes(item, "packetHex")
+        let plain = try bytes(item, "plaintextHex")
+        XCTAssertEqual(packet.count, 41)
+        XCTAssertEqual(packet[0], 0x05)
+        XCTAssertEqual(packet.prefix(9), try bytes(item, "associatedDataHex"))
+        XCTAssertEqual((item["counter"] as? NSNumber)?.uint64Value, 1)
+        XCTAssertEqual(try bytes(item, "aeadNonce"), Data("WFP3".utf8) + Data([0, 0, 0, 0, 0, 0, 0, 1]))
+        XCTAssertEqual(plain, Data(repeating: 0, count: 16))
+
+        let opener = channels.opener(.wifiProbe)
+        XCTAssertEqual(try opener.open(packet).get(), plain, "Swift opens the Rust probe")
+        XCTAssertEqual(opener.lastOpenedCounter, 1)
+        XCTAssertEqual(opener.open(packet), .failure(.replayed), "the same datagram twice")
+        XCTAssertEqual(
+            ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce).opener(.wifiProbe).open(flippingLastBit(packet)),
+            .failure(.authFailed), "tampered")
+        // Swift sealing the first probe gives the identical packet.
+        let sealerSet = ChannelSet(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce)
+        XCTAssertEqual(try sealerSet.sealer(.wifiProbe).seal(plain), packet, "Swift seal")
     }
 
     // MARK: Phone to host (`PeripheralMessage.sealed`, inner `event`)

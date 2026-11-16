@@ -1110,9 +1110,9 @@ fn packet(channels: &mut ChannelSet, payload: PointerPayload) -> Vec<u8> {
 #[test]
 fn pointer_open_needs_current_grant() {
     let (mut rig, mut phone, _channels, grant) = pointer_rig();
-    rig.send_event(&phone, 1, EventKind::PointerOpen { grant: grant.wrapping_add(1) });
+    rig.send_event(&phone, 1, EventKind::PointerOpen { grant: grant.wrapping_add(1), wifi: None });
     assert_eq!(rig.acks(&mut phone)[0].result, AckResult::NotAuthorized);
-    rig.send_event(&phone, 2, EventKind::PointerOpen { grant });
+    rig.send_event(&phone, 2, EventKind::PointerOpen { grant, wifi: None });
     assert_eq!(rig.acks(&mut phone)[0].result, AckResult::Posted);
     rig.send_event(&phone, 3, EventKind::PointerClose);
     assert_eq!(rig.acks(&mut phone)[0].result, AckResult::Posted);
@@ -1124,7 +1124,7 @@ fn pointer_open_is_refused_when_the_switch_is_off() {
     let stored = rig.pair_phone(1);
     let mut phone = rig.authenticate(&stored.pair_key);
     assert_eq!(rig.last_status(&mut phone).pointer_grant, None);
-    rig.send_event(&phone, 1, EventKind::PointerOpen { grant: 7 });
+    rig.send_event(&phone, 1, EventKind::PointerOpen { grant: 7, wifi: None });
     assert_eq!(rig.acks(&mut phone)[0].result, AckResult::NotAuthorized);
 }
 
@@ -1134,7 +1134,7 @@ fn pointer_packets_reach_the_injector_once_the_channel_is_open() {
     // Not open yet: dropped.
     rig.notify(packet(&mut channels, PointerPayload::new(Opcode::Click, 0, 0, 0, 0, 1)));
     assert!(rig.injector.calls().is_empty());
-    rig.send_event(&phone, 1, EventKind::PointerOpen { grant });
+    rig.send_event(&phone, 1, EventKind::PointerOpen { grant, wifi: None });
     rig.acks(&mut phone);
     let mut click = PointerPayload::new(Opcode::Click, 0, 0, 0, 0, 2);
     click.arg = PointerPayload::click_arg(0, 1);
@@ -1159,7 +1159,7 @@ fn turning_the_switch_off_sends_a_status_without_grant() {
 /// A pointer rig whose channel is already open.
 fn open_pointer_rig() -> (Rig, ChannelSet) {
     let (mut rig, mut phone, channels, grant) = pointer_rig();
-    rig.send_event(&phone, 1, EventKind::PointerOpen { grant });
+    rig.send_event(&phone, 1, EventKind::PointerOpen { grant, wifi: None });
     rig.acks(&mut phone);
     (rig, channels)
 }
@@ -1371,7 +1371,7 @@ fn log_lines_never_contain_text() {
     rig.send_event(&phone, 1, EventKind::Text(secret.into()));
     let mut channels = phone.take_channel_set().unwrap();
     let grant = 0; // wrong on purpose: the refusal is logged too
-    rig.send_event(&phone, 2, EventKind::PointerOpen { grant });
+    rig.send_event(&phone, 2, EventKind::PointerOpen { grant, wifi: None });
     rig.notify(packet(&mut channels, PointerPayload::new(Opcode::Move, 0, 160, 32, 80, 2)));
     rig.advance(50);
     rig.send_event(&phone, 3, EventKind::Backspace);

@@ -1,7 +1,10 @@
 import Foundation
 
 /// What one key press means, independent of the key layout that produced it.
-public enum EventKind: Codable, Equatable, Sendable {
+///
+/// Every case is one object with a single key, `{"text":{"_0":"A"}}`, `{"backspace":{}}`; the codec is written out so a
+/// `wifi` that breaks the rules can read as absent instead of failing the whole event.
+public enum EventKind: Equatable, Sendable {
     case text(String)
     case backspace
     case returnKey
@@ -11,22 +14,88 @@ public enum EventKind: Codable, Equatable, Sendable {
     /// nothing else: no reconnect sample, no deduplication record, no injection.
     case probe
     /// The keyboard shows the touchpad page and asks the Receiver to accept `0x03` pointer packets. `grant` is the
-    /// `ReceiverStatus.pointerGrant` the keyboard last read. Answered at once with `posted` or `notAuthorized`.
-    case pointerOpen(grant: UInt32)
+    /// `ReceiverStatus.pointerGrant` the keyboard last read. Answered at once with `posted` or `notAuthorized`. `wifi`
+    /// tells the Receiver where to send Wi-Fi probes; without it everything stays on Bluetooth.
+    case pointerOpen(grant: UInt32, wifi: WifiOffer?)
     /// The touchpad page is left. The Receiver stops accepting pointer packets and lets go of anything held.
     case pointerClose
 
+    /// The one key of the object a kind is written as.
+    enum CodingKeys: String, CodingKey {
+        case text, backspace, returnKey, ping, probe, pointerOpen, pointerClose
+    }
+
+    private enum TextKeys: String, CodingKey { case payload = "_0" }
+
     /// Short wire keys: with the two UUIDs a probe is otherwise over the smallest notify payload (182 bytes).
-    enum PingCodingKeys: String, CodingKey {
+    private enum PingKeys: String, CodingKey {
         case shownAtMs = "s"
         case connectedAtMs = "c"
     }
+
+    private enum PointerOpenKeys: String, CodingKey { case grant, wifi }
+
 
     /// A probe is not typed text, so it is sent without a focus epoch and the Receiver never ties it to a field.
     public var carriesFocusEpoch: Bool {
         switch self {
         case .ping, .probe, .pointerOpen, .pointerClose: return false
         case .text, .backspace, .returnKey: return true
+        }
+    }
+}
+
+extension EventKind: Codable {
+    public init(from decoder: Decoder) throws {
+        let outer = try decoder.container(keyedBy: CodingKeys.self)
+        guard outer.allKeys.count == 1, let name = outer.allKeys.first else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "an event kind has exactly one recognised key"))
+        }
+        switch name {
+        case .text:
+            self = .text(try outer.nestedContainer(keyedBy: TextKeys.self, forKey: .text).decode(String.self, forKey: .payload))
+        case .backspace:
+            _ = try outer.nestedContainer(keyedBy: TextKeys.self, forKey: .backspace)
+            self = .backspace
+        case .returnKey:
+            _ = try outer.nestedContainer(keyedBy: TextKeys.self, forKey: .returnKey)
+            self = .returnKey
+        case .ping:
+            let body = try outer.nestedContainer(keyedBy: PingKeys.self, forKey: .ping)
+            self = .ping(shownAtMs: try body.decode(Int64.self, forKey: .shownAtMs), connectedAtMs: try body.decode(Int64.self, forKey: .connectedAtMs))
+        case .probe:
+            _ = try outer.nestedContainer(keyedBy: TextKeys.self, forKey: .probe)
+            self = .probe
+        case .pointerOpen:
+            let body = try outer.nestedContainer(keyedBy: PointerOpenKeys.self, forKey: .pointerOpen)
+            // A `wifi` that is mistyped or breaks the rules is the same as none: the channel still opens, on Bluetooth.
+            let wifi = try? body.decodeIfPresent(WifiOffer.self, forKey: .wifi)
+            self = .pointerOpen(grant: try body.decode(UInt32.self, forKey: .grant), wifi: wifi)
+        case .pointerClose:
+            _ = try outer.nestedContainer(keyedBy: TextKeys.self, forKey: .pointerClose)
+            self = .pointerClose
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var outer = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .text(let text):
+            var body = outer.nestedContainer(keyedBy: TextKeys.self, forKey: .text)
+            try body.encode(text, forKey: .payload)
+        case .backspace: _ = outer.nestedContainer(keyedBy: TextKeys.self, forKey: .backspace)
+        case .returnKey: _ = outer.nestedContainer(keyedBy: TextKeys.self, forKey: .returnKey)
+        case .ping(let shownAtMs, let connectedAtMs):
+            var body = outer.nestedContainer(keyedBy: PingKeys.self, forKey: .ping)
+            try body.encode(shownAtMs, forKey: .shownAtMs)
+            try body.encode(connectedAtMs, forKey: .connectedAtMs)
+        case .probe: _ = outer.nestedContainer(keyedBy: TextKeys.self, forKey: .probe)
+        case .pointerOpen(let grant, let wifi):
+            var body = outer.nestedContainer(keyedBy: PointerOpenKeys.self, forKey: .pointerOpen)
+            try body.encode(grant, forKey: .grant)
+            try body.encodeIfPresent(wifi, forKey: .wifi)
+        case .pointerClose: _ = outer.nestedContainer(keyedBy: TextKeys.self, forKey: .pointerClose)
         }
     }
 }

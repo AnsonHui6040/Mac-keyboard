@@ -107,7 +107,7 @@ final class ReceiverCoordinator: ObservableObject {
     private func answerPointerSwitch(_ event: KeyboardEvent) -> Bool {
         let code: AckCode
         switch event.kind {
-        case .pointerOpen(let grant): code = pointer?.handleOpen(grant: grant) ?? .notAuthorized
+        case .pointerOpen(let grant, _): code = pointer?.handleOpen(grant: grant) ?? .notAuthorized
         case .pointerClose: code = pointer?.handleClose() ?? .posted
         default: return false
         }

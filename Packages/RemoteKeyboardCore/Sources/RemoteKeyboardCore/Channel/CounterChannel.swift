@@ -18,7 +18,7 @@ public enum ChannelOpenError: Error, Equatable, Sendable {
     case authFailed
 }
 
-/// The counter-AEAD envelope that `0x03` pointer packets and (Debug builds only) `0x7E` measurement packets share (spec §6.1):
+/// The counter-AEAD envelope that `0x03` pointer packets, `0x05` Wi-Fi probes and (Debug builds only) `0x7E` measurement packets share (spec §6.1):
 ///
 ///     [0] magic  [1-8] counter (UInt64 BE, from 1)  [9 … N−17] ChaCha20 ciphertext  [N−16 … N−1] Poly1305 tag
 ///
@@ -32,11 +32,16 @@ public enum CounterChannel {
     public static let measureMagic: UInt8 = 0x7E
     #endif
 
+    /// Wi-Fi probe packets, host to phone (docs/protocol/v4.md §8.6). Ships in Release builds, unlike the measurement kinds.
+    public static let wifiProbeMagic: UInt8 = 0x05
+
     static let headerLength = 9
     static let tagLength = 16
 
     public enum Kind: Hashable, Sendable, CaseIterable {
         case pointer
+        /// Wi-Fi path probes, host to phone: 16 bytes of zeros, valid only as proof that the sender knows the pair key.
+        case wifiProbe
         #if DEBUG
         /// Measurement probes, iPhone to Mac (notify).
         case measureP2M
@@ -47,6 +52,7 @@ public enum CounterChannel {
         public var magic: UInt8 {
             switch self {
             case .pointer: 0x03
+            case .wifiProbe: CounterChannel.wifiProbeMagic
             #if DEBUG
             case .measureP2M, .measureM2P: CounterChannel.measureMagic
             #endif
@@ -56,6 +62,7 @@ public enum CounterChannel {
         var info: String {
             switch self {
             case .pointer: "rk-pointer-p2m"
+            case .wifiProbe: "rk-wfprobe-h2p"
             #if DEBUG
             case .measureP2M: "rk-measure-p2m"
             case .measureM2P: "rk-measure-m2p"
@@ -66,6 +73,7 @@ public enum CounterChannel {
         var noncePrefix: [UInt8] {
             switch self {
             case .pointer: Array("PTR3".utf8)
+            case .wifiProbe: Array("WFP3".utf8)
             #if DEBUG
             case .measureP2M: Array("MSR3".utf8)
             case .measureM2P: Array("MSE3".utf8)
@@ -76,7 +84,7 @@ public enum CounterChannel {
         /// Plaintext lengths of this kind: 16 for a pointer packet, 16 or 157 for a measurement probe, 24 for a measurement reply.
         var plaintextLengths: Set<Int> {
             switch self {
-            case .pointer: [16]
+            case .pointer, .wifiProbe: [16]
             #if DEBUG
             case .measureP2M: [16, 157]
             case .measureM2P: [24]

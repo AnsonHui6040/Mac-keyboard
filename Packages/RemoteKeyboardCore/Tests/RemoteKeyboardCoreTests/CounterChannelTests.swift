@@ -18,7 +18,9 @@ final class CounterChannelTests: XCTestCase {
 
     /// Every kind of this build with the constants the spec fixes for it (§6.1).
     private var expectedKinds: [(kind: CounterChannel.Kind, magic: UInt8, info: String, prefix: String)] {
-        var kinds: [(CounterChannel.Kind, UInt8, String, String)] = [(.pointer, 0x03, "rk-pointer-p2m", "PTR3")]
+        var kinds: [(CounterChannel.Kind, UInt8, String, String)] = [
+            (.pointer, 0x03, "rk-pointer-p2m", "PTR3"), (.wifiProbe, 0x05, "rk-wfprobe-h2p", "WFP3"),
+        ]
         #if DEBUG
         kinds.append((.measureP2M, 0x7E, "rk-measure-p2m", "MSR3"))
         kinds.append((.measureM2P, 0x7E, "rk-measure-m2p", "MSE3"))
@@ -92,7 +94,7 @@ final class CounterChannelTests: XCTestCase {
     // MARK: Tampering
 
     func testTamperAnyByteRejected() throws {
-        var cases: [(CounterChannel.Kind, Int)] = [(.pointer, 16)]
+        var cases: [(CounterChannel.Kind, Int)] = [(.pointer, 16), (.wifiProbe, 16)]
         #if DEBUG
         cases.append((.measureP2M, 157))
         #endif

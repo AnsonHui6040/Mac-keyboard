@@ -78,7 +78,7 @@ final class ProtocolVectorTests: XCTestCase {
         guard case .pairOffer(let commitment) = offer else { throw VectorError.pairingFailed }
         let z = try hostKey.sharedSecretFromKeyAgreement(with: phoneKey.publicKey).withUnsafeBytes { Data($0) }
 
-        // The eighteen JSON examples of docs/protocol/v4.md §3.2 to §3.4.
+        // The nineteen JSON examples of docs/protocol/v4.md §3.2 to §3.4.
         let eventId = UUID(uuidString: "0F8FAD5B-D9CB-469F-A165-70867728950E")!
         let sessionId = UUID(uuidString: "7C9E6679-7425-40DE-944B-E07FC1F90AE7")!
         func event(_ seq: UInt64, _ epoch: UInt64?, _ kind: EventKind) -> KeyboardEvent {
@@ -127,7 +127,11 @@ final class ProtocolVectorTests: XCTestCase {
                 bytes: try PeripheralCodec.encode(.event(event(3, nil, .ping(shownAtMs: 120, connectedAtMs: 480))))),
             Example(
                 section: "3.4", name: "eventPointerOpen",
-                bytes: try PeripheralCodec.encode(.event(event(4, nil, .pointerOpen(grant: 305_419_896))))),
+                bytes: try PeripheralCodec.encode(.event(event(4, nil, .pointerOpen(grant: 305_419_896, wifi: nil))))),
+            Example(
+                section: "3.4", name: "eventPointerOpenWifi",
+                bytes: try PeripheralCodec.encode(
+                    .event(event(5, nil, .pointerOpen(grant: 305_419_896, wifi: WifiOffer(addrs: ["192.168.1.23"], port: 50_123)))))),
         ]
         let messages: [[String: Any]] = examples.map {
             ["section": $0.section, "name": $0.name, "json": json($0.bytes), "utf8Hex": hex($0.bytes)]
@@ -154,6 +158,11 @@ final class ProtocolVectorTests: XCTestCase {
         let pointerPlain = PointerPayload(opcode: .move, buttons: 0x10, dx: 24, dy: -8, dt: 83, buttonSeq: 0).encode()
         let pointerPacket = try channels.sealer(.pointer).seal(pointerPlain)
         let pointerNonce = Data("PTR3".utf8) + Data([0, 0, 0, 0, 0, 0, 0, 1])
+
+        // Wi-Fi probe packet (§8.6): sealed by the host, counter 1, 16 bytes of zeros.
+        let probePlain = Data(repeating: 0, count: 16)
+        let probePacket = try channels.sealer(.wifiProbe).seal(probePlain)
+        let probeNonce = Data("WFP3".utf8) + Data([0, 0, 0, 0, 0, 0, 0, 1])
 
         // Segmentation of a 600-byte message into frames of 185 bytes.
         let big = Data((0..<600).map { UInt8(truncatingIfNeeded: $0) })
@@ -199,6 +208,12 @@ final class ProtocolVectorTests: XCTestCase {
                 "counter": 1,
                 "plaintextHex": hex(pointerPlain), "aeadNonce": hex(pointerNonce),
                 "associatedDataHex": hex(pointerPacket.prefix(9)), "packetHex": hex(pointerPacket),
+            ] as [String: Any],
+            "wifiProbe": [
+                "key": channels.keyDataForTesting(.wifiProbe).withUnsafeBytes { hex($0) },
+                "counter": 1,
+                "plaintextHex": hex(probePlain), "aeadNonce": hex(probeNonce),
+                "associatedDataHex": hex(probePacket.prefix(9)), "packetHex": hex(probePacket),
             ] as [String: Any],
             "segmentation": [
                 "messageLength": big.count, "maxFrameBytes": 185, "messageId": 0x0102,

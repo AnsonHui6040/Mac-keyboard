@@ -252,7 +252,7 @@ final class KeyboardBLEPeripheral: NSObject {
         }
         // The fast interval is asked for before the open leaves the phone.
         setPointerLatency(open: true)
-        guard let id = send(.pointerOpen(grant: grant)) else {
+        guard let id = send(.pointerOpen(grant: grant, wifi: nil)) else {
             setPointerLatency(open: false)
             return
         }
