@@ -5,12 +5,21 @@
 //! keyboard would wait for it. An advertisement carrying our selected UUID, seen while we think we are connected, tells us
 //! the phone no longer is. The backends keep the advertisement scan running while connected and ask this function.
 
+use crate::att::{AttError, ReadReply};
 use crate::{DeviceKey, Route};
 use std::time::{Duration, Instant};
 
 /// The advertisement has to be seen this long after the link reached `subscribed` to count (Provisional): the phone may
 /// still send the last adverts of its previous round for a moment after it has been connected to.
 pub const STALE_ADVERT_GRACE: Duration = Duration::from_millis(1000);
+
+/// How long the confirmation read waits for any reply before the link counts as dead (Provisional). A healthy link
+/// answers within a connection interval or two; the keyboard is typed on, so a longer wait would cost keystrokes.
+pub const STALE_CONFIRM_TIMEOUT: Duration = Duration::from_millis(1000);
+
+/// After a link has answered the confirmation, further stale adverts on it are ignored for this long (Provisional):
+/// the phone keeps advertising next to a live link, and every check costs one round trip on it.
+pub const STALE_RECHECK_BACKOFF: Duration = Duration::from_secs(5);
 
 /// The link that is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +28,57 @@ pub struct HeldLink {
     pub device: DeviceKey,
     /// How long ago the link was subscribed; `None` while it is not yet.
     pub subscribed_for: Option<Duration>,
+}
+
+/// What the confirmation read of a link that looks stale came back with. The read is of the event characteristic's
+/// CCCD: iOS answers it with this connection's own client configuration. Our live subscription reads as notify
+/// (0x0001); once the phone has removed and re-added its service, the old connection is no longer subscribed (0x0000)
+/// or the handle is gone (an ATT error). The old radio link may still be up then, so a mere reply proves nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeOutcome {
+    /// The notify bit is set: our subscription is still in place.
+    Subscribed,
+    /// A reply without the notify bit (or an empty one).
+    NotSubscribed,
+    /// An ATT Error Response (invalid handle after a service change, or anything else).
+    AttError,
+    /// No reply within `STALE_CONFIRM_TIMEOUT`.
+    TimedOut,
+    /// The channel closed or the socket failed.
+    Failed,
+}
+
+impl ProbeOutcome {
+    pub fn of(result: &Result<ReadReply, AttError>) -> Self {
+        match result {
+            Ok(ReadReply::Answered(value)) if value.first().is_some_and(|b| b & 0x01 != 0) => Self::Subscribed,
+            Ok(ReadReply::Answered(_)) => Self::NotSubscribed,
+            Ok(ReadReply::AttError) => Self::AttError,
+            Err(AttError::Timeout) => Self::TimedOut,
+            Err(_) => Self::Failed,
+        }
+    }
+}
+
+/// `true` only while our subscription is confirmed: everything else ends the link as stale.
+pub fn link_alive(outcome: ProbeOutcome) -> bool {
+    outcome == ProbeOutcome::Subscribed
+}
+
+/// When a link last proved itself alive; stale adverts inside the backoff are not checked again.
+#[derive(Debug, Default)]
+pub struct StaleBackoff {
+    alive_at: Option<Instant>,
+}
+
+impl StaleBackoff {
+    pub fn allows_check(&self, now: Instant) -> bool {
+        self.alive_at.is_none_or(|at| now.saturating_duration_since(at) >= STALE_RECHECK_BACKOFF)
+    }
+
+    pub fn alive_at(&mut self, now: Instant) {
+        self.alive_at = Some(now);
+    }
 }
 
 /// An advertisement that was seen.
@@ -306,6 +366,49 @@ mod tests {
         assert_eq!(bursts.on_change(HeldChange::Rssi, t), None);
         assert_eq!(bursts.on_change(HeldChange::ManufacturerData, t + AdvertBursts::QUIET), Some(t));
         assert_eq!(bursts.on_quiet(), None);
+    }
+
+    #[test]
+    fn only_a_subscribed_cccd_keeps_the_link() {
+        assert!(link_alive(ProbeOutcome::Subscribed));
+        assert!(!link_alive(ProbeOutcome::NotSubscribed));
+        assert!(!link_alive(ProbeOutcome::AttError));
+        assert!(!link_alive(ProbeOutcome::TimedOut));
+        assert!(!link_alive(ProbeOutcome::Failed));
+    }
+
+    #[test]
+    fn a_read_result_maps_to_an_outcome() {
+        use crate::att::{AttError, ReadReply};
+        let answered = |bytes: &[u8]| ProbeOutcome::of(&Ok(ReadReply::Answered(bytes.to_vec())));
+        assert_eq!(answered(&[0x01, 0x00]), ProbeOutcome::Subscribed);
+        assert_eq!(answered(&[0x03, 0x00]), ProbeOutcome::Subscribed, "indicate bit as well is still subscribed");
+        assert_eq!(answered(&[0x01]), ProbeOutcome::Subscribed);
+        assert_eq!(answered(&[0x00, 0x00]), ProbeOutcome::NotSubscribed);
+        assert_eq!(answered(&[0x02, 0x00]), ProbeOutcome::NotSubscribed, "only the notify bit counts");
+        assert_eq!(answered(&[]), ProbeOutcome::NotSubscribed);
+        assert_eq!(ProbeOutcome::of(&Ok(ReadReply::AttError)), ProbeOutcome::AttError);
+        assert_eq!(ProbeOutcome::of(&Err(AttError::Timeout)), ProbeOutcome::TimedOut);
+        assert_eq!(ProbeOutcome::of(&Err(AttError::Closed)), ProbeOutcome::Failed);
+        assert_eq!(ProbeOutcome::of(&Err(AttError::Io(Some(104)))), ProbeOutcome::Failed);
+        assert_eq!(ProbeOutcome::of(&Err(AttError::Malformed)), ProbeOutcome::Failed);
+    }
+
+    #[test]
+    fn the_confirm_constants_are_the_provisional_ones() {
+        assert_eq!(STALE_CONFIRM_TIMEOUT, Duration::from_millis(1_000));
+        assert_eq!(STALE_RECHECK_BACKOFF, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_link_that_answered_is_not_checked_again_for_the_backoff() {
+        let t = Instant::now();
+        let mut backoff = StaleBackoff::default();
+        assert!(backoff.allows_check(t), "a fresh link may be checked");
+        backoff.alive_at(t);
+        assert!(!backoff.allows_check(t));
+        assert!(!backoff.allows_check(t + STALE_RECHECK_BACKOFF - Duration::from_millis(1)));
+        assert!(backoff.allows_check(t + STALE_RECHECK_BACKOFF));
     }
 
     #[test]
