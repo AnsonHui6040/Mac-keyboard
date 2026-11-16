@@ -14,6 +14,15 @@ import XCTest
 /// A target that is already current is rotated away and back anyway, so every run measures a real switch. Prints one line,
 /// `RKROT host=<name> taps=<n> switch_ms=<n>`. The time runs from the moment the last tap returned to the first poll that
 /// reads `connected`, so it carries the polling interval (about 0.2 s) and the accessibility query time.
+///
+/// Before every character key and Return the test reads the `rk.status` value, so a link that dropped while typing shows in
+/// the run: `RKKEYS total=<n> notConnected=<n> firstNotConnectedAt=<index or -1>` (index counts from 0; page-switch taps are
+/// not keys; no typed content is printed).
+///
+/// `testTypeBurst` does not rotate: the target must already be the current host (no tap on the name cell). Environment:
+/// `RK_TARGET_HOST`, `RK_TOKEN_PREFIX` (lowercase a-z only) and `RK_COUNT` (1...200, default 50). It types `<prefix><i>` and
+/// Return for i in 1...count and prints `RKBURST count=<n> keys=<n> notConnected=<n> start=<UTC ISO> end=<UTC ISO>`, plus
+/// one `RKBURST_GAP token=<i>` for every token that had a key sent while the status was not `connected`.
 @MainActor
 final class HostRotationUITests: XCTestCase {
     private static let maxTaps = 6
@@ -27,6 +36,13 @@ final class HostRotationUITests: XCTestCase {
     private static let draftTitle = "草稿"
 
     private let notes = XCUIApplication(bundleIdentifier: "com.apple.mobilenotes")
+
+    /// Status readings taken before each key tap, since the last `resetKeyLog()`.
+    private var keyTotal = 0
+    private var keyNotConnected = 0
+    private var firstNotConnectedAt = -1
+    /// Whether any key of the token being typed had a status other than `connected`.
+    private var tokenHadGap = false
 
     override func setUp() async throws {
         continueAfterFailure = false
@@ -51,12 +67,87 @@ final class HostRotationUITests: XCTestCase {
         try clearLeftoverTokensFromDraft()
 
         let (taps, switchMs) = try rotate(to: target)
+        resetKeyLog()
         try typeToken(token)
         let draft = element("rk.draft")
         if draft.exists, "\(draft.value as? String ?? "")\(draft.label)".contains(token) {
             XCTFail("token stayed in the draft")
         }
         print("RKROT host=\(target) taps=\(taps) switch_ms=\(switchMs)")
+        print(keyLogLine())
+    }
+
+    /// Types `<prefix><i>` and Return for every i in 1...count to the host that is already current, without rotating.
+    func testTypeBurst() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let target = env["RK_TARGET_HOST"], !target.isEmpty else {
+            XCTFail("RK_TARGET_HOST is not set (pass TEST_RUNNER_RK_TARGET_HOST)")
+            return
+        }
+        guard let prefix = env["RK_TOKEN_PREFIX"], Self.isValidPrefix(prefix) else {
+            XCTFail("RK_TOKEN_PREFIX must be set and use only a-z (pass TEST_RUNNER_RK_TOKEN_PREFIX)")
+            return
+        }
+        guard let count = Self.burstCount(from: env["RK_COUNT"]) else {
+            XCTFail("RK_COUNT must be a whole number from 1 to \(Self.maxBurstCount) (pass TEST_RUNNER_RK_COUNT)")
+            return
+        }
+
+        try openNewNoteWithRemoteKeyboard()
+        let mode = element("rk.mode")
+        if (mode.value as? String) == "本機" { mode.tap() }
+        XCTAssertTrue(wait(10) { currentHostName() != nil }, "no host name on the keyboard: is a computer paired and current?")
+        guard currentHostName() == target else {
+            XCTFail("[\(target)] is not the current host (shows [\(currentHostName() ?? "none")]); select it first, nothing was tapped or typed")
+            return
+        }
+        try useInstantTransmit()
+        try clearLeftoverTokensFromDraft(tokenPrefix: prefix)
+        XCTAssertTrue(wait(Self.connectTimeout) { (element("rk.status").value as? String) == "connected" },
+                      "[\(target)] not connected within \(Int(Self.connectTimeout)) s")
+        if (element("rk.status").value as? String) != "connected" { return }
+
+        resetKeyLog()
+        var gaps: [Int] = []
+        let start = Date()
+        for i in 1...count {
+            tokenHadGap = false
+            try typeToken("\(prefix)\(i)", settle: false)
+            if tokenHadGap { gaps.append(i) }
+        }
+        sleep(2)
+        let end = Date()
+
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime]
+        print("RKBURST count=\(count) keys=\(keyTotal) notConnected=\(keyNotConnected) start=\(stamp.string(from: start)) end=\(stamp.string(from: end))")
+        for i in gaps { print("RKBURST_GAP token=\(i)") }
+        print(keyLogLine())
+        if !draftText().isEmpty { XCTFail("typed text stayed in the draft") }
+    }
+
+    // MARK: Key log
+
+    private func resetKeyLog() {
+        keyTotal = 0
+        keyNotConnected = 0
+        firstNotConnectedAt = -1
+        tokenHadGap = false
+    }
+
+    /// Reads `rk.status` and records it; call right before a key tap.
+    private func recordStatusBeforeKey() {
+        let connected = (element("rk.status").value as? String) == "connected"
+        if !connected {
+            if firstNotConnectedAt < 0 { firstNotConnectedAt = keyTotal }
+            keyNotConnected += 1
+            tokenHadGap = true
+        }
+        keyTotal += 1
+    }
+
+    private func keyLogLine() -> String {
+        "RKKEYS total=\(keyTotal) notConnected=\(keyNotConnected) firstNotConnectedAt=\(firstNotConnectedAt)"
     }
 
     // MARK: Transmit mode
@@ -78,11 +169,11 @@ final class HostRotationUITests: XCTestCase {
     // MARK: Draft
 
     /// Typed keys go to the draft whenever it is not empty, even in 即時, so tokens left there by an earlier run are removed
-    /// first. Only a draft made of wl11 tokens and white space is touched; anything else fails the test untouched.
-    private func clearLeftoverTokensFromDraft() throws {
+    /// first. Only a draft made of wl11 tokens (or, in the burst test, tokens of its own prefix) and white space is touched; anything else fails the test untouched.
+    private func clearLeftoverTokensFromDraft(tokenPrefix: String? = nil) throws {
         var text = draftText()
         if text.isEmpty { return }
-        guard Self.isOnlyTokens(text) else {
+        guard Self.isOnlyTokens(text, prefix: tokenPrefix) else {
             XCTFail("draft holds other text; clear it by hand")
             throw RotationError.draftNotEmpty
         }
@@ -109,12 +200,30 @@ final class HostRotationUITests: XCTestCase {
 
     // MARK: Pure logic
 
-    /// Whether the text is made of `wl11r<digits>` tokens and white space only (at least one token).
-    static func isOnlyTokens(_ text: String) -> Bool {
+    /// Whether the text is made of `wl11r<digits>` tokens, or `<prefix><digits>` tokens when a prefix is given, and white
+    /// space only (at least one token).
+    static func isOnlyTokens(_ text: String, prefix: String? = nil) -> Bool {
         let words = text.split(whereSeparator: \.isWhitespace)
         return !words.isEmpty && words.allSatisfy { word in
-            word.hasPrefix("wl11r") && word.count > 5 && word.dropFirst(5).allSatisfy { ("0"..."9").contains($0) }
+            isToken(word, prefix: "wl11r") || (prefix.map { isValidPrefix($0) && isToken(word, prefix: $0) } ?? false)
         }
+    }
+
+    private static func isToken(_ word: Substring, prefix: String) -> Bool {
+        word.hasPrefix(prefix) && word.count > prefix.count && word.dropFirst(prefix.count).allSatisfy { ("0"..."9").contains($0) }
+    }
+
+    static let maxBurstCount = 200
+
+    /// `RK_COUNT`: nil unless a whole number in 1...maxBurstCount; unset means 50.
+    static func burstCount(from value: String?) -> Int? {
+        guard let value, !value.isEmpty else { return 50 }
+        guard value.allSatisfy({ ("0"..."9").contains($0) }), let n = Int(value), (1...maxBurstCount).contains(n) else { return nil }
+        return n
+    }
+
+    static func isValidPrefix(_ prefix: String) -> Bool {
+        !prefix.isEmpty && prefix.unicodeScalars.allSatisfy { ("a"..."z").contains($0) }
     }
 
     static func isValidToken(_ token: String) -> Bool {
@@ -169,7 +278,7 @@ final class HostRotationUITests: XCTestCase {
     // MARK: Typing
 
     /// Digits live on the symbols page, letters on the English page; the page is switched only when the next character needs it.
-    private func typeToken(_ token: String) throws {
+    private func typeToken(_ token: String, settle: Bool = true) throws {
         if !key("a").exists { element("rk.zhEn").tap() }
         for character in token {
             let wantsSymbols = character.isNumber
@@ -178,8 +287,9 @@ final class HostRotationUITests: XCTestCase {
             tapKey(String(character))
         }
         if element("rk.symbols").label == "返回英文字母" { try togglePage(toSymbols: false) }
+        recordStatusBeforeKey()
         element("rk.return").tap()
-        sleep(2)
+        if settle { sleep(2) }
     }
 
     private func togglePage(toSymbols: Bool) throws {
@@ -216,6 +326,7 @@ final class HostRotationUITests: XCTestCase {
     private func tapKey(_ label: String) {
         let k = key(label)
         XCTAssertTrue(k.waitForExistence(timeout: 5), "key \(label)")
+        recordStatusBeforeKey()
         k.tap()
     }
 
