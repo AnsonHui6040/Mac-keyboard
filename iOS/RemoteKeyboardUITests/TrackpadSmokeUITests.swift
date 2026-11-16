@@ -48,8 +48,10 @@ final class TrackpadSmokeUITests: XCTestCase {
 
     /// Timing run (e2e/scripts/measure-trackpad.sh): `RK_STROKE_COUNT` fixed strokes (default 20) across the pad at mid height, alternating
     /// left to right and right to left (normalized x 0.15 and 0.85) and cycling slow, default and fast velocity, 0.8 s apart so the
-    /// receiver sees every stroke end after its 300 ms idle. No tap, click or scroll. Prints only
-    /// `RKTP strokes=<N> start=<ISO8601 UTC ms> end=<ISO8601 UTC ms>`: no position, distance or text.
+    /// receiver sees every stroke end after its 300 ms idle. No tap, click or scroll. With `RK_EXPECT_PATH=wifi` it first waits up to
+    /// 5 s for the pad's label to say Wi-Fi; without it nothing waits. Prints only
+    /// `RKTP strokes=<N> start=<ISO8601 UTC ms> end=<ISO8601 UTC ms> path_start=<wifi|bluetooth> path_end=<wifi|bluetooth>`
+    /// (the path the pad's label shows at the start and the end): no position, distance or text.
     func testFixedStrokes() throws {
         let asked = Int(ProcessInfo.processInfo.environment["RK_STROKE_COUNT"] ?? "") ?? 20
         let count = asked > 0 ? asked : 20
@@ -66,6 +68,10 @@ final class TrackpadSmokeUITests: XCTestCase {
         let ready = wait(10) { (pad.value as? String) == Self.readyValue }
         attach("trackpad-state")
         guard ready else { return XCTFail("the pad never reported ready") }
+        if ProcessInfo.processInfo.environment["RK_EXPECT_PATH"] == "wifi" {
+            _ = wait(5) { pad.label.contains("Wi-Fi") }
+        }
+        let pathStart = path(of: pad)
 
         let velocities: [XCUIGestureVelocity] = [.slow, .default, .fast]
         let left = pad.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.5))
@@ -82,13 +88,18 @@ final class TrackpadSmokeUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.8)
         }
         let end = formatter.string(from: Date())
-        print("RKTP strokes=\(count) start=\(start) end=\(end)")
+        print("RKTP strokes=\(count) start=\(start) end=\(end) path_start=\(pathStart) path_end=\(path(of: pad))")
     }
 
     // MARK: Steps
 
     private func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
+
+    /// `wifi` when the pad's label (「觸控板，Wi-Fi」 or 「觸控板，藍牙」) names Wi-Fi, otherwise `bluetooth`.
+    private func path(of pad: XCUIElement) -> String {
+        pad.label.contains("Wi-Fi") ? "wifi" : "bluetooth"
     }
 
     private func attach(_ name: String) {
