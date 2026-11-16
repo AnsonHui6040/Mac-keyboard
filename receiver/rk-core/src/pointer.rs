@@ -574,6 +574,25 @@ impl PointerPlayout {
 /// Failed packets in a row after which the channel is closed and the grant renewed (§8.5).
 pub const MAX_CONSECUTIVE_FAILURES: u32 = 8;
 
+/// How a `0x03` packet reached the host (§8.6). The bytes, the key, the counter and the replay window are the same on both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Transport {
+    /// A notification on the Bluetooth link.
+    Ble,
+    /// A UDP datagram from a probed address on the local network.
+    Udp,
+}
+
+impl Transport {
+    /// The word the log uses.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ble => "ble",
+            Self::Udp => "udp",
+        }
+    }
+}
+
 /// Why a pointer packet was dropped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PointerRejection {
@@ -620,7 +639,8 @@ impl fmt::Debug for PointerEffects {
 ///   closes the channel and takes the grant away.
 /// - `pointerOpen` needs an authenticated connection, the switch on and the current grant. Every packet checks again.
 /// - `pointerClose`, a lost connection, the switch going off and eight failed packets in a row close the channel and let go
-///   of whatever is held. After eight failures the grant is renewed and `status_changed` is set.
+///   of whatever is held. After eight failures the grant is renewed and `status_changed` is set. Only packets that arrived
+///   over Bluetooth count toward the eight (`Transport`, §8.5, §8.6).
 /// - Movement is queued in the playout and handed out by `frame_tick`; anything else (a click, a button, a scroll, the
 ///   watchdog letting go) first flushes the movement before it, so the order the phone sent is the order performed. When the
 ///   channel closes the movement not yet played is dropped.
@@ -728,6 +748,15 @@ impl PointerReceiver {
 
     /// One `0x03` notification, whole. Every packet checks again: channel open, connection authenticated, switch on.
     pub fn handle_packet(&mut self, packet: &[u8], now_micros: u64) -> PointerEffects {
+        self.handle_packet_from(packet, now_micros, Transport::Ble)
+    }
+
+    /// One `0x03` packet that came over `transport`. The checks are the same on both. Only Bluetooth keeps the count of
+    /// failures in a row (§8.5): a packet that fails over UDP is dropped and counts for nothing, and a good one over UDP
+    /// does not end a streak of Bluetooth failures either, because anybody on the local network can send datagrams and
+    /// none of them may close the channel or spend a grant.
+    pub fn handle_packet_from(&mut self, packet: &[u8], now_micros: u64, transport: Transport) -> PointerEffects {
+        let counts = transport == Transport::Ble;
         let mut effects = PointerEffects::default();
         if !(self.open && self.enabled && self.grant.is_some()) {
             effects.rejection = Some(PointerRejection::NotOpen);
@@ -740,8 +769,10 @@ impl PointerReceiver {
         match channels.opener().open(packet) {
             Err(error) => {
                 effects.rejection = Some(PointerRejection::Channel(error));
-                self.consecutive_failures += 1;
-                if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                if counts {
+                    self.consecutive_failures += 1;
+                }
+                if counts && self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                     effects.actions = self.close_channel();
                     // The phone is told only by a new grant: its status no longer matches the one it opened with, so it
                     // opens again.
@@ -750,7 +781,9 @@ impl PointerReceiver {
                 }
             }
             Ok(plain) => {
-                self.consecutive_failures = 0;
+                if counts {
+                    self.consecutive_failures = 0;
+                }
                 match PointerPayload::decode(&plain) {
                     None => effects.rejection = Some(PointerRejection::Unreadable),
                     Some(payload) => {
@@ -1670,6 +1703,58 @@ mod tests {
         // The old grant no longer opens; the new one does.
         assert_eq!(r.host.handle_open(100).ack, Some(AckResult::NotAuthorized));
         assert_eq!(r.host.handle_open(101).ack, Some(AckResult::Posted));
+    }
+
+    #[test]
+    fn failures_over_udp_never_close_the_channel_or_renew_the_grant() {
+        let mut r = rig(true);
+        open(&mut r);
+        let packet = r.phone.sealer().seal(&mv(0, 0, 16, 0).encode()).unwrap();
+        assert_eq!(r.host.handle_packet_from(&packet, 0, Transport::Udp).rejection, None);
+        for i in 0..20u64 {
+            // The same bytes again (replay) and a forged packet, both over UDP.
+            let replay = r.host.handle_packet_from(&packet, 1 + i, Transport::Udp);
+            assert_eq!(replay.rejection, Some(PointerRejection::Channel(ChannelOpenError::Replayed)));
+            let mut forged = vec![0x03];
+            forged.extend_from_slice(&(1000 + i).to_be_bytes());
+            forged.extend_from_slice(&[0; 32]);
+            let forged = r.host.handle_packet_from(&forged, 1 + i, Transport::Udp);
+            assert_eq!(forged.rejection, Some(PointerRejection::Channel(ChannelOpenError::AuthFailed)));
+            assert!(!forged.status_changed && forged.actions.is_empty());
+        }
+        assert!(r.host.is_open());
+        assert_eq!(r.host.grant(), Some(100), "no new grant was drawn");
+        assert_eq!(r.issued.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn udp_failures_do_not_add_to_a_streak_of_bluetooth_failures_and_udp_successes_do_not_end_it() {
+        let mut r = rig(true);
+        open(&mut r);
+        let packet = r.phone.sealer().seal(&mv(0, 0, 16, 0).encode()).unwrap();
+        r.host.handle_packet(&packet, 0);
+        for _ in 0..7 {
+            r.host.handle_packet(&packet, 1);
+        }
+        // A good packet over UDP neither completes nor resets the streak of seven; bad ones over UDP do not extend it.
+        let good = r.phone.sealer().seal(&mv(0, 0, 16, 0).encode()).unwrap();
+        assert_eq!(r.host.handle_packet_from(&good, 2, Transport::Udp).rejection, None);
+        r.host.handle_packet_from(&packet, 2, Transport::Udp);
+        assert!(r.host.is_open());
+        let eighth = r.host.handle_packet(&packet, 3);
+        assert!(eighth.status_changed && !r.host.is_open(), "the eighth Bluetooth failure still renews the grant");
+    }
+
+    #[test]
+    fn a_packet_that_arrived_over_bluetooth_is_a_replay_over_udp_and_the_other_way_round() {
+        let mut r = rig(true);
+        open(&mut r);
+        let first = r.phone.sealer().seal(&mv(0, 0, 16, 0).encode()).unwrap();
+        let second = r.phone.sealer().seal(&mv(0, 0, 16, 0).encode()).unwrap();
+        assert_eq!(r.host.handle_packet(&first, 0).rejection, None);
+        assert_eq!(r.host.handle_packet_from(&first, 1, Transport::Udp).rejection, Some(PointerRejection::Channel(ChannelOpenError::Replayed)));
+        assert_eq!(r.host.handle_packet_from(&second, 2, Transport::Udp).rejection, None);
+        assert_eq!(r.host.handle_packet(&second, 3).rejection, Some(PointerRejection::Channel(ChannelOpenError::Replayed)));
     }
 
     #[test]

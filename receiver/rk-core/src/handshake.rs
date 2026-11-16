@@ -1,6 +1,6 @@
 //! The challenge-response between a paired phone and a host (protocol v4 §6).
 
-use crate::channel::ChannelSet;
+use crate::channel::{derive_probe_key, ChannelSet, ProbeSealer};
 use crate::identity::{PairedPhone, PhonePlatform, ID_LEN, MAX_PHONES};
 use crate::message::{decode_peripheral, CodecError, ControlMessage, KeyboardEvent, PeripheralMessage};
 use crate::pairing::{
@@ -92,6 +92,7 @@ pub struct HostHandshake {
     session: Option<HostSession>,
     pin: SessionPin,
     channel_set_taken: bool,
+    probe_sealer_taken: bool,
 }
 
 impl fmt::Debug for HostHandshake {
@@ -115,6 +116,7 @@ impl HostHandshake {
             session: None,
             pin: SessionPin::new(),
             channel_set_taken: false,
+            probe_sealer_taken: false,
         }
     }
 
@@ -268,6 +270,17 @@ impl HostHandshake {
         let session = self.session.as_ref()?;
         self.channel_set_taken = true;
         Some(ChannelSet::new(&session.pair_key, &self.host_nonce, &session.phone_nonce))
+    }
+
+    /// The Wi-Fi probe sealer of this connection (§8.6), once, after authentication. Keep it for the life of the connection
+    /// for the same reason as the channel set: a second one would start its counter at 1 again under the same key.
+    pub fn take_probe_sealer(&mut self) -> Option<ProbeSealer> {
+        if self.state != HostState::Authenticated || self.probe_sealer_taken {
+            return None;
+        }
+        let session = self.session.as_ref()?;
+        self.probe_sealer_taken = true;
+        Some(ProbeSealer::new(derive_probe_key(&session.pair_key, &self.host_nonce, &session.phone_nonce)))
     }
 
     /// Wraps an `ack`, `status` or `bye` for the wire (§7.2). After authentication the host writes nothing else on
@@ -867,6 +880,19 @@ mod tests {
         assert_eq!(host_set.opener().open(&packet).unwrap(), [5; 16]);
         let (mut early, _) = (host(Route::Selected, vec![paired(1)]), ());
         assert!(early.take_channel_set().is_none(), "nothing before authentication");
+    }
+
+    #[test]
+    fn the_probe_sealer_is_handed_out_once_after_authentication_under_the_probe_key_of_this_connection() {
+        use crate::channel::{derive_probe_key, ProbeOpener};
+        let (mut h, _p) = connected(1);
+        let mut sealer = h.take_probe_sealer().expect("authenticated");
+        assert!(h.take_probe_sealer().is_none(), "a second sealer would restart the counter under the same key");
+        let mut opener = ProbeOpener::new(derive_probe_key(&key(1), &HOST_NONCE, &PHONE_NONCE));
+        assert!(opener.open(&sealer.seal().unwrap()).is_ok());
+        assert_eq!(sealer.last_counter(), 1);
+        let (mut early, _) = (host(Route::Selected, vec![paired(1)]), ());
+        assert!(early.take_probe_sealer().is_none(), "nothing before authentication");
     }
 
     // ---- phone: §6.3 handshake failures

@@ -10,7 +10,7 @@
 //! | `pointer_timing_dt`  | the time the phone says each move packet covers                                           |
 //! | `pointer_timing_out` | time between consecutive movements the playout hands out on frame ticks                   |
 //!
-//! The summary carries `packets` (accepted), `moves` (of them move packets), `frames` (frame ticks in the stroke), `idle`
+//! The summary carries `packets` (accepted), `ble` and `udp` (of them, by the way they arrived: Bluetooth notification or Wi-Fi datagram), `moves` (of them move packets), `frames` (frame ticks in the stroke), `idle`
 //! (frame ticks that handed out no movement), `squeeze` (how often the playout squeezed its queue), `lag_us` (the lag bound the playout used last: 20000 on a link with one packet per
 //! frame, more where packets arrive in bursts), `inj_max_us` (the longest
 //! `pointer_move` call in the application thread), `late_n`, `late_p99_us` and `late_max_us` (how late `on_tick` ran against
@@ -18,6 +18,7 @@
 //!
 //! The application's clock counts milliseconds, so every value but `inj_max_us` is a multiple of 1000 microseconds.
 
+use rk_core::pointer::Transport;
 use rk_core::timing::{IntervalHistogram, StrokeTracker};
 
 /// One line of the stroke report: the event word and its `(key, value)` fields.
@@ -32,6 +33,8 @@ struct Stroke {
     last_arrival_us: u64,
     last_out_us: Option<u64>,
     packets: u64,
+    ble: u64,
+    udp: u64,
     moves: u64,
     frames: u64,
     idle: u64,
@@ -65,6 +68,14 @@ impl PointerTiming {
         if let Some(span) = move_span_micros {
             self.stroke.moves += 1;
             self.stroke.dt.record(span);
+        }
+    }
+
+    /// The packet `on_packet` just counted arrived over `transport`.
+    pub fn on_transport(&mut self, transport: Transport) {
+        match transport {
+            Transport::Ble => self.stroke.ble += 1,
+            Transport::Udp => self.stroke.udp += 1,
         }
     }
 
@@ -113,6 +124,8 @@ impl PointerTiming {
         let stroke = std::mem::take(&mut self.stroke);
         let summary = vec![
             ("packets", stroke.packets),
+            ("ble", stroke.ble),
+            ("udp", stroke.udp),
             ("moves", stroke.moves),
             ("frames", stroke.frames),
             ("idle", stroke.idle),
@@ -172,6 +185,22 @@ mod tests {
         assert_eq!((get(arr, "n"), get(arr, "max_us")), (2, 28_000));
         assert_eq!((get(dt, "n"), get(dt, "max_us")), (2, 9_000));
         assert_eq!((get(out, "n"), get(out, "max_us")), (1, 16_000), "8 ms to 24 ms skipping the starved frame");
+    }
+
+    #[test]
+    fn the_summary_counts_accepted_packets_by_the_transport_they_came_over() {
+        let mut t = PointerTiming::new();
+        for (i, transport) in [Transport::Ble, Transport::Udp, Transport::Udp, Transport::Ble, Transport::Udp].into_iter().enumerate() {
+            t.on_packet(i as u64 * 10_000, None, 0);
+            t.on_transport(transport);
+        }
+        let lines = t.finish_if_ended(1_000_000, 0, 20_000).unwrap();
+        let summary = &lines[0];
+        assert_eq!((get(summary, "packets"), get(summary, "ble"), get(summary, "udp")), (5, 2, 3));
+        t.on_packet(2_000_000, None, 0);
+        t.on_transport(Transport::Udp);
+        let next = t.finish_if_ended(3_000_000, 0, 20_000).unwrap();
+        assert_eq!((get(&next[0], "ble"), get(&next[0], "udp")), (0, 1), "a new stroke starts its counts from zero");
     }
 
     #[test]
