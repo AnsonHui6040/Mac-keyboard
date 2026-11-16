@@ -85,9 +85,9 @@ clock_offset() {
   echo $(( remote - (before + after) / 2 ))
 }
 
-# Runs linux-type-target.py with the desktop session's environment and waits for it: <arguments>.
-linux_py() {
-  linux_ssh "$LINUX_ENV; systemd-run --user --collect --wait -E WAYLAND_DISPLAY=wayland-0 python3 $LINUX_DIR/linux-type-target.py $* >/dev/null 2>&1"
+# Exit code of the run: <missing token count> <xcodebuild exit status>. Missing tokens win (6), then a failed UI test (4).
+final_code() {
+  if [ "$1" -gt 0 ]; then echo 6; elif [ "$2" -ne 0 ]; then echo 4; else echo 0; fi
 }
 
 # Prints focus=True or focus=False (anything else counts as False).
@@ -191,9 +191,15 @@ STATUS=$?
 BURST="$(grep -h "^RKBURST count=" "$XLOG" | tail -1)"
 GAPS="$(grep -ho "RKBURST_GAP token=[0-9]*" "$XLOG" | sed 's/.*=//' | sort -n -u)"
 KEYS_LINE="$(grep -h "RKKEYS total=" "$XLOG" | tail -1)"
-if [ "$STATUS" -ne 0 ] || [ -z "$BURST" ]; then
-  grep -E "error:|XCTAssert|did not|not connected|not the current host|RK_" "$XLOG" | head -5 >&2
+if [ "$STATUS" -ne 0 ]; then
+  grep -E "error:|XCTAssert|did not|not connected|not the current host|RK_|stayed in the draft" "$XLOG" | head -5 >&2
   echo "the UI test failed (xcodebuild exit $STATUS)" >&2
+  # No RKBURST line means nothing was typed to completion: stop. Otherwise read back and report anyway.
+  [ -n "$BURST" ] || exit 4
+  NOTES="${NOTES}ui_test_failed exit=$STATUS
+"
+elif [ -z "$BURST" ]; then
+  echo "the UI test printed no RKBURST line" >&2
   exit 4
 fi
 field() { printf '%s\n' "$BURST" | sed -nE "s/.* $1=([^ ]+).*/\1/p"; }
@@ -228,7 +234,7 @@ LOG_LINES="$(linux_ssh "d=\"$LOG_DIR\"; for f in \$(ls \"\$d\"/rk-*.log 2>/dev/n
 count_lines() { printf '%s\n' "$LOG_LINES" | grep -cE "$1" || true; }
 EV_TEXT="$(count_lines ' ev=event_in .* kind=text ')"
 EV_ENTER="$(count_lines ' ev=event_in .* kind=enter ')"
-INJ_OK="$(count_lines ' ev=inject .* result=ok')"
+INJ_OK="$(count_lines ' ev=inject( .*)? result=ok( |$)')"
 INJ_BAD="$(count_lines ' ev=inject ' )"
 INJ_BAD=$(( INJ_BAD - INJ_OK ))
 AUTH_OK="$(count_lines ' ev=auth .* result=ok')"
@@ -266,10 +272,10 @@ auth result=ok=$AUTH_OK
 disconnected=$(printf '%s\n' "$DISCONNECTS" | grep -c . || true)
 $DISCONNECTS"
 
-if [ "$MISSING_N" -eq 0 ]; then
-  write_report "pass" "$BODY"
-  exit 0
-fi
-write_report "missing-tokens" "$BODY"
-echo "tokens missing: see the Tokens section" >&2
-exit 6
+CODE="$(final_code "$MISSING_N" "$STATUS")"
+case "$CODE" in
+  0) write_report "pass" "$BODY" ;;
+  4) write_report "ui-test-failed" "$BODY" ;;
+  *) write_report "missing-tokens" "$BODY"; echo "tokens missing: see the Tokens section" >&2 ;;
+esac
+exit "$CODE"
