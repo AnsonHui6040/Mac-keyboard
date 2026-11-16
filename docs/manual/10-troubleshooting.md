@@ -73,5 +73,6 @@
 | 觸控板顯示「Mac 未允許觸控板控制」 | 觸控板頁中央的灰色文字 | 在 Mac 面板勾選「允許觸控板控制」 |
 | 觸控板按鍵是灰色 | 頂部的「觸控板」不能按 | 鍵盤尚未連上 Mac 或尚未配對，先處理狀態列的問題 |
 | 觸控板角落一直顯示「藍牙」 | 觸控板右上角不是「Wi-Fi」。游標仍可移動，只是沒有走 Wi-Fi | 依序檢查：1. iPhone 與電腦要在同一個 Wi-Fi 網路，訪客網路或路由器開啟了用戶端隔離時無法使用；2. 在 App 的「設定 > 觸控板」確認「經 Wi-Fi 傳送游標」已開啟；3. iPhone 要允許區域網路，到「設定 > 隱私權與安全性 > 區域網路」開啟 Remote Keyboard；4. Mac 要允許區域網路，到「系統設定 > 隱私權與安全性 > 區域網路」開啟 Remote Keyboard Receiver；5. 關閉 iPhone 或電腦上的 VPN，再重新開啟觸控板 |
+| Linux 上顯示「Wi-Fi」但游標一頓一頓 | 用藍牙反而比較順 | Linux 電腦的 Wi-Fi 省電模式會讓網卡約每 0.1 秒才收一次封包。在終端機執行 `iw dev` 找到無線網卡名稱（例如 `wlp4s0`），再執行 `sudo iw dev wlp4s0 set power_save off`；這項設定在重新開機或重新連上 Wi-Fi 後會還原。要永久關閉，執行 `printf '[connection]\nwifi.powersave = 2\n' \| sudo tee /etc/NetworkManager/conf.d/rk-wifi-powersave-off.conf`，再執行 `sudo systemctl restart NetworkManager` |
 
 回到章節：[手冊首頁](README.md)
