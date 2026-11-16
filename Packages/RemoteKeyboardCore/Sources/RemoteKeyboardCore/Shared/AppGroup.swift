@@ -60,6 +60,9 @@ public enum AppGroup {
         /// 「靈敏度」, a `Double` 0.2…3.0 written by the host App and read by the Extension. Not set means 1.0
         /// (`TrackpadSensitivity`).
         public static let trackpadSensitivity = "rk.trackpadSensitivity"
+        /// 「經 Wi-Fi 傳送游標」, a `Bool` written by the host App and read by the Extension when it opens the touchpad
+        /// channel. Not set means on (`WifiPointerSetting`).
+        public static let wifiPointer = "rk.wifiPointer"
         /// A `Bool` written by the Extension each time it appears with 「允許完整取用」 on, and read by the host App for
         /// the setup checklist. Not set means the keyboard has not been seen with full access yet.
         public static let keyboardReady = "rk.keyboardReady"

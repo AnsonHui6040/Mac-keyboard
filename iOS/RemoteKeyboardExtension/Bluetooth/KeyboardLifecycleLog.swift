@@ -2,6 +2,11 @@ import Foundation
 import OSLog
 import os
 
+/// Why the cursor packets left the Wi-Fi path: a send failed, the probes stopped arriving, or the channel ended.
+enum WifiPathDownReason: String {
+    case sendFailed, probeTimeout, closed
+}
+
 /// Notice-level lifecycle log. Notice level persists into a device sysdiagnose, which is what the device test needs.
 /// Carries counters, owner tokens and sizes only, never text. Only the fixed `Event` cases can be logged, so no free
 /// string (a typed character, a key, an app name) can be passed in by mistake.
@@ -36,6 +41,10 @@ enum KeyboardLifecycleLog {
         case byeReceived
         /// The service is published again from scratch (after a goodbye or an unanswered probe).
         case linkReset
+        /// The Wi-Fi listener answered (or did not in time) when a `pointerOpen` was prepared. Never the port number.
+        case wifiListener(portPresent: Bool)
+        case wifiPathUp
+        case wifiPathDown(reason: WifiPathDownReason)
     }
 
     private static let logger = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "lifecycle")
@@ -87,6 +96,12 @@ enum KeyboardLifecycleLog {
             logger.notice("goodbye received")
         case .linkReset:
             logger.notice("link reset")
+        case .wifiListener(let portPresent):
+            logger.notice("wifi listener port=\(portPresent ? "present" : "none", privacy: .public)")
+        case .wifiPathUp:
+            logger.notice("wifi path up")
+        case .wifiPathDown(let reason):
+            logger.notice("wifi path down reason=\(reason.rawValue, privacy: .public)")
         }
     }
 

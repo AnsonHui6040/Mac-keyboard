@@ -25,6 +25,9 @@ final class TrackpadCoordinator {
         peripheral.pointerSendRate = sendRate
     }
 
+    /// Which way the cursor packets go right now: Wi-Fi while probes keep arriving, otherwise Bluetooth.
+    var path: PointerPath { peripheral.pointerPath }
+
     /// The line to draw on the page, or nil when it takes touches.
     var message: String? { TrackpadPage.message(for: peripheral.pointerAvailability) }
 
