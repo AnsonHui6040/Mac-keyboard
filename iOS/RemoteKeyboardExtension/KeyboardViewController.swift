@@ -984,7 +984,7 @@ final class KeyboardViewController: UIInputViewController {
             soundVolume: keyFeedback.soundVolume, customSound: keyFeedback.customSound,
             hapticIntensity: keyFeedback.hapticIntensity,
             trackpadAvailable: mode == .remote && link == .connected,
-            trackpad: trackpad.isActive ? TrackpadPageState(message: trackpad.message) : nil)
+            trackpad: trackpad.isActive ? TrackpadPageState(message: trackpad.message, path: trackpad.path) : nil)
         #if DEBUG
         var state = built
         state.dictationProbeLines = dictationProbeLines()

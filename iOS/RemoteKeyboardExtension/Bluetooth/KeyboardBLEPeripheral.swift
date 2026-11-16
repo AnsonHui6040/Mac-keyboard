@@ -1,6 +1,7 @@
 import CoreBluetooth
 import CryptoKit
 import Foundation
+import Network
 import RemoteKeyboardCore
 
 /// Adapter between the Core `KeyboardLinkStateMachine` and CoreBluetooth.
@@ -94,6 +95,17 @@ final class KeyboardBLEPeripheral: NSObject {
     /// How many `pointerOpen` were sent for the current page visit; the second one is the last.
     private var pointerAttempts = 0
     private var pointerOpenTimer: Timer?
+
+    // Wi-Fi assist (spec D30). The listener, the probe bookkeeping and which way the packets go belong to one touchpad channel.
+    /// The UDP listener and send side; exists from the moment a `pointerOpen` is prepared until the channel ends.
+    private var wifiLink: WifiPointerLink?
+    /// Waiting for the listener's port before `pointerOpen` can leave (at most `WifiPointerLink.readyTimeout`).
+    private var wifiOpenPending = false
+    private var wifiMonitor = PointerPathMonitor()
+    /// Where cursor packets go right now. Re-evaluated at every drain, so a lapse of the probes shows within the live window.
+    private(set) var pointerPath = PointerPath.bluetooth {
+        didSet { if pointerPath != oldValue { onPointerChange?() } }
+    }
     /// The connection interval asked for, from typing and the pointer. `appliedLatency` is what the current central was last
     /// asked for; `latencyTimer` is the single one-shot that fires when the link turns idle.
     private var latencyPolicy = LinkLatencyPolicy()
@@ -241,19 +253,58 @@ final class KeyboardBLEPeripheral: NSObject {
         TrackpadPage.availability(linkConnected: machine.state == .connected, status: latestStatus, channel: pointerState)
     }
 
-    /// Asks the Mac to accept pointer packets, with the grant its last status carried. A refused attempt is repeated only
-    /// when the Mac announces another grant. `0x03` packets are sent only after the Mac answers `posted`.
-    func openPointer() {
-        guard canOpenPointer, let grant = latestStatus?.pointerGrant else { return }
+    /// Whether `grant` is one this phone may ask to open with now. A refused attempt is repeated only when the Mac announces
+    /// another grant.
+    private func mayOpenPointer(grant: UInt32) -> Bool {
+        guard canOpenPointer, latestStatus?.pointerGrant == grant else { return false }
         switch pointerState {
-        case .closed: break
-        case .denied: guard grant != pointerGrant else { return }
-        case .opening, .open, .timedOut: return
+        case .closed: return true
+        case .denied: return grant != pointerGrant
+        case .opening, .open, .timedOut: return false
         }
+    }
+
+    /// Asks the Mac to accept pointer packets, with the grant its last status carried. `0x03` packets are sent only after the
+    /// Mac answers `posted`. With 「經 Wi-Fi 傳送游標」 on, the request carries the phone's listener port and addresses, so the
+    /// Mac can probe (§8.6); it waits for the listener at most `WifiPointerLink.readyTimeout`.
+    func openPointer() {
+        guard let grant = latestStatus?.pointerGrant, !wifiOpenPending, mayOpenPointer(grant: grant) else { return }
         // The fast interval is asked for before the open leaves the phone.
         setPointerLatency(open: true)
-        guard let id = send(.pointerOpen(grant: grant, wifi: nil)) else {
+        let group = UserDefaults(suiteName: AppGroup.identifier)
+        guard WifiPointerSetting.isEnabled(stored: group?.object(forKey: AppGroup.Key.wifiPointer)) else {
+            sendPointerOpen(grant: grant, wifi: nil)
+            return
+        }
+        wifiOpenPending = true
+        let link = wifiLink ?? makeWifiLink()
+        link.start { [weak self] port in self?.wifiListenerAnswered(port: port, grant: grant) }
+    }
+
+    private func wifiListenerAnswered(port: UInt16?, grant: UInt32) {
+        wifiOpenPending = false
+        KeyboardLifecycleLog.note(.wifiListener(portPresent: port != nil))
+        // The listener took a moment: the link, the status or the page may have changed meanwhile.
+        guard mayOpenPointer(grant: grant) else {
+            // A newer grant arrived while the listener started: its refresh found the open pending and did nothing.
+            if let newer = latestStatus?.pointerGrant, mayOpenPointer(grant: newer) {
+                openPointer()
+            } else {
+                stopWifi(reason: .closed)
+                setPointerLatency(open: false)
+            }
+            return
+        }
+        let offer = port.flatMap { WifiOffer(addrs: LocalAddresses.current(), port: $0) }
+        // No port or no usable address: the Mac is not asked to probe, and a listener nobody uses is not kept.
+        if offer == nil { stopWifi(reason: .closed) }
+        sendPointerOpen(grant: grant, wifi: offer)
+    }
+
+    private func sendPointerOpen(grant: UInt32, wifi: WifiOffer?) {
+        guard let id = send(.pointerOpen(grant: grant, wifi: wifi)) else {
             setPointerLatency(open: false)
+            stopWifi(reason: .closed)
             return
         }
         pointerAttempts += 1
@@ -279,6 +330,7 @@ final class KeyboardBLEPeripheral: NSObject {
         cancelPointerOpenTimeout()
         interleave.mode = .keyboard
         pointerState = .closed
+        stopWifi(reason: .closed)
         setPointerLatency(open: false)
     }
 
@@ -306,6 +358,7 @@ final class KeyboardBLEPeripheral: NSObject {
             openPointer()
         } else {
             pointerState = .timedOut
+            stopWifi(reason: .closed)
             setPointerLatency(open: false)
         }
     }
@@ -375,6 +428,7 @@ final class KeyboardBLEPeripheral: NSObject {
         interleave.mode = .keyboard
         radioBlocked = false
         pointerState = .closed
+        stopWifi(reason: .closed)
     }
 
     /// The Mac's answer to the latest `pointerOpen`.
@@ -386,6 +440,7 @@ final class KeyboardBLEPeripheral: NSObject {
             pointerState = .open
         } else {
             pointerState = .denied
+            stopWifi(reason: .closed)
             setPointerLatency(open: false)
         }
     }
@@ -401,6 +456,56 @@ final class KeyboardBLEPeripheral: NSObject {
         interleave.mode = .keyboard
         setPointerLatency(open: false)
         pointerState = status.pointerGrant == nil ? .denied : .closed
+        stopWifi(reason: .closed)
+    }
+
+    // MARK: Wi-Fi assist
+
+    private func makeWifiLink() -> WifiPointerLink {
+        let link = WifiPointerLink()
+        link.onDatagram = { [weak self] data, endpoint in self?.wifiDatagramArrived(data, from: endpoint) }
+        link.onSendFailure = { [weak self] in self?.wifiSendFailed() }
+        wifiLink = link
+        return link
+    }
+
+    /// A datagram reached the listener. It counts only when it opens as a probe with this connection's keys (a forged or replayed
+    /// one changes nothing, `PointerPathMonitor.handleProbe`); the flow it came from then becomes the send target.
+    private func wifiDatagramArrived(_ data: Data, from endpoint: NWEndpoint) {
+        guard pointerState == .opening || pointerState == .open, let opener = channels?.opener(.wifiProbe) else { return }
+        let now = PointerClock.nowMicros()
+        guard wifiMonitor.handleProbe(data, opener: opener, atMicros: now) else { return }
+        wifiLink?.adopt(endpoint)
+        refreshPointerPath(atMicros: now, downReason: .probeTimeout)
+    }
+
+    /// The system refused a send, or the target's flow broke (for example `localNetworkDenied`): Bluetooth at once, and the
+    /// monitor ignores probes for a while so the path does not flap.
+    private func wifiSendFailed() {
+        let now = PointerClock.nowMicros()
+        wifiLink?.dropTarget()
+        wifiMonitor.sendFailed(atMicros: now)
+        refreshPointerPath(atMicros: now, downReason: .sendFailed)
+    }
+
+    /// Brings `pointerPath` in line with the monitor and logs the change. A change to Bluetooth seen here is the probes running out.
+    private func refreshPointerPath(atMicros now: UInt64, downReason: WifiPathDownReason) {
+        let path = wifiMonitor.path(atMicros: now)
+        guard path != pointerPath else { return }
+        pointerPath = path
+        KeyboardLifecycleLog.note(path == .wifi ? .wifiPathUp : .wifiPathDown(reason: downReason))
+    }
+
+    /// The listener, the target and the monitor go with the channel; the path is Bluetooth again.
+    private func stopWifi(reason: WifiPathDownReason) {
+        wifiOpenPending = false
+        wifiLink?.stop()
+        wifiLink = nil
+        wifiMonitor.reset()
+        if pointerPath == .wifi {
+            pointerPath = .bluetooth
+            KeyboardLifecycleLog.note(.wifiPathDown(reason: reason))
+        }
     }
 
     /// Nobody owns the peripheral; a controller that is still on screen may reclaim it.
@@ -714,17 +819,42 @@ final class KeyboardBLEPeripheral: NSObject {
         #endif
     }
 
-    /// The drain while the touchpad is open: one ordered exit for the frames of the typing queue and the sender's packets, with
-    /// the packets first (four packets, then one frame, when both wait). A refusal by the radio stops everything until it is
-    /// ready again; the refused packet stays in the sender and is sealed again, with a new counter, when its turn comes.
+    /// The drain while the touchpad is open: one ordered exit for the frames of the typing queue and the sender's packets.
+    ///
+    /// When the Wi-Fi path is alive (`pointerPath`, §8.6) a packet leaves over UDP, sealed with the same sealer: UDP does not use
+    /// the Bluetooth radio, so neither a full radio nor a waiting frame holds it up, and it does not touch `radioBlocked`. A
+    /// send that fails marks the path down and the same packet goes the radio's way below, sealed again with a new counter.
+    ///
+    /// Over Bluetooth the packets come first (four packets, then one frame, when both wait). A refusal by the radio stops
+    /// everything on the radio until it is ready again; the refused packet stays in the sender and is sealed again, with a new
+    /// counter, when its turn comes.
     private func drainWithPointer(manager: CBPeripheralManager, characteristic: CBMutableCharacteristic, central: CBCentral) {
-        guard !radioBlocked, let sender = pointerSender, let sealer = channels?.sealer(.pointer) else { return }
+        guard let sender = pointerSender, let sealer = channels?.sealer(.pointer) else { return }
         interleave.mode = .trackpad
         while true {
             let now = PointerClock.nowMicros()
+            refreshPointerPath(atMicros: now, downReason: .probeTimeout)
+            // A packet the radio refused earlier waits for the radio; over Wi-Fi it can go now.
+            if pointerPath == .wifi, sender.isBlocked { sender.radioReady() }
             let payload = sender.peek(nowMicros: now)
+            var route = PointerRoute.choose(path: pointerPath, radioBlocked: radioBlocked)
+            if route == .udp, let payload {
+                guard let packet = try? sealer.seal(payload.encode()) else {
+                    pointerCountersUsedUp()
+                    return
+                }
+                if wifiLink?.send(packet) == true {
+                    sender.handedOff(nowMicros: now)
+                    continue
+                }
+                wifiSendFailed()
+                route = PointerRoute.choose(path: pointerPath, radioBlocked: radioBlocked)
+            }
+            // Frames only ever use the radio.
+            guard !radioBlocked else { return }
+            let blePayload = route == .bluetooth ? payload : nil
             let hasFrame = queue.pendingCount > 0
-            guard let source = interleave.choose(hasFrame: hasFrame, hasPacket: payload != nil) else { return }
+            guard let source = interleave.choose(hasFrame: hasFrame, hasPacket: blePayload != nil) else { return }
             switch source {
             case .frame:
                 var handedOne = false
@@ -745,13 +875,10 @@ final class KeyboardBLEPeripheral: NSObject {
                     #endif
                     return
                 }
-                interleave.handed(.frame, otherWaiting: payload != nil)
+                interleave.handed(.frame, otherWaiting: blePayload != nil)
             case .packet:
-                guard let payload, let packet = try? sealer.seal(payload.encode()) else {
-                    // The counter is used up: nothing more can be sealed on this connection.
-                    pointerSender = nil
-                    pointerState = .closed
-                    setPointerLatency(open: false)
+                guard let blePayload, let packet = try? sealer.seal(blePayload.encode()) else {
+                    pointerCountersUsedUp()
                     return
                 }
                 guard manager.updateValue(packet, for: characteristic, onSubscribedCentrals: [central]) else {
@@ -766,6 +893,14 @@ final class KeyboardBLEPeripheral: NSObject {
                 interleave.handed(.packet, otherWaiting: hasFrame)
             }
         }
+    }
+
+    /// The counter is used up: nothing more can be sealed on this connection.
+    private func pointerCountersUsedUp() {
+        pointerSender = nil
+        pointerState = .closed
+        stopWifi(reason: .closed)
+        setPointerLatency(open: false)
     }
 
     #if DEBUG

@@ -5,6 +5,8 @@ import UIKit
 /// What the touchpad page needs to draw: the line shown on it (nil when it takes touches).
 struct TrackpadPageState: Equatable {
     var message: String?
+    /// Which way the cursor packets go; shown in the corner of the pad.
+    var path: PointerPath = .bluetooth
 }
 
 /// The touchpad page: a light grey surface over the whole key area. It only reports finger samples (in points of this view,
@@ -26,6 +28,9 @@ final class TrackpadPageView: UIView {
 
     private let surface = UIView()
     private let label = UILabel()
+    /// 「Wi-Fi」 or 「藍牙」 in the top right corner of the pad: which way the cursor packets go right now.
+    private let pathLabel = UILabel()
+    private var path = PointerPath.bluetooth
     private var ids: [ObjectIdentifier: Int] = [:]
     private var nextID = 0
     private var displayLink: CADisplayLink?
@@ -59,6 +64,29 @@ final class TrackpadPageView: UIView {
         label.accessibilityIdentifier = "rk.trackpad.message"
         addSubview(label)
         label.isHidden = true
+
+        pathLabel.font = .systemFont(ofSize: 12)
+        pathLabel.textColor = .secondaryLabel
+        pathLabel.textAlignment = .right
+        pathLabel.isUserInteractionEnabled = false
+        pathLabel.accessibilityIdentifier = "rk.trackpad.path"
+        addSubview(pathLabel)
+        showPath()
+    }
+
+    private static func pathName(_ path: PointerPath) -> String {
+        switch path {
+        case .wifi: "Wi-Fi"
+        case .bluetooth: "藍牙"
+        }
+    }
+
+    private func showPath() {
+        let name = Self.pathName(path)
+        pathLabel.text = name
+        pathLabel.isHidden = message != nil
+        // The pad is one accessibility element, so the way the packets go is readable from its label (device tests).
+        accessibilityLabel = "觸控板，\(name)"
     }
 
     /// Uses `rate` (clamped) for the display link; it is set in the App's settings and read by the owner.
@@ -84,6 +112,8 @@ final class TrackpadPageView: UIView {
             ids.removeAll()
         }
         accessibilityValue = state.message == nil ? "ready" : "blocked"
+        path = state.path
+        showPath()
         updateDisplayLink()
     }
 
@@ -100,6 +130,7 @@ final class TrackpadPageView: UIView {
         super.layoutSubviews()
         surface.frame = bounds.insetBy(dx: KeyboardMetrics.keyAreaSideInset, dy: KeyboardMetrics.keyAreaVerticalInset)
         label.frame = surface.frame.insetBy(dx: 16, dy: 8)
+        pathLabel.frame = CGRect(x: surface.frame.maxX - 76, y: surface.frame.minY + 6, width: 64, height: 16)
     }
 
     // MARK: Display link
