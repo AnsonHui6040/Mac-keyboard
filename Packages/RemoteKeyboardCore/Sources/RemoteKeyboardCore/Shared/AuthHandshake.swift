@@ -47,6 +47,60 @@ public enum PhoneHandshakeOutput: Equatable, Sendable {
     case failed
 }
 
+/// Why a `PhoneHandshake` failed: one fixed case per failing branch of `receive`, carrying lengths only (never payload bytes,
+/// nonces, proofs or text), so it can go to a log. Diagnostics only; nothing branches on it.
+public enum PhoneHandshakeFailure: Equatable, Sendable {
+    public enum ControlKind: String, Equatable, Sendable { case ack, status, bye }
+
+    /// `hello` with a wrong host id or nonce length.
+    case malformedHello
+    /// This connection's own phone nonce has the wrong length.
+    case badOwnNonce
+    /// A second `hello` for the current host, before or after auth.
+    case secondHello
+    /// `auth` arrived when no `hello` had been answered (or nothing is selected).
+    case authOutOfOrder
+    /// `auth` whose proof did not verify.
+    case badHostProof
+    /// A plain `authFailed` from the host.
+    case authFailedReceived
+    /// A plain `ack`, `status` or `bye` after authentication.
+    case plainControlAfterAuth(kind: ControlKind)
+    /// A `sealed` control message before authentication.
+    case sealedBeforeAuth
+    /// A `sealed` control message that did not decrypt (tampered, wrong direction, replayed or out of sequence).
+    case sealedOpenFailed(length: Int)
+    /// A sealed control message that decrypted but whose inner bytes did not decode.
+    case sealedDecodeFailed(length: Int)
+    /// A sealed control message whose inner message is not `ack`, `status` or `bye`.
+    case sealedUnexpectedInner
+
+    /// A fixed word for the log.
+    public var reason: String {
+        switch self {
+        case .malformedHello: "malformedHello"
+        case .badOwnNonce: "badOwnNonce"
+        case .secondHello: "secondHello"
+        case .authOutOfOrder: "authOutOfOrder"
+        case .badHostProof: "badHostProof"
+        case .authFailedReceived: "authFailedReceived"
+        case .plainControlAfterAuth(let kind): "plainControlAfterAuth.\(kind.rawValue)"
+        case .sealedBeforeAuth: "sealedBeforeAuth"
+        case .sealedOpenFailed: "sealedOpenFailed"
+        case .sealedDecodeFailed: "sealedDecodeFailed"
+        case .sealedUnexpectedInner: "sealedUnexpectedInner"
+        }
+    }
+
+    /// The byte length of the offending sealed payload, for the cases that have one.
+    public var length: Int? {
+        switch self {
+        case .sealedOpenFailed(let length), .sealedDecodeFailed(let length): length
+        default: nil
+        }
+    }
+}
+
 public struct PhoneHandshake: Sendable {
     private enum State: Sendable { case awaitingHello, awaitingAuth, authenticated, failed }
 
@@ -57,6 +111,9 @@ public struct PhoneHandshake: Sendable {
     private var eventCrypto: SessionCrypto?
     private var controlCrypto: SessionCrypto?
     private var channelSetTaken = false
+
+    /// Why the handshake failed; `nil` until it does. Set by the first failing branch only.
+    public private(set) var failure: PhoneHandshakeFailure?
 
     /// - Parameters:
     ///   - selected: the current host's id and the pair key shared with it; `nil` when this iPhone has no current host (nothing
@@ -93,35 +150,45 @@ public struct PhoneHandshake: Sendable {
         case .hello(let hostId, let nonce):
             // docs/protocol/v4.md §6.3, first match wins. 1: a malformed hello fails this connection (the adapter drops
             // such a hello from a central that is not the bound one before it gets here).
-            guard hostId.count == IdentityName.idLength, nonce.count == Pairing.nonceLength else { return fail() }
+            guard hostId.count == IdentityName.idLength, nonce.count == Pairing.nonceLength else { return fail(.malformedHello) }
             // 2: meant for another host, or there is no current host. Plain notSelected, no state kept, the same answer
             // whether or not this iPhone was ever paired with `hostId`.
             guard let selected, selected.hostId == hostId else { return .send(.notSelected) }
             // 4: a second hello for this host, before or after auth, is a protocol violation.
-            guard state == .awaitingHello else { return fail() }
-            guard phoneNonce.count == Pairing.nonceLength else { return fail() }
+            guard state == .awaitingHello else { return fail(.secondHello) }
+            guard phoneNonce.count == Pairing.nonceLength else { return fail(.badOwnNonce) }
             hostNonce = nonce
             state = .awaitingAuth
             let proof = Pairing.phoneProof(key: selected.pairKey, hostNonce: nonce, phoneNonce: phoneNonce)
             return .send(.helloReply(phoneNonce: phoneNonce, proof: proof))
         case .auth(let proof):
-            guard state == .awaitingAuth, let pairKey = selected?.pairKey,
-                  Pairing.verifyHostProof(proof, key: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce) else { return fail() }
+            guard state == .awaitingAuth, let pairKey = selected?.pairKey else { return fail(.authOutOfOrder) }
+            guard Pairing.verifyHostProof(proof, key: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce) else {
+                return fail(.badHostProof)
+            }
             eventCrypto = SessionCrypto(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce, direction: .phoneToMac)
             controlCrypto = SessionCrypto(pairKey: pairKey, hostNonce: hostNonce, phoneNonce: phoneNonce, direction: .macToPhone)
             state = .authenticated
             return .authenticated
         case .authFailed:
-            return fail()
+            return fail(.authFailedReceived)
         case .ack, .status, .bye:
             // After auth the host only sends these sealed, so a plain one is a violation. Before auth they are dropped.
-            return state == .authenticated ? fail() : .none
+            guard state == .authenticated else { return .none }
+            let kind: PhoneHandshakeFailure.ControlKind
+            switch message {
+            case .ack: kind = .ack
+            case .status: kind = .status
+            default: kind = .bye
+            }
+            return fail(.plainControlAfterAuth(kind: kind))
         case .sealed(let payload):
-            guard state == .authenticated, let controlCrypto, let plain = try? controlCrypto.open(payload),
-                  let inner = try? ControlCodec.decode(plain) else { return fail() }
+            guard state == .authenticated, let controlCrypto else { return fail(.sealedBeforeAuth) }
+            guard let plain = try? controlCrypto.open(payload) else { return fail(.sealedOpenFailed(length: payload.count)) }
+            guard let inner = try? ControlCodec.decode(plain) else { return fail(.sealedDecodeFailed(length: payload.count)) }
             switch inner {
             case .ack, .status, .bye: return .deliver(inner)
-            default: return fail()
+            default: return fail(.sealedUnexpectedInner)
             }
         case .pairAccept:
             // Pairing is handled outside the handshake.
@@ -144,8 +211,9 @@ public struct PhoneHandshake: Sendable {
         return .sealed(try eventCrypto.seal(PeripheralCodec.encode(.event(event))))
     }
 
-    private mutating func fail() -> PhoneHandshakeOutput {
+    private mutating func fail(_ why: PhoneHandshakeFailure) -> PhoneHandshakeOutput {
         state = .failed
+        if failure == nil { failure = why }
         eventCrypto = nil
         controlCrypto = nil
         return .failed
