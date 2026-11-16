@@ -64,6 +64,29 @@ impl Probing {
     }
 }
 
+/// How often a line about dropped datagrams may be written (ms).
+const DROP_LOG_INTERVAL_MS: u64 = 1_000;
+
+/// Lets at most one log line a second through for a kind of drop that anyone on the local network can provoke at will, and
+/// counts what was held back so that the next line can say how many there were.
+#[derive(Debug, Default)]
+pub struct DropLog {
+    last_line_ms: Option<u64>,
+    held: u64,
+}
+
+impl DropLog {
+    /// One drop at `now_ms`. `Some(n)` when a line is to be written now: `n` drops since the last line, this one included.
+    pub fn note(&mut self, now_ms: u64) -> Option<u64> {
+        self.held += 1;
+        if self.last_line_ms.is_some_and(|last| now_ms < last.saturating_add(DROP_LOG_INTERVAL_MS)) {
+            return None;
+        }
+        self.last_line_ms = Some(now_ms);
+        Some(std::mem::take(&mut self.held))
+    }
+}
+
 /// The word the log uses for the kind of an I/O error: a fixed word, never the text of the error (which can hold an address).
 pub fn io_kind_word(kind: io::ErrorKind) -> &'static str {
     match kind {
@@ -129,6 +152,19 @@ mod tests {
         assert!(!p.is_target(from([192, 168, 1, 23], 4001)), "same host, other port");
         assert!(!p.is_target(from([192, 168, 1, 24], 4000)), "other host, same port");
         assert!(!p.is_target(SocketAddr::new(std::net::IpAddr::V6(std::net::Ipv6Addr::LOCALHOST), 4000)));
+    }
+
+    #[test]
+    fn a_drop_log_lets_one_line_a_second_through_with_the_count_since_the_last_line() {
+        let mut log = DropLog::default();
+        assert_eq!(log.note(5_000), Some(1), "the first is written at once");
+        for t in [5_001, 5_400, 5_999] {
+            assert_eq!(log.note(t), None);
+        }
+        assert_eq!(log.note(6_000), Some(4), "three held back and this one");
+        assert_eq!(log.note(6_500), None);
+        assert_eq!(log.note(7_000), Some(2));
+        assert_eq!(log.note(9_000), Some(1), "after a quiet spell it is one again");
     }
 
     #[test]

@@ -11,7 +11,7 @@ use crate::pointer_timing::PointerTiming;
 use crate::random::{RandomSource, SharedRandom};
 use crate::store::{ConfigStore, PhoneStore, StoreError};
 use crate::ui::{IconState, NoticeKind, PhoneEntry, TrayState, UiCommand, UiEvent};
-use crate::wifi::{is_pointer_datagram, Probing, WifiCommand};
+use crate::wifi::{is_pointer_datagram, DropLog, Probing, WifiCommand};
 use rk_ble::{DeviceKey, DisconnectReason, FailKind, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState, Value};
 use rk_core::channel::ProbeSealer;
 use rk_core::dedup::{DedupDecision, EventDeduplicator};
@@ -136,6 +136,10 @@ pub struct App {
     wake_asked: Cell<Option<u64>>,
     /// The Wi-Fi socket exists. Without it no probe is started: nothing could send one.
     wifi_ready: bool,
+    /// Debug lines about what the local network can make us drop are held to one a second each (see `DropLog`).
+    wifi_drop_log: DropLog,
+    udp_pointer_drop_log: DropLog,
+    wifi_io_log: DropLog,
 }
 
 fn kind_word(kind: &EventKind) -> &'static str {
@@ -191,6 +195,9 @@ impl App {
             pointer_timing: PointerTiming::new(),
             wake_asked: Cell::new(None),
             wifi_ready: true,
+            wifi_drop_log: DropLog::default(),
+            udp_pointer_drop_log: DropLog::default(),
+            wifi_io_log: DropLog::default(),
         }
     }
 
@@ -375,7 +382,15 @@ impl App {
                 PointerRejection::Channel(_) => "channel",
                 PointerRejection::Unreadable => "unreadable",
             };
-            self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why)), ("via", Value::S(transport.as_str()))]);
+            let via = Value::S(transport.as_str());
+            match transport {
+                Transport::Ble => self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why)), ("via", via)]),
+                Transport::Udp => {
+                    if let Some(n) = self.udp_pointer_drop_log.note(self.now()) {
+                        self.log.debug("pointer_drop", Some(conn.id), &[("why", Value::S(why)), ("via", via), ("n", Value::U(n))]);
+                    }
+                }
+            }
         }
         self.apply_pointer(effects, Some(conn), fx);
     }
@@ -648,7 +663,9 @@ impl App {
 
     /// A send or a receive on the Wi-Fi socket failed. Never fatal; only the kind of error is written, and only in the debug log.
     pub fn on_wifi_io(&mut self, what: &'static str, kind: std::io::ErrorKind) {
-        self.log.debug("wifi_io", None, &[("what", Value::S(what)), ("kind", Value::S(crate::wifi::io_kind_word(kind)))]);
+        if let Some(n) = self.wifi_io_log.note(self.now()) {
+            self.log.debug("wifi_io", None, &[("what", Value::S(what)), ("kind", Value::S(crate::wifi::io_kind_word(kind))), ("n", Value::U(n))]);
+        }
     }
 
     /// One UDP datagram arrived on the Wi-Fi socket (§8.6 rule 4). It is looked at only while probes are going out, only when
@@ -657,22 +674,32 @@ impl App {
     /// the local network can use the socket to close the channel, burn a grant or move the cursor.
     pub fn on_wifi_datagram(&mut self, from: std::net::SocketAddr, bytes: &[u8]) -> Vec<Effect> {
         let mut fx = Vec::new();
-        let Some(mut conn) = self.conn.take() else {
-            self.log.debug("wifi_drop", None, &[("why", Value::S("no_probing"))]);
-            return fx;
-        };
-        let drop_why = match conn.probing.as_ref() {
-            None => Some("no_probing"),
-            Some(probing) if !probing.is_target(from) => Some("source"),
-            Some(_) if !is_pointer_datagram(bytes) => Some("shape"),
-            Some(_) => None,
-        };
-        match drop_why {
-            Some(why) => self.log.debug("wifi_drop", Some(conn.id), &[("why", Value::S(why))]),
-            None => self.on_pointer_packet(&mut conn, bytes, Transport::Udp, &mut fx),
+        match self.conn.take() {
+            None => self.log_wifi_drop(None, "no_probing"),
+            Some(mut conn) => {
+                let drop_why = match conn.probing.as_ref() {
+                    None => Some("no_probing"),
+                    Some(probing) if !probing.is_target(from) => Some("source"),
+                    Some(_) if !is_pointer_datagram(bytes) => Some("shape"),
+                    Some(_) => None,
+                };
+                match drop_why {
+                    Some(why) => self.log_wifi_drop(Some(conn.id), why),
+                    None => self.on_pointer_packet(&mut conn, bytes, Transport::Udp, &mut fx),
+                }
+                self.conn = Some(conn);
+            }
         }
-        self.conn = Some(conn);
+        self.flush_state(&mut fx);
         fx
+    }
+
+    /// A datagram that was not let in. Anyone on the network can send these as fast as they like, so the line is rate-limited
+    /// and carries a count; it never names a source.
+    fn log_wifi_drop(&mut self, conn: Option<u64>, why: &'static str) {
+        if let Some(n) = self.wifi_drop_log.note(self.now()) {
+            self.log.debug("wifi_drop", conn, &[("why", Value::S(why)), ("n", Value::U(n))]);
+        }
     }
 
     /// The pointer channel opened with a valid `wifi`: the targets are now these (replacing any earlier ones) and the first
@@ -680,6 +707,12 @@ impl App {
     fn start_probing(&mut self, conn: &mut Conn, offer: &WifiOffer, fx: &mut Vec<Effect>) {
         if !self.wifi_ready {
             self.stop_probing(conn, "no_socket");
+            return;
+        }
+        if conn.probe.is_none() {
+            // Nothing to seal a probe with: do not probe, and do not go on with targets from before.
+            conn.probing = None;
+            self.log.info("wifi_probe_stop", Some(conn.id), &[("why", Value::S("no_sealer"))]);
             return;
         }
         let probing = Probing::new(offer, self.now());

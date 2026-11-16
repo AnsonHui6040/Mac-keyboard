@@ -17,11 +17,46 @@ pub trait UiSink: Send + 'static {
     fn send(&self, event: UiEvent);
 }
 
-/// Room for one datagram. A pointer packet is 41 bytes (§8.1); anything that fills this much is not one and is dropped by
-/// the application on its length.
-const WIFI_BUFFER_LEN: usize = 64;
-/// After a receive error the loop waits this long before it listens again, so that an error that repeats cannot spin.
+/// Room for one datagram. A pointer packet is 41 bytes (§8.1); a longer datagram is not one and the application drops it on
+/// its length. The buffer is far larger than any packet of ours so that a datagram of any ordinary size arrives whole:
+/// where the buffer is too small Windows fails the receive instead of cutting the datagram, and an error per datagram is a
+/// lever for anyone on the network.
+const WIFI_BUFFER_LEN: usize = 2048;
+/// Receive errors in a row, with no datagram between them, after which the loop pauses before it listens again.
+const WIFI_ERRORS_BEFORE_PAUSE: u32 = 8;
+/// The pause that keeps an error which repeats by itself from spinning the loop.
 const WIFI_ERROR_PAUSE: Duration = Duration::from_millis(5);
+/// `WSAEMSGSIZE`: a datagram did not fit the buffer (Windows). It consumed that datagram; the next receive is clean.
+const WSAEMSGSIZE: i32 = 10_040;
+
+/// Which receive errors may make the loop pause. A reset (Windows reports an ICMP port-unreachable that way) and a message
+/// too big each belong to one datagram or one packet from outside and end with it, so they never pause and never count;
+/// pausing on them would let anyone who sends them keep the loop from listening. Any other error is one that can repeat on
+/// its own: after eight in a row without a datagram between them the loop pauses before each further wait.
+#[derive(Debug, Default)]
+struct RecvGuard {
+    errors_in_a_row: u32,
+}
+
+impl RecvGuard {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// How long to wait before listening again after `error`; `None` to listen at once.
+    fn after_error(&mut self, error: &io::Error) -> Option<Duration> {
+        if error.kind() == io::ErrorKind::ConnectionReset || error.kind() == io::ErrorKind::Interrupted || error.raw_os_error() == Some(WSAEMSGSIZE) {
+            return None;
+        }
+        self.errors_in_a_row = self.errors_in_a_row.saturating_add(1);
+        (self.errors_in_a_row >= WIFI_ERRORS_BEFORE_PAUSE).then_some(WIFI_ERROR_PAUSE)
+    }
+
+    /// A datagram arrived: whatever went wrong before it is over.
+    fn after_datagram(&mut self) {
+        self.errors_in_a_row = 0;
+    }
+}
 
 /// What one wait on the Wi-Fi socket gave.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,6 +101,7 @@ pub async fn run_with_wifi(
         }
     };
     let mut buf = [0u8; WIFI_BUFFER_LEN];
+    let mut guard = RecvGuard::new();
     loop {
         if !dispatch(effects, &link_commands, &ui, wifi.as_ref(), &mut app).await {
             return;
@@ -83,7 +119,7 @@ pub async fn run_with_wifi(
                 }
                 None => return,
             },
-            received = next_datagram(wifi.as_ref(), &mut buf) => match received {
+            received = next_datagram(wifi.as_ref(), &mut buf, &mut guard) => match received {
                 WifiRecv::Datagram(len, from) => (app.on_wifi_datagram(from, &buf[..len]), false),
                 WifiRecv::Error(kind) => {
                     app.on_wifi_io("recv", kind);
@@ -108,21 +144,25 @@ async fn sleep_or_forever(wait: Option<Duration>) {
 }
 
 /// The next datagram on the Wi-Fi socket; never ready without one.
-async fn next_datagram(socket: Option<&UdpSocket>, buf: &mut [u8]) -> WifiRecv {
+async fn next_datagram(socket: Option<&UdpSocket>, buf: &mut [u8], guard: &mut RecvGuard) -> WifiRecv {
     match socket {
-        Some(socket) => recv_datagram(socket, buf).await,
+        Some(socket) => recv_datagram(socket, buf, guard).await,
         None => std::future::pending().await,
     }
 }
 
-/// One datagram and where it came from, or the kind of error that stopped the wait. On Windows an earlier send to a closed
-/// port comes back here as `ConnectionReset`; like every other error it is reported and the next wait follows, after a
-/// short pause so that nothing can spin.
-async fn recv_datagram(socket: &UdpSocket, buf: &mut [u8]) -> WifiRecv {
+/// One datagram and where it came from, or the kind of error that stopped the wait. A datagram, or an error that belongs to
+/// one packet (see `RecvGuard`), is handed on at once; only an error that keeps coming makes the loop wait a moment.
+async fn recv_datagram(socket: &UdpSocket, buf: &mut [u8], guard: &mut RecvGuard) -> WifiRecv {
     match socket.recv_from(buf).await {
-        Ok((len, from)) => WifiRecv::Datagram(len, from),
+        Ok((len, from)) => {
+            guard.after_datagram();
+            WifiRecv::Datagram(len, from)
+        }
         Err(error) => {
-            tokio::time::sleep(WIFI_ERROR_PAUSE).await;
+            if let Some(pause) = guard.after_error(&error) {
+                tokio::time::sleep(pause).await;
+            }
             WifiRecv::Error(error.kind())
         }
     }
@@ -277,9 +317,55 @@ mod tests {
         let theirs = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         theirs.send_to(&[3; 41], ours.local_addr().unwrap()).await.unwrap();
         let mut buf = [0u8; WIFI_BUFFER_LEN];
-        match recv_datagram(&ours, &mut buf).await {
+        match recv_datagram(&ours, &mut buf, &mut RecvGuard::new()).await {
             WifiRecv::Datagram(n, from) => assert_eq!((n, from), (41, theirs.local_addr().unwrap())),
             WifiRecv::Error(kind) => panic!("a datagram was waiting, got {kind:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_oversized_datagram_arrives_whole_and_the_next_one_is_not_held_up() {
+        let ours = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let theirs = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        theirs.send_to(&[9; 1_500], ours.local_addr().unwrap()).await.unwrap();
+        theirs.send_to(&[3; 41], ours.local_addr().unwrap()).await.unwrap();
+        let mut buf = [0u8; WIFI_BUFFER_LEN];
+        let mut guard = RecvGuard::new();
+        let started = std::time::Instant::now();
+        let first = tokio::time::timeout(Duration::from_secs(2), recv_datagram(&ours, &mut buf, &mut guard)).await.unwrap();
+        assert!(matches!(first, WifiRecv::Datagram(1_500, _)), "no error, no truncation: {first:?}");
+        let second = tokio::time::timeout(Duration::from_secs(2), recv_datagram(&ours, &mut buf, &mut guard)).await.unwrap();
+        assert!(matches!(second, WifiRecv::Datagram(41, _)), "{second:?}");
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn a_reset_or_a_message_too_big_never_pauses_and_never_counts() {
+        let mut guard = RecvGuard::new();
+        let reset = io::Error::from(io::ErrorKind::ConnectionReset);
+        let too_big = io::Error::from_raw_os_error(10_040); // WSAEMSGSIZE
+        for _ in 0..1_000 {
+            assert_eq!(guard.after_error(&reset), None);
+            assert_eq!(guard.after_error(&too_big), None);
+        }
+        // Not even a thousand of them brought the other errors any closer to a pause.
+        for _ in 0..7 {
+            assert_eq!(guard.after_error(&io::Error::from(io::ErrorKind::Other)), None);
+        }
+    }
+
+    #[test]
+    fn other_errors_pause_only_after_eight_in_a_row_and_a_datagram_ends_the_run() {
+        let mut guard = RecvGuard::new();
+        let other = io::Error::from(io::ErrorKind::Other);
+        for _ in 0..7 {
+            assert_eq!(guard.after_error(&other), None);
+        }
+        assert_eq!(guard.after_error(&other), Some(WIFI_ERROR_PAUSE), "the eighth");
+        assert_eq!(guard.after_error(&other), Some(WIFI_ERROR_PAUSE), "and every one after it: the loop cannot spin");
+        guard.after_datagram();
+        for _ in 0..7 {
+            assert_eq!(guard.after_error(&other), None, "a datagram in between starts the count again");
         }
     }
 

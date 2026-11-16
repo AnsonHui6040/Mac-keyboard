@@ -1439,7 +1439,11 @@ struct WifiRig {
 }
 
 fn wifi_rig() -> WifiRig {
-    let mut rig = Rig::new();
+    wifi_rig_at(Level::Info)
+}
+
+fn wifi_rig_at(level: Level) -> WifiRig {
+    let mut rig = Rig::with_level(level);
     let stored = rig.pair_phone(1);
     rig.command(UiCommand::SetTrackpad(true));
     let mut phone = rig.authenticate(&stored.pair_key);
@@ -1560,7 +1564,11 @@ fn a_pointer_open_with_wifi_while_the_switch_is_off_never_probes() {
 
 /// A rig whose channel is open with a Wi-Fi offer and whose first probe has been taken.
 fn probing_rig() -> WifiRig {
-    let mut w = wifi_rig();
+    probing_rig_at(Level::Info)
+}
+
+fn probing_rig_at(level: Level) -> WifiRig {
+    let mut w = wifi_rig_at(level);
     assert_eq!(w.open(Some(wifi_offer())), AckResult::Posted);
     assert_eq!(w.take_probes().len(), 1);
     w.rig.advance(250);
@@ -1853,4 +1861,90 @@ fn without_a_socket_the_phone_is_not_asked_to_expect_probes() {
     assert_eq!(w.open(Some(wifi_offer())), AckResult::Posted, "the channel opens all the same");
     w.assert_silent_for(1_000);
     assert!(lines_of(&w.rig, "wifi_probe_start").is_empty());
+}
+
+// ---- review fixes
+
+#[test]
+fn a_connection_without_a_probe_sealer_never_starts_probing_and_says_so() {
+    let mut w = wifi_rig();
+    w.rig.app.conn.as_mut().expect("connected").probe = None;
+    assert_eq!(w.open(Some(wifi_offer())), AckResult::Posted);
+    w.assert_silent_for(1_000);
+    assert!(lines_of(&w.rig, "wifi_probe_start").is_empty());
+    assert_eq!(stop_word(&w.rig), "no_sealer");
+    assert!(w.rig.app.conn.as_ref().unwrap().probing.is_none());
+}
+
+#[test]
+fn a_datagram_gets_the_tray_up_to_date_like_any_other_input() {
+    let mut w = probing_rig();
+    w.rig.injector.set_trusted(false);
+    let mv = w.move_packet(16);
+    w.udp(wifi_targets()[0], &mv);
+    assert!(w.rig.last_tray().needs_authorization, "the state change was passed on with the datagram's effects");
+    // The same when there is no connection to look at.
+    let mut rig = Rig::new();
+    rig.injector.set_trusted(false);
+    let effects = rig.app.on_wifi_datagram(SocketAddr::V4(wifi_targets()[0]), &[0; 41]);
+    rig.run(effects);
+    assert!(rig.last_tray().needs_authorization);
+}
+
+#[test]
+fn dropped_datagrams_write_at_most_one_debug_line_a_second_with_a_count_and_no_address() {
+    let mut w = probing_rig_at(Level::Debug);
+    let mv = w.move_packet(16);
+    for _ in 0..50 {
+        w.udp(target([8, 8, 8, 8], 53), &mv); // not a probed source
+    }
+    let lines = lines_of(&w.rig, "wifi_drop");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_eq!(field(&lines[0], "n"), 1);
+    assert!(lines[0].contains("why=source"));
+    w.rig.advance(1_000);
+    w.udp(target([8, 8, 8, 8], 53), &mv);
+    let lines = lines_of(&w.rig, "wifi_drop");
+    assert_eq!(lines.len(), 2);
+    assert_eq!(field(&lines[1], "n"), 50, "the 49 held back and this one");
+    assert!(!w.rig.log_text().contains("8.8.8.8"));
+}
+
+#[test]
+fn udp_packets_the_pointer_checks_refuse_write_at_most_one_pointer_drop_line_a_second_while_bluetooth_ones_all_do() {
+    let mut w = probing_rig_at(Level::Debug);
+    let mut forged = vec![0x03; 41];
+    for i in 0..50u8 {
+        forged[1] = i;
+        w.udp(wifi_targets()[0], &forged);
+    }
+    let udp_lines: Vec<String> = lines_of(&w.rig, "pointer_drop").into_iter().filter(|l| l.contains("via=udp")).collect();
+    assert_eq!(udp_lines.len(), 1, "{udp_lines:?}");
+    assert_eq!(field(&udp_lines[0], "n"), 1);
+    w.rig.advance(1_000);
+    w.udp(wifi_targets()[0], &forged);
+    let udp_lines: Vec<String> = lines_of(&w.rig, "pointer_drop").into_iter().filter(|l| l.contains("via=udp")).collect();
+    assert_eq!(udp_lines.len(), 2);
+    assert_eq!(field(&udp_lines[1], "n"), 50);
+    // Bluetooth keeps one line for every packet it drops.
+    let before = lines_of(&w.rig, "pointer_drop").iter().filter(|l| l.contains("via=ble")).count();
+    for _ in 0..3 {
+        w.rig.notify(forged.clone());
+    }
+    let after = lines_of(&w.rig, "pointer_drop").iter().filter(|l| l.contains("via=ble")).count();
+    assert_eq!(after - before, 3);
+}
+
+#[test]
+fn socket_errors_write_at_most_one_debug_line_a_second() {
+    let mut w = wifi_rig_at(Level::Debug);
+    for _ in 0..50 {
+        w.rig.app.on_wifi_io("recv", std::io::ErrorKind::ConnectionReset);
+    }
+    let lines = lines_of(&w.rig, "wifi_io");
+    assert_eq!(lines.len(), 1);
+    w.rig.advance(1_000);
+    w.rig.app.on_wifi_io("recv", std::io::ErrorKind::ConnectionReset);
+    let lines = lines_of(&w.rig, "wifi_io");
+    assert_eq!((lines.len(), field(&lines[1], "n")), (2, 50));
 }
