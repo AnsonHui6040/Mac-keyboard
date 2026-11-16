@@ -149,6 +149,17 @@ class ReportTests(unittest.TestCase):
         self.assertNotIn("2026-", text)
 
 
+class TransportCountTests(unittest.TestCase):
+    def test_ble_and_udp_counts_of_the_stroke_summary_are_summed_and_printed(self):
+        lines = [line("pointer_timing", packets=5, ble=2, udp=3, moves=4),
+                 line("pointer_timing", packets=4, ble=0, udp=4, moves=3)]
+        counts = tr.aggregate(lines)["pointer_timing"]["counts"]
+        self.assertEqual((counts["packets"], counts["ble"], counts["udp"]), (9, 2, 7))
+        report = tr.format_report(tr.aggregate(lines))
+        self.assertIn("ble=2", report)
+        self.assertIn("udp=7", report)
+
+
 class WindowTests(unittest.TestCase):
     def at(self, wall):
         return line("pointer_timing", wall=wall, n=1, b2=1)

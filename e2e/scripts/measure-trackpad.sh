@@ -13,11 +13,17 @@
 #   RK_SSH_LINUX     ssh host name of the Linux machine (default rk-linux)
 #   RK_HOST_NAME     the computer's name as the iPhone lists it under 已配對電腦 (linux default: Linux; mac default: scutil --get
 #                    ComputerName; win: required)
-#   RK_LABEL         label added to the result file name, for example before or after
+#   RK_LABEL         label added to the result file name, for example before or after (when empty and RK_WIFI_POINTER is set,
+#                    the label is wifi_pointer=<on|off>)
+#   RK_WIFI_POINTER  on or off. When set, WifiPointerSettingUITests/testSetWifiPointer runs first and sets 「經 Wi-Fi 傳送游標」
+#                    in the app (it also allows the Local Network alert); with on, the strokes wait up to 5 s for the pad to
+#                    show Wi-Fi (RK_EXPECT_PATH=wifi). The result header carries the RKWIFI line and path_start/path_end
+#                    (the path the pad showed at the start and end of the strokes); the aggregated counts sum ble= and udp=
+#                    (packets by Bluetooth or Wi-Fi). Unset: the setting is left as it is.
 # For win and linux the Mac receiver app is quit for the run (it would compete for the iPhone's link) and opened again on every
 # exit path. The receiver's UTC clock is read over ssh first and its difference to this Mac is applied to the time window.
 #
-# The test reads RK_STROKE_COUNT and PairingUITests reads RK_SELECT_HOST from the test process environment. xcodebuild forwards
+# The tests read RK_STROKE_COUNT, RK_SELECT_HOST, RK_WIFI_POINTER and RK_EXPECT_PATH from the test process environment. xcodebuild forwards
 # only environment variables of its own process that start with TEST_RUNNER_, so they are set that way here.
 # The result is written to e2e/results/<date>-trackpad-<target>[-<label>].txt (not committed): the aggregated table, then the
 # raw timing lines (numbers only). Nothing typed or any pointer displacement is read or stored.
@@ -34,7 +40,7 @@ COUNT="${2:-20}"
 
 case "$TARGET" in
   win|linux|mac) ;;
-  -h|--help|"") sed -n '2,24p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
+  -h|--help|"") sed -n '2,32p' "${BASH_SOURCE[0]}"; [ -n "$TARGET" ] && exit 0; exit 2 ;;
   *) echo "target must be win, linux or mac" >&2; exit 2 ;;
 esac
 case "$COUNT" in
@@ -43,7 +49,14 @@ esac
 
 WIN_HOST="${RK_SSH_WIN:-rk-win}"
 LINUX_HOST="${RK_SSH_LINUX:-rk-linux}"
-LABEL="$(printf '%s' "${RK_LABEL:-}" | tr -c 'A-Za-z0-9._-' '_')"
+WIFI_POINTER="${RK_WIFI_POINTER:-}"
+case "$WIFI_POINTER" in
+  ''|on|off) ;;
+  *) echo "RK_WIFI_POINTER must be on or off" >&2; exit 2 ;;
+esac
+LABEL_RAW="${RK_LABEL:-}"
+[ -z "$LABEL_RAW" ] && [ -n "$WIFI_POINTER" ] && LABEL_RAW="wifi_pointer=$WIFI_POINTER"
+LABEL="$(printf '%s' "$LABEL_RAW" | tr -c 'A-Za-z0-9._=-' '_')"
 MAC_RECEIVER_APP="/Applications/Remote Keyboard Receiver.app"
 
 case "$TARGET" in
@@ -93,11 +106,12 @@ while [ -e "$OUT" ]; do OUT="$BASE-$n.txt"; n=$((n + 1)); done
 
 XLOG_SELECT="$(mktemp -t rk-trackpad-select)"
 XLOG_RUN="$(mktemp -t rk-trackpad-run)"
+XLOG_WIFI="$(mktemp -t rk-trackpad-wifi)"
 RAW="$(mktemp -t rk-trackpad-raw)"
 KEPT="$(mktemp -t rk-trackpad-kept)"
 
 restore_mac_receiver() {
-  rm -f "$XLOG_SELECT" "$XLOG_RUN" "$RAW" "$KEPT"
+  rm -f "$XLOG_SELECT" "$XLOG_RUN" "$XLOG_WIFI" "$RAW" "$KEPT"
   [ "$TARGET" = mac ] && return 0
   open -a "$MAC_RECEIVER_APP" >/dev/null 2>&1 || echo "WARNING: could not reopen $MAC_RECEIVER_APP" >&2
 }
@@ -152,7 +166,25 @@ if [ "$SELECT_STATUS" -ne 0 ]; then
   exit 3
 fi
 
-TEST_RUNNER_RK_STROKE_COUNT="$COUNT" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
+RKWIFI=""
+EXPECT_PATH=""
+if [ -n "$WIFI_POINTER" ]; then
+  TEST_RUNNER_RK_WIFI_POINTER="$WIFI_POINTER" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
+    -destination "id=$UDID" -allowProvisioningUpdates \
+    -only-testing:RemoteKeyboardUITests/WifiPointerSettingUITests/testSetWifiPointer >"$XLOG_WIFI" 2>&1 </dev/null
+  WIFI_STATUS=$?
+  grep -E "TEST (SUCCEEDED|FAILED)|Test Case .* (passed|failed)" "$XLOG_WIFI" | tail -3
+  RKWIFI="$(grep -h "RKWIFI setting=" "$XLOG_WIFI" | tail -1)"
+  if [ "$WIFI_STATUS" -ne 0 ] || [ -z "$RKWIFI" ]; then
+    echo "setting 「經 Wi-Fi 傳送游標」 to $WIFI_POINTER on the iPhone failed (xcodebuild exit $WIFI_STATUS); no strokes were drawn" >&2
+    grep -E "error:|XCTAssert|RK_WIFI_POINTER|not found" "$XLOG_WIFI" | head -5 >&2
+    exit 3
+  fi
+  echo "$RKWIFI"
+  [ "$WIFI_POINTER" = on ] && EXPECT_PATH=wifi
+fi
+
+TEST_RUNNER_RK_EXPECT_PATH="$EXPECT_PATH" TEST_RUNNER_RK_STROKE_COUNT="$COUNT" xcodebuild test -workspace "$WORKSPACE" -scheme RemoteKeyboardApp \
   -destination "id=$UDID" -allowProvisioningUpdates \
   -only-testing:RemoteKeyboardUITests/TrackpadSmokeUITests/testFixedStrokes >"$XLOG_RUN" 2>&1 </dev/null
 RUN_STATUS=$?
@@ -167,6 +199,8 @@ fi
 RAN="$(printf '%s\n' "$RKTP" | sed -E 's/.* strokes=([0-9]+) .*/\1/')"
 T_START="$(printf '%s\n' "$RKTP" | sed -E 's/.* start=([^ ]+) .*/\1/')"
 T_END="$(printf '%s\n' "$RKTP" | sed -E 's/.* end=([^ ]+).*/\1/')"
+PATH_START="$(printf '%s\n' "$RKTP" | sed -nE 's/.* path_start=([a-z]+).*/\1/p')"
+PATH_END="$(printf '%s\n' "$RKTP" | sed -nE 's/.* path_end=([a-z]+).*/\1/p')"
 
 sleep 2
 
@@ -210,6 +244,7 @@ KEPT_LINES="$(wc -l <"$KEPT" | tr -d ' ')"
 
 {
   echo "# measure-trackpad target=$TARGET host=\"$HOST_NAME\"${LABEL:+ label=$LABEL} strokes_asked=$COUNT strokes_drawn=$RAN window=$T_START..$T_END (Mac clock) receiver_clock_offset_s=$CLOCK_OFFSET xcodebuild_exit=$RUN_STATUS timing_lines=$KEPT_LINES"
+  echo "# wifi_pointer=${WIFI_POINTER:-unset} ${RKWIFI:-RKWIFI not run} path_start=${PATH_START:-unknown} path_end=${PATH_END:-unknown}"
   echo
   echo "## Aggregated"
   if [ "$TARGET" = mac ]; then
