@@ -134,6 +134,9 @@ pub struct App {
     pointer_timing: PointerTiming,
     /// The wake-up `next_wake_ms` last asked for, to see how late `on_tick` ran against it.
     wake_asked: Cell<Option<u64>>,
+    /// When the next pointer frame is due (monotonic ms). Absolute: an incoming event never pushes it back, so packets that
+    /// come faster than `FRAME_TICK_MS` cannot starve the frame clock. `None` while no frames are needed.
+    next_frame_ms: Cell<Option<u64>>,
     /// The Wi-Fi socket exists. Without it no probe is started: nothing could send one.
     wifi_ready: bool,
     /// Debug lines about what the local network can make us drop are held to one a second each (see `DropLog`).
@@ -194,6 +197,7 @@ impl App {
             keystore_down: false,
             pointer_timing: PointerTiming::new(),
             wake_asked: Cell::new(None),
+            next_frame_ms: Cell::new(None),
             wifi_ready: true,
             wifi_drop_log: DropLog::default(),
             udp_pointer_drop_log: DropLog::default(),
@@ -1013,17 +1017,37 @@ impl App {
 
     fn tick_pointer(&mut self, fx: &mut Vec<Effect>) {
         let now = self.now_micros();
+        let now_ms = self.now();
         let mut conn = self.conn.take();
         if self.pointer.needs_frames() {
-            let effects = self.pointer.frame_tick(now);
-            self.pointer_timing.on_frame(now, effects.actions.iter().filter(|a| matches!(a, PointerAction::Move { .. })).count());
-            self.apply_pointer(effects, conn.as_mut(), fx);
+            let due = self.next_frame_ms.get();
+            // Other wake-ups (probe, status poll) come before the frame is due: they do not add a frame.
+            if due.is_none_or(|due| now_ms >= due) {
+                self.run_frame(now, now_ms, due, conn.as_mut(), fx);
+            }
+        } else {
+            self.next_frame_ms.set(None);
         }
         if self.pointer.needs_watchdog() {
             let effects = self.pointer.watchdog_tick(now);
             self.apply_pointer(effects, conn.as_mut(), fx);
         }
         self.conn = conn;
+    }
+
+    /// One pointer frame. The next one is due one tick after this one was due, not after it ran; a clock that is more than a
+    /// tick behind starts over from now instead of making up for the lost frames with a burst.
+    fn run_frame(&mut self, now: u64, now_ms: u64, due: Option<u64>, conn: Option<&mut Conn>, fx: &mut Vec<Effect>) {
+        {
+            let effects = self.pointer.frame_tick(now);
+            self.pointer_timing.on_frame(now, effects.actions.iter().filter(|a| matches!(a, PointerAction::Move { .. })).count());
+            self.apply_pointer(effects, conn, fx);
+        }
+        let next = match due {
+            Some(due) if now_ms < due + FRAME_TICK_MS => due + FRAME_TICK_MS,
+            _ => now_ms + FRAME_TICK_MS,
+        };
+        self.next_frame_ms.set(self.pointer.needs_frames().then_some(next));
     }
 
     /// The monotonic time (ms) at which the application next wants `on_tick`, if it wants one.
@@ -1045,7 +1069,11 @@ impl App {
             wakes.push(now + KEYSTORE_POLL_MS);
         }
         if self.pointer.needs_frames() {
-            wakes.push(now + FRAME_TICK_MS);
+            let due = self.next_frame_ms.get().unwrap_or(now + FRAME_TICK_MS);
+            self.next_frame_ms.set(Some(due));
+            wakes.push(due);
+        } else {
+            self.next_frame_ms.set(None);
         }
         if self.pointer.needs_watchdog() {
             wakes.push(now + WATCHDOG_TICK_MS);
