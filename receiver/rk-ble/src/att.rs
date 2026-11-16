@@ -21,6 +21,8 @@ pub const OP_FIND_BY_TYPE_VALUE_REQUEST: u8 = 0x06;
 pub const OP_FIND_BY_TYPE_VALUE_RESPONSE: u8 = 0x07;
 pub const OP_READ_BY_TYPE_REQUEST: u8 = 0x08;
 pub const OP_READ_BY_TYPE_RESPONSE: u8 = 0x09;
+pub const OP_READ_REQUEST: u8 = 0x0A;
+pub const OP_READ_RESPONSE: u8 = 0x0B;
 pub const OP_WRITE_REQUEST: u8 = 0x12;
 pub const OP_WRITE_RESPONSE: u8 = 0x13;
 pub const OP_NOTIFICATION: u8 = 0x1B;
@@ -113,6 +115,10 @@ pub fn write_request(handle: u16, value: &[u8]) -> Vec<u8> {
     pdu(OP_WRITE_REQUEST, &[&handle.to_le_bytes(), value])
 }
 
+pub fn read_request(handle: u16) -> Vec<u8> {
+    pdu(OP_READ_REQUEST, &[&handle.to_le_bytes()])
+}
+
 pub fn error_response(request: u8, handle: u16, code: u8) -> Vec<u8> {
     pdu(OP_ERROR, &[&[request], &handle.to_le_bytes(), &[code]])
 }
@@ -193,6 +199,15 @@ pub fn parse_find_information(response: &[u8]) -> Result<Vec<(u16, Uuid)>, AttEr
 }
 
 // ---------------------------------------------------------------- what the peer sends unasked
+
+/// How the peer answered a Read Request: either way it is there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadReply {
+    /// A Read Response, with the attribute value it carried.
+    Answered(Vec<u8>),
+    /// An Error Response to the read (a write-only characteristic says "Read Not Permitted").
+    AttError,
+}
 
 /// A PDU that arrived, sorted by what the client must do with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,6 +352,17 @@ impl<T: AttTransport> AttClient<T> {
             Ok(())
         } else {
             Err(AttError::Malformed)
+        }
+    }
+
+    /// Read Request to `handle`. Any answer, a value or an ATT error, is `Ok`;
+    /// no answer, a closed channel or a socket failure is `Err`. Notifications that arrive meanwhile are kept for
+    /// [`Self::next_notification`], in order, like during any other request.
+    pub async fn read(&mut self, handle: u16, timeout: Duration) -> Result<ReadReply, AttError> {
+        match self.request(read_request(handle), timeout).await {
+            Ok(response) => Ok(ReadReply::Answered(response.get(1..).unwrap_or_default().to_vec())),
+            Err(AttError::Protocol { request: OP_READ_REQUEST, .. }) => Ok(ReadReply::AttError),
+            Err(other) => Err(other),
         }
     }
 
@@ -881,6 +907,81 @@ mod tests {
         assert_eq!(att.write(LAYOUT.control_value, &[0; 21], REQUEST_TIMEOUT).await, Err(AttError::TooLong));
         assert!(sent.borrow().is_empty());
         att.write(LAYOUT.control_value, &[0; 20], REQUEST_TIMEOUT).await.unwrap();
+    }
+
+    #[test]
+    fn a_read_request_names_the_handle() {
+        assert_eq!(read_request(0x0026), vec![OP_READ_REQUEST, 0x26, 0x00]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_answered_with_a_value_returns_its_bytes() {
+        struct Readable(VecDeque<Vec<u8>>);
+        impl AttTransport for Readable {
+            async fn send(&mut self, pdu: &[u8]) -> io::Result<()> {
+                assert_eq!(pdu[0], OP_READ_REQUEST);
+                self.0.push_back(vec![OP_READ_RESPONSE, 7]);
+                Ok(())
+            }
+            async fn recv(&mut self) -> io::Result<Vec<u8>> {
+                match self.0.pop_front() {
+                    Some(pdu) => Ok(pdu),
+                    None => std::future::pending().await,
+                }
+            }
+        }
+        let mut att = AttClient::new(Readable(VecDeque::new()));
+        assert_eq!(att.read(0x26, Duration::from_secs(1)).await, Ok(ReadReply::Answered(vec![7])));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_that_is_not_permitted_is_an_att_error_reply() {
+        // The test phone answers an unknown request with an Error Response naming it, like iOS does for "Read Not Permitted".
+        let (phone, sent) = Phone::new(LAYOUT);
+        let mut att = AttClient::new(phone);
+        assert_eq!(att.read(LAYOUT.control_value, Duration::from_secs(1)).await, Ok(ReadReply::AttError));
+        assert_eq!(sent.borrow()[0], read_request(LAYOUT.control_value));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_without_any_reply_times_out() {
+        struct Silent;
+        impl AttTransport for Silent {
+            async fn send(&mut self, _: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+            async fn recv(&mut self) -> io::Result<Vec<u8>> {
+                std::future::pending().await
+            }
+        }
+        let mut att = AttClient::new(Silent);
+        assert_eq!(att.read(0x26, Duration::from_secs(1)).await, Err(AttError::Timeout));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn notifications_that_arrive_during_a_read_are_not_lost() {
+        let (mut phone, _) = Phone::new(LAYOUT);
+        phone.inbox.push_back(vec![OP_NOTIFICATION, 0x22, 0x00, 1]);
+        phone.inbox.push_back(vec![OP_INDICATION, 0x22, 0x00, 2]);
+        let mut att = AttClient::new(phone);
+        assert_eq!(att.read(LAYOUT.control_value, Duration::from_secs(1)).await, Ok(ReadReply::AttError));
+        assert_eq!(att.next_notification().await.unwrap(), (0x22, vec![1]));
+        assert_eq!(att.next_notification().await.unwrap(), (0x22, vec![2]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_closed_channel_during_a_read_is_a_failure_not_a_reply() {
+        struct Closed;
+        impl AttTransport for Closed {
+            async fn send(&mut self, _: &[u8]) -> io::Result<()> {
+                Ok(())
+            }
+            async fn recv(&mut self) -> io::Result<Vec<u8>> {
+                Ok(Vec::new())
+            }
+        }
+        let mut att = AttClient::new(Closed);
+        assert_eq!(att.read(0x26, Duration::from_secs(1)).await, Err(AttError::Closed));
     }
 
     // ------------------------------------------------------------ establishing

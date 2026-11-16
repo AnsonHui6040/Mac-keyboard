@@ -31,7 +31,7 @@ use crate::diag::{Diag, FailKind, Value};
 use crate::flow::{after_reset, drain_then_admit, settle_attempt, ApplicationGone, ScanBackoff, ScanSwitch, Settled};
 use crate::health::{is_our_phone, power_cycle, reset_diag, reset_failed_diag, reset_skipped_diag, restore_power, restored_diag, AdapterHealth, CycleTiming, KnownDevices, PowerControl, PowerFault, Report, ResetReason, Tick};
 use crate::rx_timing::RxTiming;
-use crate::stale::{age_at, is_stale_link, Advert, AdvertBursts, HeldChange, HeldLink};
+use crate::stale::{age_at, is_stale_link, confirm_verdict, stale_step, Advert, AdvertBursts, HeldChange, HeldLink, ConfirmVerdict, ProbeOutcome, StaleBackoff, StaleStep, STALE_CONFIRM_TIMEOUT};
 use crate::{DeviceKey, DisconnectReason, LinkCommand, LinkConfig, LinkEvent, Route, ScanFailure, ScanState};
 use bluer::l2cap::{SeqPacket, Socket, SocketAddr};
 use bluer::{Adapter, AdapterEvent, Address, AddressType, DeviceEvent, DeviceProperty, DiscoveryFilter, DiscoveryTransport, Session};
@@ -679,6 +679,7 @@ impl Worker {
         };
         let mut replaced: Option<Sighting> = None;
         let mut gone = false;
+        let mut backoff = StaleBackoff::default();
         // Arrival times of pointer notifications, one `ble_rx_timing` line per stroke (see `rx_timing`).
         let clock_base = Instant::now();
         let mut rx_timing = RxTiming::new();
@@ -693,9 +694,24 @@ impl Worker {
                     }
                 }
                 Some(advert) = seen.recv(), if watcher.is_some() => {
-                    if self.advert_is_stale(&advert, device, route, subscribed_at) {
-                        replaced = Some(Sighting { route: Route::Selected, ..sighting });
-                        break DisconnectReason::StaleAdvert;
+                    let is_stale = self.advert_is_stale(&advert, device, route, subscribed_at);
+                    if stale_step(is_stale, &backoff, Instant::now()) == StaleStep::Confirm {
+                        // An RSSI-only change is also what an unchanged Apple advert looks like: ask the phone before dropping it.
+                        // Our CCCD still reading as subscribed means this very connection is live; anything else is stale.
+                        // Notifications that arrive during the read are kept by the client and delivered right after.
+                        let started = Instant::now();
+                        let result = att.read(handles.cccd, STALE_CONFIRM_TIMEOUT).await;
+                        let outcome = ProbeOutcome::of(&result);
+                        let word = match &result {
+                            Err(error) => fail_kind(error).as_str(),
+                            Ok(_) => outcome.word(),
+                        };
+                        let diag = Diag::new(conn, "stale_suspect").at(millis(adv_at)).with("took_ms", Value::U(millis(started))).with("result", Value::S(word));
+                        emit_diag(&self.events, diag).await;
+                        if confirm_verdict(outcome, &mut backoff, Instant::now()) == ConfirmVerdict::Drop {
+                            replaced = Some(Sighting { route: Route::Selected, ..sighting });
+                            break DisconnectReason::StaleAdvert;
+                        }
                     }
                 }
                 incoming = att.next_notification() => match incoming {

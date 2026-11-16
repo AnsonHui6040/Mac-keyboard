@@ -18,7 +18,7 @@
 # The script counts the reopens that really ran and stops with an error when they differ from N.
 #
 # Needs: the receiver armed and the iPhone paired with it; Remote Keyboard selected as the keyboard; rk-diag installed
-# (Windows %LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe, Linux ~/.local/bin/rk-diag); the iPhone unlocked.
+# (Windows %LOCALAPPDATA%\Programs\RemoteKeyboard\rk-diag.exe, Linux rk-diag on PATH, /usr/bin from the .deb); the iPhone unlocked.
 
 set -u -o pipefail
 
@@ -73,7 +73,7 @@ case "$TARGET" in
   linux)
     SSH_HOST="$LINUX_HOST"
     REMOTE_CLOCK='date -u +%s'
-    REMOTE_CMD_PREFIX='"$HOME/.local/bin/rk-diag" stats "${XDG_STATE_HOME:-$HOME/.local/state}/remote-keyboard/logs" --since '
+    REMOTE_CMD_PREFIX='rk-diag stats "${XDG_STATE_HOME:-$HOME/.local/state}/remote-keyboard/logs" --since '
     ;;
 esac
 
