@@ -12,7 +12,7 @@
 | A2 | Windows：Wi-Fi 關時游標走藍牙 | 同上，`RK_WIFI_POINTER=off` | `path_*=bluetooth`；`udp=0` | PASS（2026-11-17）：20/20 筆，`ble=845 udp=0` |
 | A3 | Windows：Wi-Fi 時輸出節奏不比藍牙差 | 比較 A1、A2 的 `pointer_timing_out` | Wi-Fi 的 p90 不高於藍牙 + 5 ms | PASS（PR #130 後）：每筆 p90 中位數 Wi-Fi 20.5 ms、藍牙 21 ms。修正前 FAIL：Wi-Fi 46 ms、藍牙 29.5 ms |
 | A3b | Windows：急轉向筆跡 | `RK_STROKE_PATTERN=turns`（每筆連續 2 秒，每 0.1 秒隨機轉向上下左右，每段 40 pt，seed 1，Wi-Fi 開／關路線相同） | 同 A3 | PASS（2026-11-17）：兩邊各 2,785 個封包；輸出間隔每筆 p90 中位數 Wi-Fi 18 ms、藍牙 21.5 ms，p99 中位數 32.5 ms、35 ms；播放延遲上限 24.5 ms、35 ms |
-| A4 | Linux：同 A1–A3 | `measure-trackpad.sh linux 20` | 同上 | TBD（需安裝新版 .deb） |
+| A4 | Linux：同 A1–A3b | `measure-trackpad.sh linux 20`（直線與急轉向） | 同上 | PASS（2026-11-17，Linux Wi-Fi 省電關閉後）：Wi-Fi 開時 844／2,780 個封包全經 UDP；輸出間隔每筆 p90 中位數 Wi-Fi 9 ms（直線、急轉向皆同）、藍牙 36 ms、42 ms；p99 中位數 Wi-Fi 21、20 ms，藍牙 92、127 ms。省電開啟時 FAIL：Wi-Fi p90 39.5、44.5 ms，封包約每 90–100 ms 成批抵達 |
 | A5 | Mac：同 A1–A3 | `measure-trackpad.sh mac 20` | 同上 | TBD（需重裝 Mac Receiver 並允許區域網路） |
 
 ## 使用者手感（實機，TBD）

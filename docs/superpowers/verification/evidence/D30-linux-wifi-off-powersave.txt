@@ -1,0 +1,117 @@
+# measure-trackpad target=linux host="Linux" label=wifi_pointer=off strokes_asked=20 strokes_drawn=20 window=2026-11-16T23:17:14.412Z..2026-11-16T23:18:02.352Z (Mac clock) receiver_clock_offset_s=0 xcodebuild_exit=0 timing_lines=120
+# wifi_pointer=off RKWIFI setting=off alert=none path_start=bluetooth path_end=bluetooth
+
+## Aggregated
+event ble_rx_timing  strokes=20
+  histogram  n=820 (sum of buckets 820)
+    <=2ms         590   72.0%
+    <=5ms          20    2.4%
+    <=10ms          0    0.0%
+    <=15ms          0    0.0%
+    <=20ms          0    0.0%
+    <=30ms          0    0.0%
+    <=40ms          0    0.0%
+    <=50ms        108   13.2%
+    <=75ms          0    0.0%
+    <=150ms       100   12.2%
+    >150ms          2    0.2%
+    approx  p50<=2ms  p90<=150ms  p99<=150ms
+  per-stroke statistics (median / max across strokes)
+    max_us               135021 / 180080
+    p50_us                   15 / 27
+    p90_us                89778 / 90952
+    p99_us               135021 / 180080
+  counts  packets=840 same_ci=536
+
+event pointer_timing  strokes=20
+  histogram late  n=1266 (sum of buckets 0)
+  per-stroke statistics (median / max across strokes)
+    inj_max_us               21 / 89
+    lag_us                50000 / 60000
+    late_max_us            2000 / 3000
+    late_p99_us            2000 / 2000
+  counts  ble=840 frames=1266 idle=0 moves=840 packets=840 squeeze=331 udp=0
+
+event pointer_timing_arr  strokes=20
+  histogram  n=820 (sum of buckets 820)
+    <=2ms         601   73.3%
+    <=5ms           9    1.1%
+    <=10ms          0    0.0%
+    <=15ms          0    0.0%
+    <=20ms          0    0.0%
+    <=30ms          0    0.0%
+    <=40ms          0    0.0%
+    <=50ms        108   13.2%
+    <=75ms          0    0.0%
+    <=150ms       100   12.2%
+    >150ms          2    0.2%
+    approx  p50<=2ms  p90<=150ms  p99<=150ms
+  per-stroke statistics (median / max across strokes)
+    max_us               135000 / 180000
+    p50_us                    0 / 0
+    p90_us                90000 / 91000
+    p99_us               135000 / 180000
+
+event pointer_timing_dt  strokes=20
+  histogram  n=840 (sum of buckets 840)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms         46    5.5%
+    <=15ms          0    0.0%
+    <=20ms        761   90.6%
+    <=30ms         11    1.3%
+    <=40ms          0    0.0%
+    <=50ms          2    0.2%
+    <=75ms          4    0.5%
+    <=150ms        16    1.9%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=20ms  p99<=150ms
+  per-stroke statistics (median / max across strokes)
+    max_us                91600 / 116600
+    p50_us                16600 / 16600
+    p90_us                17000 / 23900
+    p99_us                91600 / 116600
+
+event pointer_timing_out  strokes=20
+  histogram  n=1246 (sum of buckets 1246)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms       1107   88.8%
+    <=15ms         14    1.1%
+    <=20ms          2    0.2%
+    <=30ms         16    1.3%
+    <=40ms         14    1.1%
+    <=50ms         37    3.0%
+    <=75ms          9    0.7%
+    <=150ms        47    3.8%
+    >150ms          0    0.0%
+    approx  p50<=10ms  p90<=20ms  p99<=150ms
+  per-stroke statistics (median / max across strokes)
+    max_us                92000 / 132000
+    p50_us                 8000 / 8000
+    p90_us                13500 / 36000
+    p99_us                92000 / 132000
+
+event portal_motion_timing  strokes=20
+  histogram send  n=1219 (sum of buckets 1219)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms       1078   88.4%
+    <=15ms          7    0.6%
+    <=20ms          9    0.7%
+    <=30ms         17    1.4%
+    <=40ms         22    1.8%
+    <=50ms         31    2.5%
+    <=75ms          8    0.7%
+    <=150ms        47    3.9%
+    >150ms          0    0.0%
+    approx  p50<=10ms  p90<=30ms  p99<=150ms
+  per-stroke statistics (median / max across strokes)
+    call_max_us          1991.5 / 5046
+    call_p50_us          1017.5 / 1096
+    call_p99_us          1969.5 / 4026
+    send_max_us         91966.5 / 129958
+    send_p50_us          8406.5 / 8416
+    send_p90_us         19706.5 / 39742
+    send_p99_us           87668 / 129958
+  counts  moves_in=1266 sends=1239

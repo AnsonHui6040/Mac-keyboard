@@ -1,0 +1,96 @@
+# measure-trackpad target=linux host="Linux" label=wifi_pointer=on_pattern=turns strokes_asked=20 strokes_drawn=20 window=2026-11-16T23:43:46.924Z..2026-11-16T23:44:54.562Z (Mac clock) receiver_clock_offset_s=1 xcodebuild_exit=0 timing_lines=100
+# wifi_pointer=on RKWIFI setting=on alert=none path_start=wifi path_end=wifi pattern=turns seed=1
+
+## Aggregated
+event pointer_timing  strokes=20
+  histogram late  n=5517 (sum of buckets 0)
+  per-stroke statistics (median / max across strokes)
+    inj_max_us             24.5 / 141
+    lag_us                24000 / 30000
+    late_max_us            3000 / 3000
+    late_p99_us            2000 / 2000
+  counts  ble=0 frames=5382 idle=0 moves=2780 packets=2780 squeeze=1123 udp=2780
+
+event pointer_timing_arr  strokes=20
+  histogram  n=2760 (sum of buckets 2760)
+    <=2ms         238    8.6%
+    <=5ms         111    4.0%
+    <=10ms        268    9.7%
+    <=15ms        578   20.9%
+    <=20ms        785   28.4%
+    <=30ms        578   20.9%
+    <=40ms        156    5.7%
+    <=50ms         37    1.3%
+    <=75ms          9    0.3%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=30ms  p99<=50ms
+  per-stroke statistics (median / max across strokes)
+    max_us                47000 / 72000
+    p50_us                16000 / 17000
+    p90_us                29000 / 40000
+    p99_us                41500 / 62000
+
+event pointer_timing_dt  strokes=20
+  histogram  n=2780 (sum of buckets 2780)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms         50    1.8%
+    <=15ms          0    0.0%
+    <=20ms       2670   96.0%
+    <=30ms         30    1.1%
+    <=40ms         30    1.1%
+    <=50ms          0    0.0%
+    <=75ms          0    0.0%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=20ms  p90<=20ms  p99<=40ms
+  per-stroke statistics (median / max across strokes)
+    max_us                33300 / 34000
+    p50_us                16600 / 16600
+    p90_us                17200 / 24300
+    p99_us                29050 / 33600
+
+event pointer_timing_out  strokes=20
+  histogram  n=5362 (sum of buckets 5362)
+    <=2ms           0    0.0%
+    <=5ms           1    0.0%
+    <=10ms       4977   92.8%
+    <=15ms        197    3.7%
+    <=20ms        118    2.2%
+    <=30ms         54    1.0%
+    <=40ms         10    0.2%
+    <=50ms          4    0.1%
+    <=75ms          1    0.0%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=10ms  p90<=10ms  p99<=30ms
+  per-stroke statistics (median / max across strokes)
+    max_us                32000 / 54000
+    p50_us                 8000 / 8000
+    p90_us                 9000 / 13000
+    p99_us                20000 / 33000
+
+event portal_motion_timing  strokes=20
+  histogram send  n=5253 (sum of buckets 5253)
+    <=2ms           0    0.0%
+    <=5ms           0    0.0%
+    <=10ms       4973   94.7%
+    <=15ms        167    3.2%
+    <=20ms         59    1.1%
+    <=30ms         43    0.8%
+    <=40ms          8    0.2%
+    <=50ms          2    0.0%
+    <=75ms          1    0.0%
+    <=150ms         0    0.0%
+    >150ms          0    0.0%
+    approx  p50<=10ms  p90<=10ms  p99<=30ms
+  per-stroke statistics (median / max across strokes)
+    call_max_us          2102.5 / 5629
+    call_p50_us           920.5 / 956
+    call_p99_us          1623.5 / 3486
+    send_max_us         27598.5 / 51696
+    send_p50_us            8408 / 8415
+    send_p90_us            8582 / 9615
+    send_p99_us           19504 / 31446
+  counts  moves_in=5382 sends=5273
