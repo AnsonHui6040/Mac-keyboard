@@ -55,6 +55,10 @@ final class FocusTransitionTests: XCTestCase {
 /// The coordinator against a real `ReceiverBLECentral` with a fake radio, a real `ReceiverSecurity` with a paired fake
 /// iPhone, and a real `EventPipeline` with fake input. Nothing here touches Bluetooth, Accessibility, the Keychain or
 /// the real input stream.
+final class LogBox {
+    var lines: [String] = []
+}
+
 @MainActor
 final class ReceiverCoordinatorWiringTests: XCTestCase {
     @MainActor private final class CountingPoster: EventPosting {
@@ -84,8 +88,13 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
 
         let pointer: PointerReceiver?
         let pointerOutput = PointerOutputSpy()
+        let wifi: WifiProbeLink?
+        let wifiTransport = FakeWifiTransport()
+        let wifiTimers = ManualWifiTimers()
+        let wifiLog = LogBox()
+        private var cachedPhoneChannels: ChannelSet?
 
-        init(pairKey: SymmetricKey, withPointer: Bool = false, receiving: Bool = true) {
+        init(pairKey: SymmetricKey, withPointer: Bool = false, withWifi: Bool = false, receiving: Bool = true) {
             self.pairKey = pairKey
             let driver = driver
             central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { _ in driver })
@@ -106,8 +115,15 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
             let pointerDefaults = UserDefaults(suiteName: suite)!
             pointerDefaults.removePersistentDomain(forName: suite)
             pointer = withPointer ? PointerReceiver(defaults: pointerDefaults, output: pointerOutput, log: { _ in }) : nil
+            let timers = wifiTimers
+            let wifiLog = wifiLog
+            wifi = withWifi
+                ? WifiProbeLink(transport: wifiTransport, makeTimer: { timers.make($0, $1) }, log: { wifiLog.lines.append($0) })
+                : nil
             coordinator = ReceiverCoordinator(
-                focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
+                focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer, wifi: wifi)
+            // The app routes every `0x03` notification to the touchpad the same way (MacReceiverApp).
+            central.pointerHandler = { [weak pointer] in pointer?.handle($0) }
             phone = TestPhone(pairKey: pairKey)
             coordinator.start()
             if receiving { central.startReceiving() }
@@ -130,6 +146,14 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
             }
         }
 
+        /// The phone's channel sets of this connection (taken once; a new connection needs a new Rig step).
+        func phoneChannels() throws -> ChannelSet {
+            if let cachedPhoneChannels { return cachedPhoneChannels }
+            let channels = try XCTUnwrap(phone.handshake.takeChannelSet(), "the phone is authenticated")
+            cachedPhoneChannels = channels
+            return channels
+        }
+
         var acks: [Ack] { delivered.compactMap { if case .ack(let ack) = $0 { ack } else { nil } } }
         var statuses: [ReceiverStatus] { delivered.compactMap { if case .status(let status) = $0 { status } else { nil } } }
 
@@ -146,6 +170,10 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
     }
 
     private func pointerRig() -> Rig { Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32)), withPointer: true) }
+
+    private func wifiRig() -> Rig {
+        Rig(pairKey: SymmetricKey(data: Data(repeating: 0x33, count: 32)), withPointer: true, withWifi: true)
+    }
 
     private static func editable(epoch: UInt64) -> FocusSnapshot {
         FocusSnapshot(axTrusted: true, frontmostPID: 42, appName: "TextEdit", editable: true, epoch: epoch)
@@ -387,6 +415,208 @@ final class ReceiverCoordinatorWiringTests: XCTestCase {
         r.central.handleLink(.disconnected(r.peripheral))
         XCTAssertEqual(r.pointer?.isOpen, false)
         XCTAssertNil(r.pointer?.grant)
+    }
+
+    // MARK: Wi-Fi assist wiring (spec W1, W8, W9, W10)
+
+    private func openPointer(_ r: Rig, wifi: WifiOffer?) throws -> UUID {
+        let id = try r.deliver(.pointerOpen(grant: try XCTUnwrap(r.pointer?.grant), wifi: wifi))
+        try r.pump()
+        return id
+    }
+
+    private func wifiRigWithChannelOpen(_ offer: WifiOffer = WifiTestData.offer) throws -> Rig {
+        let r = wifiRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        _ = try openPointer(r, wifi: offer)
+        XCTAssertEqual(r.wifi?.isProbing, true, "set up: probing")
+        return r
+    }
+
+    /// A signed-off stop: nothing more goes out, the transport is closed and the log says why.
+    private func assertProbingStopped(_ r: Rig, why: String, file: StaticString = #filePath, line: UInt = #line) {
+        let sent = r.wifiTransport.sent.count
+        XCTAssertEqual(r.wifi?.isProbing, false, file: file, line: line)
+        XCTAssertGreaterThanOrEqual(r.wifiTransport.closes, 1, file: file, line: line)
+        XCTAssertTrue(r.wifiTimers.active.isEmpty, file: file, line: line)
+        r.wifiTimers.tick()
+        XCTAssertEqual(r.wifiTransport.sent.count, sent, "no probe after the stop", file: file, line: line)
+        XCTAssertTrue(r.wifiLog.lines.contains("wifi_probe_stop why=\(why)"), r.wifiLog.lines.joined(separator: ", "), file: file, line: line)
+    }
+
+    func testAGrantedOpenWithWifiProbesEveryTargetAtOnceAndThenEvery250Ms() throws {
+        let r = wifiRig()
+        r.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(r)
+        let id = try openPointer(r, wifi: WifiTestData.offer)
+        XCTAssertEqual(r.acks, [Ack(eventId: id, result: .posted)])
+        XCTAssertEqual(r.wifiTransport.opened, [[WifiTestData.target, WifiTestData.second]])
+        XCTAssertEqual(r.wifiTransport.sent.count, 1)
+        XCTAssertEqual(r.wifiLog.lines, ["wifi_probe_start targets=2"])
+        XCTAssertEqual(r.wifiTimers.active.map(\.interval), [0.25])
+        r.wifiTimers.tick()
+        XCTAssertEqual(r.wifiTransport.sent.count, 2)
+
+        let opener = try r.phoneChannels().opener(.wifiProbe)
+        for packet in r.wifiTransport.sent {
+            XCTAssertEqual(try? opener.open(packet).get(), Data(count: 16), "the phone opens each probe with this connection's probe key")
+        }
+        XCTAssertEqual(opener.lastOpenedCounter, 2)
+    }
+
+    func testNoProbeWithoutAWifiOfferOrWhenTheOpenIsRefused() throws {
+        let plain = wifiRig()
+        plain.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(plain)
+        _ = try openPointer(plain, wifi: nil)
+        XCTAssertEqual(plain.pointer?.isOpen, true)
+        XCTAssertTrue(plain.wifiTransport.opened.isEmpty)
+        XCTAssertTrue(plain.wifiTransport.sent.isEmpty)
+        XCTAssertTrue(plain.wifiTimers.entries.isEmpty)
+
+        let refused = wifiRig()
+        refused.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(refused)
+        let id = try refused.deliver(.pointerOpen(grant: (refused.pointer?.grant ?? 0) &+ 1, wifi: WifiTestData.offer))
+        try refused.pump()
+        XCTAssertEqual(refused.acks, [Ack(eventId: id, result: .notAuthorized)])
+        XCTAssertTrue(refused.wifiTransport.opened.isEmpty)
+        XCTAssertTrue(refused.wifiTransport.sent.isEmpty)
+
+        let off = wifiRig()
+        off.focus.onChange?(Self.editable(epoch: 3))
+        try bringLinkUp(off)
+        let grant = try XCTUnwrap(off.pointer?.grant)
+        off.pointer?.setEnabled(false)
+        _ = try off.deliver(.pointerOpen(grant: grant, wifi: WifiTestData.offer))
+        XCTAssertTrue(off.wifiTransport.sent.isEmpty, "the switch is off: nothing is probed")
+    }
+
+    func testClosingTheChannelStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        _ = try r.deliver(.pointerClose)
+        assertProbingStopped(r, why: "close")
+    }
+
+    func testALostLinkStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        r.central.handleLink(.disconnected(r.peripheral))
+        assertProbingStopped(r, why: "disconnect")
+    }
+
+    func testAFailedHandshakeStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        // An event of another session on an authenticated link fails authentication.
+        let message = try r.phone.sealed(.ping(shownAtMs: 1, connectedAtMs: 2), session: UUID(), seq: 99, epoch: 3)
+        for frame in try r.phone.frames(message) { r.central.receive(eventData: frame) }
+        assertProbingStopped(r, why: "disconnect")
+    }
+
+    func testTurningTheTouchpadSwitchOffStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        r.pointer?.setEnabled(false)
+        assertProbingStopped(r, why: "grant_changed")
+    }
+
+    func testARenewedGrantStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        let channels = try r.phoneChannels()
+        for _ in 0..<PointerReceiver.maxConsecutiveFailures {
+            var forged = try channels.sealer(.pointer).seal(Data(count: 16))
+            forged[forged.count - 1] ^= 0x01
+            r.central.receive(eventData: forged)
+        }
+        XCTAssertEqual(r.pointer?.isOpen, false)
+        assertProbingStopped(r, why: "grant_changed")
+    }
+
+    func testARefusedOpenWhileProbingStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        _ = try r.deliver(.pointerOpen(grant: (r.pointer?.grant ?? 0) &+ 1, wifi: WifiTestData.offer))
+        assertProbingStopped(r, why: "refused")
+    }
+
+    func testAnOpenWithoutWifiWhileProbingStopsTheProbes() throws {
+        let r = try wifiRigWithChannelOpen()
+        _ = try openPointer(r, wifi: nil)
+        assertProbingStopped(r, why: "no_wifi")
+    }
+
+    func testANewOpenWithWifiReplacesTheTargets() throws {
+        let r = try wifiRigWithChannelOpen()
+        _ = try openPointer(r, wifi: WifiTestData.otherOffer)
+        XCTAssertEqual(r.wifiTransport.opened.last, [WifiTarget(address: "172.16.0.9", port: 4_000)])
+        XCTAssertEqual(r.wifiTimers.active.count, 1)
+        XCTAssertEqual(r.wifi?.isProbing, true)
+        // The old target is no longer a source to listen to.
+        let channels = try r.phoneChannels()
+        let click = try channels.sealer(.pointer).seal(
+            PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(button: 0, count: 1), buttonSeq: 0).encode())
+        r.wifiTransport.deliver(from: WifiTestData.target, click)
+        XCTAssertTrue(r.pointerOutput.actions.isEmpty)
+    }
+
+    // MARK: Datagrams from the phone
+
+    private func click(_ r: Rig) throws -> Data {
+        try r.phoneChannels().sealer(.pointer).seal(
+            PointerPayload(opcode: .click, buttons: 0, dx: 0, dy: 0, dt: 0, arg: PointerPayload.clickArg(button: 0, count: 1), buttonSeq: 0).encode())
+    }
+
+    private func clickCount(_ r: Rig) -> Int {
+        r.pointerOutput.actions.filter { if case .click = $0 { true } else { false } }.count
+    }
+
+    func testADatagramFromTheProbedPhoneActsLikeTheSamePacketOverBluetooth() throws {
+        let r = try wifiRigWithChannelOpen()
+        r.wifiTransport.deliver(from: WifiTestData.target, try click(r))
+        XCTAssertEqual(clickCount(r), 1)
+        r.central.receive(eventData: try click(r))
+        XCTAssertEqual(clickCount(r), 2, "both routes reach the same touchpad")
+    }
+
+    func testADatagramFromAnythingElseIsIgnored() throws {
+        let r = try wifiRigWithChannelOpen()
+        r.wifiTransport.deliver(from: WifiTarget(address: "192.168.1.23", port: 50_124), try click(r))
+        r.wifiTransport.deliver(from: WifiTarget(address: "203.0.113.7", port: 50_123), try click(r))
+        r.wifiTransport.deliver(from: WifiTestData.target, try click(r).dropLast())
+        XCTAssertEqual(clickCount(r), 0)
+    }
+
+    func testTwentyBadDatagramsDoNotRenewTheGrantButEightBadBluetoothPacketsDo() throws {
+        let r = try wifiRigWithChannelOpen()
+        let grant = r.pointer?.grant
+        let statuses = r.statuses.count
+        let channels = try r.phoneChannels()
+        func forged() throws -> Data {
+            var packet = try channels.sealer(.pointer).seal(Data(count: 16))
+            packet[packet.count - 1] ^= 0x01
+            return packet
+        }
+        for _ in 0..<20 { r.wifiTransport.deliver(from: WifiTestData.target, try forged()) }
+        try r.pump()
+        XCTAssertEqual(r.pointer?.grant, grant)
+        XCTAssertEqual(r.pointer?.isOpen, true)
+        XCTAssertEqual(r.statuses.count, statuses, "no new status: the phone is not told to open again")
+        XCTAssertEqual(r.wifi?.isProbing, true)
+
+        for _ in 0..<PointerReceiver.maxConsecutiveFailures { r.central.receive(eventData: try forged()) }
+        try r.pump()
+        XCTAssertNotEqual(r.pointer?.grant, grant)
+        XCTAssertEqual(r.statuses.count, statuses + 1)
+    }
+
+    func testAPacketThatArrivedOverBluetoothIsAReplayOverUDPAndTheOtherWayRound() throws {
+        let r = try wifiRigWithChannelOpen()
+        let first = try click(r)
+        r.central.receive(eventData: first)
+        r.wifiTransport.deliver(from: WifiTestData.target, first)
+        XCTAssertEqual(clickCount(r), 1)
+        let second = try click(r)
+        r.wifiTransport.deliver(from: WifiTestData.target, second)
+        r.central.receive(eventData: second)
+        XCTAssertEqual(clickCount(r), 2)
     }
 
     /// After a link loss the same phone comes back: a new connection, so a new handshake and a new session key.

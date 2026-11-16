@@ -8,6 +8,13 @@ protocol PointerOutput: AnyObject {
     func apply(_ actions: [PointerAction])
 }
 
+/// How a `0x03` packet reached the Receiver. Both go through the same checks and the same replay window; only the count of
+/// failures in a row differs (spec W10).
+enum PointerTransport: String {
+    case ble
+    case udp
+}
+
 /// The Mac side of the touchpad: who may use it, and what an accepted `0x03` packet does.
 ///
 /// - **Switch** 「允許觸控板控制」 (stored, on by default in this version). With it on, each authenticated connection gets its own
@@ -74,6 +81,8 @@ final class PointerReceiver: ObservableObject {
     private var lastMoveEnqueueAt: UInt64?
     private var packets = 0
     private var rejected = 0
+    /// Of `packets`, those that came over UDP.
+    private var udpPackets = 0
 
     /// - Parameters:
     ///   - clock: monotonic microseconds.
@@ -151,6 +160,7 @@ final class PointerReceiver: ObservableObject {
         consecutiveFailures = 0
         packets = 0
         rejected = 0
+        udpPackets = 0
         log("pointer open")
         return .posted
     }
@@ -169,18 +179,22 @@ final class PointerReceiver: ObservableObject {
         isOpen = false
         logLinkSummary()
         stopStatsTimer()
-        log("pointer closed reason=\(reason) packets=\(packets) rejected=\(rejected)")
+        log("pointer closed reason=\(reason) packets=\(packets) rejected=\(rejected) udp=\(udpPackets)")
     }
 
     // MARK: Packets
 
-    /// One `0x03` notification, whole.
-    func handle(_ packet: Data) {
+    /// One `0x03` packet, whole. Over Bluetooth a run of failures closes the channel and renews the grant; over UDP a failure
+    /// is only dropped and counted, and a good packet does not end a Bluetooth run either (spec W10): anybody on the local network
+    /// can send datagrams, and none of them may close the channel or spend a grant. Both share one replay window.
+    func handle(_ packet: Data, via transport: PointerTransport = .ble) {
         // Every packet checks again: channel open, connection authenticated, switch still on.
         guard isOpen, isEnabled, grant != nil, let channels else { return }
+        let counts = transport == .ble
         switch channels.opener(.pointer).open(packet) {
         case .failure(let error):
             rejected += 1
+            guard counts else { return }
             consecutiveFailures += 1
             log("pointer packet rejected reason=\(String(describing: error))")
             if consecutiveFailures >= Self.maxConsecutiveFailures {
@@ -190,13 +204,14 @@ final class PointerReceiver: ObservableObject {
                 onGrantChange?()
             }
         case .success(let plain):
-            consecutiveFailures = 0
+            if counts { consecutiveFailures = 0 }
             guard let payload = PointerPayload.decode(plain) else {
                 rejected += 1
                 log("pointer payload unreadable")
                 return
             }
             packets += 1
+            if !counts { udpPackets += 1 }
             let now = clock()
             if payload.opcode == .move || payload.opcode == .scroll { stats.record(arrivalMicros: now, dtTenths: payload.dt) }
             if payload.opcode == .move, payload.dx != 0 || payload.dy != 0 {

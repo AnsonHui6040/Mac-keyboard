@@ -61,8 +61,10 @@ struct MacReceiverApp: App {
         // The touchpad: packets of the `0x03` route go to it, its grant goes into the status, and nothing is posted before the keyboard opens the channel with the current grant.
         let pointer = PointerReceiver(output: PointerInjector())
         central.pointerHandler = { [weak pointer] in pointer?.handle($0) }
+        // The Wi-Fi assist: while the touchpad is open and the iPhone offered its addresses, probes go out and its answers reach the touchpad too.
+        let wifi = WifiProbeLink(transport: NWWifiProbeTransport())
         let coordinator = ReceiverCoordinator(
-            focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer)
+            focus: focus, central: central, security: security, pipeline: pipeline, pointer: pointer, wifi: wifi)
         if !Self.isRunningUnitTests {
             loginItem.applyDefaultIfNeeded()
             security.refreshPairedState()
