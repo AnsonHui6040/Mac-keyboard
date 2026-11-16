@@ -49,6 +49,17 @@ pub enum ProbeOutcome {
 }
 
 impl ProbeOutcome {
+    /// The `result=` word of the `stale_suspect` diag for a read that got a reply (a failed read is named by its fail kind).
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Subscribed => "subscribed",
+            Self::NotSubscribed => "not_subscribed",
+            Self::AttError => "att_error",
+            Self::TimedOut => "timeout",
+            Self::Failed => "failed",
+        }
+    }
+
     pub fn of(result: &Result<ReadReply, AttError>) -> Self {
         match result {
             Ok(ReadReply::Answered(value)) if value.first().is_some_and(|b| b & 0x01 != 0) => Self::Subscribed,
@@ -78,6 +89,41 @@ impl StaleBackoff {
 
     pub fn alive_at(&mut self, now: Instant) {
         self.alive_at = Some(now);
+    }
+}
+
+/// What to do with an advert of the held phone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaleStep {
+    Ignore,
+    /// Read the CCCD before deciding.
+    Confirm,
+}
+
+/// `is_stale` is `is_stale_link` for the advert; the backoff silences checks right after a link proved itself.
+pub fn stale_step(is_stale: bool, backoff: &StaleBackoff, now: Instant) -> StaleStep {
+    if is_stale && backoff.allows_check(now) {
+        StaleStep::Confirm
+    } else {
+        StaleStep::Ignore
+    }
+}
+
+/// What to do with the link once the confirmation came back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmVerdict {
+    Keep,
+    /// End it as `StaleAdvert` and reconnect to the advertiser.
+    Drop,
+}
+
+/// Keeping the link starts the backoff; dropping it does not.
+pub fn confirm_verdict(outcome: ProbeOutcome, backoff: &mut StaleBackoff, now: Instant) -> ConfirmVerdict {
+    if link_alive(outcome) {
+        backoff.alive_at(now);
+        ConfirmVerdict::Keep
+    } else {
+        ConfirmVerdict::Drop
     }
 }
 
@@ -392,6 +438,38 @@ mod tests {
         assert_eq!(ProbeOutcome::of(&Err(AttError::Closed)), ProbeOutcome::Failed);
         assert_eq!(ProbeOutcome::of(&Err(AttError::Io(Some(104)))), ProbeOutcome::Failed);
         assert_eq!(ProbeOutcome::of(&Err(AttError::Malformed)), ProbeOutcome::Failed);
+    }
+
+    #[test]
+    fn a_stale_looking_advert_is_confirmed_unless_the_backoff_holds() {
+        let t = Instant::now();
+        let mut backoff = StaleBackoff::default();
+        assert_eq!(stale_step(true, &backoff, t), StaleStep::Confirm);
+        assert_eq!(stale_step(false, &backoff, t), StaleStep::Ignore, "an advert that is not stale is never confirmed");
+        backoff.alive_at(t);
+        assert_eq!(stale_step(true, &backoff, t), StaleStep::Ignore, "inside the backoff");
+        assert_eq!(stale_step(true, &backoff, t + STALE_RECHECK_BACKOFF), StaleStep::Confirm);
+        assert_eq!(stale_step(false, &backoff, t + STALE_RECHECK_BACKOFF), StaleStep::Ignore);
+    }
+
+    #[test]
+    fn only_a_confirmed_subscription_keeps_the_link_and_starts_the_backoff() {
+        let t = Instant::now();
+        let mut backoff = StaleBackoff::default();
+        assert_eq!(confirm_verdict(ProbeOutcome::Subscribed, &mut backoff, t), ConfirmVerdict::Keep);
+        assert!(!backoff.allows_check(t), "a kept link is not checked again at once");
+        for outcome in [ProbeOutcome::NotSubscribed, ProbeOutcome::AttError, ProbeOutcome::TimedOut, ProbeOutcome::Failed] {
+            let mut fresh = StaleBackoff::default();
+            assert_eq!(confirm_verdict(outcome, &mut fresh, t), ConfirmVerdict::Drop, "{outcome:?}");
+            assert!(fresh.allows_check(t), "a dropped link starts no backoff: {outcome:?}");
+        }
+    }
+
+    #[test]
+    fn the_diag_words_are_the_documented_ones() {
+        assert_eq!(ProbeOutcome::Subscribed.word(), "subscribed");
+        assert_eq!(ProbeOutcome::NotSubscribed.word(), "not_subscribed");
+        assert_eq!(ProbeOutcome::AttError.word(), "att_error");
     }
 
     #[test]
