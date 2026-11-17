@@ -116,6 +116,7 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 - 片長由此推算，目標不超過 65 秒（1950 幀）。超過時先刪旁白字，不加速旁白。
 - 換電腦的點擊（第 3、5、7 鏡）落在「點一下」三個字講完的瞬間。
 - 標題與旁白同步出現，但標題仍是短句，不等於旁白全文。
+- 第 8 段（Claude 決定）：沿用舊片第 21 鏡的觸控板動作，由旁白講完「鍵盤還能變成觸控板」的停頓開始，按比例壓進第 8 段餘下的時間，動作最多快 25%；五個標題跟著動作出現。
 
 ### 生成與保存
 
@@ -123,7 +124,7 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 - 參數固定：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`mp3_44100_128`、`language_code "zh"`；每句附上前後句的 `previous_text`／`next_text`，令語氣連貫。已批准的第 1、5–10 句是在加入 `language_code` 之前生成的，保留不重做；第 2、3、4 句已鎖定 `zh`。
 - 旁白稿不寫容易令模型轉成廣東話的詞，例如「香港」。ElevenLabs 的語音辨識只分得出「中文」，分不出普通話與廣東話，所以每句新生成的旁白都要使用者聽過才算批准。
 - 腳本不會自動重新生成：只有明確指定句號（例如 `generate 04`）才生成那一句，避免浪費額度與換掉使用者已聽過的版本。
-- 每次生成把句子編號、日期、model、voice 與回應的 `request-id` 記在 `video/public/voice/promo/requests.log`，作為付費期間生成的紀錄。
+- 每句使用中的旁白都在 `video/public/voice/promo/requests.log` 留一行（編號、request-id、生成時間、model、voice、language_code、sha256、批准日期），作為付費期間生成的紀錄；被換掉的版本移到檔尾的 `# replaced` 區段。2026-11-18 試聽時被否決的第 2、3、4 句舊版沒有用在片中，不另列。
 - 生成結果（每句一個 mp3）放在 `video/public/voice/promo/` 並提交（Claude 決定）：同一句每次生成的聲音都不同，使用者聽過、批准的版本要保留；檔案約 1 MB 以內。
 - 最後版本必須在付費訂閱有效期間生成。
 
@@ -210,7 +211,7 @@ builder 審查提出的問題，以下由 Claude 決定：
 | 切換測試 | 第 3、5、7 鏡的點擊幀之後，狀態格依序顯示 Windows、Linux、Mac；之後的文字只出現在當時連接的電腦 |
 | 內容測試 | 不含「密碼」「零延遲」「Wi-Fi」；字卡含 v0.2.0 Alpha、SideStore、三家公司的免責聲明 |
 | 鏡位測試 | 圓環與游標每一幀離邊至少 60 px，有標題時不進標題帶 |
-| `kinetograph check`、`doctor` | 沒有型別錯誤；1800 幀都可完整繪製 |
+| `kinetograph check`、`doctor` | 沒有型別錯誤；`FRAMES` 幀都可完整繪製 |
 | `kinetograph lint` | 每 15 幀抽一幀，沒有 error；warning 列出種類與數量 |
 | 舊片不變 | `ProductFilm`、`ProductIntro`、`Main` 抽幀輸出與 main 逐位元相同，`audio analyze` 結果相同 |
 | `ffprobe` | H.264、AAC 48 kHz、1920×1080、30 fps，幀數等於 `FRAMES` |

@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - 一個 Task 一個 worktree、一條 branch、一個 PR。子代理不得 commit 或 push；每個 Task 的 Commit 步驟由主代理在自己重跑驗證之後做。
-- 所有指令在 `video/` 下執行；worktree 第一次要先跑 `npm ci` 與 `bash scripts/setup-fonts.sh`。需要網絡之前，先跑 preflight：`curl -sI https://registry.npmjs.org/ | head -1` 與 `node -v`。
+- `npm`、`node`、`npx kinetograph` 與 `scripts/` 指令在 `video/` 下執行；`git` 指令在 repo 根目錄執行。測試讀 repo 其他位置的檔案時，用 `new URL('../../../docs/…', import.meta.url)`，與 `film/timeline.test.ts` 相同。worktree 第一次要先跑 `npm ci` 與 `bash scripts/setup-fonts.sh`。需要網絡之前，先跑 preflight：`curl -sI https://registry.npmjs.org/ | head -1` 與 `node -v`。
 - 1920×1080、30 fps；`FRAMES` 不超過 1950。
 - 電腦名稱只有 `Mac`、`Windows`、`Linux`，順序 Mac → Windows → Linux → Mac。
 - 標題用台灣繁體中文，字級至少 76，每秒少於 7 字（`captionLength`），不得含 `film/timeline.ts` 的 `FORBIDDEN`。
 - 旁白檔 `public/voice/promo/01.mp3`–`10.mp3` 都已批准，除非旁白稿再改，否則不得重新生成。
 - 生成參數：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`language_code "zh"`、`output_format mp3_44100_128`。
-- API key 只能用 `security find-generic-password -s ELEVENLABS_API_KEY -w` 讀出，經 stdin 交給 `curl -H @-`；不得出現在命令列參數、log、輸出或 repo。Node 的 `fetch` 連 api.elevenlabs.io 會出現 EBADF，所以 HTTP 一律用 curl。
+- API key 先讀環境變數 `ELEVENLABS_API_KEY`，沒有再用 `security find-generic-password -s ELEVENLABS_API_KEY -w` 讀出，經 stdin 交給 `curl -H @-`；不得出現在命令列參數、log、輸出或 repo。Node 的 `fetch` 連 api.elevenlabs.io 會出現 EBADF，所以 HTTP 一律用 curl。
 - 顏色：綠 `#30d158` 表示已連接，藍 `#0a84ff` 表示傳送；系統外框用灰階，不畫任何公司標誌或官方桌布。
 - `ProductFilm`、`ProductIntro`、`Main` 的抽幀與 `audio analyze` 結果必須與 main 逐位元相同（Task 2 的指紋腳本）。
 - log 與 `requests.log` 只記編號、時間、request-id、雜湊，不記 key。
@@ -48,18 +48,19 @@
   - `type LineId = '01' | … | '10'`；`type SegId = '1' | … | '10'`
   - `NARRATION: readonly { id: LineId; seg: SegId; caption: string; spoken: string }[]`：`caption` 照 spec 旁白表逐字抄，`spoken` 與 `caption` 相同，只有 `10` 寫「零點二」。
   - `voice-manifest.json`：`{ [id]: { seconds: number; sha256: string; firstPause: number | null } }`
-  - `timeline.ts`：`FPS = 30`、`WIDTH`、`HEIGHT`、`PAD = 0.2`、`SEG_MIN: Record<SegId, number>`、`SEGMENTS: readonly { id: SegId; from: number; to: number }[]`、`seg(id): { from; to }`、`VOICE: readonly { id: LineId; from: number; to: number }[]`、`FRAMES`、`TITLES: readonly Title[]`（`Title` 型別取自 `film/timeline.ts`）、`END_CARD: readonly CardLine[]`、`PAD_SHIFT`
+  - `timeline.ts`：`FPS = 30`、`WIDTH`、`HEIGHT`、`PAD = 0.2`、`SEG_MIN: Record<SegId, number>`、`SEGMENTS: readonly { id: SegId; from: number; to: number }[]`、`seg(id): { from; to }`、`VOICE: readonly { id: LineId; from: number; to: number }[]`、`voice(id): { from; to }`、`FRAMES`、`TITLES: readonly Title[]`（`Title` 型別取自 `film/timeline.ts`）、`END_CARD: readonly CardLine[]`、`PAD_START`、`PAD_RATE`、`padFrame(f: number): number`
+  - 觸控板對時（Claude 決定，見 Step 8）：舊片第 21 鏡的動作由舊幀 876（第一次移動）開始，到 1252（捲動結束）共 376 幀。`PAD_START = voice('08').from + Math.round(manifest['08'].firstPause * FPS)`，也就是旁白講完「鍵盤還能變成觸控板」那一刻。`PAD_RATE = 376 / (seg('8').to - 6 - PAD_START)`。`padFrame(f) = 876 + (f - PAD_START) * PAD_RATE`，結果夾在 849 與 1252 之間。第 8 段的動作、鏡頭與標題都經 `padFrame` 對到舊片。
   - `srt.ts`：`toSrt(): string`
 
 - [ ] **Step 1：寫 `gen-promo-voice.mjs`**
 
 兩個指令：
-- `measure`：對每個 `public/voice/promo/NN.mp3` 量出 `seconds`（ffprobe）、`sha256`，以及 `firstPause`。`firstPause` 用 `silencedetect=noise=-35dB:d=0.08`，取 0.3 秒之後第一個 `silence_start`，只有 `03`、`05`、`07` 需要，其他寫 `null`。結果寫入 `src/promo/voice-manifest.json`，key 依編號排序，數字取到小數 3 位。
-- `generate <id>`：照 Global Constraints 的參數，以 `previous_text`／`next_text` 帶入前後句的 `spoken`；用 `curl -H @-` 由 stdin 帶 key；寫出 `NN.mp3`；在 `requests.log` 加一行，欄位同現有 header；最後自動跑一次 `measure`。沒有 key 時以非 0 結束，訊息不含任何 key 內容。
+- `measure`：對每個 `public/voice/promo/NN.mp3` 量出 `seconds`（ffprobe）、`sha256`，以及 `firstPause`。`firstPause` 用 `silencedetect=noise=-35dB:d=0.08`，取 0.3 秒之後第一個 `silence_start`，只有 `03`、`05`、`07`、`08` 需要，其他寫 `null`。結果寫入 `src/promo/voice-manifest.json`，key 依編號排序，數字取到小數 3 位。
+- `generate <id>`：照 Global Constraints 的參數，以 `previous_text`／`next_text` 帶入前後句的 `spoken`；用 `curl -H @-` 由 stdin 帶 key；寫出 `NN.mp3`。`requests.log` 中該編號的那一行改成新的值，`approved` 欄寫 `-`，等使用者聽過後由主代理填日期；舊的那一行移到 `requests.log` 尾端的 `# replaced` 區段，作為生成紀錄。最後自動跑一次 `measure`。沒有 key 時以非 0 結束，訊息不含任何 key 內容。
 
 - [ ] **Step 2：執行 `node scripts/gen-promo-voice.mjs measure`**
 
-預期：產生 `voice-manifest.json`，`seconds` 依序約為 3.04、9.12、2.72、7.52、2.80、6.64、2.40、12.80、2.32、6.32；`03`、`05`、`07` 的 `firstPause` 不是 `null`。
+預期：產生 `voice-manifest.json`，`seconds` 依序約為 3.04、9.12、2.72、7.52、2.80、6.64、2.40、12.80、2.32、6.32；`03`、`05`、`07` 的 `firstPause` 在 0.4 到 1.4 秒之間（「點一下」後的停頓），`08` 的在 1.2 到 3.0 秒之間（「觸控板」後的停頓）。落在範圍外時停下回報，不要改門檻。
 
 - [ ] **Step 3：寫失敗的測試 `narration.test.ts`**
 
@@ -71,11 +72,14 @@ test('ten lines, captions verbatim from the spec, spoken differs only in line 10
 test('no banned words in the narration', …)
   // 每句 caption 與 spoken 都不含 '密碼' '零延遲' 'Wi-Fi' '香港'
 test('approved takes are untouched', …)
-  // 讀 public/voice/promo/requests.log：每個 id 的 sha256 === manifest[id].sha256 === 檔案的實際 sha256
+  // 讀 public/voice/promo/requests.log（`# replaced` 之前的部分）：01–10 每個 id 剛好一行，approved 欄是日期
+  // 每行的 sha256 === manifest[id].sha256 === 檔案的實際 sha256
 test('manifest durations match the files', …)
   // execFileSync('ffprobe', …) 量到的秒數與 manifest[id].seconds 相差 ≤ 0.01
+test('the pauses that time the taps and the trackpad are where the words are', …)
+  // manifest['03'|'05'|'07'].firstPause 在 [0.4, 1.4]；manifest['08'].firstPause 在 [1.2, 3.0]
 test('no API key in the repo', …)
-  // execFileSync('git', ['grep', '-nE', 'sk_[0-9a-f]{20,}', '--', '.', ':!Pods']) 以狀態 1 結束（沒有符合）
+  // root = git rev-parse --show-toplevel；execFileSync('git', ['-C', root, 'grep', '-nE', 'sk_[0-9a-f]{20,}', '--', '.', ':!Pods']) 以狀態 1 結束（沒有符合）
 ```
 
 - [ ] **Step 4：跑 `node --test src/promo/narration.test.ts`**
@@ -89,19 +93,24 @@ test('no API key in the repo', …)
 ```ts
 test('segment length is the longer of the picture minimum and the voice plus pads', …)
   // SEG_MIN = { '1': 4.0, '2': 9.0, '3': 2.5, '4': 9.5, '5': 2.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 }
-  // 每段長度 === Math.ceil(Math.max(SEG_MIN[id], seconds + 2 * PAD) * FPS)
+  // 每段長度 === Math.ceil(Math.round(Math.max(SEG_MIN[id], seconds + 2 * PAD) * FPS * 1e6) / 1e6)（先去掉浮點誤差，13.2 s 是 396 幀）
 test('segments are contiguous from 0 and FRAMES is at most 1950', …)
+  // 以現有旁白算，FRAMES === 1938
 test('FRAMES differs from every other composition', …)
   // FRAMES 不等於 film/timeline FRAMES、intro/timeline FRAMES、data/scenes FILM_FRAMES，也不等於任一 sceneFrames(n)
 test('every line sits inside its segment with PAD on both sides, lines at least 9 frames apart', …)
-  // VOICE[i].from === seg.from + Math.round(PAD * FPS)；VOICE[i].to <= seg.to - Math.round(PAD * FPS)
+  // VOICE[i].from === seg.from + Math.round(PAD * FPS)；VOICE[i].to === VOICE[i].from + Math.ceil(seconds * FPS)；VOICE[i].to <= seg.to - Math.round(PAD * FPS)
+test('the trackpad of the old shot 21 fits segment 8 at most 25% faster', …)
+  // padFrame(PAD_START) === 876；padFrame(seg('8').to - 6) === 1252；1 <= PAD_RATE <= 1.25
 test('titles: text, reading speed, forbidden strings', …)
   // 標題依序為 '一支 iPhone 打字到三部電腦' '即時模式每按一個鍵就送出' '草稿模式先改好再傳送' '點一下換電腦'
   //   '中文可以用手寫' '也可以在 App 改用速成' '一指移動游標' '輕點就是點按' '按住再拖曳' '兩指輕點是右鍵' '兩指滑動來捲動'
   // captionLength(text) / 秒數 < 7；不含 FORBIDDEN；size >= 76
 test('end card lines', …)
-  // seg('10').from 出現：'Remote Keyboard'(120) 'v0.2.0 Alpha'(56) '支援 macOS 15、Windows 11、Ubuntu 26.04'(52) '透過 SideStore 安裝 不是 App Store 版本'(52)
-  // 再過 2 秒出現：'下載 github.com/AnsonHui6040/Mac-keyboard'(56) '與 Apple、Microsoft、Canonical 沒有關聯'(32)
+  // seg('10').from 出現（text, size, y, weight, color）：
+  //   'Remote Keyboard' 120 170 700 '#f5f5f7'；'v0.2.0 Alpha' 56 350 500 '#f5f5f7'
+  //   '支援 macOS 15、Windows 11、Ubuntu 26.04' 52 450 400 '#9a9ba1'；'透過 SideStore 安裝 不是 App Store 版本' 52 530 400 '#9a9ba1'
+  // 再過 2 秒出現：'下載 github.com/AnsonHui6040/Mac-keyboard' 56 690 500 '#f5f5f7'；'與 Apple、Microsoft、Canonical 沒有關聯' 32 960 400 '#9a9ba1'
 test('the SRT file is generated from the narration and the timeline', …)
   // readFileSync('docs/video/promo-v0.2.srt') === toSrt()；10 條，時間 = VOICE 的 from/to，文字 = caption
 ```
@@ -112,13 +121,13 @@ test('the SRT file is generated from the narration and the timeline', …)
 
 - [ ] **Step 8：寫 `timeline.ts` 與 `srt.ts`**
 
-各標題的時間：第 2 段的兩個標題各佔一半。第 8 段的五個標題是 `film/timeline.ts` 的 t7–t11 加上 `PAD_SHIFT`，其中 `PAD_SHIFT = seg('8').from - 849`（849 是舊片第 21a 鏡的開始幀）。其他標題在該段開始後 0.2 秒出現，該段結束前 0.2 秒消失。位置沿用舊片的 `TOP` 與第 21 鏡的位置。SRT 時間格式為 `HH:MM:SS,mmm`，以幀換算毫秒。
+各標題的時間：第 2 段的兩個標題各佔一半。第 8 段的五個標題用 `film/timeline.ts` 的 t7–t11，起訖幀反算 `padFrame` 得出（`f = PAD_START + (old - 876) / PAD_RATE`，取整數）；這樣動作、標題與旁白都從「一指移動游標」開始同步，動作最多快 25%。其他標題在該段開始後 0.2 秒出現，該段結束前 0.2 秒消失。位置沿用舊片的 `TOP` 與第 21 鏡的位置。SRT 時間格式為 `HH:MM:SS,mmm`，以幀換算毫秒。
 
 - [ ] **Step 9：寫 `gen-promo-srt.mjs`，執行後再跑兩個測試檔**
 
 Run：`node scripts/gen-promo-srt.mjs && node --test src/promo/narration.test.ts src/promo/timeline.test.ts`
 
-預期：PASS；`FRAMES` 約 1937。
+預期：PASS；`FRAMES` 為 1938。
 
 - [ ] **Step 10：`npm test` 全部通過，然後 Commit**
 
@@ -139,6 +148,7 @@ git commit -m "feat(video): narration data and timeline of the v0.2 promo"
 **Interfaces：**
 - Produces：
   - `PhoneState.host?: string`：有值時，工具列畫兩行狀態格。
+  - `PhoneState.pressed` 的型別放寬為 `PressedKey | null`，`PressedKey = { kb: KbName; key: string; fx: { k: string; c?: string } }`（`film/state.ts` export）。舊片的 `Press` 符合這個型別，`promo` 的按鍵也可以放進來；`PhoneScreen` 只讀 `kb`、`key`、`fx.k`、`fx.c`。
   - `STATUS_CELL = { x: 148, w: 140, h: 49, radius: 16, fill: '#7676803d', size: 22 }`（`film/layout.ts`）
   - `PhoneScreen({ state, f, ink? }: { …; ink?: { from: number; strokes: (f: number) => { x: number; y: number }[][] } })`：預設 `{ from: INK_FROM, strokes: inkAt }`
   - `PhoneRings({ f, size?, line?, dy?, finger?, pad? })`：`finger?: (f: number) => KeyFinger` 預設 `fingerAt`；`pad?: (f: number) => TrackState | null` 預設是現有的第 21 鏡判斷
@@ -192,12 +202,13 @@ git commit -m "refactor(video): optional state props on the film screens, no out
 - Test: `video/src/promo/events.test.ts`、`video/src/promo/state.test.ts`
 
 **Interfaces：**
-- Consumes：Task 1 的 `seg`、`VOICE`、`PAD_SHIFT`、`FRAMES`、manifest 的 `firstPause`；Task 2 的 `PhoneState.host`、`MacState`、`KeyFinger`；`film/layout.ts` 的鍵位函數；`film/state.ts` 的 `QUICK_CANDIDATES`、`QUICK_SCROLL_TOTAL`；`film/trackpad.ts` 的 `trackAt`；`intro/ink.ts` 的 `STROKES`、`strokeLength`、`partialStroke`、`strokePoint`
+- Consumes：Task 1 的 `seg`、`voice`、`VOICE`、`PAD_START`、`padFrame`、`FRAMES`、manifest 的 `firstPause`；Task 2 的 `PhoneState.host`、`MacState`、`KeyFinger`；`film/layout.ts` 的鍵位函數；`film/state.ts` 的 `QUICK_CANDIDATES`、`QUICK_SCROLL_TOTAL`；`film/trackpad.ts` 的 `trackAt`；`intro/ink.ts` 的 `STROKES`、`strokeLength`、`partialStroke`、`strokePoint`
 - Produces：
   - `type Host = 'Mac' | 'Windows' | 'Linux'`；`HOST_TAPS: readonly [number, number, number]`；`hostAt(frame): Host`
-  - `PRESSES: readonly PromoPress[]`，其中 `PromoPress = { t; kb; key; label; snd: 'key' | 'tap'; fx: PromoFx; hold }`，`PromoFx = Fx | { k: 'host' } | { k: 'cut'; ime: 'quick' | 'en' }`
-  - `INK: readonly { from: number; to: number }[]`、`SWIPES`、`PAD_EVENTS`（第 21 鏡的事件加上 `PAD_SHIFT`）
-  - `soundEvents(): { frame: number; kind: SoundKind }[]`，另有 `kind: 'host'`，播放時用 tap 音
+  - `PRESSES: readonly PromoPress[]`，其中 `PromoPress = { t; kb; key; label; snd: 'key' | 'tap'; fx: PromoFx; hold }`（符合 Task 2 的 `PressedKey`），`PromoFx = Fx | { k: 'host' }`；狀態格的按鍵 `key: 'status'`，觸控板鍵 `key: 'trackpadBtn'`
+  - `CUTS_FX: readonly { t: number; fx: { k: 'cut'; ime: 'quick' } | { k: 'cut'; ime: 'en'; mode: 'live' } }[]`：不經手指的換頁，第 6 段開頭換到速成頁，第 9 段開頭換回英文即時頁（草稿清空，與舊片第 30 鏡相同）
+  - `INK: readonly { from: number; to: number }[]`、`SWIPES`、`PAD_EVENTS`（第 21 鏡的事件，幀數經 `padFrame` 反算到 promo 的幀）
+  - `soundEvents(): { frame: number; kind: SoundKind | 'host' }[]`；`host` 播放時用 tap 音
   - `docAt(host: Host, frame): { lines: string[]; caretOn: boolean }`
   - `promoPhoneAt(frame): PhoneState`（`host` 一律有值）、`promoFingerAt(frame): KeyFinger`、`promoInkAt(frame)`、`promoMacAt(frame): MacState`、`promoTrackAt(frame): TrackState | null`
 
@@ -211,15 +222,16 @@ test('hostAt goes Mac, Windows, Linux, Mac', …)
 test('each segment holds its own presses', …)
   // 第 2 段：打出 'Hello from my iPhone'、換行、草稿、'Chek before sending'、草稿游標點、'c'、游標點到尾、換行、傳送
   // 第 4 段：'中英'、手寫、選 '香港'、傳送；第 6 段：cut 到速成、h a 選香、e u、三次滑動、選港、傳送
-  // 第 7 段：host 點擊後 0.4 秒內按觸控板；第 9 段：'Remote Keyboard'，每 4 幀一鍵
+  // 第 7 段：host 點擊後 0.4 秒內按 'trackpadBtn'（fx { k: 'ime', to: 'pad' }，與舊片相同），手機換到觸控板頁
+  // 第 9 段：CUTS_FX 在 seg('9').from 換回英文即時頁，之後 'Remote Keyboard'（含 shift 共 17 鍵），每 4 幀一鍵
   // 每個 press 的 t 都在它的段落內，而且至少比段落結束早 0.6 秒
 test('ink strokes fit inside segment 4 before the pick', …)
-test('sounds: one per press, good after each send, success after the last letter of segment 9, tap for host', …)
+test('sounds: one per press, good after each send, success after the last letter of segment 9, tap for host, ink per stroke', …)
 ```
 
 - [ ] **Step 2：跑測試，預期 FAIL；寫 `events.ts`；再跑，預期 PASS**
 
-按鍵時間用相對段落開始的秒數寫，例如 `at('2', 0.4)`。墨跡排程照 `film/events.ts` 的 `INK` 演算法另寫一份，範圍是第 4 段開始後 1.0 到 4.2 秒。觸控板的事件是第 21 鏡的事件加上 `PAD_SHIFT`。
+按鍵時間用相對段落開始的秒數寫，例如 `at('2', 0.4)`。墨跡排程照 `film/events.ts` 的 `INK` 演算法另寫一份，範圍是第 4 段開始後 1.0 到 4.2 秒。觸控板的事件由 `film/events.ts` 的 `PAD_EVENTS` 反算 `padFrame` 得出。
 
 - [ ] **Step 3：寫失敗的測試 `state.test.ts`**
 
@@ -232,9 +244,11 @@ test('Linux gets 香港 in one frame (paste)', …)
   // docAt('Linux', f) 由 '' 變成 '香港' 只發生在一個幀
 test('the phone always shows the current host as connected', …)
   // 每一幀 promoPhoneAt(f).host === hostAt(f)，status === 'connected'
+test('the phone page follows the story', …)
+  // seg('7') 結束時 kb === 'trackpad'；seg('9').from 時 kb === 'connected'、draft === ''；第 9 段打的字只進 Mac
 test('the Mac document does not change during the trackpad segment', …)
-test('the trackpad is the old shot 21 moved by PAD_SHIFT', …)
-  // 第 8 段每 5 幀抽一幀：promoTrackAt(f) 深等於 trackAt(f - PAD_SHIFT)
+test('the trackpad is the old shot 21 through padFrame', …)
+  // 第 8 段每 5 幀抽一幀：promoTrackAt(f) 深等於 trackAt(Math.round(padFrame(f)))；第 8 段以外為 null
 test('the finger is hidden outside the keyboard pages and on the pad', …)
 ```
 
@@ -308,13 +322,14 @@ git commit -m "feat(video): close-ups and the Windows and Linux screens of the v
 
 **Files：**
 - Create: `video/src/promo/project3.ts`、`video/src/promo/Bodies3.tsx`、`video/src/promo/Wide.tsx`
+- Modify: `video/src/promo/Promo.tsx`（接上 hero、stage、wide cut）
 - Test: `video/src/promo/project3.test.ts`
 
 **Interfaces：**
 - Consumes：`film/project.ts`（`project`、`planeCorners`、`Cam`、`Stage`、`PHONE_PLANE`、`MAC_PLANE`、`STAGE`、`cam21`）；Task 2 export 的 `Pinned`、`Lights`、`Scene`、`Bodies`；Task 3 的狀態；Task 4 的 `WinScreen`、`LinuxScreen`
 - Produces：
   - `WIDE: { mac: Placement; win: Placement; linux: Placement; phone: Placement }`，其中 `Placement = { pos: V3; rot: V3 }`
-  - `heroCam3(frame): Cam`、`wideCam(frame): Cam`、`stageCam(frame): Cam`（第 8 段 = `cam21(frame - PAD_SHIFT)`）
+  - `heroCam3(frame): Cam`、`wideCam(frame): Cam`、`stageCam(frame): Cam`（第 8 段 = `cam21(Math.min(1229, padFrame(frame)))`）
   - `winPin`、`linuxPin`、`brightness(host: Host, segId: SegId): number`
   - `Hero3({ f })`、`StageShot8({ f })`、`Wide({ f })`
 
@@ -374,14 +389,17 @@ test('voiceDuck is 1 inside a line, 0 well outside, and ramps over 0.25 s', …)
   // voiceDuck(VOICE[0].from) === 1；voiceDuck(VOICE[0].from - 8) === 0；voiceDuck(VOICE[0].from - 4) 介於 0 與 1
 test('music is ducked 10 dB and effects 6 dB under the voice', …)
 test('the promo sounds play only in a context of the promo length', …)
-  // isPromoContext(Math.round(FRAMES / 30 * 48000), 48000) === true；用 1515、1830、10050 幀的長度都是 false
+  // isPromoContext(Math.round(FRAMES / 30 * 48000), 48000) === true
+  // 用 film/timeline FRAMES、intro/timeline FRAMES、data/scenes FILM_FRAMES 換算的長度都是 false
 test('no music segments before the user picks a track', …)
   // PROMO_MUSIC.length === 0
+test('no banned or Cantonese text anywhere in the promo', …)
+  // src/promo/*.ts(x) 的原始碼不含 /[嘅唔冇喺咗佢哋嚟啲]/；TITLES、END_CARD、NARRATION 的文字不含 FORBIDDEN 裡除了 '，' 以外的項目（旁白可以有逗號）
 ```
 
 - [ ] **Step 2：跑測試，預期 FAIL；實作；再跑，預期 PASS**
 
-`Promo.tsx` 依 `cutAt(f)` 硬切，標題用 `film/Headline.tsx`，特寫上方加舊片的 scrim，最上層加 `grain(0.022)`。每句旁白一個 `<Sequence from={VOICE.from}>` 包 `<Audio src={staticFile('voice/promo/NN.mp3')} />`。`register.ts` 照 `film/register.ts` 的寫法登記音效，guard 用 `isPromoContext`，按鍵類音量乘上 `sfxGainDb` 換算的倍率。`render-promo.sh` 照 `render-film.sh` 的做法輸出 `out/renders/promo-v0.2.mp4`，母帶標準是 -14 LUFS ± 0.4、true peak ≤ -1.0 dBTP；`PROMO_MUSIC` 不是空的時候，先檢查每個音樂檔都存在，缺檔就報錯並列出檔名。
+`Promo.tsx` 依 `cutAt(f)` 硬切，標題用 `film/Headline.tsx`，特寫上方加舊片的 scrim，最上層加 `grain(0.022)`。每句旁白一個 `<Sequence from={VOICE.from}>` 包 `<Audio src={staticFile('voice/promo/NN.mp3')} />`。音樂照 `film/Film.tsx` 的寫法對 `PROMO_MUSIC` 逐段放 `<Sequence>` 加 `<Audio trimBefore volume={(lf) => base * 10 ** (musicGainDb(from + lf) / 20)} />`；本 Task 陣列是空的，所以沒有聲音，Task 7 只需要填資料。`register.ts` 照 `film/register.ts` 的寫法登記音效，guard 用 `isPromoContext`，按鍵類音量乘上 `sfxGainDb` 換算的倍率。`render-promo.sh` 照 `render-film.sh` 的做法輸出 `out/renders/promo-v0.2.mp4`，母帶標準是 -14 LUFS ± 0.4、true peak ≤ -1.0 dBTP；`PROMO_MUSIC` 不是空的時候，先檢查每個音樂檔都存在，缺檔就報錯並列出檔名。
 
 - [ ] **Step 3：自動驗證**
 
@@ -389,7 +407,7 @@ Run：
 - `npm test`：預期全部通過
 - `npx kinetograph check src/index.tsx`：預期沒有錯誤
 - `npx kinetograph doctor src/index.tsx --comp PromoFilm`：預期每一幀都 clean
-- `npx kinetograph lint src/index.tsx --comp PromoFilm --frames <0 到 FRAMES-1 每 15 幀>`：預期 0 error
+- `npx kinetograph lint src/index.tsx --comp PromoFilm --frames <0 到 FRAMES-1 每 15 幀>`：預期 0 error；warning 依種類列出數量，寫進驗收報告
 - `bash scripts/render-promo.sh`：預期 `ffprobe` 為 H.264、AAC 48 kHz、1920×1080、30 fps，幀數等於 `FRAMES`；響度在目標範圍內（這時沒有音樂，結果只當參考）
 - `bash scripts/old-films-fingerprint.sh <scratchpad>/t6 && diff <scratchpad>/base/fingerprint.txt <scratchpad>/t6/fingerprint.txt`：預期沒有輸出
 
@@ -417,7 +435,7 @@ git commit -m "feat(video): assemble the v0.2 promo with narration and sound eff
 ### Task 7: 音樂（第二階段，要等使用者提供音檔）
 
 **Files：**
-- Modify: `video/src/promo/music.ts`、`video/src/promo/timeline.ts`（只在需要對拍點時改 `SEG_MIN`）、驗收報告、分鏡稿
+- Modify: `video/src/promo/music.ts`、`video/src/promo/timeline.ts`（只在需要對拍點時改 `SEG_MIN`，同時更新 `timeline.test.ts` 的 `SEG_MIN` 表與 `FRAMES` 值）、驗收報告、分鏡稿
 - Test: `video/src/promo/music.test.ts`
 
 **Interfaces：**
