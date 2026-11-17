@@ -83,6 +83,9 @@ export const quickScrollAt = (frame: number): number => {
 };
 
 // --- the phone ---
+/** The key that is down on the phone: where it is (`kb`, `key`) and what it does (`fx.k`, and for a char the letter `fx.c`). A film's `Press` fits. */
+export type PressedKey = { kb: KbName; key: string; fx: { k: string; c?: string } };
+
 export type PhoneState = {
   chapter: Chapter;
   kb: KbName;
@@ -96,7 +99,9 @@ export type PhoneState = {
   inkOn: boolean;
   hwCandidates: boolean;
   /** The press whose key is down at this frame, if any. */
-  pressed: Press | null;
+  pressed: PressedKey | null;
+  /** The name of the computer this phone is connected to. With it the toolbar's status cell has two lines; without it, one. */
+  host?: string;
 };
 
 export const phoneAt = (frame: number): PhoneState => {

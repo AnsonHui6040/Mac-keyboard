@@ -8,9 +8,10 @@ import { theme } from '../theme.ts';
 import { HW_CAND, KB, KEY_LABEL, QUICK_BAR, QUICK_ROOT, quickCenter } from '../intro/layout.ts';
 import { panelPath, rectPath, polyline } from '../intro/shapes.ts';
 import { INK_FROM } from './events.ts';
-import { PHONE, PHONE_TOP, kbTop, type KbName, type R } from './layout.ts';
+import { PHONE, PHONE_TOP, STATUS_CELL, kbTop, type KbName, type R } from './layout.ts';
 import { DRAFT_TEXT, inkAt, type PhoneState } from './state.ts';
 import { textWidth } from './metrics.ts';
+import { statusCellLabels } from './statusCell.ts';
 
 const NONE = '#00000000';
 const LINE = 1.45;
@@ -81,7 +82,8 @@ const Toolbar = ({ kb, s }: { kb: KbName; s: PhoneState }) => {
           <Label r={{ x: 80, y, w: 60, h: 49 }} text="遠端" size={24} weight={500} />
         </Layer>
       )}
-      {s.status === 'connected' && <Label r={{ x: 148, y, w: 140, h: 49 }} text="已連接" size={22} color={GREEN} weight={500} />}
+      {s.status === 'connected' && s.host !== undefined && <Rect x={STATUS_CELL.x} y={y} width={STATUS_CELL.w} height={STATUS_CELL.h} radius={STATUS_CELL.radius} fill={STATUS_CELL.fill} />}
+      {s.status === 'connected' && statusCellLabels(s.host, y).map((l) => <Label key={l.text} r={{ x: STATUS_CELL.x, y: l.y, w: STATUS_CELL.w, h: l.h }} text={l.text} size={l.size} color={l.color} weight={500} />)}
       <Layer opacity={dim}>
         <Rect x={295} y={y} width={130} height={49} radius={12} fill={FUNC} />
         <Label r={{ x: 295, y, w: 130, h: 49 }} text={pad ? '鍵盤' : '觸控板'} size={24.5} />
@@ -176,16 +178,16 @@ const Keys = ({ kb, s }: { kb: KbName; s: PhoneState }) => {
   );
 };
 
-const Handwriting = ({ s, f }: { s: PhoneState; f: number }) => {
+const Handwriting = ({ s, f, ink }: { s: PhoneState; f: number; ink: Ink }) => {
   const pad = KB.handwriting.keys.pad;
-  const writing = f >= INK_FROM;
+  const writing = f >= ink.from;
   return (
     <Layer>
       <Rect x={pad.x} y={pad.y} width={pad.w} height={pad.h} radius={14} fill="#3d3d3d" />
       {s.inkOn && !writing && <Label r={{ x: pad.x, y: pad.y + 150, w: pad.w, h: 70 }} text="在這裡手寫" size={30} color="#6e6e6e" weight={400} />}
       {!s.inkOn && <Label r={{ x: pad.x, y: pad.y + 150, w: pad.w, h: 70 }} text="在這裡手寫" size={30} color="#6e6e6e" weight={400} />}
       <Delete cx={660} cy={pad.y + 32} s={0.8} />
-      {s.inkOn && inkAt(f).map((pts, i) => (
+      {s.inkOn && ink.strokes(f).map((pts, i) => (
         <Path key={i} d={polyline((pts.length < 2 ? [pts[0], pts[0]] : pts).map((p) => [p.x, p.y] as const))} fill={NONE} stroke={{ color: '#ffffff', width: 8, cap: 'round', join: 'round' }} />
       ))}
       {s.hwCandidates && HW_CAND.xs.map((x, i) => (
@@ -217,8 +219,12 @@ const QuickBar = ({ s }: { s: PhoneState }) => {
   );
 };
 
-/** One keyboard page, bottom aligned on the phone screen. */
-export const PhoneScreen = ({ state, f }: { state: PhoneState; f: number }) => {
+/** The handwriting: the frame its first stroke starts, and the strokes drawn so far at a frame. */
+export type Ink = { from: number; strokes: (f: number) => { x: number; y: number }[][] };
+const FILM_INK: Ink = { from: INK_FROM, strokes: inkAt };
+
+/** One keyboard page, bottom aligned on the phone screen. `ink` defaults to the handwriting of the film. */
+export const PhoneScreen = ({ state, f, ink = FILM_INK }: { state: PhoneState; f: number; ink?: Ink }) => {
   const kb = state.kb;
   const info = KB[kb];
   const hasDraft = info.rowY !== null;
@@ -229,7 +235,7 @@ export const PhoneScreen = ({ state, f }: { state: PhoneState; f: number }) => {
       <Toolbar kb={kb} s={state} />
       {hasDraft && <DraftRow kb={kb} s={state} f={f} />}
       {kb === 'trackpad' ? <Rect x={pad.x} y={pad.y} width={pad.w} height={pad.h} radius={14} fill="#333333" /> : <Keys kb={kb} s={state} />}
-      {kb === 'handwriting' && <Handwriting s={state} f={f} />}
+      {kb === 'handwriting' && <Handwriting s={state} f={f} ink={ink} />}
       {kb === 'quick' && <QuickBar s={state} />}
       <Globe cx={76} cy={info.h - 70} />
       <Mic cx={643} cy={info.h - 70} />

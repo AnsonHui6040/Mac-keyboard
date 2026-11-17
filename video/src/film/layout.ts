@@ -23,6 +23,8 @@ export const draftRect = (kb: KbName): R => onPhone(kb, draftField(kb));
 export const hwCandidateRect = (kb: KbName, i: number): R => onPhone(kb, { x: HW_CAND.xs[i] - 60, y: HW_CAND.y - 26, w: 120, h: 52 });
 export const quickCandidateRect = (kb: KbName, codeLen: number, i: number, scroll: number): R =>
   onPhone(kb, { x: quickCenter(codeLen, i, scroll) - QUICK_BAR.hit / 2, y: QUICK_BAR.y - QUICK_BAR.h / 2, w: QUICK_BAR.hit, h: QUICK_BAR.h });
+/** The status cell of the phone's toolbar (image coordinates): the "已連接" label, and with a host name the grey cell behind two lines. */
+export const STATUS_CELL = { x: 148, w: 140, h: 49, radius: 16, fill: '#7676803d', size: 22 } as const;
 /** The grey pad of the trackpad page on the phone. */
 export const PAD: R = onPhone('trackpad', KB.trackpad.keys.pad);
 
