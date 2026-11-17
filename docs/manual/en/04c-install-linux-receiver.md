@@ -17,18 +17,18 @@ The package also installs these dependencies: `zenity`, `xdg-desktop-portal`, `x
 
 ## 1. Download, verify, and install
 
-1. From the GitHub Release, get `remote-keyboard_0.2.0~alpha.1_amd64.deb` and `SHA256SUMS.txt` from the same page.
+1. From the GitHub Release, get `remote-keyboard_0.2.0.alpha.1_amd64.deb` and `SHA256SUMS.txt` from the same page.
 2. Open Terminal and run the command below. Replace the file path with the location of your `.deb`.
 
 ```bash
-sha256sum remote-keyboard_0.2.0~alpha.1_amd64.deb
+sha256sum remote-keyboard_0.2.0.alpha.1_amd64.deb
 ```
 
 3. Compare the output with the value for that file in `SHA256SUMS.txt`. The two must be exactly the same. If they differ, download the file again and do not install.
 4. In the folder that holds the `.deb`, run:
 
 ```bash
-sudo apt install ./remote-keyboard_0.2.0~alpha.1_amd64.deb
+sudo apt install ./remote-keyboard_0.2.0.alpha.1_amd64.deb
 ```
 
 After installing, `/usr/bin/rk-receiver` is the receiver, `/usr/bin/rk-diag` is the diagnostics tool, and the application menu has a new Remote Keyboard entry.

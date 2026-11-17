@@ -17,18 +17,18 @@ Linux 接收端是安裝在 Ubuntu 電腦上的接收程式。iPhone 傳來的�
 
 ## 一、下載、驗證並安裝
 
-1. 從 GitHub Release 取得 `remote-keyboard_0.2.0~alpha.1_amd64.deb`，以及同一頁的 `SHA256SUMS.txt`。
+1. 從 GitHub Release 取得 `remote-keyboard_0.2.0.alpha.1_amd64.deb`，以及同一頁的 `SHA256SUMS.txt`。
 2. 打開「終端機」，執行下面的指令，把檔案路徑換成你的 `.deb` 位置。
 
 ```bash
-sha256sum remote-keyboard_0.2.0~alpha.1_amd64.deb
+sha256sum remote-keyboard_0.2.0.alpha.1_amd64.deb
 ```
 
 3. 比對輸出的值與 `SHA256SUMS.txt` 裡該檔案的值，兩者必須完全相同。值不同時請重新下載，不要安裝。
 4. 在 `.deb` 所在的資料夾執行：
 
 ```bash
-sudo apt install ./remote-keyboard_0.2.0~alpha.1_amd64.deb
+sudo apt install ./remote-keyboard_0.2.0.alpha.1_amd64.deb
 ```
 
 安裝後，`/usr/bin/rk-receiver` 是接收端，`/usr/bin/rk-diag` 是診斷工具，應用程式選單多了一個「Remote Keyboard」項目。

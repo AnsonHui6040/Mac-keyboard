@@ -35,7 +35,7 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 | iPhone App | 用 SideStore 安裝開發者提供的 IPA，以你自己的免費 Apple 帳號簽署 |
 | Mac Receiver | GitHub Release 的 zip 檔，解壓縮後放進「應用程式」 |
 | Windows 接收端 | GitHub Release 的安裝檔 `RemoteKeyboard-Setup-0.2.0-alpha.1.exe`，不需要系統管理員權限 |
-| Linux 接收端 | GitHub Release 的 `remote-keyboard_0.2.0~alpha.1_amd64.deb`，用 `sudo apt install ./檔名.deb` 安裝 |
+| Linux 接收端 | GitHub Release 的 `remote-keyboard_0.2.0.alpha.1_amd64.deb`，用 `sudo apt install ./檔名.deb` 安裝 |
 | 公證與簽章 | Mac Receiver 沒有經過 Apple 公證，第一次打開要到系統設定手動允許。Windows 安裝檔沒有簽章，SmartScreen 會警告，按「其他資訊」再按「仍要執行」 |
 | 從 v0.1 升級 | 通訊協定升到 v4，iPhone App 與 Mac Receiver 都要更新，所有電腦都要重新配對 |
 | 有效期 | 免費帳號簽署的 App 只有 7 天有效，要在到期前續簽 |
