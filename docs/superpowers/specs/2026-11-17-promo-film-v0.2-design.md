@@ -122,7 +122,7 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 - 生成腳本 `video/scripts/gen-promo-voice.mjs`：API key 由 macOS Keychain 讀取（`security find-generic-password -s ELEVENLABS_API_KEY -w`），或讀環境變數 `ELEVENLABS_API_KEY`。不得印出、寫入 log 或提交 key。
 - 參數固定：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`mp3_44100_128`、`language_code "zh"`；每句附上前後句的 `previous_text`／`next_text`，令語氣連貫。已批准的第 1、5–10 句是在加入 `language_code` 之前生成的，保留不重做；第 2、3、4 句已鎖定 `zh`。
 - 旁白稿不寫容易令模型轉成廣東話的詞，例如「香港」。ElevenLabs 的語音辨識只分得出「中文」，分不出普通話與廣東話，所以每句新生成的旁白都要使用者聽過才算批准。
-- 只重新生成文字有改動的句子（以文字與參數的雜湊判斷），避免浪費額度與換掉使用者已聽過的版本。
+- 腳本不會自動重新生成：只有明確指定句號（例如 `generate 04`）才生成那一句，避免浪費額度與換掉使用者已聽過的版本。
 - 每次生成把句子編號、日期、model、voice 與回應的 `request-id` 記在 `video/public/voice/promo/requests.log`，作為付費期間生成的紀錄。
 - 生成結果（每句一個 mp3）放在 `video/public/voice/promo/` 並提交（Claude 決定）：同一句每次生成的聲音都不同，使用者聽過、批准的版本要保留；檔案約 1 MB 以內。
 - 最後版本必須在付費訂閱有效期間生成。
