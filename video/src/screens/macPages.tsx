@@ -6,7 +6,7 @@ import { GrayIcon, IloaderIcon, PhoneLine } from '../components/icons.tsx';
 import { Btn } from '../components/ios.tsx';
 import { MacWindow } from '../components/MacWindow.tsx';
 import { SkeletonLines } from '../components/SkeletonLines.tsx';
-import { IPA_NAME, ZIP_NAME, IPA_SHA256, ZIP_SHA256, RELEASE_URL, SIDESTORE_URL } from '../data/artifacts.ts';
+import { IPA_NAME, ZIP_NAME, IPA_SHA256, ZIP_SHA256, RELEASE_URL, SIDESTORE_URL, VERSION } from '../data/artifacts.ts';
 import { theme } from '../theme.ts';
 import * as L from './layouts.ts';
 import type { Rect as Box } from './geometry.ts';
@@ -84,7 +84,7 @@ export const ReleasePage = ({ row, hover, downloaded }: { row: 'ipa' | 'zip'; ho
     <Layer id="screen-release">
       <MacWindow rect={W} title="github.com" address={RELEASE_URL}>
         <Panel W={W} />
-        <T x={x0} y={W.y + 86} size={46} weight={700}>Remote Keyboard v0.1.0</T>
+        <T x={x0} y={W.y + 86} size={46} weight={700}>{`Remote Keyboard v${VERSION} Alpha 1`}</T>
         <SkeletonLines x={x0} y={W.y + 176} widths={[1040, 860, 600]} />
         <T x={x0} y={W.y + 292} size={34} weight={700}>Assets</T>
         <Rect x={card.x} y={card.y} width={card.width} height={card.height} radius={18} fill="#222328" stroke={{ color: theme.hairline, width: 2 }} />
@@ -260,7 +260,7 @@ export const FinderPage = ({ s }: { s: FinderState }) => {
             <Btn target="zipfile" rect={zip}>
               <Rect x={10} y={0} width={220} height={194} radius={16} fill="#2f3138" opacity={s.zipSelected} />
               <ZipIcon x={45} y={6} size={150} />
-              <T x={0} y={180} size={24} w={zip.width} align="center">{'RemoteKeyboard\nReceiver-v0.1.0-\nmacOS.zip'}</T>
+              <T x={0} y={180} size={24} w={zip.width} align="center">{`RemoteKeyboard\nReceiver-v${VERSION}-\nmacOS.zip`}</T>
             </Btn>
             <Btn target="receiver" rect={app}>
               <Layer opacity={appVisible * (s.ghost ? 0.3 : 1)}>

@@ -4,7 +4,7 @@
 
 帶沒有程式背景的測試者，由零開始裝好 Remote Keyboard 並打出第一個字。測試者一邊看片一邊操作，所以每個畫面都要讓人知道：現在在哪部裝置、要按哪個按鈕、哪個不能按。
 
-內容唯一來源是 `docs/video/install-tutorial-script.md`（21 場，約 5 分 35 秒）。腳本與手冊有出入時，以手冊為準；按鈕文字以台灣繁體中文系統字串為準。
+內容唯一來源是 `docs/video/install-tutorial-script.md`（21 場，約 5 分 46 秒）。腳本與手冊有出入時，以手冊為準；按鈕文字以台灣繁體中文系統字串為準。
 
 ## 目標
 
@@ -50,7 +50,7 @@
 | 不入 git | `video/node_modules`、`video/out`、`video/public/fonts` | MP4 與字型都可以重新產生；字型三個檔共 21 MB，repo 是公開的 |
 | 字型 | Noto Sans TC（Regular、Medium、Bold），由 `video/scripts/setup-fonts.sh` 從 `~/Library/Fonts` 複製 | OFL 授權可以用在影片；PingFang 是 Apple 字型，不用 |
 | 字幕 | 用腳本「字幕」欄原文，按標點拆成多拍，一次一拍，每拍最多兩行、每行最多 30 字 | 沒有人聲，字幕要帶完整步驟；一次一拍才能和指向同步 |
-| 每場時長 | 用腳本秒數，全片約 5 分 35 秒；每拍至少 2.5 秒，並以每秒 5 字估算閱讀時間 | 已估算全片閱讀加動作約 247 秒，腳本 335 秒放得下，多出的時間留給測試者操作 |
+| 每場時長 | 用腳本秒數，全片約 5 分 46 秒；每拍至少 2.5 秒，並以每秒 5 字估算閱讀時間 | 已估算全片閱讀加動作約 247 秒，腳本 346 秒放得下，多出的時間留給測試者操作 |
 | 指向時間點 | `src/data/cues.json` 記每一拍字幕對應的目標按鈕 | 字幕與指向由同一份資料驅動，不會各走各的 |
 | 裝置標籤 | 依目前要操作的裝置切換；兩部裝置同框時，正在操作的全亮，另一部降到 40% 亮度；沒有裝置的場景不顯示 | 觀眾任何時候都知道要看哪部裝置 |
 
@@ -106,9 +106,9 @@
 
 虛構的只有這些：帳號 `your.name@example.com`；裝置名「我的 iPhone」、「我的 Mac」；配對碼固定用 `482915`；第 5 場 iloader 驗證碼面板的六位數字（`607143`，與配對碼不同）；終端機路徑 `~/Downloads`；第 20 場 Receiver 面板「目前欄位」顯示「文字編輯（可輸入）」。
 
-下列是真實的公開值，不是虛構：檔名與 SHA-256 都是 v0.1.0-alpha.1 Release 頁面上的值（`https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-alpha.1`），測試者要拿自己的下載結果與它比對。終端機顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.1.0-unsigned.ipa`）為 `d4b5531ca5d971cef89f8488e020421bff3d224d3f00faed38ce1ca08b1558db`，zip（`RemoteKeyboardReceiver-v0.1.0-macOS.zip`）為 `21dd6a41f0b72b4370378c9dbcd29f2d2172c24b0232713e358b0a5e129c6ec9`。瀏覽器網址列的 `sidestore.io`、Release 頁面網址與第 21 場的 `github.com/AnsonHui6040/Mac-keyboard` 也是真實的公開網址。
+下列是真實的公開值，不是虛構：檔名與 SHA-256 都是 v0.2.0-alpha.1 Release 頁面上的值（`https://github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.2.0-alpha.1`），測試者要拿自己的下載結果與它比對。終端機顯示完整 64 碼，寫死在專案裡，建置時不連網：IPA（`RemoteKeyboard-v0.2.0-unsigned.ipa`）為 `c659466046402f8beb1a0e5205cc1480226800a81cd830176a4695ea1501a02a`，zip（`RemoteKeyboardReceiver-v0.2.0-macOS.zip`）為 `b630e808908459d8bbf318d4a1ba42d9088f2904878fc1f7dcdc90ad35eabd31`。瀏覽器網址列的 `sidestore.io`、Release 頁面網址與第 21 場的 `github.com/AnsonHui6040/Mac-keyboard` 也是真實的公開網址。
 
-這支影片綁定 v0.1.0-alpha.1：下一版 Release 的檔名或 SHA-256 一變，影片裡的值就過時，必須重做第 10、15 場的終端機畫面與網址列。
+這支影片綁定 v0.2.0-alpha.1：下一版 Release 的檔名或 SHA-256 一變，影片裡的值就過時，必須重做第 10、15 場的終端機畫面與網址列。
 
 ## 動態
 
@@ -175,7 +175,7 @@ video/
 | Kinetograph 是 0.3.0 的新工具，可能有畫不出的東西 | V1 先做最複雜的第 16 場；`doctor` 有問題就先回報 |
 | 授權是 PolyForm Small Business 1.0.0 | repo 只列依賴，不轉發軟體本身；條文未明文提到學生，這是主代理的判斷，不是法律意見 |
 | `npm install` 預設不跑 esbuild 的 postinstall | 樣板在此狀態下可以正常 render；若之後出錯，再明確批准該 script |
-| iOS、SideStore 之後改版，畫面過時 | 影片對應 v0.1.0 build 2，下載頁已在第 10 場顯示版本 |
+| iOS、SideStore 之後改版，畫面過時 | 影片對應 v0.2.0 build 5，下載頁已在第 10 場顯示版本 |
 
 ## 留給實作者決定
 

@@ -19,7 +19,7 @@ import { AppSetup } from './AppSetup.tsx';
 import { IpaDownload, IpaSend, IpaVerify } from './IpaFlow.tsx';
 import { FullAccess, KbAdd, KbList, KbSettings } from './KeyboardFlow.tsx';
 import { ZipFlow } from './ZipFlow.tsx';
-import { MacAccess, MacBluetooth, ReceiverMenu } from './ReceiverFlow.tsx';
+import { MacAccess, MacBluetooth, MacLan, ReceiverMenu } from './ReceiverFlow.tsx';
 import { PairDone, PairFlow } from './PairFlow.tsx';
 import { KeyboardOn } from './KeyboardOn.tsx';
 import { Calendar } from './Calendar.tsx';
@@ -74,6 +74,7 @@ export const SCREEN_VIEWS: Record<string, (props: ScreenProps) => ReactNode> = {
   appSetup: (p) => <AppSetup {...p} />,
   zipFlow: (p) => <ZipFlow {...p} />,
   macBluetooth: () => <MacBluetooth />,
+  macLan: () => <MacLan />,
   receiverMenu: (p) => <ReceiverMenu {...p} />,
   macAccess: (p) => <MacAccess {...p} />,
   pairFlow: (p) => <PairFlow {...p} />,

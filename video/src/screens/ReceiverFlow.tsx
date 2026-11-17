@@ -1,6 +1,6 @@
 import { Layer } from '@kinetographdev/core';
 import { fadeIn } from '../components/PhoneScreen.tsx';
-import { AccessWindow, BluetoothDialog, MenuBar, ReceiverPanel } from './macReceiver.tsx';
+import { AccessWindow, BluetoothDialog, LanDialog, MenuBar, ReceiverPanel } from './macReceiver.tsx';
 import { PANEL17 } from './layouts.ts';
 import type { ScreenProps } from './registry.tsx';
 
@@ -15,7 +15,7 @@ export const ReceiverMenu = ({ beatFrame, stepTimes }: ScreenProps) => {
       <MenuBar open={open} />
       {open > 0 && (
         <Layer id="panel-fade" opacity={open}>
-          <ReceiverPanel layout={PANEL17} state={{ kind: 'access', link: 'idle', access: true }} />
+          <ReceiverPanel layout={PANEL17} state={{ kind: 'access', link: 'searching', access: true }} />
         </Layer>
       )}
     </Layer>
@@ -29,3 +29,6 @@ export const MacAccess = ({ beatFrame, stepTimes }: ScreenProps) => (
 
 /** Scene 17, beat 0: the system asks about Bluetooth. */
 export const MacBluetooth = () => <BluetoothDialog />;
+
+/** Scene 21, beat 0: the system asks whether Remote Keyboard Receiver may find devices on the local network (the first use of the trackpad). */
+export const MacLan = () => <LanDialog />;

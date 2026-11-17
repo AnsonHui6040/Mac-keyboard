@@ -18,7 +18,7 @@ const spec = (n: number) => SCENES.find((s) => s.n === n)!;
 test('film frame of a scene is the sum of the earlier scenes, and the last scene ends at the film end', () => {
   assert.equal(sceneStart(1), 0);
   assert.equal(sceneStart(2), sceneFrames(1));
-  assert.equal(sceneStart(16), 7050);
+  assert.equal(sceneStart(16), 7110);
   assert.equal(sceneStart(21) + sceneFrames(21), FILM_FRAMES);
 });
 

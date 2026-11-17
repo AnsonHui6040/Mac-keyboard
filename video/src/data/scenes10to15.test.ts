@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { SCREENS, restPoint, type Rect } from '../screens/geometry.ts';
 import { FPS, compileRegistered, sceneEntry } from './scenes/index.ts';
 import { scene10 } from './scenes/scene10.ts';
@@ -8,7 +8,7 @@ import { scene11 } from './scenes/scene11.ts';
 import { scene12 } from './scenes/scene12.ts';
 import { scene14 } from './scenes/scene14.ts';
 import { scene15 } from './scenes/scene15.ts';
-import { IPA_NAME, ZIP_NAME, IPA_SHA256, ZIP_SHA256, RELEASE_URL, SIDESTORE_URL, SIGNIN_CODE } from './artifacts.ts';
+import { VERSION, IPA_NAME, ZIP_NAME, IPA_SHA256, ZIP_SHA256, RELEASE_URL, SIDESTORE_URL, SIGNIN_CODE } from './artifacts.ts';
 import { PAIR_CODE } from './pairing.ts';
 import { commandText, outputAt } from '../screens/terminal.ts';
 import { CODE_LENGTH, CODE_PITCH, CODE_START, typedDigits } from '../screens/signinCode.ts';
@@ -24,8 +24,28 @@ test('the SHA-256 values are 64 hex characters and equal the design document', (
     assert.match(sha, /^[0-9a-f]{64}$/);
     assert.ok(doc.includes(`${name}\`）為 \`${sha}\``) || doc.includes(sha), name);
   }
-  assert.equal(IPA_NAME, 'RemoteKeyboard-v0.1.0-unsigned.ipa');
-  assert.equal(ZIP_NAME, 'RemoteKeyboardReceiver-v0.1.0-macOS.zip');
+  assert.equal(IPA_NAME, 'RemoteKeyboard-v0.2.0-unsigned.ipa');
+  assert.equal(ZIP_NAME, 'RemoteKeyboardReceiver-v0.2.0-macOS.zip');
+});
+
+test('the release values are those of the v0.2.0-alpha.1 Release page', () => {
+  assert.equal(VERSION, '0.2.0');
+  assert.equal(IPA_SHA256, 'c659466046402f8beb1a0e5205cc1480226800a81cd830176a4695ea1501a02a');
+  assert.equal(ZIP_SHA256, 'b630e808908459d8bbf318d4a1ba42d9088f2904878fc1f7dcdc90ad35eabd31');
+});
+
+test('no tutorial scene source hardcodes a version: the release title, the zip icon label and the IPA file label come from VERSION', () => {
+  const mac = readFileSync(new URL('../screens/macPages.tsx', import.meta.url), 'utf8');
+  const phone2 = readFileSync(new URL('../screens/phonePages2.tsx', import.meta.url), 'utf8');
+  assert.ok(mac.includes('Remote Keyboard v${VERSION} Alpha 1'));
+  assert.ok(mac.includes('Receiver-v${VERSION}-'));
+  assert.ok(phone2.includes('v${VERSION}-'));
+  for (const dir of ['../screens/', '../components/', './scenes/', './']) {
+    for (const f of readdirSync(new URL(dir, import.meta.url))) {
+      if (!/\.(ts|tsx)$/.test(f) || f.endsWith('.test.ts')) continue;
+      assert.ok(!/0\.1\.0/.test(readFileSync(new URL(dir + f, import.meta.url), 'utf8')), `${dir}${f} mentions 0.1.0`);
+    }
+  }
 });
 
 test('scene 10: the Release page, 終端機 with both hashes on screen for at least 6 s, then AirDrop on the Mac and 儲存到「檔案」 on the iPhone', () => {
@@ -50,7 +70,7 @@ test('scene 15: the hash is on screen for at least 4 s on the terminal page, whi
 });
 
 test('the address bars: Release page, iloader download page, and the terminal title are the ones of the brief', () => {
-  assert.equal(RELEASE_URL, 'github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.1.0-alpha.1');
+  assert.equal(RELEASE_URL, 'github.com/AnsonHui6040/Mac-keyboard/releases/tag/v0.2.0-alpha.1');
   assert.equal(SIDESTORE_URL, 'sidestore.io');
   const mac = readFileSync(new URL('../screens/macPages.tsx', import.meta.url), 'utf8');
   assert.match(mac, /title="github\.com" address=\{RELEASE_URL\}/);
