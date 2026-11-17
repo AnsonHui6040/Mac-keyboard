@@ -4,7 +4,7 @@
 
 Remote Keyboard turns your iPhone into a Bluetooth keyboard for your Mac. Switch to the Remote Keyboard keyboard on your iPhone, and what you type is encrypted, sent over Bluetooth, and entered into whatever text field has the cursor on your Mac. The keyboard also has a trackpad mode, so you can use your iPhone to move the Mac's pointer, click and scroll.
 
-This is v0.1.0 Alpha. It is installed with SideStore, and it is not an App Store release.
+This is v0.2.0 Alpha. It is installed with SideStore, and it is not an App Store release.
 
 The app and the install tutorial video are in Traditional Chinese. The whole user manual is in English, with the original Chinese screenshots. The app shows Chinese labels, so every label, message and setting name in this README and the manual is written in English first, with the Chinese as it appears on screen in parentheses after it. If this translation and the Chinese README differ, the Chinese README applies.
 
