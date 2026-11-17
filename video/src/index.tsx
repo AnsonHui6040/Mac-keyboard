@@ -10,6 +10,8 @@ import { FPS as INTRO_FPS, FRAMES as INTRO_FRAMES } from './intro/timeline.ts';
 import './film/register.ts';
 import { Film as ProductFilm } from './film/Film.tsx';
 import { FRAMES as FILM_LENGTH } from './film/timeline.ts';
+import { Promo as PromoFilm } from './promo/Promo.tsx';
+import { FRAMES as PROMO_FRAMES } from './promo/timeline.ts';
 
 registerFont({ family: theme.font, weight: 400, path: staticFile('fonts/NotoSansTC-Regular.ttf') });
 registerFont({ family: theme.font, weight: 500, path: staticFile('fonts/NotoSansTC-Medium.ttf') });
@@ -46,6 +48,7 @@ registerRoot(() => (
     <Composition id="Main" component={Film} durationInFrames={FILM_FRAMES} fps={FPS} width={WIDTH} height={HEIGHT} />
     <Composition id="ProductIntro" component={ProductIntro} durationInFrames={INTRO_FRAMES} fps={INTRO_FPS} width={WIDTH} height={HEIGHT} />
     <Composition id="ProductFilm" component={ProductFilm} durationInFrames={FILM_LENGTH} fps={FPS} width={WIDTH} height={HEIGHT} />
+    <Composition id="PromoFilm" component={PromoFilm} durationInFrames={PROMO_FRAMES} fps={30} width={1920} height={1080} />
     {scenes.map(({ spec, Component }) => (
       <Composition key={spec.n} id={sceneId(spec.n)} component={Component} durationInFrames={sceneFrames(spec.n)} fps={FPS} width={WIDTH} height={HEIGHT} />
     ))}

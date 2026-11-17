@@ -115,6 +115,16 @@ type Pt = { x: number; y: number };
 type Seg = { t0: number; t1: number; a: Pt; path?: (u: number) => Pt };
 const SEGS: Seg[] = [];
 for (const p of PRESSES) SEGS.push({ t0: p.t, t1: p.t + p.hold, a: centerOf(pressRect(p)) });
+/** After a status tap the ring lifts and rests this far below the cell centre, clear of the new host name (unless the next press is near). */
+const STATUS_REST = { dy: 110, after: 6 };
+for (const p of PRESSES) {
+  if (p.key !== 'status') continue;
+  const lift = p.t + p.hold;
+  const next = PRESSES.find((q) => q.t > p.t);
+  if (next && next.t - lift < 12) continue;
+  const c = centerOf(pressRect(p));
+  SEGS.push({ t0: lift + STATUS_REST.after, t1: lift + STATUS_REST.after, a: { x: c.x, y: c.y + STATUS_REST.dy } });
+}
 {
   const top = kbTop('handwriting');
   STROKES.forEach((s, i) => SEGS.push({

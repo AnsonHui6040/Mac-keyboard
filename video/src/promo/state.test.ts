@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { KB } from '../intro/layout.ts';
+import { STATUS_CELL, kbTop } from '../film/layout.ts';
 import { trackAt } from '../film/trackpad.ts';
 import { FRAMES, padFrame, seg } from './timeline.ts';
 import { HOST_TAPS, PRESSES, hostAt, type Host } from './events.ts';
@@ -109,4 +111,19 @@ test('the finger is hidden outside the keyboard pages and on the pad', () => {
 test('the Mac caret blinks and rests on a change', () => {
   assert.equal(typeof docAt('Mac', 200).caretOn, 'boolean');
   assert.equal(docAt('Mac', 134).caretOn, true, 'right after a letter the caret stays on');
+});
+
+test('after a status tap the finger leaves the host label: from tap + 8 to the end of the status cut it is 70 px from the cell centre or invisible', () => {
+  const ids = ['3', '5', '7'] as const;
+  HOST_TAPS.forEach((t, i) => {
+    const end = seg(ids[i]).to;
+    for (let f = t + 8; f < end; f++) {
+      const k = promoFingerAt(f);
+      if (!k.visible || k.opacity <= 0) continue;
+      const kb = promoPhoneAt(f).kb;
+      const cx = STATUS_CELL.x + STATUS_CELL.w / 2;
+      const cy = kbTop(kb) + KB[kb].toolbarY + STATUS_CELL.h / 2;
+      assert.ok(Math.hypot(k.x - cx, k.y - cy) >= 70, `frame ${f}: the finger is ${Math.hypot(k.x - cx, k.y - cy).toFixed(0)} px from the cell`);
+    }
+  });
 });
