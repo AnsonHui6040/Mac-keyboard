@@ -112,6 +112,12 @@ if [ -z "$MAC_ZIP" ]; then add BLOCKED "驗證 Mac zip" "沒有 zip"
 elif run_logged validate-mac scripts/validate-mac-app.sh "$MAC_ZIP"; then add PASS "驗證 Mac zip" "$(grep -c '^PASS' "$LOGDIR/validate-mac.log") 項 PASS"
 else add FAIL "驗證 Mac zip" "見 build/prerelease/validate-mac.log"; fi
 
+# 6b IPA 內的 RELEASE-NOTES.md 不是空白草稿
+if [ -z "$IPA_DIR" ]; then add BLOCKED "IPA 發佈說明已填寫" "沒有 IPA 產物"
+elif [ ! -f "${IPA_DIR}RELEASE-NOTES.md" ]; then add FAIL "IPA 發佈說明已填寫" "產物內沒有 RELEASE-NOTES.md"
+elif grep -q '尚未填寫' "${IPA_DIR}RELEASE-NOTES.md"; then add FAIL "IPA 發佈說明已填寫" "RELEASE-NOTES.md 仍是空白草稿（尚未填寫）"
+else add PASS "IPA 發佈說明已填寫" "${IPA_DIR}RELEASE-NOTES.md 沒有「尚未填寫」"; fi
+
 # 7 secure field 測試類別：用名稱指定，改名或刪除會讓這項失敗
 SECURE_CLASSES=(SecureFieldClassificationTests InputBlockedFocusTests SecureFieldPipelineTests)
 ARGS=()

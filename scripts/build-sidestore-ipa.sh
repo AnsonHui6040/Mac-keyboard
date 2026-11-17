@@ -171,12 +171,13 @@ workingTreeDirty: $DIRTY
 sha256: $SHA
 TXT
 
-NOTES_SRC="release-notes/v${VERSION}-b${BUILD}.md"
-if [ -f "$NOTES_SRC" ]; then
+# shellcheck source=lib/release-notes.sh
+. "$ROOT/scripts/lib/release-notes.sh"
+if NOTES_SRC="$(find_release_notes "$VERSION" "$BUILD")"; then
   cp "$NOTES_SRC" "$OUT/RELEASE-NOTES.md"
 else
   printf '# v%s (build %s)\n\n## 本版變更\n\n尚未填寫\n' "$VERSION" "$BUILD" >"$OUT/RELEASE-NOTES.md"
-  echo "警告：沒有 $NOTES_SRC，RELEASE-NOTES.md 是空白草稿" >&2
+  echo "警告：找不到唯一的 release-notes/v${VERSION}-b${BUILD}.md 或 v${VERSION}-*.md，RELEASE-NOTES.md 是空白草稿" >&2
 fi
 cp "$GUIDE_SRC" "$OUT/INSTALL-GUIDE.md"
 cp docs/distribution/privacy-note.md "$OUT/PRIVACY-NOTE.md"
