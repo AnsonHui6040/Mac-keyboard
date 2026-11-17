@@ -55,7 +55,7 @@ export const PAD_START: number = voice('08').from + Math.round(manifest['08'].fi
 export const PAD_RATE: number = (OLD_PAD_LAST - OLD_PAD_FIRST) / (seg('8').to - 6 - PAD_START);
 export const padFrame = (f: number): number => Math.min(OLD_PAD_LAST, Math.max(OLD_PAD_FIRST_ALL, OLD_PAD_FIRST + (f - PAD_START) * PAD_RATE));
 /** The new frame of an old shot 21 frame (the inverse of padFrame). */
-const newFrame = (old: number): number => Math.round(PAD_START + (old - OLD_PAD_FIRST) / PAD_RATE);
+export const newFrame = (old: number): number => Math.round(PAD_START + (old - OLD_PAD_FIRST) / PAD_RATE);
 
 // --- titles ---
 const TOP = { x: 96, y: 64, size: 88, width: 1560 };
