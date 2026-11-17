@@ -157,7 +157,7 @@ final class FocusMonitor: ObservableObject {
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { Task { _ = await self?.refreshNow() } }
+            _ = MainActor.assumeIsolated { Task { _ = await self?.refreshNow() } }
         }
         schedulePollTimer()
         poll()
@@ -217,6 +217,7 @@ final class FocusMonitor: ObservableObject {
         var result = FocusReadResult(element: nil, editable: false)
         if Self.shouldReadFocus(trusted: trusted, pid: pid, ownPID: environment.ownPID) {
             let reader = reader
+            let pid = pid
             result = await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     continuation.resume(returning: reader.read(pid: pid))

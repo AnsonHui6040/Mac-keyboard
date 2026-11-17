@@ -101,7 +101,7 @@ mod tests {
     const T0: u64 = 1_794_651_630_123; // 2026-11-14T10:20:30.123Z
 
     fn info<'a>(config: &'a Config, adapter: Option<&'a AdapterInfo>) -> DiagInfo<'a> {
-        DiagInfo { version: "0.1.0", target: "x86_64-pc-windows-msvc", os: "Windows 11 build 26300", adapter, config, paired_phones: 2, state: "waiting", log_level: "info" }
+        DiagInfo { version: "0.2.0-alpha.1", target: "x86_64-pc-windows-msvc", os: "Windows 11 build 26300", adapter, config, paired_phones: 2, state: "waiting", log_level: "info" }
     }
 
     #[test]
@@ -109,7 +109,7 @@ mod tests {
         let config = Config::new([0xAB; 16], HostPlatform::Windows);
         let adapter = AdapterInfo { name: "Intel(R) Wireless Bluetooth(R)".into(), address: "AA:BB:CC:DD:EE:FF".into() };
         let text = diag_txt(&info(&config, Some(&adapter)));
-        for expected in ["version: 0.1.0", "os: Windows 11 build 26300", "paired_phones: 2", "state: waiting", "log_level: info", &format!("host_id: {}", "ab".repeat(16))] {
+        for expected in ["version: 0.2.0-alpha.1", "os: Windows 11 build 26300", "paired_phones: 2", "state: waiting", "log_level: info", &format!("host_id: {}", "ab".repeat(16))] {
             assert!(text.contains(expected), "{expected} missing in {text}");
         }
         assert!(text.contains("adapter_name_hash: ") && text.contains("adapter_address_hash: "));

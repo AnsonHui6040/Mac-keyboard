@@ -57,8 +57,6 @@ final class TestInsertController: ObservableObject {
         self.notice = notice
     }
 
-    var isCounting: Bool { remaining != nil }
-
     /// `defaults write com.ansonhui.remotekeyboard.receiver rk.settleSeconds -float 0.1` overrides the default for Step 8 tuning.
     var settleSeconds: Double {
         let override = defaults.double(forKey: Self.settleKey)
