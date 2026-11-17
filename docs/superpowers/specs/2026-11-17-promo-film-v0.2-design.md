@@ -1,7 +1,7 @@
 # Remote Keyboard v0.2 宣傳影片設計
 
 日期：2026-11-17（2026-11-18 加入旁白）
-狀態：草稿，等使用者批准
+狀態：使用者 2026-11-18 批准
 Composition：`PromoFilm`（新增），程式在 `video/src/promo/`
 
 ## 意圖
@@ -93,8 +93,8 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 | # | 旁白（字幕顯示） | 實測 | 加旁白前的鏡頭長度 |
 |---|---|---|---|
 | 1 | 一支 iPhone，可以打字到三部電腦。 | 3.04 s | 4.0 s |
-| 2 | 先打到 Mac。即時模式每按一個鍵就送出；草稿模式可以先改好錯字，再一次傳送。 | 10.48 s（刪字前） | 9.0 s |
-| 3 | 點一下，換到 Windows。 | 3.36 s（刪字前） | 2.5 s |
+| 2 | 先打到 Mac。即時模式每按一個鍵就送出；草稿模式可以先改好錯字，再一次傳送。 | 9.12 s | 9.0 s |
+| 3 | 點一下，換到 Windows。 | 2.72 s | 2.5 s |
 | 4 | 中文可以直接手寫，選好字按傳送，記事本就出現剛寫好的字。 | 7.52 s | 9.5 s |
 | 5 | 再點一下，換到 Linux。 | 2.80 s | 2.0 s |
 | 6 | 習慣速成的話，可以在 App 裡改用速成輸入，一樣打得出中文。 | 6.64 s | 8.0 s |
@@ -103,11 +103,11 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 | 9 | 這就是 Remote Keyboard。 | 2.32 s | 4.5 s |
 | 10 | 目前是 v0.2 Alpha 版，透過 SideStore 安裝。下載連結在說明欄。 | 6.32 s | 6.5 s |
 
-十句合計 57.7 秒。實測後 Claude 刪了第 2、3 句的字（Claude 決定）：第 2 句原為「…切到草稿模式，可以先把錯字改好，再一次傳送」，第 3 句原為「點一下狀態格，就換到 Windows」。第 5、7 句講「Linux」「Mac」，與狀態格顯示的名稱一致，不講 Ubuntu。
+十句合計 55.7 秒（最後版本）。第一次生成時合計 57.7 秒，之後 Claude 刪了第 2、3 句的字（Claude 決定，刪字前分別是 10.48 s 與 3.36 s）：第 2 句原為「…切到草稿模式，可以先把錯字改好，再一次傳送」，第 3 句原為「點一下狀態格，就換到 Windows」。第 5、7 句講「Linux」「Mac」，與狀態格顯示的名稱一致，不講 Ubuntu。
 
 第 4 句原為「…記事本就出現香港兩個字」。使用者 2026-11-18 聽出這句變成廣東話：v4 自動判斷語言時被「香港」帶走。改成「剛寫好的字」並鎖定 `language_code: "zh"` 後，使用者確認是普通話；畫面與標題照樣顯示香港。
 
-使用者 2026-11-18 聽過全稿：第 1、4（改句版）、5–10 句已批准，檔案已存入 `video/public/voice/promo/`。第 2、3 句刪字後要重新生成，使用者再聽一次。
+使用者 2026-11-18 聽過全部十句並批准（第 4 句為改句版，第 2、3 句為刪字後重新生成的版本），檔案在 `video/public/voice/promo/`，實作時不得重新生成，除非旁白稿再改。
 
 ### 時間規則
 
@@ -120,7 +120,7 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 ### 生成與保存
 
 - 生成腳本 `video/scripts/gen-promo-voice.mjs`：API key 由 macOS Keychain 讀取（`security find-generic-password -s ELEVENLABS_API_KEY -w`），或讀環境變數 `ELEVENLABS_API_KEY`。不得印出、寫入 log 或提交 key。
-- 參數固定：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`mp3_44100_128`、`language_code "zh"`；每句附上前後句的 `previous_text`／`next_text`，令語氣連貫。已批准的第 1、5–10 句是在加入 `language_code` 之前生成的，保留不重做。
+- 參數固定：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`mp3_44100_128`、`language_code "zh"`；每句附上前後句的 `previous_text`／`next_text`，令語氣連貫。已批准的第 1、5–10 句是在加入 `language_code` 之前生成的，保留不重做；第 2、3、4 句已鎖定 `zh`。
 - 旁白稿不寫容易令模型轉成廣東話的詞，例如「香港」。ElevenLabs 的語音辨識只分得出「中文」，分不出普通話與廣東話，所以每句新生成的旁白都要使用者聽過才算批准。
 - 只重新生成文字有改動的句子（以文字與參數的雜湊判斷），避免浪費額度與換掉使用者已聽過的版本。
 - 每次生成把句子編號、日期、model、voice 與回應的 `request-id` 記在 `video/public/voice/promo/requests.log`，作為付費期間生成的紀錄。
