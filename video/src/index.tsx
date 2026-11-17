@@ -10,6 +10,7 @@ import { FPS as INTRO_FPS, FRAMES as INTRO_FRAMES } from './intro/timeline.ts';
 import './film/register.ts';
 import { Film as ProductFilm } from './film/Film.tsx';
 import { FRAMES as FILM_LENGTH } from './film/timeline.ts';
+import './promo/register.ts';
 import { Promo as PromoFilm } from './promo/Promo.tsx';
 import { FRAMES as PROMO_FRAMES } from './promo/timeline.ts';
 
