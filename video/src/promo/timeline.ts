@@ -59,6 +59,7 @@ export const newFrame = (old: number): number => Math.round(PAD_START + (old - O
 
 // --- titles ---
 const TOP = { x: 96, y: 64, size: 88, width: 1560 };
+const HERO_TITLE = { x: 660, y: 720, size: 84, width: 1200 };
 const mk = (id: string, text: string, from: number, to: number, at: { x: number; y: number; size: number; width: number }): Title => ({ id, text, from, to, align: 'left', ...at });
 const inSeg = (id: SegId): [number, number] => [seg(id).from + PAD_FRAMES, seg(id).to - PAD_FRAMES];
 const half = (id: SegId): number => { const [a, b] = inSeg(id); return Math.round((a + b) / 2); };
@@ -69,7 +70,7 @@ const padTitle = (oldId: string, id: string): Title => {
 };
 
 export const TITLES: readonly Title[] = [
-  mk('p1', '一支 iPhone 打字到三部電腦', ...inSeg('1'), TOP),
+  mk('p1', '一支 iPhone 打字到三部電腦', ...inSeg('1'), HERO_TITLE),
   mk('p2', '即時模式每按一個鍵就送出', inSeg('2')[0], half('2'), TOP),
   mk('p3', '草稿模式先改好再傳送', half('2'), inSeg('2')[1], TOP),
   mk('p4', '點一下換電腦', ...inSeg('3'), TOP),
