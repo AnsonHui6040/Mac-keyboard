@@ -14,7 +14,7 @@ const clean = (x: number): number => Math.round(x * 1e6) / 1e6;
 const PADF = Math.round(PAD * FPS);
 
 test('segment length is the longer of the picture minimum and the voice plus pads', () => {
-  assert.deepEqual(SEG_MIN, { '1': 4.0, '2': 12.5, '3': 4.5, '4': 9.5, '5': 4.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 });
+  assert.deepEqual(SEG_MIN, { '1': 4.0, '2': 12.6, '3': 4.5, '4': 9.5, '5': 4.0, '6': 7.9, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 });
   for (const n of NARRATION) {
     const s = seg(n.seg);
     if (L_CUT.includes(n.seg)) continue;

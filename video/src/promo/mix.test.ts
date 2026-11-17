@@ -7,8 +7,8 @@ import { FRAMES as FILM_LENGTH } from '../film/timeline.ts';
 import { FORBIDDEN } from '../film/timeline.ts';
 import { NARRATION } from './narration.ts';
 import { END_CARD, FPS, FRAMES, TITLES, VOICE } from './timeline.ts';
-import { PROMO_MUSIC } from './music.ts';
-import { isPromoContext, musicGainDb, sfxGainDb, voiceDuck } from './mix.ts';
+import { LIFT_FRAME } from './music.ts';
+import { PRELIFT_DB, PRELIFT_RAMP, isPromoContext, musicGainDb, preLiftDb, sfxGainDb, voiceDuck } from './mix.ts';
 
 const len = (frames: number, rate = 48000) => Math.round((frames / FPS) * rate);
 
@@ -27,15 +27,28 @@ test('voiceDuck is 1 inside a line, 0 well outside, and ramps over 0.25 s', () =
 });
 
 test('music is ducked 10 dB and effects 6 dB under the voice', () => {
-  const inside = VOICE[1].from + 5;
-  const outside = VOICE[0].to + 20;
+  const inside = VOICE[3].from + 5;
+  const outside = VOICE[3].to + 20;
   assert.equal(musicGainDb(inside), -10);
   assert.equal(sfxGainDb(inside), -6);
   assert.equal(musicGainDb(outside), 0);
   assert.equal(sfxGainDb(outside), 0);
-  const mid = VOICE[0].from - 4;
+  const mid = VOICE[3].from - 4;
   assert.ok(musicGainDb(mid) < 0 && musicGainDb(mid) > -10);
   assert.ok(sfxGainDb(mid) < 0 && sfxGainDb(mid) > -6);
+});
+
+test('before the lift of the track the music is raised by PRELIFT_DB and steps down over 12 frames that end 3 frames before the lift', () => {
+  assert.equal(PRELIFT_DB, 6);
+  assert.equal(preLiftDb(0), 6);
+  assert.equal(preLiftDb(LIFT_FRAME - 15), 6);
+  assert.equal(preLiftDb(LIFT_FRAME - 3), 0);
+  assert.equal(preLiftDb(LIFT_FRAME), 0);
+  assert.equal(preLiftDb(FRAMES - 1), 0);
+  assert.equal(musicGainDb(VOICE[1].from + 5), -10 + PRELIFT_DB);
+  for (let f = 1; f < FRAMES; f++) assert.ok(Math.abs(preLiftDb(f) - preLiftDb(f - 1)) <= PRELIFT_DB / PRELIFT_RAMP + 1e-9, `step at ${f}`);
+  for (let f = 1; f < FRAMES; f++) assert.ok(Math.abs(musicGainDb(f) - musicGainDb(f - 1)) <= 10 / 7 + PRELIFT_DB / PRELIFT_RAMP + 1e-9, `music step at ${f}`);
+  assert.equal(sfxGainDb(5), -6 * voiceDuck(5));
 });
 
 test('the promo sounds play only in a context of the promo length', () => {
@@ -44,10 +57,6 @@ test('the promo sounds play only in a context of the promo length', () => {
   assert.equal(isPromoContext(len(FRAMES) - 1, 48000), true);
   assert.equal(isPromoContext(len(FRAMES) + 5, 48000), false);
   for (const other of [FILM_LENGTH, INTRO_FRAMES, FILM_FRAMES]) assert.equal(isPromoContext(len(other), 48000), false, `${other}`);
-});
-
-test('no music segments before the user picks a track', () => {
-  assert.equal(PROMO_MUSIC.length, 0);
 });
 
 test('no banned or Cantonese text anywhere in the promo', () => {
