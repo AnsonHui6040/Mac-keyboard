@@ -471,6 +471,40 @@ git commit -m "feat(video): slow the first 18 seconds of the v0.2 promo"
 
 ---
 
+### Task 6c: 換電腦後只停 1.5 秒（使用者 2026-11-18 看放慢版後要求）
+
+**Files：**
+- Modify: `video/src/promo/timeline.ts`、`timeline.test.ts`、`cameras.test.ts`（`events.ts`、`cuts.ts`、`state.ts` 與其測試只在時間改變令測試需要時才改）
+- Modify（重新產生／更新）：`docs/video/promo-v0.2.srt`、`docs/video/promo-v0.2-storyboard.md`、`docs/video/promo-v0.2-youtube.md`、`docs/superpowers/verification/2026-11-17-promo-film-v0.2.md`
+
+**Interfaces：**
+- Produces：`HOLD_AFTER_TAP = 45`（幀）；`L_CUT: readonly SegId[] = ['3', '5']`。第 3、5 段長度 = `Math.round(PAD * FPS) + Math.round(manifest[第 03／05 句].firstPause * FPS) + HOLD_AFTER_TAP`（不再看 `SEG_MIN` 與旁白長度）。`VOICE` 中第 04、06 句的 `from` = `max(該段開始 + 6, 上一句 to + 9)`。
+
+- [ ] **Step 1：改測試，預期 FAIL**
+
+```ts
+// timeline.test.ts：FRAMES === 1983
+// timeline.test.ts：第 03、05 句 to 可以超過所在段落 to，但最多 21 幀；其他句仍在自己段落內（前後各 6 幀）
+// timeline.test.ts：任兩句旁白之間至少隔 9 幀（第 03→04、05→06 也一樣），第 04、06 句在自己段落內講完
+// cameras.test.ts：HOST_TAPS[0] + 45 === seg('3').to；HOST_TAPS[1] + 45 === seg('5').to（取代「至少 75 幀」）
+// cameras.test.ts：第 2 到 7 段每個 cut 仍至少 30 幀
+```
+
+- [ ] **Step 2：改 `timeline.ts`，測試 PASS；其他 promo 測試全部通過**
+
+- [ ] **Step 3：重新產生 SRT，更新三份文件（章節第一個 0:00、至少三個、每個至少 10 秒），`npm test`、`kinetograph check`、lint（每 15 幀）0 error**
+
+- [ ] **Step 4：`bash scripts/render-promo.sh` 重新輸出；`ffprobe` 幀數等於 `FRAMES`；響度 -14 LUFS ± 0.4、true peak ≤ -1.0 dBTP；舊片指紋與基準相同；抽幀給主代理看（`HOST_TAPS[0]`、`HOST_TAPS[1]` 各 +40 幀與各段最後一幀，以及第 4、6 段第 10 幀）**
+
+- [ ] **Step 5：Commit**
+
+```bash
+git add video/src/promo docs/video docs/superpowers
+git commit -m "feat(video): hold the new host name for 1.5 s in the v0.2 promo"
+```
+
+---
+
 ### Task 7: 音樂（第二階段，要等使用者提供音檔）
 
 **Files：**
