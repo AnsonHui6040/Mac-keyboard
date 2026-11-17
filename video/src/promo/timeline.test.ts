@@ -7,7 +7,7 @@ import { FORBIDDEN, FRAMES as FILM_FRAMES_OLD, captionLength } from '../film/tim
 import manifest from './voice-manifest.json' with { type: 'json' };
 import { NARRATION } from './narration.ts';
 import { toSrt } from './srt.ts';
-import { END_CARD, FPS, FRAMES, PAD, PAD_RATE, PAD_START, SEG2_DRAFT_AT, SEGMENTS, SEG_MIN, TITLES, VOICE, padFrame, seg, voice } from './timeline.ts';
+import { END_CARD, FPS, FRAMES, HOLD_AFTER_TAP, L_CUT, PAD, PAD_RATE, PAD_START, SEG2_DRAFT_AT, SEGMENTS, SEG_MIN, TITLES, VOICE, padFrame, seg, voice } from './timeline.ts';
 
 const m = manifest as Record<string, { seconds: number; firstPause: number | null }>;
 const clean = (x: number): number => Math.round(x * 1e6) / 1e6;
@@ -17,8 +17,20 @@ test('segment length is the longer of the picture minimum and the voice plus pad
   assert.deepEqual(SEG_MIN, { '1': 4.0, '2': 12.5, '3': 4.5, '4': 9.5, '5': 4.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 });
   for (const n of NARRATION) {
     const s = seg(n.seg);
+    if (L_CUT.includes(n.seg)) continue;
     assert.equal(s.to - s.from, Math.ceil(clean(Math.max(SEG_MIN[n.seg], m[n.id].seconds + 2 * PAD) * FPS)), n.seg);
   }
+});
+
+test('segments 3 and 5 end HOLD_AFTER_TAP frames after the host tap', () => {
+  assert.equal(HOLD_AFTER_TAP, 45);
+  assert.deepEqual(L_CUT, ['3', '5']);
+  for (const [sid, id] of [['3', '03'], ['5', '05']] as const) {
+    const s = seg(sid);
+    assert.equal(s.to - s.from, PADF + Math.round(m[id].firstPause! * FPS) + HOLD_AFTER_TAP, sid);
+  }
+  assert.equal(seg('3').to - seg('3').from, 70);
+  assert.equal(seg('5').to - seg('5').from, 76);
 });
 
 test('segments are contiguous from 0 and FRAMES is at most 2130', () => {
@@ -27,7 +39,7 @@ test('segments are contiguous from 0 and FRAMES is at most 2130', () => {
   for (let i = 1; i < SEGMENTS.length; i++) assert.equal(SEGMENTS[i].from, SEGMENTS[i - 1].to);
   assert.equal(SEGMENTS[9].to, FRAMES);
   assert.ok(FRAMES <= 2130);
-  assert.equal(FRAMES, 2092);
+  assert.equal(FRAMES, 1983);
 });
 
 test('FRAMES differs from every other composition', () => {
@@ -35,15 +47,22 @@ test('FRAMES differs from every other composition', () => {
   for (const o of others) assert.notEqual(FRAMES, o);
 });
 
-test('every line sits inside its segment with PAD on both sides, lines at least 9 frames apart', () => {
+test('lines 03 and 05 may run up to 21 frames into the next shot, the others sit inside their segment with PAD on both sides, lines at least 9 frames apart', () => {
   assert.equal(VOICE.length, 10);
   for (const n of NARRATION) {
     const s = seg(n.seg);
     const v = voice(n.id);
-    assert.equal(v.from, s.from + PADF, n.id);
     assert.equal(v.to, v.from + Math.ceil(clean(m[n.id].seconds * FPS)), n.id);
-    assert.ok(v.to <= s.to - PADF, n.id);
+    if (L_CUT.includes(n.seg)) {
+      assert.equal(v.from, s.from + PADF, n.id);
+      assert.ok(v.to > s.to && v.to - s.to <= 21, `${n.id} runs ${v.to - s.to} frames over`);
+    } else {
+      assert.ok(v.from >= s.from + PADF, n.id);
+      assert.ok(v.to <= s.to - PADF, n.id);
+    }
   }
+  assert.equal(voice('04').from, Math.max(seg('4').from + PADF, voice('03').to + 9));
+  assert.equal(voice('06').from, Math.max(seg('6').from + PADF, voice('05').to + 9));
   for (let i = 1; i < VOICE.length; i++) assert.ok(VOICE[i].from - VOICE[i - 1].to >= 9, VOICE[i].id);
 });
 

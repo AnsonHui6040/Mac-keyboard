@@ -52,12 +52,12 @@ test('cuts cover the film with no gap and follow the segments', () => {
   assert.deepEqual([of('1'), of('8'), of('9'), of('10')].map((a) => a.map((c) => c.dev)), [['hero'], ['stage'], ['wide'], ['card']]);
 });
 
-test('slower pace: every cut of segments 2 to 7 is at least 30 frames, the Mac cuts of segment 2 at least 45, the host names stay 75 frames', () => {
+test('slower pace: every cut of segments 2 to 7 is at least 30 frames, the Mac cuts of segment 2 at least 45, the host names stay 45 frames after the tap', () => {
   for (const c of CUTS.filter((x) => x.from >= seg('2').from && x.to <= seg('7').to)) assert.ok(c.to - c.from >= 30, `cut ${c.id} is ${c.to - c.from} frames`);
   const s2 = CUTS.filter((c) => c.from >= seg('2').from && c.to <= seg('2').to);
   for (const c of s2.filter((x) => x.dev === 'mac')) assert.ok(c.to - c.from >= 45, `Mac cut ${c.id} is ${c.to - c.from} frames`);
-  assert.ok(HOST_TAPS[0] + 75 <= seg('3').to, 'the Windows name stays 75 frames');
-  assert.ok(HOST_TAPS[1] + 75 <= seg('5').to, 'the Linux name stays 75 frames');
+  assert.equal(HOST_TAPS[0] + 45, seg('3').to, 'the Windows name stays 1.5 s');
+  assert.equal(HOST_TAPS[1] + 45, seg('5').to, 'the Linux name stays 1.5 s');
 });
 
 test('the first Mac cut of segment 2 shows the letters arrive one by one, and the whole line stays in frame', () => {

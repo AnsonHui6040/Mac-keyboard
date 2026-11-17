@@ -21,12 +21,20 @@ export const SEG_MIN: Record<SegId, number> = { '1': 4.0, '2': 12.5, '3': 4.5, '
 const frames = (s: number): number => Math.ceil(Math.round(s * FPS * 1e6) / 1e6);
 const PAD_FRAMES = Math.round(PAD * FPS);
 
+/** Frames the new host name stays on screen after the finger taps it (1.5 s). */
+export const HOLD_AFTER_TAP = 45;
+/** Segments whose line may run into the next shot (L-cut). */
+export const L_CUT: readonly SegId[] = ['3', '5'];
+
 export type Segment = { id: SegId; from: number; to: number };
 export const SEGMENTS: readonly Segment[] = (() => {
   let t = 0;
   return SEG_IDS.map((id) => {
     const from = t;
-    t += frames(Math.max(SEG_MIN[id], manifest[LINE_OF[id]].seconds + 2 * PAD));
+    const m = manifest[LINE_OF[id]];
+    t += L_CUT.includes(id)
+      ? PAD_FRAMES + Math.round(m.firstPause! * FPS) + HOLD_AFTER_TAP
+      : frames(Math.max(SEG_MIN[id], m.seconds + 2 * PAD));
     return { id, from, to: t };
   });
 })();
@@ -38,10 +46,16 @@ export const FRAMES: number = SEGMENTS[SEGMENTS.length - 1].to;
 /** The frame the finger presses 「草稿」: the live title ends and the draft title starts. */
 export const SEG2_DRAFT_AT: number = seg('2').from + Math.round(5.6 * FPS);
 
-export const VOICE: readonly { id: LineId; from: number; to: number }[] = NARRATION.map((n) => {
-  const from = seg(n.seg).from + PAD_FRAMES;
-  return { id: n.id, from, to: from + frames(manifest[n.id].seconds) };
-});
+/** Each line starts PAD after its segment, or 9 frames after the previous line when that one runs over. */
+export const VOICE: readonly { id: LineId; from: number; to: number }[] = (() => {
+  const out: { id: LineId; from: number; to: number }[] = [];
+  for (const n of NARRATION) {
+    const own = seg(n.seg).from + PAD_FRAMES;
+    const from = out.length ? Math.max(own, out[out.length - 1].to + 9) : own;
+    out.push({ id: n.id, from, to: from + frames(manifest[n.id].seconds) });
+  }
+  return out;
+})();
 export const voice = (id: LineId): { from: number; to: number } => {
   const v = VOICE.find((x) => x.id === id)!;
   return { from: v.from, to: v.to };
