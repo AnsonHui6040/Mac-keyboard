@@ -15,7 +15,7 @@ const SEG_IDS: readonly SegId[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 
 const LINE_OF: Record<SegId, LineId> = Object.fromEntries(NARRATION.map((n) => [n.seg, n.id])) as Record<SegId, LineId>;
 
 /** What the picture needs, in seconds. */
-export const SEG_MIN: Record<SegId, number> = { '1': 4.0, '2': 9.0, '3': 2.5, '4': 9.5, '5': 2.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 };
+export const SEG_MIN: Record<SegId, number> = { '1': 4.0, '2': 12.5, '3': 4.5, '4': 9.5, '5': 4.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 };
 
 /** Seconds to frames without floating-point dust (12.8 s times 30 is 384.00000000000006). */
 const frames = (s: number): number => Math.ceil(Math.round(s * FPS * 1e6) / 1e6);
@@ -35,6 +35,8 @@ export const seg = (id: SegId): { from: number; to: number } => {
   return { from: s.from, to: s.to };
 };
 export const FRAMES: number = SEGMENTS[SEGMENTS.length - 1].to;
+/** The frame the finger presses 「草稿」: the live title ends and the draft title starts. */
+export const SEG2_DRAFT_AT: number = seg('2').from + Math.round(5.6 * FPS);
 
 export const VOICE: readonly { id: LineId; from: number; to: number }[] = NARRATION.map((n) => {
   const from = seg(n.seg).from + PAD_FRAMES;
@@ -62,7 +64,6 @@ const TOP = { x: 96, y: 64, size: 88, width: 1560 };
 const HERO_TITLE = { x: 660, y: 720, size: 84, width: 1200 };
 const mk = (id: string, text: string, from: number, to: number, at: { x: number; y: number; size: number; width: number }): Title => ({ id, text, from, to, align: 'left', ...at });
 const inSeg = (id: SegId): [number, number] => [seg(id).from + PAD_FRAMES, seg(id).to - PAD_FRAMES];
-const half = (id: SegId): number => { const [a, b] = inSeg(id); return Math.round((a + b) / 2); };
 const old = (id: string): Title => OLD_TITLES.find((t) => t.id === id)!;
 const padTitle = (oldId: string, id: string): Title => {
   const t = old(oldId);
@@ -71,8 +72,8 @@ const padTitle = (oldId: string, id: string): Title => {
 
 export const TITLES: readonly Title[] = [
   mk('p1', '一支 iPhone 打字到三部電腦', ...inSeg('1'), HERO_TITLE),
-  mk('p2', '即時模式每按一個鍵就送出', inSeg('2')[0], half('2'), TOP),
-  mk('p3', '草稿模式先改好再傳送', half('2'), inSeg('2')[1], TOP),
+  mk('p2', '即時模式每按一個鍵就送出', inSeg('2')[0], SEG2_DRAFT_AT, TOP),
+  mk('p3', '草稿模式先改好再傳送', SEG2_DRAFT_AT, inSeg('2')[1], TOP),
   mk('p4', '點一下換電腦', ...inSeg('3'), TOP),
   mk('p5', '中文可以用手寫', ...inSeg('4'), TOP),
   mk('p6', '也可以在 App 改用速成', ...inSeg('6'), TOP),

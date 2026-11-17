@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import manifestJson from './voice-manifest.json' with { type: 'json' };
-import { FRAMES, SEGMENTS, VOICE, seg, type SegId } from './timeline.ts';
+import { FRAMES, SEG2_DRAFT_AT, SEGMENTS, VOICE, seg, type SegId } from './timeline.ts';
 import { PAD_EVENTS as OLD_PAD_EVENTS } from '../film/events.ts';
 import { padFrame } from './timeline.ts';
 import { CUTS_FX, HOST_TAPS, INK, PAD_EVENTS, PRESSES, SWIPES, hostAt, soundEvents, type PromoPress } from './events.ts';
@@ -65,12 +65,13 @@ test('each segment holds its own presses', () => {
 
   const s2 = inSeg('2');
   assert.equal(s2[0].t, seg('2').from + 12 + 0, 'live typing starts 0.4 s into segment 2');
-  assert.ok(gaps(s2.slice(0, 22)).every((g) => g === 4), 'Hello from my iPhone, four frames a key');
+  assert.ok(gaps(s2.slice(0, 22)).every((g) => g === 6), 'Hello from my iPhone, six frames a key');
   assert.equal(s2[22].key, 'enter');
   assert.equal(s2[23].key, 'toggle:draft');
-  assert.ok(gaps(s2.slice(24, 44)).every((g) => g === 3), 'Chek before sending, three frames a key');
+  assert.equal(s2[23].t, SEG2_DRAFT_AT, 'the draft key is at SEG2_DRAFT_AT');
+  assert.ok(gaps(s2.slice(24, 44)).every((g) => g === 5), 'Chek before sending, five frames a key');
   assert.deepEqual(s2.slice(44).map((p) => p.key), ['draft:3', 'c', 'draft:20', 'enter', 'send']);
-  assert.ok(s2[s2.length - 1].t <= seg('2').from + 240, 'sent by about 8.0 s');
+  assert.ok(s2[s2.length - 1].t <= seg('2').to - 45, 'the Mac shows the sent text for at least 45 frames');
 
   const s7 = inSeg('7');
   assert.equal(s7[1].key, 'trackpadBtn');

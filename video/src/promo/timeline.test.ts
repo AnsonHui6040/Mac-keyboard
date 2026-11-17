@@ -7,27 +7,27 @@ import { FORBIDDEN, FRAMES as FILM_FRAMES_OLD, captionLength } from '../film/tim
 import manifest from './voice-manifest.json' with { type: 'json' };
 import { NARRATION } from './narration.ts';
 import { toSrt } from './srt.ts';
-import { END_CARD, FPS, FRAMES, PAD, PAD_RATE, PAD_START, SEGMENTS, SEG_MIN, TITLES, VOICE, padFrame, seg, voice } from './timeline.ts';
+import { END_CARD, FPS, FRAMES, PAD, PAD_RATE, PAD_START, SEG2_DRAFT_AT, SEGMENTS, SEG_MIN, TITLES, VOICE, padFrame, seg, voice } from './timeline.ts';
 
 const m = manifest as Record<string, { seconds: number; firstPause: number | null }>;
 const clean = (x: number): number => Math.round(x * 1e6) / 1e6;
 const PADF = Math.round(PAD * FPS);
 
 test('segment length is the longer of the picture minimum and the voice plus pads', () => {
-  assert.deepEqual(SEG_MIN, { '1': 4.0, '2': 9.0, '3': 2.5, '4': 9.5, '5': 2.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 });
+  assert.deepEqual(SEG_MIN, { '1': 4.0, '2': 12.5, '3': 4.5, '4': 9.5, '5': 4.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 });
   for (const n of NARRATION) {
     const s = seg(n.seg);
     assert.equal(s.to - s.from, Math.ceil(clean(Math.max(SEG_MIN[n.seg], m[n.id].seconds + 2 * PAD) * FPS)), n.seg);
   }
 });
 
-test('segments are contiguous from 0 and FRAMES is at most 1950', () => {
+test('segments are contiguous from 0 and FRAMES is at most 2130', () => {
   assert.equal(SEGMENTS.length, 10);
   assert.equal(SEGMENTS[0].from, 0);
   for (let i = 1; i < SEGMENTS.length; i++) assert.equal(SEGMENTS[i].from, SEGMENTS[i - 1].to);
   assert.equal(SEGMENTS[9].to, FRAMES);
-  assert.ok(FRAMES <= 1950);
-  assert.equal(FRAMES, 1938);
+  assert.ok(FRAMES <= 2130);
+  assert.equal(FRAMES, 2092);
 });
 
 test('FRAMES differs from every other composition', () => {
@@ -67,6 +67,14 @@ test('titles: text, reading speed, forbidden strings', () => {
     for (const f of FORBIDDEN) assert.ok(!t.text.includes(f), `${t.id} ${f}`);
     assert.ok(t.size >= 76, t.id);
   }
+});
+
+test('the draft title starts on the frame of the draft key and the live title ends there', () => {
+  assert.equal(SEG2_DRAFT_AT, seg('2').from + Math.round(5.6 * FPS));
+  const p2 = TITLES.find((t) => t.id === 'p2')!;
+  const p3 = TITLES.find((t) => t.id === 'p3')!;
+  assert.equal(p2.to, SEG2_DRAFT_AT);
+  assert.equal(p3.from, SEG2_DRAFT_AT);
 });
 
 test('end card lines', () => {
