@@ -14,15 +14,15 @@ private final class FakeLoginService: LoginItemService {
 
 @MainActor
 final class LoginItemTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var service: FakeLoginService!
-
-    override func setUp() async throws {
+    // A fresh test case instance is made for every test method, so a property default is as fresh as setUp was. There is
+    // no `async` setUp on purpose: it costs about 0.1 s per test here.
+    private let defaults: UserDefaults = {
         let name = "rk.tests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: name)
+        let defaults = UserDefaults(suiteName: name)!
         defaults.removePersistentDomain(forName: name)
-        service = FakeLoginService()
-    }
+        return defaults
+    }()
+    private let service = FakeLoginService()
 
     func testFirstLaunchRegistersOnce() {
         let item = LoginItem(service: service, defaults: defaults)

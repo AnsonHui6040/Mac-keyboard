@@ -24,13 +24,10 @@ private final class FakeDriver: CentralDriving {
 
 @MainActor
 final class ReceiverBLECentralTests: XCTestCase {
-    private var driver: FakeDriver!
+    // A fresh test case instance is made for every test method, so a property default is as fresh as setUp was. There is
+    // no `async` setUp on purpose: it costs about 0.1 s per test here.
+    private let driver = FakeDriver()
     private var madeDrivers = 0
-
-    override func setUp() async throws {
-        driver = FakeDriver()
-        madeDrivers = 0
-    }
 
     private func make(
         clock: @escaping () -> Date = Date.init, monotonicMs: @escaping () -> Int64 = MonotonicClock.nowMs,
@@ -616,11 +613,9 @@ private final class FakeCBPeripheral: CBPeripheral {
 
 @MainActor
 final class CoreBluetoothDriverWiringTests: XCTestCase {
-    private var driver: FakeDriver!
-
-    override func setUp() async throws {
-        driver = FakeDriver()
-    }
+    // A fresh test case instance is made for every test method, so a property default is as fresh as setUp was. There is
+    // no `async` setUp on purpose: it costs about 0.1 s per test here.
+    private let driver = FakeDriver()
 
     private let selectUUID = SelectUUID.make(hostId: TestIdentity.hostId)
     private let pairingUUID = UUID(uuidString: GATTServiceSpec.Link.pairingAdvertUUID)!

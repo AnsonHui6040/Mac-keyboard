@@ -264,16 +264,16 @@ final class NWWifiProbeTransportTests: XCTestCase {
         // Every datagram is answered with an empty one: the path dies again and again.
         let phone = try RawLoopbackPhone { _ in [0] }
         defer { phone.stop() }
-        let transport = NWWifiProbeTransport(log: { _ in }, rebuildInterval: 0.4)
+        let transport = NWWifiProbeTransport(log: { _ in }, rebuildInterval: 0.2)
         defer { transport.close() }
         transport.open([WifiTarget(address: "127.0.0.1", port: phone.port)])
-        let end = Date().addingTimeInterval(2)
+        let end = Date().addingTimeInterval(1)
         while Date() < end {
             transport.send(Self.probe)
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTAssertGreaterThanOrEqual(transport.rebuilds, 2, "it does recover each time")
-        XCTAssertLessThanOrEqual(transport.rebuilds, 6, "at most one rebuild per 0.4 s in 2 s")
+        XCTAssertLessThanOrEqual(transport.rebuilds, 6, "at most one rebuild per 0.2 s in 1 s")
         XCTAssertLessThanOrEqual(phone.received, 8, "no flood of probes from the rebuilds")
     }
 

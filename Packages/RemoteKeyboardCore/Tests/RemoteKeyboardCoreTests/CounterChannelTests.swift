@@ -61,7 +61,7 @@ final class CounterChannelTests: XCTestCase {
         XCTAssertThrowsError(try set.sealer(.pointer).seal(plaintext(length: 157))) {
             XCTAssertEqual($0 as? ChannelError, .badLength)
         }
-        XCTAssertEqual(try set.sealer(.pointer).lastCounter, 0, "a refused plaintext does not use a counter")
+        XCTAssertEqual(set.sealer(.pointer).lastCounter, 0, "a refused plaintext does not use a counter")
     }
 
     func testNonceIsPrefixPlusCounter() throws {
