@@ -38,7 +38,7 @@ const PAIRING_WINDOW_MS: u64 = 120_000;
 const BACKOFF: Duration = Duration::from_secs(10);
 /// §6.2, §10 (Provisional)
 const HOLD_AFTER_FAILURE: Duration = Duration::from_secs(60);
-/// While a pointer is playing out, how often the application wants a tick.
+/// While a pointer is playing out, how often the application wants a tick. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
 const FRAME_TICK_MS: u64 = 8;
 const WATCHDOG_TICK_MS: u64 = 25;
 /// While authenticated, how often the injector's readiness is looked at.

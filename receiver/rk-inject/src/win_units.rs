@@ -162,8 +162,8 @@ pub fn typing_schedule(inputs: &[KeyInput], interval_ms: u32) -> Vec<Step<'_>> {
     steps
 }
 
-/// Pointer points to wheel units: 120 units are one notch, and 40 points of finger travel make one notch (Provisional, §8.4
-/// of the trackpad design and the plan's WL8).
+/// Pointer points to wheel units: 120 units are one notch, and 40 points of finger travel make one notch (§8.4 of the trackpad design and the plan's WL8).
+/// Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
 pub const WHEEL_UNITS_PER_POINT: f64 = 120.0 / 40.0;
 
 /// Turns scroll distances in points into whole wheel units for one axis and keeps the part that is left over, so a slow
@@ -470,5 +470,10 @@ mod tests {
         assert_eq!(back.push(-0.75, 0.0), (0, 0));
         assert_eq!(back.push(-0.75, 0.0), (-1, 0), "-1.5 leaves -0.5 behind, truncated toward zero");
         assert_eq!(back.push(-0.5, 0.0), (-1, 0));
+    }
+
+    #[test]
+    fn feel_baseline_wheel_units_per_point() {
+        assert_eq!(WHEEL_UNITS_PER_POINT, 3.0);
     }
 }

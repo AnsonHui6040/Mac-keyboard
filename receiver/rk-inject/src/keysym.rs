@@ -47,7 +47,7 @@ pub fn paste_worst_case() -> Duration {
     PORTAL_CALL_TIMEOUT * PORTAL_CALLS_PER_PASTE + OWNER_WAIT + ORIGINAL_READ_TIMEOUT + PASTE_SETTLE + PASTE_WAIT + Duration::from_secs(1)
 }
 
-/// Provisional: portal scroll units per iPhone point.
+/// Portal scroll units per iPhone point. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
 pub const SCROLL_GAIN: f64 = 1.0;
 
 pub fn button_code(b: Button) -> i32 {
@@ -409,5 +409,12 @@ mod tests {
     fn scroll_content_follows_the_finger() {
         assert_eq!(scroll_axis(0.0, 10.0), (0.0, -10.0));
         assert_eq!(scroll_axis(-4.0, 0.0), (4.0, 0.0));
+    }
+
+    #[test]
+    fn feel_baseline_linux_scroll_and_move_constants() {
+        assert_eq!(SCROLL_GAIN, 1.0);
+        assert_eq!(SCROLL_IDLE, Duration::from_millis(150));
+        assert_eq!(MOVE_MAX_HZ, 120);
     }
 }
