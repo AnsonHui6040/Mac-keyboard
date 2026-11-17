@@ -137,7 +137,7 @@ const GROUPS = SEGMENTS.map((sg) => {
 const lerp = (a: number, b: number, u: number): number => a + (b - a) * u;
 export const promoFingerAt = (frame: number): KeyFinger => {
   const g = GROUPS.find((x) => frame >= x.from && frame < x.to);
-  if (!g) return { x: 0, y: 0, visible: false, press: 0, opacity: 0 };
+  if (!g || promoPhoneAt(frame).kb === 'trackpad') return { x: 0, y: 0, visible: false, press: 0, opacity: 0 };
   const opacity = Math.min(1, (frame - g.from + 1) / 4, (g.to - frame) / 4);
   const segs = g.segs;
   let i = -1;

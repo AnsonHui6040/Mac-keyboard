@@ -99,6 +99,7 @@ test('the finger is hidden outside the keyboard pages and on the pad', () => {
     assert.equal(k.press, 1);
     assert.ok(k.opacity > 0);
   }
+  for (const f of all) if (promoPhoneAt(f).kb === 'trackpad') assert.equal(promoFingerAt(f).visible, false, `pad page at frame ${f}`);
   const hand = promoFingerAt(seg('4').from + 70);
   assert.equal(hand.visible, true, 'the finger draws the ink');
   assert.equal(promoInkAt(seg('4').from + 20).length, 0);

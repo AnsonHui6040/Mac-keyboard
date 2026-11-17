@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import manifestJson from './voice-manifest.json' with { type: 'json' };
 import { FRAMES, SEGMENTS, VOICE, seg, type SegId } from './timeline.ts';
+import { PAD_EVENTS as OLD_PAD_EVENTS } from '../film/events.ts';
+import { padFrame } from './timeline.ts';
 import { CUTS_FX, HOST_TAPS, INK, PAD_EVENTS, PRESSES, SWIPES, hostAt, soundEvents, type PromoPress } from './events.ts';
 
 const manifest = manifestJson as Record<string, { firstPause: number | null }>;
@@ -146,4 +148,12 @@ test('sounds: one per press, good after each send, success after the last letter
   assert.deepEqual(of('ink').map((e) => e.frame), INK.map((w) => w.from));
   for (const e of ev) assert.ok(e.frame >= 0 && e.frame < FRAMES);
   assert.deepEqual(ev.map((e) => e.frame), [...ev.map((e) => e.frame)].sort((a, b) => a - b));
+});
+
+test('every pad event maps back through padFrame to the old shot 21 frame within one frame', () => {
+  assert.equal(PAD_EVENTS.length, OLD_PAD_EVENTS.length);
+  PAD_EVENTS.forEach((e, i) => {
+    assert.equal(e.what, OLD_PAD_EVENTS[i].what);
+    assert.ok(Math.abs(padFrame(e.frame) - OLD_PAD_EVENTS[i].frame) <= 1, `${e.what}: ${padFrame(e.frame)} vs ${OLD_PAD_EVENTS[i].frame}`);
+  });
 });

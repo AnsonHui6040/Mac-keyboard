@@ -7,7 +7,7 @@ import manifestJson from './voice-manifest.json' with { type: 'json' };
 import { STROKES, strokeLength } from '../intro/ink.ts';
 import { PAD_AT, PAD_EVENTS as OLD_PAD_EVENTS, type Fx, type PadWhat, type SoundKind } from '../film/events.ts';
 import type { KbName } from '../film/layout.ts';
-import { FRAMES, PAD_RATE, PAD_START, seg, voice, type LineId, type SegId } from './timeline.ts';
+import { FRAMES, newFrame, seg, voice, type LineId, type SegId } from './timeline.ts';
 
 export type { SoundKind };
 export const MAC_DELAY = 2;
@@ -133,10 +133,8 @@ export const INK: readonly { from: number; to: number }[] = (() => {
 })();
 
 // --- the trackpad: the events of old shot 21, through padFrame backwards ---
-const OLD_PAD_FIRST = 876;
-const toPromo = (old: number): number => Math.round(PAD_START + (old - OLD_PAD_FIRST) / PAD_RATE);
-export const PAD_EVENTS: readonly { frame: number; what: PadWhat }[] = OLD_PAD_EVENTS.map((e) => ({ frame: toPromo(e.frame), what: e.what }));
-export const PAD_FRAMES = { fingersIn: toPromo(PAD_AT.fingersIn) };
+export const PAD_EVENTS: readonly { frame: number; what: PadWhat }[] = OLD_PAD_EVENTS.map((e) => ({ frame: newFrame(e.frame), what: e.what }));
+export const PAD_FRAMES = { fingersIn: newFrame(PAD_AT.fingersIn) };
 
 // --- sound ---
 export type PromoSoundKind = SoundKind | 'host';
