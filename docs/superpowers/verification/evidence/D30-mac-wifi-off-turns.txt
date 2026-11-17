@@ -1,0 +1,55 @@
+# measure-trackpad target=mac host="Mac" label=wifi_pointer=off_pattern=turns strokes_asked=20 strokes_drawn=20 window=2026-11-17T00:14:05.920Z..2026-11-17T00:15:13.590Z (Mac clock) receiver_clock_offset_s=0 xcodebuild_exit=0 timing_lines=28
+# wifi_pointer=off RKWIFI setting=off alert=none path_start=bluetooth path_end=bluetooth pattern=turns seed=1
+
+## Aggregated
+field       count     median        max
+stalled        13          1          2
+longest        13          3          4
+squeezes       13        119        137
+cb50           13          7          7
+cb95           13          7          7
+margin10       13          6          6
+margin50       13          6          6
+gain50         13       0.27       0.29
+gain90         13       0.31       0.31
+starve         13          1         24
+starve95       13          3         24
+starvemax      13          3         24
+starvedt50     13         17         33
+starvegap50     13         30         46
+lag            13         43         59
+jit            13         25         33
+rate           13         46         59
+p50            13         15         15
+p95            13         30         30
+interval       13         15         15
+backlog        13          8         25
+## Raw timing lines (numbers only)
+2026-11-17 08:14:04.395 pointer open
+2026-11-17 08:14:09.399 pointer diag stalled=0 longest=0 squeezes=73 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.26 gain90=0.30 starve=24 starve95=14 starvemax=24 starvedt50=17 starvegap50=30 lag=49 jit=33
+2026-11-17 08:14:09.400 pointer link rate=59 p50=15 p95=30 interval=15 backlog=25
+2026-11-17 08:14:14.402 pointer diag stalled=1 longest=4 squeezes=125 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.28 gain90=0.31 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=54 jit=32
+2026-11-17 08:14:14.403 pointer link rate=46 p50=15 p95=30 interval=15 backlog=11
+2026-11-17 08:14:20.399 pointer diag stalled=1 longest=3 squeezes=110 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.28 gain90=0.30 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=35 jit=14
+2026-11-17 08:14:20.400 pointer link rate=45 p50=15 p95=30 interval=15 backlog=8
+2026-11-17 08:14:25.402 pointer diag stalled=0 longest=1 squeezes=132 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.29 gain90=0.31 starve=3 starve95=16 starvemax=16 starvedt50=33 starvegap50=30 lag=43 jit=29
+2026-11-17 08:14:25.403 pointer link rate=47 p50=15 p95=30 interval=15 backlog=10
+2026-11-17 08:14:31.402 pointer diag stalled=0 longest=2 squeezes=137 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.27 gain90=0.30 starve=1 starve95=15 starvemax=15 starvedt50=18 starvegap50=46 lag=59 jit=33
+2026-11-17 08:14:31.404 pointer link rate=47 p50=15 p95=30 interval=15 backlog=16
+2026-11-17 08:14:37.402 pointer diag stalled=2 longest=4 squeezes=119 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.26 gain90=0.30 starve=1 starve95=3 starvemax=3 starvedt50=17 starvegap50=46 lag=46 jit=25
+2026-11-17 08:14:37.403 pointer link rate=45 p50=15 p95=30 interval=15 backlog=15
+2026-11-17 08:14:43.400 pointer diag stalled=1 longest=2 squeezes=102 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.26 gain90=0.30 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=33 jit=10
+2026-11-17 08:14:43.401 pointer link rate=34 p50=15 p95=30 interval=15 backlog=-1
+2026-11-17 08:14:48.401 pointer diag stalled=1 longest=3 squeezes=125 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.27 gain90=0.31 starve=1 starve95=13 starvemax=13 starvedt50=33 starvegap50=44 lag=41 jit=19
+2026-11-17 08:14:48.401 pointer link rate=47 p50=15 p95=30 interval=15 backlog=8
+2026-11-17 08:14:54.402 pointer diag stalled=1 longest=2 squeezes=113 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.29 gain90=0.31 starve=3 starve95=24 starvemax=24 starvedt50=17 starvegap50=30 lag=55 jit=33
+2026-11-17 08:14:54.403 pointer link rate=46 p50=15 p95=30 interval=15 backlog=7
+2026-11-17 08:14:59.402 pointer diag stalled=1 longest=3 squeezes=127 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.27 gain90=0.30 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=39 jit=17
+2026-11-17 08:14:59.403 pointer link rate=46 p50=15 p95=30 interval=15 backlog=3
+2026-11-17 08:15:05.401 pointer diag stalled=1 longest=4 squeezes=123 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.25 gain90=0.31 starve=2 starve95=11 starvemax=11 starvedt50=17 starvegap50=30 lag=52 jit=30
+2026-11-17 08:15:05.402 pointer link rate=47 p50=15 p95=30 interval=15 backlog=4
+2026-11-17 08:15:10.401 pointer diag stalled=1 longest=3 squeezes=103 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.25 gain90=0.31 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=39 jit=18
+2026-11-17 08:15:10.402 pointer link rate=35 p50=15 p95=30 interval=15 backlog=-8
+2026-11-17 08:15:13.784 pointer diag stalled=0 longest=2 squeezes=95 cb50=7 cb95=7 margin10=6 margin50=6 gain50=0.26 gain90=0.31 starve=0 starve95=0 starvemax=0 starvedt50=0 starvegap50=0 lag=20 jit=0
+2026-11-17 08:15:13.785 pointer link rate=43 p50=15 p95=30 interval=15 backlog=9
+2026-11-17 08:15:13.785 pointer closed packets=2780 rejected=0 udp=0
