@@ -149,9 +149,9 @@ const FolderWindow = ({ u, scrollY }: { u: number; scrollY: number }) => {
 };
 
 /** The Mac at a frame. */
-/** `stage` is true in the 3D shots, where the pointer is drawn larger so it is at least 44 px on the frame. */
-export const MacScreen = ({ f, stage = false }: { f: number; stage?: boolean }) => {
-  const m = macAt(f);
+/** `state` defaults to the film's Mac at `f`. `stage` is true in the 3D shots, where the pointer is drawn larger so it is at least 44 px on the frame. */
+export const MacScreen = ({ f, stage = false, state }: { f: number; stage?: boolean; state?: MacState }) => {
+  const m = state ?? macAt(f);
   const t = m.track;
   return (
     <Layer>

@@ -20,7 +20,7 @@ const RIM = { color: '#4d4f55', metallic: 1, roughness: 0.5, doubleSided: true }
 const DECK = { color: '#6b6d73', metallic: 1, roughness: 0.5, doubleSided: true };
 const KEY_GRID: [number, number][] = [0, 1, 2, 3, 4].flatMap((r) => Array.from({ length: 14 }, (_, c) => [r, c] as [number, number]));
 
-const Pinned = ({ w, h, pin, round = 0, children }: { w: number; h: number; pin: Corners; round?: number; children: ReactNode }) => (
+export const Pinned = ({ w, h, pin, round = 0, children }: { w: number; h: number; pin: Corners; round?: number; children: ReactNode }) => (
   <Layer layout={{ width: w, height: h }} effects={[cornerPin(pin)]}>
     <Layer layoutItem={abs} clip={round > 0 ? { kind: 'path', d: roundedRectPath(0, 0, w, h, round) } : undefined}>{children}</Layer>
   </Layer>
@@ -46,7 +46,7 @@ export const LaptopBody = ({ screen }: { screen?: string }) => (
   </>
 );
 
-const Lights = () => (
+export const Lights = () => (
   <>
     <AmbientLight intensity={0.04} />
     <DirectionalLight direction={[0.9, -0.15, -0.5]} intensity={1.0} />
@@ -55,14 +55,14 @@ const Lights = () => (
   </>
 );
 
-const Bodies = ({ stage, mac = true, phone = true, macScreen }: { stage: Stage; mac?: boolean; phone?: boolean; macScreen?: string }) => (
+export const Bodies = ({ stage, mac = true, phone = true, macScreen }: { stage: Stage; mac?: boolean; phone?: boolean; macScreen?: string }) => (
   <>
     {mac && <Group3D position={stage.macPos} rotation={stage.macRot}><LaptopBody screen={macScreen} /></Group3D>}
     {phone && <Group3D position={stage.phonePos} rotation={stage.phoneRot}><PhoneBody /></Group3D>}
   </>
 );
 
-const Scene = ({ id, cam, children }: { id: string; cam: Cam; children: ReactNode }) => (
+export const Scene = ({ id, cam, children }: { id: string; cam: Cam; children: ReactNode }) => (
   <Scene3D id={id} width={1920} height={1080} msaa={4} environment={{ src: staticFile('film/env.png'), intensity: 0.45 }}>
     <Camera3D fov={cam.fov} position={cam.position} target={cam.target} far={80} />
     <Lights />
