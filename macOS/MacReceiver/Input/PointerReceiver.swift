@@ -40,8 +40,9 @@ enum PointerTransport: String {
 final class PointerReceiver: ObservableObject {
     static let enabledKey = "rk.pointerEnabled"
     static let maxConsecutiveFailures = 8
+    /// Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     static let watchdogInterval: TimeInterval = 0.05
-    /// Playout is waiting and the frame source has delivered nothing for this long: it is started again.
+    /// Playout is waiting and the frame source has delivered nothing for this long: it is started again. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     static let frameStallMicros: UInt64 = 200_000
     static let osLog = Logger(subsystem: "com.ansonhui.remotekeyboard.receiver", category: "pointer")
 

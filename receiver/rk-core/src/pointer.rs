@@ -391,7 +391,7 @@ struct Segment {
 /// between bursts, while a link with one packet per 15 ms keeps the 20 ms bound. `take`
 /// hands out what has become due; movements with a different `dragging` state are never added into one output. `flush`
 /// hands out everything left, `discard` drops it. The displacement that goes in is the displacement that comes out, up to
-/// floating-point rounding. The constants are Provisional until measured on a device.
+/// floating-point rounding. The constants are fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
 #[derive(Debug, Default)]
 pub struct PointerPlayout {
     segments: Vec<Segment>,
@@ -1933,5 +1933,35 @@ mod tests {
     #[test]
     fn debug_output_hides_the_state() {
         assert_eq!(format!("{:?}", rig(true).host), "PointerReceiver([redacted])");
+    }
+
+    #[test]
+    fn feel_baseline_acceleration_constants() {
+        use super::acceleration::*;
+        assert_eq!(BASE_GAIN, 1.25);
+        assert_eq!(MAX_GAIN, 3.5);
+        assert_eq!(KNEE_SPEED, 550.0);
+        assert_eq!(MIN_DT_SECONDS, 0.005);
+        assert_eq!(MAX_DT_SECONDS, 0.150);
+    }
+
+    #[test]
+    fn feel_baseline_playout_constants() {
+        assert_eq!(PointerPlayout::MAX_LAG_MICROS, 20_000);
+        assert_eq!(PointerPlayout::MIN_SPAN_MICROS, 4_000);
+        assert_eq!(PointerPlayout::MAX_SPAN_MICROS, 50_000);
+        assert_eq!(PointerPlayout::LAG_MARGIN_MICROS, 5_000);
+        assert_eq!(PointerPlayout::DEFAULT_SPAN_MICROS, 8_000);
+        assert_eq!(PointerPlayout::MAX_ADAPTIVE_LAG_MICROS, 60_000);
+        assert_eq!(PointerPlayout::BURST_GAP_MICROS, 4_000);
+        assert_eq!(PointerPlayout::MAX_PERIOD_GAP_MICROS, 100_000);
+        assert_eq!(PointerPlayout::FORGET_GAP_MICROS, 300_000);
+        assert_eq!(PointerPlayout::PERIOD_HISTORY, 8);
+    }
+
+    #[test]
+    fn feel_baseline_watchdog_constants() {
+        assert_eq!(BUTTON_WATCHDOG_MICROS, 350_000);
+        assert_eq!(SCROLL_WATCHDOG_MICROS, 150_000);
     }
 }

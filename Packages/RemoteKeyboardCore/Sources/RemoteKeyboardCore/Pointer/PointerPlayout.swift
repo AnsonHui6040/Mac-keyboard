@@ -22,15 +22,15 @@ import Foundation
 /// `discard` drops it (the channel is over). Nothing leaves in any other way, so the displacement that went in is the displacement
 /// that comes out, up to floating point rounding.
 public struct PointerPlayout: Sendable {
-    /// The lag floor: the cursor does not trail the packets by more than this, or by the newest packet's span plus the margin if that is more. Provisional until measured on a device.
+    /// The lag floor: the cursor does not trail the packets by more than this, or by the newest packet's span plus the margin if that is more. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let maxLagMicros: UInt64 = 20_000
     public static let minSpanMicros: UInt64 = 4_000
-    /// Provisional, like `maxLagMicros`.
+    /// Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let maxSpanMicros: UInt64 = 50_000
-    /// Added to a segment's own span for the lag bound. Provisional.
+    /// Added to a segment's own span for the lag bound. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let lagMarginMicros: UInt64 = 5_000
     public static let defaultSpanMicros: UInt64 = 8_000
-    /// The cap of the part of the lag bound that follows the arrival period. Provisional.
+    /// The cap of the part of the lag bound that follows the arrival period. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let maxAdaptiveLagMicros: UInt64 = 60_000
     /// An enqueue this much later than the one before opens a new burst.
     public static let burstGapMicros: UInt64 = 4_000
@@ -40,20 +40,20 @@ public struct PointerPlayout: Sendable {
     public static let forgetGapMicros: UInt64 = 300_000
     /// How many gaps the estimate looks at.
     public static let periodHistory = 8
-    /// The most start delay the jitter allowance can reach. Provisional.
+    /// The most start delay the jitter allowance can reach. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let maxJitterMicros: UInt64 = 80_000
-    /// The time in which the jitter allowance halves when the link is clean. Provisional.
+    /// The time in which the jitter allowance halves when the link is clean. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let jitterDecayHalfLifeMicros: UInt64 = 5_000_000
-    /// An allowance below this becomes 0. Provisional.
+    /// An allowance below this becomes 0. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let jitterFloorMicros: UInt64 = 5_000
     /// While the buffer is shorter than the allowance a segment plays this much slower to rebuild it. After a pause that can
-    /// last a few hundred milliseconds (the buffer refills by a quarter of each segment's span). Provisional.
+    /// last a few hundred milliseconds (the buffer refills by a quarter of each segment's span). Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let refillStretch: Double = 1.25
-    /// An arrival gap this much longer than the usual arrival period (and over twice that period) is a radio pause. Provisional.
+    /// An arrival gap this much longer than the usual arrival period (and over twice that period) is a radio pause. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let pauseThresholdMicros: UInt64 = 20_000
-    /// This many pause-sized gaps in a row are taken as a new arrival period, not as pauses. Provisional.
+    /// This many pause-sized gaps in a row are taken as a new arrival period, not as pauses. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let pausesBeforeRelearning = 3
-    /// An enqueue within this time after the previous one belongs to the same stroke. Provisional.
+    /// An enqueue within this time after the previous one belongs to the same stroke. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
     public static let strokeGapMicros: UInt64 = 100_000
 
     private struct Segment {

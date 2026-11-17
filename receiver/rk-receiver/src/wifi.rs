@@ -9,7 +9,7 @@ use rk_core::message::WifiOffer;
 use std::io;
 use std::net::{SocketAddr, SocketAddrV4};
 
-/// §8.6 rule 1 (Provisional, no measurement behind it): one probe per address every 250 ms.
+/// §8.6 rule 1: one probe per address every 250 ms. Fixed by the trackpad feel baseline (docs/superpowers/specs/2026-11-17-trackpad-feel-baseline.md).
 pub const PROBE_INTERVAL_MS: u64 = 250;
 
 /// What the application asks the runner to do on the network.
@@ -180,5 +180,10 @@ mod tests {
         probe[0] = 0x05;
         assert!(!is_pointer_datagram(&probe), "a probe is not a pointer packet");
         assert!(!is_pointer_datagram(&[]));
+    }
+
+    #[test]
+    fn feel_baseline_probe_interval() {
+        assert_eq!(PROBE_INTERVAL_MS, 250);
     }
 }

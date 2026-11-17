@@ -2061,3 +2061,9 @@ fn a_tick_less_than_a_tick_late_keeps_the_anchored_frame_clock() {
     rig.run(effects);
     assert_eq!(rig.app.next_wake_ms(), Some(t0 + 16), "4 ms late: the next frame stays on the 8 ms grid");
 }
+
+#[test]
+fn feel_baseline_tick_constants() {
+    assert_eq!(FRAME_TICK_MS, 8);
+    assert_eq!(WATCHDOG_TICK_MS, 25);
+}
