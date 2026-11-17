@@ -60,7 +60,7 @@
 
 - [ ] **Step 2：執行 `node scripts/gen-promo-voice.mjs measure`**
 
-預期：產生 `voice-manifest.json`，`seconds` 依序約為 3.04、9.12、2.72、7.52、2.80、6.64、2.40、12.80、2.32、6.32；`03`、`05`、`07` 的 `firstPause` 在 0.4 到 1.4 秒之間（「點一下」後的停頓），`08` 的在 1.2 到 3.0 秒之間（「觸控板」後的停頓）。落在範圍外時停下回報，不要改門檻。
+預期：產生 `voice-manifest.json`，`seconds` 依序約為 3.04、9.12、2.72、7.52、2.80、6.64、2.40、12.80、2.32、6.32；`03`、`05`、`07` 的 `firstPause` 在 0.4 到 1.4 秒之間（「點一下」後的停頓），`08` 的在 1.2 到 2.7 秒之間（「觸控板」後的停頓）。落在範圍外時停下回報，不要改門檻。
 
 - [ ] **Step 3：寫失敗的測試 `narration.test.ts`**
 
@@ -72,12 +72,12 @@ test('ten lines, captions verbatim from the spec, spoken differs only in line 10
 test('no banned words in the narration', …)
   // 每句 caption 與 spoken 都不含 '密碼' '零延遲' 'Wi-Fi' '香港'
 test('approved takes are untouched', …)
-  // 讀 public/voice/promo/requests.log（`# replaced` 之前的部分）：01–10 每個 id 剛好一行，approved 欄是日期
+  // 讀 public/voice/promo/requests.log（略過 `#` 開頭的 header，讀到 `# replaced` 為止）：01–10 每個 id 剛好一行，approved 欄是日期
   // 每行的 sha256 === manifest[id].sha256 === 檔案的實際 sha256
 test('manifest durations match the files', …)
   // execFileSync('ffprobe', …) 量到的秒數與 manifest[id].seconds 相差 ≤ 0.01
 test('the pauses that time the taps and the trackpad are where the words are', …)
-  // manifest['03'|'05'|'07'].firstPause 在 [0.4, 1.4]；manifest['08'].firstPause 在 [1.2, 3.0]
+  // manifest['03'|'05'|'07'].firstPause 在 [0.4, 1.4]；manifest['08'].firstPause 在 [1.2, 2.7]（2.77 秒以上會令 PAD_RATE 超過 1.25）
 test('no API key in the repo', …)
   // root = git rev-parse --show-toplevel；execFileSync('git', ['-C', root, 'grep', '-nE', 'sk_[0-9a-f]{20,}', '--', '.', ':!Pods']) 以狀態 1 結束（沒有符合）
 ```
@@ -221,7 +221,7 @@ test('hostAt goes Mac, Windows, Linux, Mac', …)
   // hostAt(0) 'Mac'；hostAt(HOST_TAPS[0]) 'Windows'；hostAt(HOST_TAPS[1]) 'Linux'；hostAt(HOST_TAPS[2]) 'Mac'；hostAt(FRAMES - 1) 'Mac'
 test('each segment holds its own presses', …)
   // 第 2 段：打出 'Hello from my iPhone'、換行、草稿、'Chek before sending'、草稿游標點、'c'、游標點到尾、換行、傳送
-  // 第 4 段：'中英'、手寫、選 '香港'、傳送；第 6 段：cut 到速成、h a 選香、e u、三次滑動、選港、傳送
+  // 第 4 段：'中英'、手寫、選 '香港'、傳送；第 6 段（CUTS_FX 換到速成頁之後）：h a 選香、e u、三次滑動、選港、傳送
   // 第 7 段：host 點擊後 0.4 秒內按 'trackpadBtn'（fx { k: 'ime', to: 'pad' }，與舊片相同），手機換到觸控板頁
   // 第 9 段：CUTS_FX 在 seg('9').from 換回英文即時頁，之後 'Remote Keyboard'（含 shift 共 17 鍵），每 4 幀一鍵
   // 每個 press 的 t 都在它的段落內，而且至少比段落結束早 0.6 秒
