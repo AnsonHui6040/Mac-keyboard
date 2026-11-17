@@ -2,9 +2,9 @@
   "scenes": [
     {
       "n": 1,
-      "seconds": 10,
-      "focus": "把 iPhone 變成 Mac 的藍牙鍵盤",
-      "caption": "Remote Keyboard 把 iPhone 變成 Mac 的藍牙鍵盤和觸控板。接下來一步一步帶你裝好。"
+      "seconds": 12,
+      "focus": "把 iPhone 變成電腦的藍牙鍵盤；本片示範 Mac",
+      "caption": "Remote Keyboard 把 iPhone 變成 Mac、Windows 與 Linux 電腦的藍牙鍵盤和觸控板。這支影片一步一步帶你在 Mac 上裝好。"
     },
     {
       "n": 2,
@@ -105,8 +105,8 @@
     {
       "n": 18,
       "seconds": 21,
-      "focus": "配對新 iPhone；配對 Mac；核對六位數字",
-      "caption": "最後是配對。在 Mac 面板按「配對新 iPhone」。在 iPhone 的 App 按「已配對 Mac」，再按「配對 Mac」。兩邊會顯示同一組六位數字，核對完全相同後，先在 Mac、再在 iPhone 按「確認」。"
+      "focus": "配對新 iPhone；已配對電腦；新增電腦；核對六位數字",
+      "caption": "最後是配對。在 Mac 面板按「配對新 iPhone」。在 iPhone 的 App 按「已配對電腦」，再按「新增電腦」。兩邊會顯示同一組六位數字，核對完全相同後，先在 Mac、再在 iPhone 按「確認」。"
     },
     {
       "n": 19,
@@ -122,9 +122,9 @@
     },
     {
       "n": 21,
-      "seconds": 12,
-      "focus": "7 天內要續簽；完整手冊在 GitHub",
-      "caption": "免費帳號簽署的 App 只有 7 天有效，記得在到期前到 SideStore 續簽。遇到問題，請看 GitHub 上的使用手冊。"
+      "seconds": 21,
+      "focus": "第一次用觸控板時按「允許」區域網路；7 天內要續簽；完整手冊在 GitHub；Windows、Linux 看手冊第 04b、04c 章",
+      "caption": "第一次用觸控板時，Mac 會詢問區域網路，按「允許」。免費帳號簽署的 App 只有 7 天有效，記得在到期前到 SideStore 續簽。遇到問題，請看 GitHub 上的使用手冊。Windows 與 Linux 的接收端，請看手冊第 04b、04c 章。"
     }
   ]
 }

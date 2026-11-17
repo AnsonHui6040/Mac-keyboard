@@ -244,21 +244,34 @@ const PANEL_PAD = 24;
 const PANEL_LINE = 36;
 const PANEL_BTN_H = 52;
 const PANEL_GAP = 12;
-const PANEL_SEP = 42; // gap, hairline, gap between sections
+const PANEL_SEP = 32; // gap, hairline, gap between sections
+const SEP_HALF = (PANEL_SEP - 2) / 2;
 export const PANEL_TEXT = 24;
+/** Size of the small gray lines: the platform under a phone's name, and the note under the 電腦名稱 field. */
+export const PANEL_SMALL = 22;
+/** 電腦名稱: the headline, the field row with 儲存, then the note in two lines. */
+const NAME_HEAD = 36;
+const NAME_FIELD_H = 48;
+const NAME_NOTE_LINE = 26;
+const NAME_H = NAME_HEAD + NAME_FIELD_H + 6 + 2 * NAME_NOTE_LINE;
+/** The paired phone's row: its name, the platform under it, 刪除 at the right. */
+const PHONE_ROW_H = 60;
 
 export type PanelLayout = {
   rect: Rect;
-  /** Top of each section. `warnY` exists only for kind `access`. */
+  /** Top of each section. `warnY` exists only for kind `access`; `nameY` only when the panel has the 電腦名稱 section. */
   warnY?: number;
   statusY: number;
   startY: number;
   pairY: number;
+  nameY?: number;
   tailY: number;
   /** Hairlines between sections. */
   dividers: number[];
-  /** Button rects by name: authorize, openSettings (access); start, stop; pairNew, unpair (idle, access, paired); cancel (waiting, code); confirm (code); done (saved). */
+  /** Button rects by name: authorize, openSettings (access); start, stop; pairNew (idle, access, paired); delete (paired); cancel (waiting, code); confirm (code); done (saved); save (the 電腦名稱 section). */
   buttons: Record<string, Rect>;
+  /** The 電腦名稱 text field. */
+  nameField?: Rect;
 };
 
 const pairHeight = (kind: PanelKind): number => {
@@ -270,14 +283,18 @@ const pairHeight = (kind: PanelKind): number => {
     case 'saved':
       return 2 * 34 + PANEL_GAP + PANEL_BTN_H;
     case 'code':
-      return PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP + PANEL_BTN_H + 8 + PANEL_LINE;
+      return 2 * PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP + PANEL_BTN_H + 8 + PANEL_LINE;
     case 'paired':
-      return PANEL_LINE + 34 + PANEL_GAP + PANEL_BTN_H;
+      return PANEL_LINE + 4 + PHONE_ROW_H + 6 + 34 + PANEL_GAP + PANEL_BTN_H;
   }
 };
 
-/** The Receiver menu bar panel with its top-left at (x, y); every number follows from the section heights. */
-export function panelLayout(kind: PanelKind, x: number, y: number): PanelLayout {
+/**
+ * The Receiver menu bar panel with its top-left at (x, y); every number follows from the section heights.
+ * `withName` adds the 電腦名稱 section between the pairing block and the toggles. The scene 17 panel (kind `access`) leaves it
+ * out: with the red warning on top it would reach below the stage.
+ */
+export function panelLayout(kind: PanelKind, x: number, y: number, withName: boolean = kind !== 'access'): PanelLayout {
   const bx = x + PANEL_PAD;
   const buttons: Record<string, Rect> = {};
   let cy = y + PANEL_PAD;
@@ -294,38 +311,47 @@ export function panelLayout(kind: PanelKind, x: number, y: number): PanelLayout 
   buttons.start = R(bx, cy, 140, PANEL_BTN_H);
   buttons.stop = R(bx + 152, cy, 140, PANEL_BTN_H);
   cy += PANEL_BTN_H;
-  const dividers = [cy + 20];
+  const dividers = [cy + SEP_HALF];
   cy += PANEL_SEP;
   const pairY = cy;
   const by = (offset: number): number => pairY + offset;
   if (kind === 'access' || kind === 'idle') {
     buttons.pairNew = R(bx, by(PANEL_LINE + PANEL_GAP), 250, PANEL_BTN_H);
-    buttons.unpair = R(bx + 250 + 12, by(PANEL_LINE + PANEL_GAP), 140, PANEL_BTN_H);
   } else if (kind === 'waiting') {
     buttons.cancel = R(x + PANEL_W - PANEL_PAD - 92, by(2 * 34 + PANEL_GAP), 92, PANEL_BTN_H);
   } else if (kind === 'code') {
-    const row = by(PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP);
+    const row = by(2 * PANEL_LINE + 8 + 64 + 8 + PANEL_LINE + PANEL_GAP);
     buttons.confirm = R(bx, row, 92, PANEL_BTN_H);
     buttons.cancel = R(bx + 104, row, 92, PANEL_BTN_H);
   } else if (kind === 'saved') {
     buttons.done = R(x + PANEL_W - PANEL_PAD - 92, by(2 * 34 + PANEL_GAP), 92, PANEL_BTN_H);
   } else {
-    buttons.pairNew = R(bx, by(PANEL_LINE + 34 + PANEL_GAP), 250, PANEL_BTN_H);
-    buttons.unpair = R(bx + 250 + 12, by(PANEL_LINE + 34 + PANEL_GAP), 140, PANEL_BTN_H);
+    buttons.delete = R(x + PANEL_W - PANEL_PAD - 92, by(PANEL_LINE + 4 + 8), 92, 44);
+    buttons.pairNew = R(bx, by(PANEL_LINE + 4 + PHONE_ROW_H + 6 + 34 + PANEL_GAP), 250, PANEL_BTN_H);
   }
   cy += pairHeight(kind);
-  dividers.push(cy + 20);
+  dividers.push(cy + SEP_HALF);
   cy += PANEL_SEP;
+  let nameY: number | undefined;
+  let nameField: Rect | undefined;
+  if (withName) {
+    nameY = cy;
+    nameField = R(bx, cy + NAME_HEAD, PANEL_W - 2 * PANEL_PAD - 108, NAME_FIELD_H);
+    buttons.save = R(x + PANEL_W - PANEL_PAD - 96, cy + NAME_HEAD, 96, NAME_FIELD_H);
+    cy += NAME_H;
+    dividers.push(cy + SEP_HALF);
+    cy += PANEL_SEP;
+  }
   const tailY = cy;
   cy += 2 * 44 + PANEL_PAD;
-  return { rect: R(x, y, PANEL_W, cy - y), warnY, statusY, startY, pairY, tailY, dividers, buttons };
+  return { rect: R(x, y, PANEL_W, cy - y), warnY, statusY, startY, pairY, nameY, tailY, dividers, buttons, nameField };
 }
 
 /** Scene 17: the panel hangs from the menu bar icon, its right edge 28 px right of the icon's. */
 export const PANEL17 = panelLayout('access', MENU_ICON.x + MENU_ICON.width + 28 - PANEL_W, MENUBAR_H + 8);
 /** Scenes 18 and 19: the panel floats on the Mac side, left of the iPhone. */
 export const PANEL_X2 = 640;
-export const PANEL_Y2 = 70;
+export const PANEL_Y2 = 20;
 export const PANEL18 = {
   idle: panelLayout('idle', PANEL_X2, PANEL_Y2),
   waiting: panelLayout('waiting', PANEL_X2, PANEL_Y2),
@@ -343,20 +369,26 @@ export const ACCESS_ROW = R(ACCESS_CARD.x, ACCESS_CARD.y + 2 * 72, ACCESS_CARD.w
 export const ACCESS_TOGGLE = R(ACCESS_CARD.x + ACCESS_CARD.width - 24 - 76, ACCESS_ROW.y + 13, 76, 46);
 
 // ---------------------------------------------------------------- scenes 18 and 19: the iPhone pages of pairing (logical)
-/** 設定進度 card on the app's home: three rows of 72; the second is 已配對 Mac. */
+/** 設定進度 card on the app's home: three rows of 72; the second is 已配對電腦. */
 export const SETUP_ROW_PAIR = R(MAIN_CARD.x, MAIN_CARD.y + 72, MAIN_CARD.width, 72);
-/** 已配對 Mac page (not paired yet): two rows, the second is 配對 Mac. */
-export const PAIRPAGE_CARD = R(16, 200, 358, 144);
-export const PAIRPAGE_ROW = R(16, 272, 358, 72);
-/** 配對 Mac while it waits for the Mac. */
-export const PW_CARD = R(16, 200, 358, 170);
-export const PW_CANCEL = R(16, 390, 358, 72);
-/** 配對 Mac with the code: header at y 186, the card, then 確認 and 取消. */
-export const PC_HEAD_Y = 186;
-export const PC_CARD = R(16, 226, 358, 264);
-export const PC_CONFIRM = R(16, 514, 358, 72);
-export const PC_CANCEL = R(16, 586, 358, 72);
-/** 已儲存: a text row, a countdown row, 完成. After 完成 the page says 已配對 Mac with 完成 at the same place. */
+/** 已配對電腦 page, nothing paired yet: a 尚未配對 row, then a section of its own with 新增電腦. */
+export const PAIRPAGE_CARD = R(16, 200, 358, 72);
+export const PAIRPAGE_ROW = R(16, 292, 358, 72);
+/** 已配對電腦 page with one host: the 電腦 header at y 186, the host row (name, platform, check mark), then 新增電腦. */
+export const HOSTS_HEAD_Y = 186;
+export const HOSTS_CARD = R(16, 226, 358, 88);
+export const HOSTS_ADD = R(16, 334, 358, 72);
+/** 新增電腦 while it waits for the computer: the instruction in five lines, a hairline, the countdown; then 取消. */
+export const PW_CARD = R(16, 200, 358, 270);
+export const PW_CANCEL = R(16, 490, 358, 72);
+/** 新增電腦 with the code: 要配對的電腦 (name, platform), 配對碼 (the digits, the hint, the countdown), then 確認 and 取消. */
+export const PC_HOST_HEAD_Y = 186;
+export const PC_HOST_CARD = R(16, 226, 358, 112);
+export const PC_HEAD_Y = 352;
+export const PC_CARD = R(16, 392, 358, 232);
+export const PC_CONFIRM = R(16, 644, 358, 64);
+export const PC_CANCEL = R(16, 708, 358, 64);
+/** 已儲存: a text row, a countdown row, 完成. After 完成 the page says 已配對電腦 with 完成 at the same place. */
 export const PS_CARD = R(16, 200, 358, 244);
 export const PS_DONE = R(16, 372, 358, 72);
 

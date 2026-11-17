@@ -1,4 +1,4 @@
-/** Mac pieces of scenes 17 to 19, drawn in canvas pixels: the Bluetooth question, the menu bar, the Receiver panel, the Accessibility list. */
+/** Mac pieces of scenes 17 to 19 and 21, drawn in canvas pixels: the Bluetooth question, the menu bar, the Receiver panel, the Accessibility list, the local network question. */
 import { Ellipse, Layer, Path, Rect, Text, dropShadow } from '@kinetographdev/core';
 import { RkIcon } from '../components/appIcons.tsx';
 import { Btn } from '../components/ios.tsx';
@@ -6,7 +6,7 @@ import { DialogTitle, MacButton, MacDialog } from '../components/MacDialog.tsx';
 import { MacWindow } from '../components/MacWindow.tsx';
 import { SkeletonLines } from '../components/SkeletonLines.tsx';
 import { theme } from '../theme.ts';
-import { CODE_LEFT, FOCUS_LINE, PAIR_CODE, REMAINING_LINE, WAIT_LEFT } from '../data/pairing.ts';
+import { CODE_LEFT, FOCUS_LINE, HOST_NAME, PAIR_CODE, PHONE_NAME, RECEIVING_LINE, WAIT_LEFT } from '../data/pairing.ts';
 import { DIALOGS, SCREENS, type Rect as Box } from './geometry.ts';
 import * as L from './layouts.ts';
 
@@ -37,6 +37,25 @@ export const BluetoothDialog = () => {
         <RkIcon x={d.x + 40} y={d.y + 40} size={118} />
         <DialogTitle x={d.x + 40} y={d.y + 184}>{'「Remote Keyboard\nReceiver」想要使用藍牙'}</DialogTitle>
         <SkeletonLines x={d.x + 40} y={d.y + 304} widths={[500, 510, 270]} />
+        <MacButton target="deny" rect={b.deny} label="不允許" />
+        <MacButton target="allow" rect={b.allow} label="允許" blue />
+      </MacDialog>
+    </Layer>
+  );
+};
+
+// ------------------------------------------------------------------ local network question (scene 21, beat 0)
+
+/** 「Remote Keyboard Receiver」想要尋找並連接區域網路上的裝置: 不允許 (neutral) and 允許 (blue). Same dialog frame as the Bluetooth question. */
+export const LanDialog = () => {
+  const d = DIALOGS.macLan;
+  const b = SCREENS.macLan;
+  return (
+    <Layer id="screen-macLan">
+      <MacDialog rect={d}>
+        <RkIcon x={d.x + 40} y={d.y + 40} size={118} />
+        <DialogTitle x={d.x + 40} y={d.y + 184}>{'「Remote Keyboard\nReceiver」想要尋找並連接\n區域網路上的裝置'}</DialogTitle>
+        <SkeletonLines x={d.x + 40} y={d.y + 340} widths={[500, 330]} />
         <MacButton target="deny" rect={b.deny} label="不允許" />
         <MacButton target="allow" rect={b.allow} label="允許" blue />
       </MacDialog>
@@ -90,14 +109,16 @@ const Checkbox = ({ x, y }: { x: number; y: number }) => (
 
 export type PanelState = {
   kind: L.PanelKind;
-  /** The link line: not receiving (gray), looking for the iPhone (orange) or connected (green). */
-  link: 'idle' | 'searching' | 'ready';
+  /** The link line: the receiver receives from launch, so it is looking for the iPhone (orange) or connected (green). */
+  link: 'searching' | 'ready';
   /** The Accessibility warning is on top, and the focus line cannot be read. */
   access: boolean;
 };
 
-const LINK_LABEL = { idle: '尚未開始接收', searching: '未連線，正在尋找 iPhone', ready: '已連線' } as const;
-const LINK_DOT = { idle: '#8e8e93', searching: ORANGE, ready: GREEN } as const;
+const LINK_LABEL = { searching: '未連線，正在尋找 iPhone', ready: '已連線' } as const;
+const LINK_DOT = { searching: ORANGE, ready: GREEN } as const;
+/** The three gray hint lines under 配對新 iPhone while nothing is paired. */
+const PAIR_HINTS = ['1 在 iPhone 開啟 Remote Keyboard App', '2 按「配對新 iPhone」', '3 兩邊核對配對碼後按確認'];
 
 /** The menu bar panel at 2x. `kind` picks the pairing block; the layout comes from `panelLayout`. */
 export const ReceiverPanel = ({ layout, state }: { layout: L.PanelLayout; state: PanelState }) => {
@@ -125,31 +146,31 @@ export const ReceiverPanel = ({ layout, state }: { layout: L.PanelLayout; state:
       <Ellipse x={bx} y={line(0) + 11} width={14} height={14} fill={LINK_DOT[state.link]} />
       <T x={bx + 26} y={line(0)} w={inner - 26}>{LINK_LABEL[state.link]}</T>
       <T x={bx} y={line(1)} w={inner} size={state.access ? 23 : L.PANEL_TEXT}>{state.access ? '目前欄位：無法讀取（尚未授權輔助使用）' : FOCUS_LINE}</T>
-      <T x={bx} y={line(2)} w={inner} color={theme.muted}>{state.link === 'idle' ? '待命' : REMAINING_LINE}</T>
-      <PBtn rect={b.start} label="開始接收" />
-      <PBtn rect={b.stop} label="停止接收" dim={state.link === 'idle' ? 0.4 : 1} />
-      <Rect x={bx} y={layout.dividers[0]} width={inner} height={2} fill={theme.hairline} />
+      <T x={bx} y={line(2)} w={inner} color={theme.muted}>{RECEIVING_LINE}</T>
+      <PBtn rect={b.start} label="開始接收" dim={0.4} />
+      <PBtn rect={b.stop} label="停止接收" />
+      {layout.dividers.map((y) => <Rect key={y} x={bx} y={y} width={inner} height={2} fill={theme.hairline} />)}
 
       {(kind === 'access' || kind === 'idle') && (
         <Layer id="pair-idle">
           <T x={bx} y={py} w={inner}>配對：尚未配對</T>
           <PBtn target="pairNew" rect={b.pairNew} label="配對新 iPhone" />
-          <PBtn rect={b.unpair} label="解除配對" dim={0.4} />
-          {[400, 300, 360].map((w, k) => <Rect key={k} x={bx} y={py + 36 + 12 + 52 + 12 + k * 32 + 6} width={w} height={14} radius={7} fill={theme.skeleton.color} />)}
+          {PAIR_HINTS.map((hint, k) => <T key={hint} x={bx} y={py + 36 + 12 + 52 + 12 + k * 32} w={inner} color={theme.muted}>{hint}</T>)}
         </Layer>
       )}
       {kind === 'waiting' && (
         <Layer id="pair-waiting">
-          <T x={bx} y={py} w={inner} lineHeight={34 / L.PANEL_TEXT}>{'請在 iPhone 的 Remote Keyboard\n開啟「配對 Mac」'}</T>
+          <T x={bx} y={py} w={inner} lineHeight={34 / L.PANEL_TEXT}>{'請在 iPhone 的 Remote Keyboard\n開啟「已配對電腦」，再按「新增電腦」'}</T>
           <T x={bx} y={b.cancel.y + mid(b.cancel.height, L.PANEL_TEXT)} color={theme.muted}>{WAIT_LEFT}</T>
           <PBtn target="cancel" rect={b.cancel} label="取消" />
         </Layer>
       )}
       {kind === 'code' && (
         <Layer id="pair-code">
-          <T x={bx} y={py} w={inner}>請核對 iPhone 上的配對碼</T>
-          <T id="pair-code-text" x={bx} y={py + 36 + 8 - 2} size={56} weight={700} w={inner}>{PAIR_CODE}</T>
-          <T x={bx} y={py + 36 + 8 + 64 + 8} w={inner} color={theme.muted}>兩邊相同才按確認</T>
+          <T x={bx} y={py} w={inner}>{`手機：${PHONE_NAME}`}</T>
+          <T x={bx} y={py + 36} w={inner}>請核對 iPhone 上的配對碼</T>
+          <T id="pair-code-text" x={bx} y={py + 72 + 8 - 2} size={56} weight={700} w={inner}>{PAIR_CODE}</T>
+          <T x={bx} y={py + 72 + 8 + 64 + 8} w={inner} color={theme.muted}>兩邊相同才按確認</T>
           <PBtn target="macConfirm" rect={b.confirm} label="確認" blue />
           <PBtn rect={b.cancel} label="取消" />
           <T x={bx} y={b.confirm.y + b.confirm.height + 8} w={inner} color={theme.muted}>{CODE_LEFT}</T>
@@ -164,14 +185,25 @@ export const ReceiverPanel = ({ layout, state }: { layout: L.PanelLayout; state:
       )}
       {kind === 'paired' && (
         <Layer id="pair-paired">
-          <T x={bx} y={py} w={inner}>配對：已配對 iPhone</T>
-          <T x={bx} y={py + 36} w={inner} color={theme.muted}>配對完成</T>
+          <T x={bx} y={py} w={inner}>已配對的手機</T>
+          <T x={bx} y={py + 40} w={inner - 110}>{PHONE_NAME}</T>
+          <T x={bx} y={py + 40 + 30} size={L.PANEL_SMALL} w={inner - 110} color={theme.muted}>{PHONE_NAME}</T>
+          <PBtn rect={b.delete} label="刪除" />
+          <T x={bx} y={py + 36 + 4 + 60 + 6} w={inner} color={theme.muted}>配對完成</T>
           <PBtn rect={b.pairNew} label="配對新 iPhone" />
-          <PBtn rect={b.unpair} label="解除配對" />
         </Layer>
       )}
 
-      <Rect x={bx} y={layout.dividers[1]} width={inner} height={2} fill={theme.hairline} />
+      {layout.nameY !== undefined && layout.nameField && (
+        <Layer id="host-name">
+          <T x={bx} y={layout.nameY} w={inner} weight={700}>電腦名稱</T>
+          <Rect x={layout.nameField.x} y={layout.nameField.y} width={layout.nameField.width} height={layout.nameField.height} radius={10} fill="#1e1f23" stroke={{ color: theme.dialog.edge, width: 2 }} />
+          <T x={layout.nameField.x + 16} y={layout.nameField.y + mid(layout.nameField.height, L.PANEL_TEXT)} w={layout.nameField.width - 32}>{HOST_NAME}</T>
+          <PBtn rect={b.save} label="儲存" dim={0.4} />
+          <T x={bx} y={layout.nameField.y + layout.nameField.height + 6} w={inner} size={L.PANEL_SMALL} lineHeight={26 / L.PANEL_SMALL} color={theme.muted}>改名後，已配對的 iPhone 要重新配對才會顯示新名稱。最多 32 個位元組（約 10 個中文字）。</T>
+        </Layer>
+      )}
+
       {['允許觸控板控制', '登入時啟動'].map((label, k) => (
         <Layer key={label}>
           <Checkbox x={bx} y={layout.tailY + k * 44 + 7} />

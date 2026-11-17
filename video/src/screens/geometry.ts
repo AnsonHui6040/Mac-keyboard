@@ -70,6 +70,7 @@ const P = (r: Rect): Rect => phoneRect(r);
 export const DIALOGS: Record<ScreenId, Rect> = {
   dialogBlocked: BLOCKED,
   macBluetooth: BLOCKED,
+  macLan: BLOCKED,
   settingsSecurity: SETTINGS_WINDOW,
   dialogConfirm: CONFIRM,
   auth: AUTH,
@@ -125,6 +126,7 @@ export const SCREENS: Record<ScreenId, Record<TargetId, Rect>> = {
   zipFlow: { zipdl: L.REL_ZIP, hash: L.TERM_HASH_BOX, zipfile: L.FIN_ZIP, receiver: L.FIN_APP, apps: L.FIN_APPS, rkapp: L.FIN_RKAPP },
   // Scenes 17 to 21. The iPhone of scenes 18 to 20 is on the right of the Mac side (PHONE_ORIGIN_RIGHT).
   macBluetooth: { deny: blockedBtn(0), allow: blockedBtn(1) },
+  macLan: { deny: blockedBtn(0), allow: blockedBtn(1) },
   receiverMenu: { icon: L.MENU_ICON, openSettings: L.PANEL17.buttons.openSettings },
   macAccess: { toggle: L.ACCESS_TOGGLE },
   pairFlow: {

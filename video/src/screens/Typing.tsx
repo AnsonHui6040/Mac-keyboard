@@ -2,6 +2,7 @@ import { Layer, Path, Rect, Ellipse, Text } from '@kinetographdev/core';
 import { MacWindow } from '../components/MacWindow.tsx';
 import { PhoneScreen } from '../components/PhoneScreen.tsx';
 import { BoxText, Card, PText, Skel, StatusBar, ios } from '../components/ios.tsx';
+import { HOST_NAME } from '../data/pairing.ts';
 import { PHONE_ORIGIN_RIGHT } from './phone.ts';
 import { KB_KEY_H, KB_ROWS, KB_TOP, TEXTEDIT_WINDOW, keyRect } from './layouts.ts';
 import type { Rect as Box } from './geometry.ts';
@@ -23,7 +24,7 @@ const rel = (r: Box): Box => ({ x: 0, y: 0, width: r.width, height: r.height });
 export const typedCount = (localFrame: number): number =>
   localFrame < TYPE_START ? 0 : Math.min(TYPED.length, Math.floor((localFrame - TYPE_START) / TYPE_PITCH) + 1);
 
-/** `system`: the stock keyboard, no toolbar. `local` and `remote`: Remote Keyboard with 本機 or 遠端 selected. `connected`: 遠端 and the green 已連接 (scene 1). */
+/** `system`: the stock keyboard, no toolbar. `local` and `remote`: Remote Keyboard with 本機 or 遠端 selected. `connected`: 遠端 and the status cell with one paired host: its name over the green 已連接, no fill (scenes 1 and 20). */
 export type KeyboardMode = 'system' | 'local' | 'remote' | 'connected';
 
 export const Keyboard = ({ pressed, mode = 'connected' }: { pressed: string | undefined; mode?: KeyboardMode }) => {
@@ -52,7 +53,12 @@ export const Keyboard = ({ pressed, mode = 'connected' }: { pressed: string | un
           <Rect x={remote ? 77 : 15} y={KB_TOP + 5} width={62} height={48} radius={11} fill="#ffffff" />
           <PText x={12} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={remote ? undefined : 700} color={remote ? ios.muted : '#000000'} w={65} align="center">本機</PText>
           <PText x={77} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={remote ? 700 : undefined} color={remote ? '#000000' : ios.muted} w={62} align="center">遠端</PText>
-          {mode === 'connected' && <PText x={156} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} weight={700} color={ios.green} w={90} align="center">已連接</PText>}
+          {mode === 'connected' && (
+            <Layer id="status-cell">
+              <PText x={156} y={KB_TOP - 10} size={26} weight={500} w={90} align="center">{HOST_NAME}</PText>
+              <PText x={156} y={KB_TOP + 20} size={26} weight={700} color={ios.green} w={90} align="center">已連接</PText>
+            </Layer>
+          )}
           <Rect x={262} y={KB_TOP + 2} width={116} height={54} radius={14} fill="#3a3a3e" />
           <PText x={262} y={KB_TOP + 2 + (54 - 26 * 1.45) / 2} size={26} w={116} align="center">觸控板</PText>
         </Layer>

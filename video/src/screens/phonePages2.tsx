@@ -5,6 +5,7 @@ import { Alert, BackChevron, BoxText, Btn, Card, Chevron, Group, Hair, HomeGrid,
 import { DocIcon, CheckDisc, RkIcon } from '../components/appIcons.tsx';
 import { GearIcon, GrayIcon, LaptopLine, PhoneLine, SideStoreIcon } from '../components/icons.tsx';
 import { theme } from '../theme.ts';
+import { VERSION } from '../data/artifacts.ts';
 import * as L from './layouts.ts';
 import type { Rect as Box } from './geometry.ts';
 
@@ -123,7 +124,7 @@ export const PickerPage = ({ vpn = false }: { vpn?: boolean }) => {
             {i === 1 ? (
               <Btn target="ipa" rect={r}>
                 <DocIcon x={8} y={34} size={40} tone="#0a84ff" />
-                <PText x={52} y={10} size={26} weight={500} w={240} lineHeight={1.12}>{'RemoteKeyboard-\nv0.1.0-\nunsigned.ipa'}</PText>
+                <PText x={52} y={10} size={26} weight={500} w={240} lineHeight={1.12}>{`RemoteKeyboard-\nv${VERSION}-\nunsigned.ipa`}</PText>
               </Btn>
             ) : (
               <Layer x={r.x} y={r.y}>
@@ -289,7 +290,7 @@ export const GuidePage = ({ index }: { index: number }) => (
 
 export type MainState = 'initial' | 'open' | 'done';
 
-const MAIN_ROWS = ['藍牙', '已配對 Mac', '加入鍵盤並允許完整取用'];
+const MAIN_ROWS = ['藍牙', '已配對電腦', '加入鍵盤並允許完整取用'];
 
 /** The app's home screen with the 設定進度 card. `open`: the 藍牙 row is expanded with 允許藍牙. `done`: 藍牙 is ticked. */
 export const MainPage = ({ state }: { state: MainState }) => {

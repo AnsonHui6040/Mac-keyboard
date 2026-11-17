@@ -11,13 +11,15 @@ const LINK = '#6cb0ff';
 const Right = ({ opacity, children }: { opacity: number; children: React.ReactNode }) => <Layer opacity={opacity}>{children}</Layer>;
 
 /**
- * Scene 21, no device. A month with the first 7 days marked one after another (beat 0); the 7th day is circled and SideStore
- * named for the refresh (beat 1); the manual on GitHub (beat 2).
+ * Scene 21 after the local network question (beat 0, drawn by MacLan). A month with the first 7 days marked one after another (beat 1);
+ * the 7th day is circled and SideStore named for the refresh (beat 2); the manual on GitHub (beat 3); the manual chapters for Windows
+ * and Linux under it (beat 4). No device, no pointer.
  */
-export const Calendar = ({ beatIndex, beatFrame }: ScreenProps) => {
+export const Calendar = ({ beatIndex: sceneBeat, beatFrame }: ScreenProps) => {
+  const beatIndex = sceneBeat - 1;
   const last = cellRect(MARKED_DAYS);
-  // In beat 2 the calendar fades out so the manual and its address have the whole width, at a size a phone screen can read.
-  const calendar = beatIndex === 2 ? 1 - fadeIn(beatFrame, 0, 8) : 1;
+  // From beat 3 on the calendar fades out so the manual and its address have the whole width, at a size a phone screen can read.
+  const calendar = beatIndex === 2 ? 1 - fadeIn(beatFrame, 0, 8) : beatIndex > 2 ? 0 : 1;
   return (
     <Layer id="screen-calendar">
       <Layer id="calendar-card" opacity={calendar}>
@@ -47,10 +49,16 @@ export const Calendar = ({ beatIndex, beatFrame }: ScreenProps) => {
           <Text font={theme.font} weight={500} size={48} color={theme.muted} x={1440} y={440}>續簽</Text>
         </Right>
       )}
-      {beatIndex === 2 && (
-        <Right opacity={fadeIn(beatFrame, 6, 10)}>
+      {beatIndex >= 2 && (
+        <Right opacity={beatIndex === 2 ? fadeIn(beatFrame, 6, 10) : 1}>
           <Text id="manual-link" font={theme.font} weight={700} size={72} color={LINK} x={0} y={330} maxWidth={1920} align="center">GitHub 上的使用手冊</Text>
           <Text id="repo-address" font={theme.font} weight={500} size={60} color={theme.ink} x={0} y={470} maxWidth={1920} align="center">{REPO_URL}</Text>
+        </Right>
+      )}
+      {beatIndex === 3 && (
+        <Right opacity={fadeIn(beatFrame, 6, 10)}>
+          <Text id="manual-04b" font={theme.font} weight={500} size={52} color={theme.ink} x={0} y={620} maxWidth={1920} align="center">04b 安裝 Windows 接收端</Text>
+          <Text id="manual-04c" font={theme.font} weight={500} size={52} color={theme.ink} x={0} y={700} maxWidth={1920} align="center">04c 安裝 Linux 接收端</Text>
         </Right>
       )}
     </Layer>

@@ -9,10 +9,10 @@ import { scene19 } from './scenes/scene19.ts';
 import { scene20 } from './scenes/scene20.ts';
 import { scene21 } from './scenes/scene21.ts';
 import { REPO_URL } from './artifacts.ts';
-import { CODE_LEFT, FOCUS_LINE, PAIR_CODE, REMAINING_LINE, WAIT_LEFT } from './pairing.ts';
+import { CODE_LEFT, FOCUS_LINE, HOST_NAME, PAIR_CODE, PHONE_NAME, RECEIVING_LINE, WAIT_LEFT } from './pairing.ts';
 import { TYPED_20, TYPE20_PITCH, TYPE20_START, CONNECT_AT, typed20 } from '../screens/typing20.ts';
 import { DAYS, MARKED_DAYS, MARK_PITCH, MARK_START, cellRect, CARD } from '../screens/calendar.ts';
-import { PANEL17, PANEL18, MENU_ICON, MENUBAR_H, PANEL_W } from '../screens/layouts.ts';
+import { PANEL17, PANEL18, panelLayout, MENU_ICON, MENUBAR_H, PANEL_W, PC_CANCEL, PC_CARD, PC_CONFIRM, PC_HOST_CARD, PW_CANCEL, PW_CARD } from '../screens/layouts.ts';
 import { STAGE_BOTTOM } from '../screens/geometry.ts';
 import { PHONE_ORIGIN_RIGHT } from '../screens/phone.ts';
 import { pointerAt } from '../lib/pointer.ts';
@@ -34,7 +34,7 @@ test('the pairing code is 482915 and both devices draw it from the same constant
 test('the countdown text is 剩餘 mm:ss with fixed values, and the panel line says 文字編輯（可輸入）', () => {
   assert.match(WAIT_LEFT, /^剩餘 \d\d:\d\d$/);
   assert.match(CODE_LEFT, /^剩餘 \d\d:\d\d$/);
-  assert.match(REMAINING_LINE, /^剩餘接收時間 \d\d:\d\d$/);
+  assert.equal(RECEIVING_LINE, '接收中');
   assert.equal(FOCUS_LINE, '目前欄位：文字編輯（可輸入）');
 });
 
@@ -56,7 +56,7 @@ test('scene 17: Bluetooth 允許, the menu bar icon, 打開輔助使用設定 (n
   assert.ok(scene17.beats.every((b) => b.steps!.every((s) => s.press)));
 });
 
-test('scene 18 follows the manual: Mac 配對新 iPhone; iPhone 已配對 Mac, 配對 Mac; the code on both; Mac 確認, then iPhone 確認', () => {
+test('scene 18 follows the manual: Mac 配對新 iPhone; iPhone 已配對電腦, 新增電腦; the code on both; Mac 確認, then iPhone 確認', () => {
   assert.deepEqual(scene18.beats.map((b) => b.device), ['mac', 'mac', 'iphone', undefined, 'mac']);
   assert.deepEqual(scene18.beats.map((b) => b.steps?.map((s) => [s.target, s.device ?? b.device])), [
     undefined,
@@ -82,14 +82,70 @@ test('scene 17 keeps the red 尚未授權輔助使用，無法輸入文字 line 
   assert.ok(!('authorize' in SCREENS.receiverMenu));
 });
 
-test('scene 18: before 配對新 iPhone is pressed the panel is idle (尚未開始接收, 待命); pairing then arms the receiver', () => {
+test('scene 18 baseline: the receiver receives from launch, so the panel is looking for the iPhone (橘點, 接收中) before 配對新 iPhone is pressed', () => {
   const flow = read('../screens/PairFlow.tsx');
-  assert.match(flow, /link: kind === 'idle' \? 'idle'/);
   const mac = read('../screens/macReceiver.tsx');
-  assert.ok(mac.includes("idle: '尚未開始接收'"));
-  assert.ok(mac.includes("state.link === 'idle' ? '待命'"));
-  // beats 0 and 1 show the idle panel; the press is the last step of beat 1
+  assert.ok(!/link: kind === 'idle'/.test(flow));
+  assert.ok(!mac.includes("idle: '"), 'no idle link label');
+  assert.ok(mac.includes("searching: '未連線，正在尋找 iPhone'") && mac.includes("ready: '已連線'"));
+  assert.ok(mac.includes('{RECEIVING_LINE}'));
+  assert.ok(/<PBtn rect=\{b\.start\} label="開始接收" dim=\{0\.4\} \/>/.test(mac), '開始接收 is dimmed while receiving');
+  assert.ok(/<PBtn rect=\{b\.stop\} label="停止接收" \/>/.test(mac), '停止接收 stays enabled');
+  // beats 0 and 1 show the idle pairing block; the press is the last step of beat 1
   assert.deepEqual(scene18.beats.slice(0, 2).map((b) => b.steps?.map((s) => s.target)), [undefined, ['pairNew']]);
+});
+
+test('the Mac panel and the iPhone pages use the v0.2 strings of the app source', () => {
+  const mac = read('../screens/macReceiver.tsx');
+  // the iPhone wait text carries line breaks (\n in the source) that keep each 「…」 whole; the words are compared without them
+  const phone = read('../screens/phonePages3.tsx').replaceAll('\\n', '');
+  assert.equal(HOST_NAME, 'Mac');
+  assert.equal(PHONE_NAME, 'iPhone');
+  // Mac: idle pairing block with the three hint lines and no 解除配對 button
+  for (const t of ['配對：尚未配對', '配對新 iPhone', '1 在 iPhone 開啟 Remote Keyboard App', '2 按「配對新 iPhone」', '3 兩邊核對配對碼後按確認']) assert.ok(mac.includes(t), t);
+  assert.ok(!mac.includes('解除配對'));
+  // waiting, code, saved, paired
+  assert.ok(mac.includes('請在 iPhone 的 Remote Keyboard') && mac.includes('開啟「已配對電腦」，再按「新增電腦」'));
+  for (const t of ['手機：${PHONE_NAME}', '請核對 iPhone 上的配對碼', '兩邊相同才按確認', '已儲存。iPhone 也按確認之後，', '已配對的手機', 'label="刪除"', 'label="配對新 iPhone"']) assert.ok(mac.includes(t), t);
+  // the 電腦名稱 section
+  for (const t of ['電腦名稱', '{HOST_NAME}', 'label="儲存"', '改名後，已配對的 iPhone 要重新配對才會顯示新名稱。最多 32 個位元組（約 10 個中文字）。']) assert.ok(mac.includes(t), t);
+  // iPhone
+  for (const t of ['已配對電腦', '新增電腦', '在電腦的接收端選單按「配對新 iPhone」（Windows、Linux 為「配對新手機」），這個畫面會自動連上。', '要配對的電腦', '配對碼', '與「${HOST_NAME}」畫面上的數字相同時才按確認。', '已儲存。電腦也按確認之後，再按完成。']) assert.ok(phone.includes(t), t);
+});
+
+test('the Mac panel has the 電腦名稱 section in the pairing scenes (18, 19); scene 17 leaves it out because the red warning makes the panel too tall', () => {
+  for (const [k, p] of Object.entries(PANEL18)) assert.ok(p.nameY !== undefined && p.nameY > p.pairY && p.nameY < p.tailY, k);
+  assert.equal(PANEL17.nameY, undefined);
+  const withName = panelLayout('access', PANEL17.rect.x, PANEL17.rect.y, true);
+  assert.ok(withName.rect.y + withName.rect.height > STAGE_BOTTOM, 'with the section the scene 17 panel would reach below the stage');
+});
+
+test('the iPhone pairing pages fit the 844 high screen and keep their rows apart', () => {
+  assert.ok(PC_CANCEL.y + PC_CANCEL.height <= 780 && PW_CANCEL.y + PW_CANCEL.height <= 780);
+  assert.ok(PC_HOST_CARD.y + PC_HOST_CARD.height < PC_CARD.y);
+  assert.ok(PC_CARD.y + PC_CARD.height < PC_CONFIRM.y);
+  assert.ok(PW_CARD.y + PW_CARD.height < PW_CANCEL.y);
+});
+
+test('no tutorial scene source keeps a v0.1 string: 已配對 Mac, 配對 Mac, 待命, 剩餘接收時間, 尚未開始接收', () => {
+  const bad = ['已配對 Mac', '配對 Mac', '待命', '剩餘接收時間', '尚未開始接收'];
+  for (const d of ['../screens/', '../components/', './', './scenes/']) {
+    for (const f of readdirSync(new URL(d, import.meta.url))) {
+      if (!/\.(ts|tsx|json)$/.test(f) || f.endsWith('.test.ts')) continue;
+      const src = read(d + f);
+      for (const w of bad) assert.ok(!src.includes(w), `${d}${f} has ${w}`);
+    }
+  }
+});
+
+test('the keyboard status cell names the host above the green 已連接 once connected (one paired host), in scenes 1 and 20, and keeps the plain cell before', () => {
+  const kb = read('../screens/Typing.tsx');
+  assert.ok(kb.includes("mode === 'connected' && ("));
+  assert.match(kb, /\{HOST_NAME\}<\/PText>/);
+  assert.match(kb, /已連接<\/PText>/);
+  // the name is drawn once, only in the connected mode, above the status line
+  assert.equal([...kb.matchAll(/\{HOST_NAME\}/g)].length, 1);
+  assert.ok(kb.includes("import { HOST_NAME } from '../data/pairing.ts'"));
 });
 
 test('scene 21 shows the repository address below the manual link, at 60 px or more', () => {
@@ -129,22 +185,38 @@ test('scene 20 types the whole sentence on the Mac before the last beat ends, af
   assert.match(TYPED_20, /^[A-Za-z ]+$/);
 });
 
-test('scene 21 has no device and no pointer; the calendar marks 7 days', () => {
-  assert.ok(scene21.beats.every((b) => !b.device && !b.steps));
+test('scene 21 asks about the local network first: a Mac dialog, the pointer presses 允許; the four beats after it have no device and no pointer; the calendar marks 7 days', () => {
+  assert.equal(scene21.beats.length, 5);
+  assert.deepEqual(scene21.beats.map((b) => b.screen), ['macLan', 'calendar', 'calendar', 'calendar', 'calendar']);
+  assert.equal(scene21.beats[0].device, 'mac');
+  assert.deepEqual(scene21.beats[0].steps, [{ target: 'allow', press: true }]);
+  assert.ok(scene21.beats.slice(1).every((b) => !b.device && !b.steps));
+  assert.ok(SCREENS.macLan.allow && SCREENS.macLan.deny);
   const c = compileRegistered(scene21);
-  assert.equal(c.runs.length, 0);
+  assert.equal(c.runs.length, 1);
   assert.equal(MARKED_DAYS, 7);
   assert.equal(DAYS, 31);
-  // all seven are marked before the first beat ends, with time to see them
-  assert.ok(MARK_START + MARK_PITCH * (MARKED_DAYS - 1) + 6 + 20 < c.timeline[0].to - c.timeline[0].from);
+  // all seven are marked before the calendar's first beat ends, with time to see them
+  assert.ok(MARK_START + MARK_PITCH * (MARKED_DAYS - 1) + 6 + 20 < c.timeline[1].to - c.timeline[1].from);
   // the calendar and its cells stay inside the card, above the subtitle divider
   for (let d = 1; d <= DAYS; d++) assert.ok(within(cellRect(d), CARD), `day ${d}`);
   assert.ok(CARD.y + CARD.height < STAGE_BOTTOM);
 });
 
+test('scene 21 dialog shows the question of the system and the manual page names chapters 04b and 04c', () => {
+  const mac = read('../screens/macReceiver.tsx');
+  assert.ok(mac.includes('想要尋找並連接'));
+  assert.ok(mac.includes('區域網路上的裝置'));
+  assert.ok(/<MacButton target="deny" rect=\{b\.deny\} label="不允許" \/>/.test(mac.slice(mac.indexOf('LanDialog'))));
+  assert.ok(/<MacButton target="allow" rect=\{b\.allow\} label="允許" blue \/>/.test(mac.slice(mac.indexOf('LanDialog'))));
+  const cal = read('../screens/Calendar.tsx');
+  assert.ok(cal.includes('04b') && cal.includes('04c'));
+  assert.ok(cal.includes('安裝 Windows 接收端') && cal.includes('安裝 Linux 接收端'));
+});
+
 test('scenes 17 to 21 are registered with the script lengths, and their screens fit above the divider and clear of the phone', () => {
   for (const n of [17, 18, 19, 20, 21]) assert.ok(SCENES.some((s) => s.n === n), `scene ${n}`);
-  assert.equal([17, 18, 19, 20, 21].map((n) => sceneEntry(n).seconds).join(','), '16,21,8,17,12');
+  assert.equal([17, 18, 19, 20, 21].map((n) => sceneEntry(n).seconds).join(','), '16,21,8,17,21');
   assert.ok(PANEL17.rect.y + PANEL17.rect.height < STAGE_BOTTOM);
   assert.ok(PANEL17.rect.x + PANEL17.rect.width <= 1920 && PANEL17.rect.y >= MENUBAR_H);
   // the panel hangs under the icon: its right edge reaches past the icon's, its top is just under the bar
@@ -158,8 +230,8 @@ test('scenes 17 to 21 are registered with the script lengths, and their screens 
   for (const [name, b] of Object.entries(PANEL17.buttons)) assert.ok(within(b, PANEL17.rect), `panel17.${name}`);
 });
 
-test('the pointer is inside its target just before each step slot ends, in scenes 17 to 20 (every step, not only the last)', () => {
-  for (const spec of [scene17, scene18, scene19, scene20]) {
+test('the pointer is inside its target just before each step slot ends, in scenes 17 to 21 (every step, not only the last)', () => {
+  for (const spec of [scene17, scene18, scene19, scene20, scene21]) {
     const c = compileRegistered(spec);
     spec.beats.forEach((b, i) => {
       const steps = b.steps ?? [];

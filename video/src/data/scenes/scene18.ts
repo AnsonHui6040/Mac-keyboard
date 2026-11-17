@@ -1,4 +1,4 @@
-/** Scene 18: 配對新 iPhone on the Mac, 已配對 Mac and 配對 Mac on the iPhone, the same code on both, 確認 on the Mac and then on the iPhone. */
+/** Scene 18: 配對新 iPhone on the Mac, 已配對電腦 and 新增電腦 on the iPhone, the same code on both, 確認 on the Mac and then on the iPhone. */
 import type { SceneSpec } from '../../lib/sceneSpec.ts';
 
 export const scene18: SceneSpec = {
@@ -8,7 +8,7 @@ export const scene18: SceneSpec = {
     { screen: 'pairFlow', device: 'mac' },
     // 在 Mac 面板按「配對新 iPhone」。
     { screen: 'pairFlow', device: 'mac', steps: [{ target: 'pairNew', press: true }] },
-    // 在 iPhone 的 App 按「已配對 Mac」，再按「配對 Mac」。
+    // 在 iPhone 的 App 按「已配對電腦」，再按「新增電腦」。
     { screen: 'pairFlow', device: 'iphone', steps: [{ target: 'phoneRow', press: true }, { target: 'pairMac', press: true }] },
     // 兩邊會顯示同一組六位數字，核對完全相同後，
     { screen: 'pairFlow' },
