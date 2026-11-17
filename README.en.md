@@ -35,7 +35,7 @@ The app and the install tutorial video are in Traditional Chinese. The whole use
 | iPhone app | Install the developer's IPA with SideStore. It is signed with your own free Apple Account |
 | Mac Receiver | A zip file from the GitHub Release. Unzip it and move the app into the Applications folder |
 | Windows receiver | The installer `RemoteKeyboard-Setup-0.2.0-alpha.1.exe` from the GitHub Release. It does not need administrator permission |
-| Linux receiver | `remote-keyboard_0.2.0~alpha.1_amd64.deb` from the GitHub Release. Install it with `sudo apt install ./FILENAME.deb` |
+| Linux receiver | `remote-keyboard_0.2.0.alpha.1_amd64.deb` from the GitHub Release. Install it with `sudo apt install ./FILENAME.deb` |
 | Notarization and signing | Mac Receiver is not notarized by Apple. The first time you open it, you have to allow it manually in System Settings. The Windows installer is not signed, so SmartScreen warns you: click More info (其他資訊), then Run anyway (仍要執行) |
 | Upgrading from v0.1 | The protocol moved to v4. Update the iPhone app and the Mac Receiver, and pair every computer again |
 | Validity | An app signed with a free account is valid for 7 days only. Refresh it before it expires |

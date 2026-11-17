@@ -254,6 +254,19 @@ jobs:
             exit 1
           fi
 
+      # GitHub replaces "~" with "." in release asset names (0.2.0~alpha.1 becomes 0.2.0.alpha.1).
+      # Rename the files first so SHA256SUMS.txt lists the names users will actually download.
+      - name: Rename files to the names GitHub will give the assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          for f in *~*; do
+            [ -e "$f" ] || continue
+            mv -- "$f" "${f//\~/.}"
+          done
+          ls -l
+
       - name: Write SHA256SUMS.txt
         shell: bash
         run: |
