@@ -1,6 +1,6 @@
 # Remote Keyboard v0.2 宣傳影片設計
 
-日期：2026-11-17
+日期：2026-11-17（2026-11-18 加入旁白）
 狀態：草稿，等使用者批准
 Composition：`PromoFilm`（新增），程式在 `video/src/promo/`
 
@@ -15,13 +15,15 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 1. 前 4 秒就講清楚「一支 iPhone，三部電腦」。
 2. 「點一下換電腦」要演出來，不能只靠字幕說。
 3. 原有功能（即時、草稿、手寫、速成、觸控板）都在片中，而且每項都落在一部電腦上，讓觀眾同時看到功能與平台。
-4. 靜音播放也看得懂：字幕與畫面承載全部資訊，音樂只輔助。
-5. 約 60 秒，1920×1080，30 fps，共 1800 幀。
+4. 全片有台灣華語旁白（使用者 2026-11-18 決定），講的內容與畫面同步。
+5. 靜音播放也看得懂：畫面上的標題與 YouTube 字幕（SRT）承載全部資訊。
+6. 1920×1080，30 fps；片長約 60–65 秒，由旁白的實際秒數決定，見「旁白」。
 
 ## 非目標
 
 - 不講經 Wi-Fi 傳送游標、多支手機、配對與安裝步驟（使用者 2026-11-17 選定主打內容，沒有選 Wi-Fi 游標）。
 - 不做直式 9:16 版本，也不做英文版。需要時另開任務。
+- 不把逐句字幕燒進畫面；逐句字幕只做成 SRT，給 YouTube 的字幕功能使用。
 - 不改 `ProductFilm`、`ProductIntro`、安裝教學（`Main`）的畫面與聲音。
 - 不上傳 YouTube，不改 README、Release 或手冊。使用者說要上傳時才做。
 
@@ -45,7 +47,7 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 | 電腦名稱 | 用三個接收端的預設值：「Mac」（`MacPairingStore.fallbackHostName`，預設以平台命名，不用電腦名稱）、「Windows」與「Linux」（`receiver/rk-receiver/src/config.rs`） |
 | Linux 的中文 | 接收端預設用貼上輸入非 ASCII 文字，所以 Ubuntu 上的中文是整段同時出現，不是逐字出現 |
 | 速成 | 要在 App 設定改用，字幕沿用舊片「也可以在 App 改用速成」 |
-| 字幕 | 台灣繁體中文；字級至少 76；每秒少於 7 字（`captionLength` 的算法）；不用逗號，也不用 ` · ` |
+| 標題 | 台灣繁體中文；字級至少 76；每秒少於 7 字（`captionLength` 的算法）；不用逗號，也不用 ` · ` |
 | 音樂 | 使用者從 YouTube 音效庫挑選，條件見「音樂」。音檔不進 git（`video/.gitignore` 已忽略 `public/audio/`） |
 | 建置 | `kinetograph` 0.3.0，沿用 `video/` 專案與字型；成品輸出到 `video/out/renders/promo-v0.2.mp4`，不提交 |
 
@@ -59,11 +61,13 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 
 使用者 2026-11-17 選 B：YouTube 觀眾不一定看過舊片，「一支手機打字到三部電腦」就是 v0.2 的鉤子，適合當主線。
 
+旁白（使用者 2026-11-18 決定）：用 ElevenLabs，付費 Starter 方案（有商用授權），全片旁白。試聽了五個台灣口音樣本：Anna Su、Tiffy、Kevin Tu、Yu 用 Multilingual v2，Anna Su 另加 v4。使用者選 **Anna Su（`r6qgCCGI7RWKXCagm158`）＋ `eleven_v4`**。安裝教學曾試過 Meijia、Qwen3、BreezyVoice，品質不被接受，所以這次改用 ElevenLabs。
+
 ## 分鏡（使用者 2026-11-17 批准大綱）
 
 主線：Mac → Windows → Ubuntu，最後再點一下回到 Mac，讓觀眾看到「點一下就換下一部」，而且會循環。
 
-| # | 秒數 | 畫面 | 字幕 |
+| # | 秒數 | 畫面 | 標題 |
 |---|---|---|---|
 | 1 | 0–4 | 真 3D：iPhone 在前景轉到正面，狀態格顯示「Mac／已連接」；背後是三部外形不同、失焦的電腦：MacBook、Windows 桌上型螢幕、Ubuntu 筆電 | 一支 iPhone 打字到三部電腦 |
 | 2 | 4–13 | 打字到 Mac：即時模式逐字出現 Hello from my iPhone；換草稿模式，打一句有錯字的句子，移游標改好再傳送（舊片第 2–13 鏡的壓縮版） | 即時模式每按一個鍵就送出／草稿模式先改好再傳送 |
@@ -76,7 +80,47 @@ v0.2 讓同一支 iPhone 可以打字到 Mac、Windows 11 與 Ubuntu，在鍵盤
 | 9 | 49–53.5 | 硬切到真 3D 廣角後緩慢後拉，三部電腦與手機同框，每部電腦畫面上都看得到剛才打的字；手機在 Mac 文件的第三行打出 Remote Keyboard | 無 |
 | 10 | 53.5–60 | 全黑靜止字卡，靠左，硬切 | 見下表 |
 
-每段秒數可以為了對拍點前後移動最多 1 秒，總長固定 60 秒。第 2 段把舊片 14.5 秒的內容壓到 9 秒：即時模式最多 4 秒，草稿最多 5 秒，只保留一個錯字修正。
+上表的秒數是加旁白之前的大綱。實際鏡頭長度依「旁白」一節的規則重算，對拍點時每段可以再前後移動最多 1 秒。第 2 段把舊片 14.5 秒的內容壓到約 9–10 秒：即時與草稿各約一半，只保留一個錯字修正。
+
+## 旁白
+
+### 旁白稿
+
+旁白稿是唯一來源，放在 `video/src/promo/narration.ts`；SRT 與測試都由它產生。送給 ElevenLabs 的文字可以為了發音另寫一份（例如「零點二」），字幕顯示的文字照畫面寫（例如 v0.2）。
+
+2026-11-18 用 Anna Su v4 逐句生成，實測秒數如下：
+
+| # | 旁白（字幕顯示） | 實測 | 加旁白前的鏡頭長度 |
+|---|---|---|---|
+| 1 | 一支 iPhone，可以打字到三部電腦。 | 3.04 s | 4.0 s |
+| 2 | 先打到 Mac。即時模式每按一個鍵就送出；草稿模式可以先改好錯字，再一次傳送。 | 10.48 s（刪字前） | 9.0 s |
+| 3 | 點一下，換到 Windows。 | 3.36 s（刪字前） | 2.5 s |
+| 4 | 中文可以直接手寫，選好字按傳送，記事本就出現香港兩個字。 | 7.52 s | 9.5 s |
+| 5 | 再點一下，換到 Linux。 | 2.80 s | 2.0 s |
+| 6 | 習慣速成的話，可以在 App 裡改用速成輸入，一樣打得出中文。 | 6.64 s | 8.0 s |
+| 7 | 再點一下，回到 Mac。 | 2.40 s | 2.0 s |
+| 8 | 鍵盤還能變成觸控板：一指移動游標，輕點就是點按，按住可以拖曳，兩指輕點是右鍵，兩指滑動來捲動。 | 12.80 s | 12.0 s |
+| 9 | 這就是 Remote Keyboard。 | 2.32 s | 4.5 s |
+| 10 | 目前是 v0.2 Alpha 版，透過 SideStore 安裝。下載連結在說明欄。 | 6.32 s | 6.5 s |
+
+十句合計 57.7 秒。實測後 Claude 刪了第 2、3 句的字（Claude 決定）：第 2 句原為「…切到草稿模式，可以先把錯字改好，再一次傳送」，第 3 句原為「點一下狀態格，就換到 Windows」。第 5、7 句講「Linux」「Mac」，與狀態格顯示的名稱一致，不講 Ubuntu。
+
+### 時間規則
+
+- 每句旁白在它的鏡頭開始後 0.2 秒以後才出聲，在鏡頭結束前 0.2 秒以前講完；句與句之間至少隔 0.3 秒。
+- 鏡頭長度取「畫面需要的長度」與「旁白長度加前後 0.2 秒」兩者中較長的一個。第 1、4、6、9 鏡畫面較長，旁白不用填滿。
+- 片長由此推算，目標不超過 65 秒（1950 幀）。超過時先刪旁白字，不加速旁白。
+- 換電腦的點擊（第 3、5、7 鏡）落在「點一下」三個字講完的瞬間。
+- 標題與旁白同步出現，但標題仍是短句，不等於旁白全文。
+
+### 生成與保存
+
+- 生成腳本 `video/scripts/gen-promo-voice.mjs`：API key 由 macOS Keychain 讀取（`security find-generic-password -s ELEVENLABS_API_KEY -w`），或讀環境變數 `ELEVENLABS_API_KEY`。不得印出、寫入 log 或提交 key。
+- 參數固定：voice `r6qgCCGI7RWKXCagm158`、model `eleven_v4`、`stability 0.5`、`similarity_boost 0.75`、`style 0.2`、`use_speaker_boost true`、`mp3_44100_128`；每句附上前後句的 `previous_text`／`next_text`，令語氣連貫。
+- 只重新生成文字有改動的句子（以文字與參數的雜湊判斷），避免浪費額度與換掉使用者已聽過的版本。
+- 每次生成把句子編號、日期、model、voice 與回應的 `request-id` 記在 `video/public/voice/promo/requests.log`，作為付費期間生成的紀錄。
+- 生成結果（每句一個 mp3）放在 `video/public/voice/promo/` 並提交（Claude 決定）：同一句每次生成的聲音都不同，使用者聽過、批准的版本要保留；檔案約 1 MB 以內。
+- 最後版本必須在付費訂閱有效期間生成。
 
 ### 審查後補充的決定（Claude 決定，使用者可改）
 
@@ -133,11 +177,14 @@ builder 審查提出的問題，以下由 Claude 決定：
 
 - 按鍵、輕點、點按、`good`、`success` 沿用 `film/sounds.ts` 的合成音效。
 - 換電腦時加一個輕點聲，不另做新音效。
-- 全片約 -14 LUFS，true peak 不高於 -1.0 dBTP；按鍵與輕點聲的峰值比音樂高 6–8 dB。母帶處理沿用 `scripts/render-film.sh` 的做法（視訊串流不重新編碼，音訊做增益與限幅直到符合）。
+- 旁白最優先：旁白響起時，音樂壓低約 10 dB（前後 0.25 秒漸變），按鍵聲壓低約 6 dB；沒有旁白的空檔，音樂回到原音量。
+- 旁白的短時響度比音樂高至少 12 dB；按鍵與輕點聲在沒有旁白時比音樂高 6–8 dB。
+- 全片約 -14 LUFS，true peak 不高於 -1.0 dBTP。母帶處理沿用 `scripts/render-film.sh` 的做法（視訊串流不重新編碼，音訊做增益與限幅直到符合）。
 
 ## 程式結構
 
-- 新模組 `video/src/promo/`：自己的時間表（`timeline.ts`，`FRAMES = 1800`）、按鍵表（`events.ts`）、狀態（`state.ts`）、鏡位（`cameras.ts`）、Windows 與 Ubuntu 畫面、字卡。
+- 新模組 `video/src/promo/`：自己的時間表（`timeline.ts`，`FRAMES` 由旁白時間規則算出）、旁白稿（`narration.ts`）、按鍵表（`events.ts`）、狀態（`state.ts`）、鏡位（`cameras.ts`）、Windows 與 Ubuntu 畫面、字卡。
+- 旁白的實際秒數存成資料檔（例如 `promo/voice-durations.json`，由生成腳本用 `ffprobe` 量好寫入），時間表在 node 裡讀它，不在繪製時量檔案。
 - 重用不帶時間的部分：`intro/layout.ts` 的按鍵座標、`intro/ink.ts` 的手寫筆跡、`film/layout.ts`、`film/slabMath.ts`、`film/metrics.ts`、`film/Slab.tsx`、`film/sounds.ts`，以及 `Stage.tsx` 的外殼元件。
 - `film/PhoneScreen.tsx`、`film/MacScreen.tsx` 與 `film/events.ts`、`film/state.ts`、`film/timeline.ts` 綁在一起。要重用時，可以把它們改成接收參數，條件是 `ProductFilm` 的畫面與音訊與 main 逐位元相同；做不到就在 `promo/` 另寫一份。
 - 在 `video/src/index.tsx` 註冊 `PromoFilm`。
@@ -152,14 +199,17 @@ builder 審查提出的問題，以下由 Claude 決定：
 | 項目 | 標準 |
 |---|---|
 | `npm test` | 全部通過，含新增的 `promo/` 測試 |
-| 時間表測試 | 共 1800 幀；鏡頭首尾相接沒有空隙；每個字幕每秒少於 7 字；字幕不含逗號與 ` · ` |
+| 時間表測試 | 片長不超過 1950 幀；鏡頭首尾相接沒有空隙；每個標題每秒少於 7 字；標題不含逗號與 ` · ` |
+| 旁白測試 | 每句旁白都在自己的鏡頭內（前後各留 0.2 秒），句與句至少隔 0.3 秒；SRT 的文字與時間由 `narration.ts` 與時間表產生並與之相符；旁白稿不含「密碼」「零延遲」「Wi-Fi」 |
+| 旁白檔 | 每句都有 mp3，`voice-durations.json` 與實際檔案的 `ffprobe` 秒數相差不超過 0.01 秒；repo 內沒有 API key（`git grep -E "sk_[0-9a-f]{20,}"` 為 0） |
 | 切換測試 | 第 3、5、7 鏡的點擊幀之後，狀態格依序顯示 Windows、Linux、Mac；之後的文字只出現在當時連接的電腦 |
 | 內容測試 | 不含「密碼」「零延遲」「Wi-Fi」；字卡含 v0.2.0 Alpha、SideStore、三家公司的免責聲明 |
 | 鏡位測試 | 圓環與游標每一幀離邊至少 60 px，有標題時不進標題帶 |
 | `kinetograph check`、`doctor` | 沒有型別錯誤；1800 幀都可完整繪製 |
 | `kinetograph lint` | 每 15 幀抽一幀，沒有 error；warning 列出種類與數量 |
 | 舊片不變 | `ProductFilm`、`ProductIntro`、`Main` 抽幀輸出與 main 逐位元相同，`audio analyze` 結果相同 |
-| `ffprobe` | H.264、AAC 48 kHz、1920×1080、30 fps、1800 幀、60.000 秒 |
+| `ffprobe` | H.264、AAC 48 kHz、1920×1080、30 fps，幀數等於 `FRAMES` |
+| 混音量測 | 每句旁白期間，旁白比音樂高至少 12 dB（用「只有音樂」與「只有旁白」的分軌量測，方法同舊片驗收報告） |
 | 響度 | -14 LUFS ± 0.4，true peak 不高於 -1.0 dBTP |
 
 ### 親自看過的畫面
@@ -169,13 +219,16 @@ builder 審查提出的問題，以下由 Claude 決定：
 ### 使用者看過才算 PASS（TBD）
 
 - 整片節奏與切換是否看得懂。
-- 音樂與音效（Claude 聽不到聲音，只能報數字）。
+- 旁白的發音與語氣，特別是 iPhone、Mac、Windows、Linux、SideStore、Remote Keyboard、零點二、速成。
+- 音樂、音效與旁白的混音（Claude 聽不到聲音，只能報數字）。
 
 ## 交付
 
 - `video/src/promo/` 程式與測試、`PromoFilm` 註冊、輸出腳本。
 - `docs/video/promo-v0.2-storyboard.md`：最後的逐鏡分鏡（含實際秒數與拍點）。
 - `docs/video/promo-v0.2-youtube.md`：YouTube 標題、說明欄（下載連結、安裝教學連結、需求、Alpha 說明、免責聲明）。
+- `docs/video/promo-v0.2.srt`：逐句字幕，上傳 YouTube 時另外加入。
+- `video/scripts/gen-promo-voice.mjs` 與 `video/public/voice/promo/` 的旁白檔、`requests.log`。
 - 驗收報告。
 - 成品 MP4 留在 `video/out/renders/`，不提交、不上傳。
 
