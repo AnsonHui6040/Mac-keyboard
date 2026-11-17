@@ -1,8 +1,9 @@
-/** PromoFilm (first cut): hard cuts, the close-ups drawn, the titles over them with a scrim, black for the cuts that come later. */
+/** PromoFilm: hard cuts, the close-ups and the three 3D cuts drawn, the titles over them with a scrim. */
 import { AbsoluteFill, Layer, Rect, grain, linearGradient, registerFont, staticFile, useCurrentFrame } from '@kinetographdev/core';
 import { theme } from '../theme.ts';
 import { Headline, arrival } from '../film/Headline.tsx';
 import { CloseShot } from './CloseShot.tsx';
+import { Hero3, StageShot8, Wide } from './Wide.tsx';
 import { cutAt } from './cuts.ts';
 import { TITLES } from './timeline.ts';
 
@@ -24,6 +25,9 @@ export const Promo = () => {
       <Layer id="grade" effects={[grain(0.022, { seed: f, size: 1.2 })]}>
         <Rect width={1920} height={1080} fill="#000000" />
         {close ? <CloseShot id={cut.id} f={f} /> : null}
+        {cut.dev === 'hero' && <Hero3 f={f} />}
+        {cut.dev === 'stage' && <StageShot8 f={f} />}
+        {cut.dev === 'wide' && <Wide f={f} />}
         {scrim > 0 && <Rect id="scrim" width={1920} height={SCRIM_H} opacity={0.85 * scrim} fill={linearGradient(['#000000ff', '#000000b8', '#00000050', '#00000000'], { angle: 180 })} />}
         {TITLES.map((t) => <Headline key={t.id} t={t} f={f} />)}
       </Layer>
