@@ -14,7 +14,7 @@
 
 - 一個 Task 一個 worktree、一條 branch、一個 PR。子代理不得 commit 或 push；每個 Task 的 Commit 步驟由主代理在自己重跑驗證之後做。
 - `npm`、`node`、`npx kinetograph` 與 `scripts/` 指令在 `video/` 下執行；`git` 指令在 repo 根目錄執行。測試讀 repo 其他位置的檔案時，用 `new URL('../../../docs/…', import.meta.url)`，與 `film/timeline.test.ts` 相同。worktree 第一次要先跑 `npm ci` 與 `bash scripts/setup-fonts.sh`。需要網絡之前，先跑 preflight：`curl -sI https://registry.npmjs.org/ | head -1` 與 `node -v`。
-- 1920×1080、30 fps；`FRAMES` 不超過 1950。
+- 1920×1080、30 fps；`FRAMES` 不超過 2130（2026-11-18 由 1950 放寬，見 Task 6b）。
 - 電腦名稱只有 `Mac`、`Windows`、`Linux`，順序 Mac → Windows → Linux → Mac。
 - 標題用台灣繁體中文，字級至少 76，每秒少於 7 字（`captionLength`），不得含 `film/timeline.ts` 的 `FORBIDDEN`。
 - 旁白檔 `public/voice/promo/01.mp3`–`10.mp3` 都已批准，除非旁白稿再改，否則不得重新生成。
@@ -432,6 +432,45 @@ git commit -m "feat(video): assemble the v0.2 promo with narration and sound eff
 
 ---
 
+### Task 6b: 放慢頭 18 秒（使用者 2026-11-18 看第一版後要求）
+
+**Files：**
+- Modify: `video/src/promo/timeline.ts`、`timeline.test.ts`、`events.ts`、`events.test.ts`、`cuts.ts`、`cameras.ts`、`cameras.test.ts`（`state.ts`、`state.test.ts` 只在時間改變令測試需要時才改）
+- Modify（重新產生）：`docs/video/promo-v0.2.srt`、`video/src/promo/voice-manifest.json` 不變
+- Modify: `docs/video/promo-v0.2-storyboard.md`、`docs/video/promo-v0.2-youtube.md`（章節時間，每段至少 10 秒）、`docs/superpowers/verification/2026-11-17-promo-film-v0.2.md`
+
+**Interfaces：**
+- Produces：`SEG_MIN` 改為 `'2': 12.5`、`'3': 4.5`、`'5': 4.0`（其餘不變）；新常數 `SEG2_DRAFT_AT = seg('2').from + Math.round(5.6 * FPS)`（`timeline.ts` export），按「草稿」的幀，也是標題 p2 結束、p3 開始的幀。
+
+- [ ] **Step 1：改測試，預期 FAIL**
+
+```ts
+// timeline.test.ts：SEG_MIN 表更新；FRAMES === 2092；FRAMES <= 2130
+// timeline.test.ts：p2.to === SEG2_DRAFT_AT && p3.from === SEG2_DRAFT_AT
+// events.test.ts：第 2 段 'Hello from my iPhone' 相鄰兩鍵相隔 6 幀，'Chek before sending' 相隔 5 幀；toggle:draft 在 SEG2_DRAFT_AT
+// events.test.ts：送到 Mac 的 send 至少比 seg('2').to 早 45 幀
+// cameras.test.ts：第 2 到 7 段每個 cut 至少 30 幀；第 2 段兩個 Mac cut 各至少 45 幀
+// cameras.test.ts：HOST_TAPS[0]、HOST_TAPS[1] 到所在段落結束至少 75 幀
+// cameras.test.ts：第 2 段的第一個 Mac cut 期間 Mac 文字有增加（逐字出現）
+```
+
+- [ ] **Step 2：改 `timeline.ts`、`events.ts`、`cuts.ts`、`cameras.ts`，測試 PASS**
+
+第 2 段起點建議（相對段落開始）：即時 +0.4 秒起每 6 幀一鍵、換行 +5.1、草稿 `SEG2_DRAFT_AT`（+5.6）、草稿 +6.0 起每 5 幀一鍵、草稿游標 +9.6、`c` +9.95、游標到尾 +10.3、換行 +10.55、傳送 +10.8。第 2 段 cut：手機（即時前半）→ Mac（即時後半逐字出現，至少 1.5 秒）→ 手機（草稿）→ Mac（傳送後 2 幀起到段落結束）。
+
+- [ ] **Step 3：重新產生 SRT，更新三份文件，`npm test`、`kinetograph check`、lint（每 15 幀）0 error**
+
+- [ ] **Step 4：`bash scripts/render-promo.sh` 重新輸出；`ffprobe` 幀數等於 `FRAMES`；響度 -14 LUFS ± 0.4、true peak ≤ -1.0 dBTP；舊片指紋與基準相同；抽幀給主代理看（第 2 段每個 cut 中間一幀、第 3、5 段點擊後 +40 幀）**
+
+- [ ] **Step 5：Commit**
+
+```bash
+git add video/src/promo docs/video docs/superpowers
+git commit -m "feat(video): slow the first 18 seconds of the v0.2 promo"
+```
+
+---
+
 ### Task 7: 音樂（第二階段，要等使用者提供音檔）
 
 **Files：**
@@ -451,7 +490,7 @@ git commit -m "feat(video): assemble the v0.2 promo with narration and sound eff
 ```ts
 test('one continuous take from frame 0, no cut or restart', …)
 test('segment boundaries 3 and 8 sit on a beat, each moved at most 1 s from Task 1', …)
-test('FRAMES still at most 1950 and every line still inside its segment', …)
+test('FRAMES still at most 2130 and every line still inside its segment', …)
 ```
 
 - [ ] **Step 3：跑測試，預期 FAIL；實作；再跑，預期 PASS**
