@@ -15,7 +15,7 @@ const SEG_IDS: readonly SegId[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 
 const LINE_OF: Record<SegId, LineId> = Object.fromEntries(NARRATION.map((n) => [n.seg, n.id])) as Record<SegId, LineId>;
 
 /** What the picture needs, in seconds. */
-export const SEG_MIN: Record<SegId, number> = { '1': 4.0, '2': 12.5, '3': 4.5, '4': 9.5, '5': 4.0, '6': 8.0, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 };
+export const SEG_MIN: Record<SegId, number> = { '1': 4.0, '2': 12.6, '3': 4.5, '4': 9.5, '5': 4.0, '6': 7.9, '7': 2.0, '8': 12.0, '9': 4.5, '10': 6.5 };
 
 /** Seconds to frames without floating-point dust (12.8 s times 30 is 384.00000000000006). */
 const frames = (s: number): number => Math.ceil(Math.round(s * FPS * 1e6) / 1e6);
