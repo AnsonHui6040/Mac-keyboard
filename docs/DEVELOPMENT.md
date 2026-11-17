@@ -54,5 +54,6 @@ scripts/install-mac-receiver.sh
 | `scripts/validate-ipa.sh` | 檢查 IPA 的結構，每項輸出 PASS、FAIL 或 BLOCKED；不代表能在 SideStore 安裝 |
 | `scripts/validate-mac-app.sh` | 檢查 Mac Receiver zip 的結構；不代表能通過 Gatekeeper，也不是啟動測試 |
 | `scripts/prerelease-check.sh` | 發佈前自動檢查，結果寫入 `release/prerelease-report.md`；真機項目不在其中 |
+| `scripts/test-all.sh` | 依序跑完所有自動化測試（core、receiver、clippy、ios、mac、video、e2e），印出摘要表，log 在 `build/test-all/`；可用 `--only`、`--skip` 選 suite，任何失敗結束碼為 1 |
 
 發佈前人手檢查見 [distribution/prerelease-manual-checklist.md](distribution/prerelease-manual-checklist.md)，測試者使用手冊見 [manual/README.md](manual/README.md)。

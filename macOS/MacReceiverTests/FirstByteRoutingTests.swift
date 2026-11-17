@@ -6,11 +6,9 @@ import XCTest
 /// builds only) to the measurement hook, anything else is skipped. Only 0x02 may touch the reassembler.
 @MainActor
 final class FirstByteRoutingTests: XCTestCase {
-    private var driver: RecordingDriver!
-
-    override func setUp() async throws {
-        driver = RecordingDriver()
-    }
+    // A fresh test case instance is made for every test method, so a property default is as fresh as setUp was. There is
+    // no `async` setUp on purpose: it costs about 0.1 s per test here.
+    private let driver = RecordingDriver()
 
     private func readyCentral() -> ReceiverBLECentral {
         let central = ReceiverBLECentral(hostId: TestIdentity.hostId, makeDriver: { [unowned self] _ in driver })

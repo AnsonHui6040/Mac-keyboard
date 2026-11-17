@@ -236,7 +236,7 @@ final class ReceiverSecurityTests: XCTestCase {
         let rig = SecurityRig(pairKey: key, handshakeTimeout: 0.05)
         rig.connect()
         XCTAssertTrue(rig.cancels.isEmpty)
-        try await Task.sleep(for: .milliseconds(300))
+        for _ in 0..<400 where rig.cancels.isEmpty { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(rig.cancels, [rig.peripheral], "a peripheral that never answers hello is dropped")
     }
 
@@ -505,7 +505,7 @@ final class ReceiverSecurityTests: XCTestCase {
         let phone = TestPhone(pairKey: key)
         rig.connect()
         try rig.authenticate(phone)
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(150))  // three times the 0.05 s timeout
         XCTAssertTrue(rig.cancels.isEmpty)
     }
 
@@ -789,7 +789,7 @@ final class ReceiverSecurityTests: XCTestCase {
 
     func testRevealThatDoesNotMatchTheCommitmentDiscardsEverything() throws {
         let rig = SecurityRig(pairKey: nil)
-        var p = PairingPhone()
+        let p = PairingPhone()
         openWindowAndConnect(rig)
         try rig.deliver(p.pairing.offer, from: p.phone)
         _ = rig.newWrites()

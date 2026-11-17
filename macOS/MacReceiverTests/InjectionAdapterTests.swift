@@ -52,8 +52,15 @@ final class InjectionAdapterTests: XCTestCase {
     func testTestInsertRechecksFocusAfterGate() async {
         let (controller, poster, _, switcher) = testInsert(reads: [FocusFixtures.elementA, FocusFixtures.elementB])
         // Another call holds the switcher's gate; the test insert passes its first check and then waits behind it.
-        let holder = Task { await switcher.withASCII { try? await Task.sleep(for: .milliseconds(300)) } }
-        try? await Task.sleep(for: .milliseconds(50))
+        var holding = false
+        let holder = Task {
+            await switcher.withASCII {
+                holding = true
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+        }
+        for _ in 0..<500 where !holding { try? await Task.sleep(for: .milliseconds(2)) }
+        XCTAssertTrue(holding, "the gate is held before the test insert starts")
         await controller.run(TestInsertItem.all[0])
         _ = await holder.value
         XCTAssertEqual(poster.batches.count, 0, "focus moved while queued behind the gate, nothing may be typed")

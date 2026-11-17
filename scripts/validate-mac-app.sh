@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 檢查 Mac Receiver 發佈 zip 的結構。只看 zip 內容，不代表能通過 Gatekeeper，也不是啟動測試。
 set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/check-report.sh
+. "$ROOT/scripts/lib/check-report.sh"
 
 usage() {
   cat <<USAGE
@@ -36,46 +39,8 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$ZIP" ] || { usage >&2; exit 64; }
 
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/validate-mac.XXXXXX")"
-trap 'rm -rf "$WORK"' EXIT
-
-LINES=(); NOTES=()
-FAILS=0; BLOCKS=0
-record() {
-  local line="$1 [$2] $3"
-  LINES+=("$line"); echo "$line"
-  case "$1" in FAIL) FAILS=$((FAILS+1)) ;; BLOCKED) BLOCKS=$((BLOCKS+1)) ;; esac
-}
-plist_get() { plutil -extract "$2" raw -o - "$1" 2>/dev/null || true; }
-
-finish() {
-  local code=0
-  [ "$BLOCKS" -gt 0 ] && code=2
-  [ "$FAILS" -gt 0 ] && code=1
-  if [ -n "$REPORT" ]; then
-    {
-      echo "# Mac Receiver zip 結構檢查"
-      echo
-      echo "- 檔案：$(basename "$ZIP")"
-      echo "- 結果：FAIL ${FAILS}、BLOCKED ${BLOCKS}"
-      echo
-      echo '```'
-      printf '%s\n' "${LINES[@]}"
-      echo '```'
-      if [ "${#NOTES[@]}" -gt 0 ]; then
-        echo
-        echo "## 備註"
-        printf -- '- %s\n' "${NOTES[@]}"
-      fi
-      echo
-      echo "密鑰檢查只掃描已知樣式，不能證明沒有任何機密。"
-      echo
-      echo "結構檢查不等於 Gatekeeper 放行，也不是啟動測試。"
-    } >"$REPORT"
-  fi
-  exit "$code"
-}
-block_rest() { local n; for n in "$@"; do record BLOCKED "$n" "$BLOCK_WHY"; done; }
+check_init validate-mac
+REPORT_TITLE="Mac Receiver zip 結構檢查"; REPORT_TARGET="$ZIP"; REPORT_FOOTER="結構檢查不等於 Gatekeeper 放行，也不是啟動測試。"
 
 # 1 zip 存在且能解壓
 BLOCK_WHY="沒有 zip"
@@ -103,9 +68,6 @@ if [ "${#APPS[@]}" -ne 1 ]; then
 else
   APP="${APPS[0]}"
 fi
-
-macho_ok() { file -b "$1" | grep -q 'Mach-O'; }
-platform_of() { vtool -show-build "$1" 2>/dev/null | awk '$1=="platform"{print $2; exit}'; }
 
 if [ -n "$APP" ]; then
   INFO="$APP/Contents/Info.plist"
@@ -170,25 +132,12 @@ if [ -n "$APP" ]; then
   fi
 
   # 11 禁止內容
-  FORBID="$(find "$X" \( -name '*.swift' -o -name '*.m' -o -name '.git' -o -name '.env' -o -name '.env.*' \
-      -o -name '*.p12' -o -name '*.pem' -o -name '*.key' -o -name '*.mobileprovision' -o -name '*.xcodeproj' \
-      -o -name '*.xcworkspace' -o -name '*.dSYM' -o -name 'Podfile*' -o -name 'GoogleService-Info.plist' \
-      -o -name '__MACOSX' -o -name '.DS_Store' \
-      -o \( -name '*.h' -not -path '*/Headers/*' \) \) 2>/dev/null | sed "s#^$X/##")"
-  # ditto 解壓會把 ._ 併回 xattr，要直接看壓縮檔的項目清單。
-  APPLEDOUBLE="$(unzip -Z1 "$ZIP" 2>/dev/null | grep -E '(^|/)\._' || true)"
-  [ -z "$APPLEDOUBLE" ] || FORBID="$FORBID AppleDouble×$(printf '%s\n' "$APPLEDOUBLE" | wc -l | tr -d ' ')"
-  PK="$(find "$X" -type f \( -name '*.plist' -o -name '*.json' -o -name '*.txt' \) -exec grep -l -a 'PRIVATE KEY' {} + 2>/dev/null | sed "s#^$X/##" || true)"
+  scan_forbidden "$X" "$ZIP"
   if [ -n "$FORBID" ] || [ -n "$PK" ]; then record FAIL 11 "禁止內容：$(echo "$FORBID $PK" | tr '\n' ' ')"
   else record PASS 11 "沒有禁止的檔案與 PRIVATE KEY（只掃描已知樣式）"; fi
 
   # 12 /Users/ 字串（只記錄）
-  USERS=0
-  while IFS= read -r f; do
-    [ -n "$f" ] && macho_ok "$f" || continue
-    n="$({ grep -a -o '/Users/' "$f" 2>/dev/null || true; } | wc -l | tr -d ' ')"
-    USERS=$((USERS + n))
-  done < <(find "$APP" -type f \( -perm -u+x -o -name '*.dylib' \) 2>/dev/null)
+  USERS="$(count_users_strings "$APP")"
   NOTES+=("執行檔內含字串 /Users/ 共 ${USERS} 處，只記錄不列為失敗。")
   record PASS 12 "執行檔內 /Users/ 出現 ${USERS} 處（只記錄）"
 
@@ -202,13 +151,6 @@ if [ -n "$APP" ]; then
 fi
 
 # 14 SHA-256
-SHAFILE="$ZIP.sha256"
-if [ -f "$SHAFILE" ]; then
-  if (cd "$(dirname "$ZIP")" && shasum -a 256 -c "$(basename "$SHAFILE")" >/dev/null 2>&1); then
-    record PASS 14 "SHA-256 檔存在且與 zip 相符：$(awk '{print $1}' "$SHAFILE")"
-  else record FAIL 14 "SHA-256 與 zip 不符"; fi
-else
-  record BLOCKED 14 "沒有 $(basename "$SHAFILE")"
-fi
+check_sha256 14 "$ZIP" "zip"
 
 finish

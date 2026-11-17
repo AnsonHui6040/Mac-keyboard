@@ -8,12 +8,19 @@ final class ScriptedFocusReader: FocusReading, @unchecked Sendable {
     private let lock = NSLock()
     private var results: [FocusReadResult]
     private let delays: [TimeInterval]
+    private let onRead: (@Sendable (Int) -> Void)?
     private var reads = 0
 
-    /// `delays[n]` is the sleep of the n-th call; the last value repeats.
-    init(_ results: [FocusReadResult], delay: TimeInterval = 0, delays: [TimeInterval]? = nil) {
+    /// `delays[n]` is the sleep of the n-th call; the last value repeats. `onRead` runs on the reading thread with the
+    /// 0-based index of the call, after its result is chosen and before it returns, so a test can act exactly while a read
+    /// is in flight (or hold it there) without guessing with a sleep.
+    init(
+        _ results: [FocusReadResult], delay: TimeInterval = 0, delays: [TimeInterval]? = nil,
+        onRead: (@Sendable (Int) -> Void)? = nil
+    ) {
         self.results = results
         self.delays = delays ?? [delay]
+        self.onRead = onRead
     }
 
     var readCount: Int { lock.lock(); defer { lock.unlock() }; return reads }
@@ -25,6 +32,7 @@ final class ScriptedFocusReader: FocusReading, @unchecked Sendable {
         let result = results.count > 1 ? results.removeFirst() : results[0]
         let delay = delays[min(index, delays.count - 1)]
         lock.unlock()
+        onRead?(index)
         if delay > 0 { Thread.sleep(forTimeInterval: delay) }
         return result
     }
@@ -48,6 +56,13 @@ enum FocusFixtures {
             FocusEnvironment(trusted: { true }, frontmost: { [self] in (pid, name) }, ownPID: 1)
         }
     }
+}
+
+/// The input source the notice test pretends is selected; a box so the test can change it after the notice captured it.
+@MainActor
+private final class CurrentInputSource {
+    var id: String
+    init(id: String) { self.id = id }
 }
 
 @MainActor
@@ -96,7 +111,9 @@ final class FocusMonitorTests: XCTestCase {
     }
 
     func testSlowAXReadDoesNotBlockMainThread() async {
-        let reader = ScriptedFocusReader([FocusFixtures.elementA], delay: 2)
+        // The read hangs for 0.8 s of real time. A main thread that waited for it would stall for at least that long, well
+        // past the 0.5 s bound below, and would tick almost never.
+        let reader = ScriptedFocusReader([FocusFixtures.elementA], delay: 0.8)
         let monitor = FocusMonitor(reader: reader, environment: FocusFixtures.environment())
 
         var longestGap: TimeInterval = 0
@@ -104,7 +121,7 @@ final class FocusMonitorTests: XCTestCase {
         let ticker = Task { @MainActor in
             var last = ContinuousClock.now
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(50))
+                try? await Task.sleep(for: .milliseconds(10))
                 let now = ContinuousClock.now
                 let gap = now - last
                 longestGap = max(longestGap, Double(gap.components.seconds) + Double(gap.components.attoseconds) / 1e18)
@@ -117,7 +134,7 @@ final class FocusMonitorTests: XCTestCase {
         let elapsed = ContinuousClock.now - started
         ticker.cancel()
 
-        XCTAssertGreaterThanOrEqual(elapsed, .seconds(2), "the read really took 2 s")
+        XCTAssertGreaterThanOrEqual(elapsed, .milliseconds(800), "the read really took 0.8 s")
         XCTAssertTrue(snapshot.editable)
         XCTAssertGreaterThan(ticks, 20, "the main actor kept ticking while AX was busy")
         XCTAssertLessThan(longestGap, 0.5, "no main-thread stall")
@@ -144,28 +161,38 @@ final class FocusMonitorTests: XCTestCase {
 
     func testFrontmostAppChangingDuringTheReadFailsClosed() async {
         let front = FocusFixtures.Frontmost()
-        let reader = ScriptedFocusReader([FocusFixtures.elementA], delay: 0.6)
+        // The second read is the one the app switch lands in: it happens on the reading thread, while that read is in flight.
+        let reader = ScriptedFocusReader([FocusFixtures.elementA]) { index in
+            guard index == 1 else { return }
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    front.pid = 99
+                    front.name = "Safari"
+                }
+            }
+        }
         let monitor = FocusMonitor(reader: reader, environment: front.environment)
         let before = await monitor.refreshNow()
         XCTAssertTrue(before.editable)
 
-        let task = Task { await monitor.refreshNow() }
-        try? await Task.sleep(for: .milliseconds(200))
-        front.pid = 99
-        front.name = "Safari"
-        let after = await task.value
+        let after = await monitor.refreshNow()
         XCTAssertFalse(after.editable, "the element belongs to the app that was frontmost before the switch")
         XCTAssertEqual(after.frontmostPID, 99)
         XCTAssertGreaterThan(after.epoch, before.epoch)
     }
 
     func testOlderReadFinishingLaterDoesNotOverwriteNewer() async {
-        // First call is slow and sees A; second call is fast and sees B.
-        let reader = ScriptedFocusReader([FocusFixtures.elementA, FocusFixtures.elementB], delays: [0.8, 0])
+        // First call is slow and sees A; second call is fast and sees B. The slow read is held until the fast one is done.
+        let gate = DispatchSemaphore(value: 0)
+        let reader = ScriptedFocusReader([FocusFixtures.elementA, FocusFixtures.elementB]) { index in
+            if index == 0 { _ = gate.wait(timeout: .now() + 10) }
+        }
         let monitor = FocusMonitor(reader: reader, environment: FocusFixtures.environment())
         let slow = Task { await monitor.refreshNow() }
-        try? await Task.sleep(for: .milliseconds(150))
+        for _ in 0..<1000 where reader.readCount < 1 { try? await Task.sleep(for: .milliseconds(2)) }
+        XCTAssertEqual(reader.readCount, 1, "the slow read is in flight")
         let fast = await monitor.refreshNow()
+        gate.signal()
         let slowResult = await slow.value
         XCTAssertEqual(monitor.snapshot, fast, "the newer read stays applied")
         XCTAssertEqual(slowResult, fast, "the older call hands back the newer snapshot")
@@ -173,8 +200,8 @@ final class FocusMonitorTests: XCTestCase {
     }
 
     func testRestoreNoticeShowsAndClearsOnlyOnceNotABC() {
-        var current = InputSourceSwitcher.asciiID
-        let notice = InputSourceNotice(currentID: { current })
+        let current = CurrentInputSource(id: InputSourceSwitcher.asciiID)
+        let notice = InputSourceNotice(currentID: { current.id })
         XCTAssertNil(notice.message)
         notice.report(restoredOK: false)
         XCTAssertEqual(notice.message, "輸入法未能切回，請手動切換")
@@ -182,7 +209,7 @@ final class FocusMonitorTests: XCTestCase {
         XCTAssertEqual(notice.message, "輸入法未能切回，請手動切換", "still on ABC, so the warning stays")
         notice.sourceChanged()
         XCTAssertNotNil(notice.message)
-        current = "com.apple.inputmethod.TCIM.Zhuyin"
+        current.id = "com.apple.inputmethod.TCIM.Zhuyin"
         notice.sourceChanged()
         XCTAssertNil(notice.message, "the user switched back by hand")
     }

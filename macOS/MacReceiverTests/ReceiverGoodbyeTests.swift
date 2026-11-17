@@ -63,10 +63,12 @@ final class ReceiverGoodbyeTests: XCTestCase {
 
         // No response: the half-second fallback cancels, not earlier.
         let (slow, _) = try authenticatedRig()
+        // prepareForTermination() waits at most goodbyeTimeout + 0.2 s = 0.7 s, so the fallback must land inside that.
+        let deadline = ContinuousClock.now + .milliseconds(700)
         slow.central.stopReceiving()
         try await Task.sleep(for: .milliseconds(250))
         XCTAssertTrue(slow.cancels.isEmpty, "still waiting for the write response at 0.25 s")
-        try await Task.sleep(for: .milliseconds(450))
+        while slow.cancels.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         XCTAssertEqual(slow.cancels, [slow.peripheral], "cancelled by the 0.5 s fallback")
 
         // A late response after the fallback changes nothing.

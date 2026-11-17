@@ -18,7 +18,7 @@ final class ReplayWindowTests: XCTestCase {
     }
 
     func testCheckAloneDoesNotMoveTheWindow() {
-        var window = ReplayWindow()
+        let window = ReplayWindow()
         XCTAssertTrue(window.check(5))
         XCTAssertTrue(window.check(5), "nothing was committed")
     }
