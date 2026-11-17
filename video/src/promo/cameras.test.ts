@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { CLOSE_IDS, LIN_DOC, PAN, PUSH, WIN_DOC, closeCam, toPlane } from './cameras.ts';
 import { CUTS, DRAFT_SEND, LIVE_LAST, cutAt, cutById } from './cuts.ts';
-import { MAC_DELAY } from './events.ts';
+import { HOST_TAPS, MAC_DELAY } from './events.ts';
 import { docAt, promoFingerAt, promoMacAt, promoPhoneAt } from './state.ts';
 import { FRAMES, TITLES, seg } from './timeline.ts';
 import { projectSlab, type Pt } from '../film/slabMath.ts';
@@ -44,12 +44,38 @@ test('cuts cover the film with no gap and follow the segments', () => {
   assert.deepEqual(of('2').map((c) => c.dev), ['phone', 'mac', 'phone', 'mac']);
   const live = of('2')[1];
   const draft = of('2')[3];
-  assert.ok(live.from >= LIVE_LAST + MAC_DELAY && live.from <= LIVE_LAST + MAC_DELAY + 2, `live Mac cut at ${live.from}`);
+  assert.ok(live.from > seg('2').from && live.from < LIVE_LAST, `live Mac cut at ${live.from} is in the middle of the live typing`);
   assert.ok(draft.from >= DRAFT_SEND + MAC_DELAY && draft.from <= DRAFT_SEND + MAC_DELAY + 2, `draft Mac cut at ${draft.from}`);
   for (const id of ['3', '5', '7'] as const) assert.deepEqual(of(id).map((c) => c.dev), ['phone']);
   assert.equal(of('4')[of('4').length - 1].dev, 'win');
   assert.equal(of('6')[of('6').length - 1].dev, 'linux');
   assert.deepEqual([of('1'), of('8'), of('9'), of('10')].map((a) => a.map((c) => c.dev)), [['hero'], ['stage'], ['wide'], ['card']]);
+});
+
+test('slower pace: every cut of segments 2 to 7 is at least 30 frames, the Mac cuts of segment 2 at least 45, the host names stay 75 frames', () => {
+  for (const c of CUTS.filter((x) => x.from >= seg('2').from && x.to <= seg('7').to)) assert.ok(c.to - c.from >= 30, `cut ${c.id} is ${c.to - c.from} frames`);
+  const s2 = CUTS.filter((c) => c.from >= seg('2').from && c.to <= seg('2').to);
+  for (const c of s2.filter((x) => x.dev === 'mac')) assert.ok(c.to - c.from >= 45, `Mac cut ${c.id} is ${c.to - c.from} frames`);
+  assert.ok(HOST_TAPS[0] + 75 <= seg('3').to, 'the Windows name stays 75 frames');
+  assert.ok(HOST_TAPS[1] + 75 <= seg('5').to, 'the Linux name stays 75 frames');
+});
+
+test('the first Mac cut of segment 2 shows the letters arrive one by one, and the whole line stays in frame', () => {
+  const c = cut('2b');
+  let changes = 0;
+  let prev = promoMacAt(c.from).lines.join('\n');
+  for (const f of frames('2b')) {
+    const cur = promoMacAt(f).lines.join('\n');
+    if (cur.length > prev.length) changes++;
+    prev = cur;
+  }
+  assert.ok(changes >= 6, `${changes} letters appeared during the cut`);
+  const first = promoMacAt(c.from).lines.join('').length;
+  const last = promoMacAt(c.to - 1).lines.join('').length;
+  assert.ok(last > first, 'the text grows');
+  for (const f of [c.from, c.to - 1]) {
+    for (const x of [DOC.textX, DOC.textX + textWidth('Hello from my iPhone', DOC.size, 500)]) assert.ok(inside(at('2b', f, 'mac', x, DOC.textY)), `frame ${f}: the line at x ${x} is in the frame`);
+  }
 });
 
 test('the status cell close-ups (segments 3, 5, 7) are front on at about 2 times, the whole toolbar width in the frame, the cell in the middle band on every frame', () => {

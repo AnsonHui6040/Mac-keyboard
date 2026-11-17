@@ -1,6 +1,6 @@
 /**
  * The cut list of the v0.2 promo: which device is on screen from which frame, hard cuts only, covering 0 to FRAMES with no gap.
- * Every cut that shows a computer starts the frame its text lands (a key press plus MAC_DELAY). Pure: node can import it.
+ * Every cut that shows a computer starts the frame its text lands (a key press plus MAC_DELAY); the first Mac cut of segment 2 starts in the middle of the live typing. Pure: node can import it.
  */
 import { HW_CANDIDATES_AT, MAC_DELAY, PRESSES } from './events.ts';
 import { FRAMES, seg } from './timeline.ts';
@@ -17,6 +17,9 @@ const s2 = seg('2');
 const s4 = seg('4');
 /** The last typed letter of the live mode: its text lands on the Mac MAC_DELAY frames later. */
 export const LIVE_LAST: number = Math.max(...PRESSES.filter((p) => p.fx.k === 'char' && p.t >= s2.from && p.t < press('toggle:draft', s2.from)).map((p) => p.t));
+const LIVE_CHARS = PRESSES.filter((p) => p.fx.k === 'char' && p.t >= s2.from && p.t < press('toggle:draft', s2.from)).map((p) => p.t);
+/** The middle of the live typing: the phone cut ends here and the Mac shows the rest of the letters arriving. */
+export const LIVE_MID: number = LIVE_CHARS[Math.floor(LIVE_CHARS.length / 2)];
 export const DRAFT_SEND: number = press('send', s2.to);
 export const HW_SEND: number = press('send', s4.to);
 const QUICK_SEND = press('send', seg('6').to);
@@ -26,8 +29,8 @@ export const CUTS: readonly Cut[] = (() => {
   const c: Cut[] = [];
   const add = (id: string, dev: Dev, from: number, to: number): void => { c.push({ id, from, to, dev }); };
   add('1', 'hero', 0, seg('1').to);
-  add('2a', 'phone', s2.from, LIVE_LAST + MAC_DELAY);
-  add('2b', 'mac', LIVE_LAST + MAC_DELAY, TOGGLE - 2);
+  add('2a', 'phone', s2.from, LIVE_MID + MAC_DELAY);
+  add('2b', 'mac', LIVE_MID + MAC_DELAY, TOGGLE - 2);
   add('2c', 'phone', TOGGLE - 2, DRAFT_SEND + MAC_DELAY);
   add('2d', 'mac', DRAFT_SEND + MAC_DELAY, s2.to);
   add('3', 'phone', seg('3').from, seg('3').to);

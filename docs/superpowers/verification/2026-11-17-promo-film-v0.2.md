@@ -19,13 +19,13 @@ bash scripts/render-promo.sh
 
 | 項目 | 結果 |
 |---|---|
-| `npm test` | 327 項全部通過（原 322 項，新增 `mix.test.ts` 5 項） |
+| `npm test` | 330 項全部通過（原 322 項，新增 `mix.test.ts` 5 項、節奏修改新增 3 項） |
 | `mix.test.ts` 先紅後綠 | 先寫測試，`mix.ts` 與 `music.ts` 不存在時整檔失敗；實作後第一次跑 4 通過 1 失敗（`musicGainDb` 在旁白外回傳 -0，`assert.equal(-0, 0)` 不成立），改成加 0 後 5 項全過 |
 | `kinetograph check` | 沒有型別錯誤 |
-| `kinetograph doctor --comp PromoFilm` | 1938 幀全部可完整繪製 |
-| `kinetograph lint`（0 到 1935 每 15 幀，加第 1937 幀，共 131 幀） | 0 個 error，1861 個 warning：`text-overlap` 1628、`off-canvas` 227、`text-overflow-canvas` 6 |
-| `ffprobe`（成品） | 視訊 H.264、1920×1080、30 fps、1938 幀；音訊 AAC、48 kHz；64.600 秒；40,348,757 位元組 |
-| 響度（`render-promo.sh` 的 `ebur128`，成品） | -14.1 LUFS，true peak -1.4 dBTP，限幅一輪收斂；母帶前 -17.9 LUFS、-0.9 dBTP |
+| `kinetograph doctor --comp PromoFilm` | 2092 幀全部可完整繪製 |
+| `kinetograph lint`（0 到 2085 每 15 幀，加第 2091 幀，共 141 幀） | 0 個 error，1835 個 warning：`text-overlap` 1593、`off-canvas` 227、`text-overflow-canvas` 15（都是 1 到 3 像素的邊緣） |
+| `ffprobe`（成品） | 視訊 H.264、1920×1080、30 fps、2092 幀；音訊 AAC、48 kHz；69.733 秒；43,407,072 位元組 |
+| 響度（`render-promo.sh` 的 `ebur128`，成品） | -14.1 LUFS，true peak -1.4 dBTP，限幅一輪收斂；母帶前 -17.9 LUFS、-0.8 dBTP |
 | `kinetograph audio analyze --comp PromoFilm`（母帶前） | -17.9 LUFS，true peak -0.9 dBTP，沒有削波樣本；無聲段 11 處（旁白與音效之間的空檔，沒有音樂） |
 | 舊片不變 | `old-films-fingerprint.sh` 在加入 `./promo/register.ts` 之後輸出的 `fingerprint.txt`（`ProductFilm` 9 幀、`ProductIntro` 3 幀、`Main` 2 幀的 sha256，三部片的 `audio analyze` 雜湊）與 main 的基準 `diff` 結果為空 |
 | 內容檢查 | `mix.test.ts` 掃 `src/promo/*.ts(x)`，沒有任何廣東話專用字；標題、字卡、旁白與字幕不含禁用字（逗號除外，旁白可用） |
@@ -38,11 +38,26 @@ bash scripts/render-promo.sh
 | 旁白 | 十個 mp3 依 `VOICE` 的幀放入，未改動 |
 | 音效 | 沿用 `film/sounds.ts`；每個事件乘上 `10 ** (sfxGainDb(frame) / 20)`，旁白時壓低 6 dB，前後 0.25 秒（8 幀）線性漸變；換電腦的點一下用輕點聲 |
 | 音樂 | `musicGainDb` 旁白時 -10 dB，同樣的漸變；`PROMO_MUSIC` 空，沒有聲音，第二階段只需填資料 |
-| 只在整片長度的音訊 context 播音效 | `isPromoContext`：長度等於 64.6 秒（容許 1 個 sample）；舊片的長度（`ProductFilm`、`ProductIntro`、`Main`）測試確認不會觸發。`--range` 輸出沒有音效，與 `ProductFilm` 相同 |
+| 只在整片長度的音訊 context 播音效 | `isPromoContext`：長度等於 69.7 秒（2092 幀）（容許 1 個 sample）；舊片的長度（`ProductFilm`、`ProductIntro`、`Main`）測試確認不會觸發。`--range` 輸出沒有音效，與 `ProductFilm` 相同 |
 
 ## 親自看過的畫面
 
-控制者另外看第 60、300、440、700、830、1050、1160、1400、1650、1760、1900 幀（`.superpowers/sdd/2026-11-18-promo-film-v0.2/stills-t6/`）。第一階段我自己看了第 60、830、1050、1650、1900 幀：字卡文字、位置、免責聲明正常，沒有 Windows、Ubuntu 或 Apple 的標誌，標題沒有被切到，沒有廣東話用字。
+控制者另外看第 60、300、440、700、830、1050、1160、1400、1650、1760、1900 幀（`.superpowers/sdd/2026-11-18-promo-film-v0.2/stills-t6/`；那是 64.6 秒的第一版）。節奏修改後的抽幀在 `stills-t6b/`：第 160、243、366、470、560、986、60、2050 幀。第一階段我自己看了第 60、830、1050、1650、1900 幀：字卡文字、位置、免責聲明正常，沒有 Windows、Ubuntu 或 Apple 的標誌，標題沒有被切到，沒有廣東話用字。
+
+## 節奏修改（2026-11-18，第 6b 項）
+
+使用者看第一版後覺得頭 18 秒太快，旁白不改，片長由 64.6 秒（1938 幀）放寬為 69.7 秒（2092 幀，上限 2130 幀）。
+
+| 項目 | 第一版 | 修改後 |
+|---|---|---|
+| 第 2 段 | 286 幀 | 375 幀；即時每 6 幀一鍵、草稿每 5 幀一鍵；草稿鍵在第 288 幀 |
+| 第 3 段 | 94 幀 | 135 幀 |
+| 第 5 段 | 96 幀 | 120 幀 |
+| 第 2 段鏡頭 | 手機、14 幀的 Mac、手機、Mac | 手機 80 幀、Mac 86 幀（字逐個長出）、手機 160 幀、Mac 49 幀（整句落地） |
+| 點擊後到段落結束 | | 第 3 段 110 幀、第 5 段 89 幀 |
+| 章節 | 0:00、0:13、0:26、0:37、0:53 | 0:00、0:16、0:30、0:42、0:58 |
+
+自動驗證：`timeline`、`events`、`cameras` 測試先改成新值（紅），再改程式（綠）；新增三項測試（草稿標題換在草稿鍵那一幀、第 2 到 7 段鏡頭至少 30 幀與 Mac 鏡頭至少 45 幀、第一個 Mac 鏡頭字逐個長出且整行在畫面內）。舊片指紋與基準相同。實機與使用者觀感仍是 TBD：節奏是否夠慢要使用者重看。
 
 ## 使用者看過才算 PASS（TBD）
 

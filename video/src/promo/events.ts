@@ -7,7 +7,7 @@ import manifestJson from './voice-manifest.json' with { type: 'json' };
 import { STROKES, strokeLength } from '../intro/ink.ts';
 import { PAD_AT, PAD_EVENTS as OLD_PAD_EVENTS, type Fx, type PadWhat, type SoundKind } from '../film/events.ts';
 import type { KbName } from '../film/layout.ts';
-import { FRAMES, newFrame, seg, voice, type LineId, type SegId } from './timeline.ts';
+import { FRAMES, SEG2_DRAFT_AT, newFrame, seg, voice, type LineId, type SegId } from './timeline.ts';
 
 export type { SoundKind };
 export const MAC_DELAY = 2;
@@ -49,19 +49,17 @@ const after = (id: SegId, frames: number): number => seg(id).from + frames;
 
 // --- segment 2: live to the Mac, then the draft with the c missing ---
 const HELLO = tokens('Hello from my iPhone', 'connected');
-place(HELLO, run(at('2', 0.4), 4, HELLO.length));
-const helloEnd = at('2', 0.4) + 4 * (HELLO.length - 1);
-one(helloEnd + 8, 'connected', 'enter', { k: 'enter' }, 'tap', '換行');
-one(helloEnd + 18, 'connected', 'toggle:draft', { k: 'mode', to: 'draft' }, 'tap', '草稿');
+place(HELLO, run(at('2', 0.4), 6, HELLO.length));
+one(at('2', 5.1), 'connected', 'enter', { k: 'enter' }, 'tap', '換行');
+one(SEG2_DRAFT_AT, 'connected', 'toggle:draft', { k: 'mode', to: 'draft' }, 'tap', '草稿');
 const CHEK = tokens('Chek before sending', 'draft');
-const chekStart = helloEnd + 28;
-place(CHEK, run(chekStart, 3, CHEK.length));
-const chekEnd = chekStart + 3 * (CHEK.length - 1);
-one(chekEnd + 11, 'draft', 'draft:3', { k: 'caret', index: 3 }, 'tap', '草稿');
-one(chekEnd + 23, 'draft', 'c', { k: 'char', c: 'c' }, 'key');
-one(chekEnd + 39, 'draft', 'draft:20', { k: 'caret', index: 20 }, 'tap', '草稿');
-one(chekEnd + 49, 'draft', 'enter', { k: 'enter' }, 'tap', '換行');
-one(chekEnd + 59, 'draft', 'send', { k: 'send' }, 'tap', '傳送');
+const chekStart = at('2', 6.0);
+place(CHEK, run(chekStart, 5, CHEK.length));
+one(at('2', 9.6), 'draft', 'draft:3', { k: 'caret', index: 3 }, 'tap', '草稿');
+one(at('2', 9.95), 'draft', 'c', { k: 'char', c: 'c' }, 'key');
+one(at('2', 10.3), 'draft', 'draft:20', { k: 'caret', index: 20 }, 'tap', '草稿');
+one(at('2', 10.55), 'draft', 'enter', { k: 'enter' }, 'tap', '換行');
+one(at('2', 10.8), 'draft', 'send', { k: 'send' }, 'tap', '傳送');
 
 // --- segments 3, 5, 7: the tap on the status cell of whatever page the phone shows ---
 one(HOST_TAPS[0], 'draft', 'status', { k: 'host' }, 'tap', '點一下');
