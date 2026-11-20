@@ -71,10 +71,12 @@ public struct RimeInputMethod: ChineseInputMethod {
             shift: shiftPending)
     }
 
-    private mutating func commit(index: Int) -> IMEOutput {
-        let committed = session.selectCandidate(index) ? session.takeCommit() : nil
+    /// Internal so tests can reach the failure path. If librime refuses the selection, the composition and the
+    /// pending Shift are kept so the user can retry or clear.
+    mutating func commit(index: Int) -> IMEOutput {
+        _ = session.takeCommit()  // drop any stale commit left by an earlier key
+        guard session.selectCandidate(index), let committed = session.takeCommit() else { return state() }
         reset()
-        guard let committed else { return IMEOutput() }
         return IMEOutput(commit: committed)
     }
 

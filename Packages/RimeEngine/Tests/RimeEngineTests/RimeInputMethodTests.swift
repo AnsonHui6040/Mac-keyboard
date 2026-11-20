@@ -171,4 +171,21 @@ final class RimeInputMethodTests: XCTestCase {
         XCTAssertEqual(method.handle(.key("1")).passThrough, .character("1"))
         XCTAssertEqual(method.handle(.key("b")).candidates, ["明", "盟"])
     }
+
+    func testBackspaceRemovesExactlyOneCode() throws {
+        var method = try makeMethod()
+        _ = method.handle(.key("z")); _ = method.handle(.key("z"))
+        XCTAssertEqual(method.handle(.backspace).composing, "重")
+    }
+
+    func testFailedSelectionKeepsCompositionAndShift() throws {
+        var method = try makeMethod()
+        _ = method.handle(.key("a")); _ = method.handle(.key("b")); _ = method.handle(.shift)
+        let output = method.commit(index: 99)
+        XCTAssertNil(output.commit)
+        XCTAssertEqual(output.composing, "日月")
+        XCTAssertEqual(output.candidates, ["明", "盟"])
+        XCTAssertTrue(output.shift)
+        XCTAssertEqual(method.handle(.selectCandidate(0)).commit, "明")
+    }
 }
