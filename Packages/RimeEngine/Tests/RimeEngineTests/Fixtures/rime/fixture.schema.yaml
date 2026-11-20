@@ -1,0 +1,21 @@
+schema:
+  schema_id: fixture
+  name: fixture
+  version: "1"
+engine:
+  processors:
+    - speller
+    - selector
+    - express_editor
+  segmentors:
+    - abc_segmentor
+  translators:
+    - table_translator
+speller:
+  alphabet: abcdefghijklmnopqrstuvwxyz
+translator:
+  dictionary: fixture
+  enable_completion: false
+  enable_sentence: false
+  enable_user_dict: false
+  enable_encoder: false
