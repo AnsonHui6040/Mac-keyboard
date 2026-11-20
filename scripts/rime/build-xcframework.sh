@@ -57,6 +57,32 @@ for d in "$LIBRIME_SRC" "$LEVELDB_SRC" "$MARISA_SRC" "$YAML_SRC" "$OPENCC_SRC" "
   [ -d "$d" ] || { echo "解壓縮後找不到 $d" >&2; exit 1; }
 done
 
+# ---- 合併授權檔（內容取自上面解壓縮的原始碼壓縮檔，不手打）→ build/rime/RIME-LICENSES.txt ----
+LICENSES="$ROOT/build/rime/RIME-LICENSES.txt"
+license_section() { # 名稱 版本 授權 說明
+  printf '\n================================================================\n'
+  printf '%s %s\n授權：%s\n' "$1" "$2" "$3"
+  [ -z "${4:-}" ] || printf '%s\n' "$4"
+  printf '================================================================\n\n'
+}
+{
+  printf 'Remote Keyboard 內含的 librime 及其依賴，授權文字取自各自原始碼壓縮檔。\n'
+  license_section librime "$LIBRIME_V" BSD-3-Clause
+  cat "$LIBRIME_SRC/LICENSE"
+  license_section Boost "$BOOST_V" BSL-1.0
+  tar xjOf "$SRC/boost-$BOOST_V.tar.bz2" "boost_${BOOST_V//./_}/LICENSE_1_0.txt"
+  license_section LevelDB "$LEVELDB_V" BSD-3-Clause
+  cat "$LEVELDB_SRC/LICENSE"
+  license_section marisa-trie "$MARISA_V" BSD-2-Clause "上游為 BSD-2-Clause 或 LGPL-2.1-or-later 雙授權；本專案選用 BSD-2-Clause。"
+  sed -n '/^#### The BSD 2-clause license/,/^#### The LGPL/{/^#### The LGPL/d;p;}' "$MARISA_SRC/COPYING.md"
+  license_section yaml-cpp "$YAML_V" MIT
+  cat "$YAML_SRC/LICENSE"
+  license_section OpenCC "$OPENCC_V" Apache-2.0 "OpenCC $OPENCC_V 的原始碼壓縮檔沒有 NOTICE 檔，因此沒有 NOTICE 內容可附。"
+  cat "$OPENCC_SRC/LICENSE"
+} > "$LICENSES"
+echo "licenses: $LICENSES"
+[ "${RIME_LICENSES_ONLY:-0}" != 1 ] || exit 0
+
 build_slice() {
   local slice="$1" sysname="$2" sysroot="$3" deploy="$4"
   local w="$WORK/$slice" prefix="$WORK/$slice/prefix"

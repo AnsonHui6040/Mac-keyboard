@@ -40,8 +40,46 @@ struct LicensesView: View {
                     .font(.footnote)
                     .accessibilityIdentifier("rk.licenses.quick")
             }
+            Section("輸入引擎（librime）") {
+                ForEach(Self.engineComponents, id: \.name) { component in
+                    HStack {
+                        Text("\(component.name) \(component.version)")
+                        Spacer()
+                        Text(component.license).foregroundStyle(.secondary)
+                    }
+                    .font(.footnote)
+                }
+                .accessibilityIdentifier("rk.licenses.rime.summary")
+            }
+            Section("輸入引擎授權全文") {
+                Text(Self.bundledText("RIME-LICENSES"))
+                    .font(.caption2)
+                    .accessibilityIdentifier("rk.licenses.rime")
+            }
+            Section("速成字碼表來源（輸入引擎用）") {
+                Text(Self.bundledText("LICENSE-data"))
+                    .font(.caption2)
+                    .accessibilityIdentifier("rk.licenses.rime.data")
+            }
         }
         .navigationTitle("授權")
+    }
+
+    private static let engineComponents: [(name: String, version: String, license: String)] = [
+        ("librime", "1.17.0", "BSD-3-Clause"),
+        ("Boost", "1.92.0", "BSL-1.0"),
+        ("LevelDB", "1.23", "BSD-3-Clause"),
+        ("marisa-trie", "0.3.1", "BSD-2-Clause"),
+        ("yaml-cpp", "0.9.0", "MIT"),
+        ("OpenCC", "1.4.2", "Apache-2.0"),
+    ]
+
+    private static func bundledText(_ name: String) -> String {
+        guard
+            let url = Bundle.main.url(forResource: name, withExtension: "txt"),
+            let text = try? String(contentsOf: url, encoding: .utf8)
+        else { return "找不到授權檔。" }
+        return text
     }
 
     private static let quickLicense: String = {
