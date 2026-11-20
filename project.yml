@@ -82,6 +82,15 @@ targets:
           - $(SRCROOT)/ime/rime/default.yaml
           - $(SRCROOT)/ime/rime/quick5.dict.yaml
           - $(SRCROOT)/ime/rime/quick5.schema.yaml
+          - $(SRCROOT)/ime/rime/cangjie5.dict.yaml
+          - $(SRCROOT)/ime/rime/cangjie5.schema.yaml
+          - $(SRCROOT)/ime/rime/zhuyin.dict.yaml
+          - $(SRCROOT)/ime/rime/zhuyin.schema.yaml
+          - $(SRCROOT)/ime/rime/pinyin.dict.yaml
+          - $(SRCROOT)/ime/rime/pinyin.schema.yaml
+          - $(SRCROOT)/ime/rime/jyutping.dict.yaml
+          - $(SRCROOT)/ime/rime/jyutping.schema.yaml
+          - $(SRCROOT)/ime/rime/LICENSE-data.txt
           - $(SRCROOT)/scripts/rime/build-data.sh
           - $(SRCROOT)/scripts/rime/copy-data-to-bundle.sh
           - $(SRCROOT)/build/rime/bin/rime_deployer
@@ -89,6 +98,10 @@ targets:
         outputFiles:
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/RIME-LICENSES.txt
           - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/rime/shared/build/quick5.table.bin
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/rime/shared/build/cangjie5.table.bin
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/rime/shared/build/zhuyin.table.bin
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/rime/shared/build/pinyin.table.bin
+          - $(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/rime/shared/build/jyutping.table.bin
     entitlements:
       path: iOS/RemoteKeyboardExtension/RemoteKeyboardExtension.entitlements
       properties:

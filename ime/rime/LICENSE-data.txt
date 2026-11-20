@@ -65,3 +65,140 @@ Except as contained in this notice, the name of a copyright holder shall
 not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
+
+----------------------------------------------------------------------
+
+McBopomofo (data used for the Zhuyin and Pinyin dictionaries)
+
+The Zhuyin and Pinyin dictionaries are generated from the Source/Data files of McBopomofo 3.1.1
+(BPMFBase.txt, BPMFMappings.txt, phrase.occ, exclusion.txt and the heterophony lists):
+  https://github.com/openvanilla/McBopomofo (commit f5ba010ce8795d283ee336ca7d16380f200bd2ec)
+McBopomofo is released under the MIT License, reproduced between the two marker lines below.
+
+----- BEGIN McBopomofo LICENSE.txt -----
+MIT License
+
+Copyright (c) 2011-2026 Mengjuei Hsieh et al.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+----- END McBopomofo LICENSE.txt -----
+
+----------------------------------------------------------------------
+
+libtabe (origin of the McBopomofo word list)
+
+McBopomofo states that its BPMFMappings.txt derives from tsi.src of libtabe, which is released under a
+BSD-style licence. The copyright and licence notice below is the file COPYING of the libtabe source
+(version 0.2.6-1.2 source tree as published by Debian), downloaded from
+  https://sources.debian.org/data/main/libt/libtabe/0.2.6-1.2/COPYING
+and reproduced here without change between the two marker lines. The libtabe 0.2.5 notice was the
+four-clause form with an advertising clause, which upstream removed in 0.2.6; the App's About page
+carries the libtabe acknowledgements so either form is met.
+
+----- BEGIN libtabe COPYING -----
+
+The library consists of software developed by several entities.
+
+The following license applies to major parts of the software.
+
+/*
+ * Copyrighy (c) 1999 TaBE Project.
+ * Copyright (c) 1999 Pai-Hsiang Hsiao.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * . Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ * . Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ * . Neither the name of the TaBE Project nor the names of its
+ *   contributors may be used to endorse or promote products derived
+ *   from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*
+ * Copyright (c) 1999 Computer Systems and Communication Lab,
+ *                    Institute of Information Science, Academia Sinica.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * . Redistributions of source code must retain the above copyright
+ *   notice, this list of conditions and the following disclaimer.
+ * . Redistributions in binary form must reproduce the above copyright
+ *   notice, this list of conditions and the following disclaimer in
+ *   the documentation and/or other materials provided with the
+ *   distribution.
+ * . Neither the name of the Computer Systems and Communication Lab
+ *   nor the names of its contributors may be used to endorse or
+ *   promote products derived from this software without specific
+ *   prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * REGENTS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
+ * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
+ * OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+----- END libtabe COPYING -----
+
+----------------------------------------------------------------------
+
+words.hk (Cantonese character and word lists and frequencies)
+
+The Jyutping dictionary and the Hong Kong character order of the Cangjie and Quick dictionaries use four
+data files of words.hk: charcount.csv, charlist.csv, existingwordcount.csv and wordslist.csv
+(snapshot of 2026-11-20 in ime/sources/wordshk/).
+  Source: https://words.hk/faiman/analysis/
+  Data License: public domain. Credits to words.hk.
+
+----------------------------------------------------------------------
+
+Unihan 18.0.0 (Jyutping readings)
+
+Readings of characters that are not in the words.hk lists come from the kCantonese field of Unihan 18.0.0
+(https://www.unicode.org/Public/18.0.0/ucd/Unihan.zip), covered by the Unicode License v3 reproduced above.

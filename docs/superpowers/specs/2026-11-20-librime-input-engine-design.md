@@ -209,7 +209,7 @@ C1、C2 只用前兩個位置，不依賴 App Group。C3 的匯入資料放在 A
 | 學習 | 第一版不寫使用者詞典（M4） |
 | 網路 | 引擎與匯入都不連網；匯入只接受使用者自己選的本機檔案 |
 | 匯入安全 | 路徑限制、不執行 Lua、大小上限（7.3）；編譯只在主 App |
-| 授權 | 主 App「關於」頁列出：librime（BSD-3-Clause）、Boost（BSL-1.0）、LevelDB（BSD-3-Clause）、marisa（選 BSD-2-Clause）、yaml-cpp（MIT）、OpenCC（Apache-2.0，附 NOTICE）；資料：libcangjie 聲明、Unicode License v3、Wittern 授權句、小麥注音 MIT、words.hk 出處 |
+| 授權 | 主 App「關於」頁列出：librime（BSD-3-Clause）、Boost（BSL-1.0）、LevelDB（BSD-3-Clause）、marisa（選 BSD-2-Clause）、yaml-cpp（MIT）、OpenCC（Apache-2.0，附 NOTICE）；資料：libcangjie 聲明、Unicode License v3、Wittern 授權句、小麥注音 MIT、libtabe BSD、words.hk 出處 |
 | 不內建 | GPL、LGPL、CC BY-SA、CC BY-ND 的資料；rime-cantonese 在取得許可前不內建 |
 
 ## 9. Android 預留
