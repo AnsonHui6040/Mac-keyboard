@@ -189,6 +189,7 @@ final class KeyboardViewController: UIInputViewController {
         refreshDictationSetting()
         #if DEBUG
         dictationAppeared()
+        RimeMeasureProbe.shared.start { [weak self] text in self?.showRimeMeasure(text) }
         #endif
         updateNavigator()
         syncChineseEngine()
@@ -220,6 +221,7 @@ final class KeyboardViewController: UIInputViewController {
         dictationDisappeared()
         #endif
         #if DEBUG
+        RimeMeasureProbe.shared.stop()
         burst.cancel()
         closeMeasureTouchView()
         #endif
@@ -780,6 +782,7 @@ final class KeyboardViewController: UIInputViewController {
         quick = method
         #if DEBUG
         showQuickEngineMarker(method is QuickInputMethod ? "swift" : "rime")
+        RimeMeasureProbe.shared.setEngine(method is QuickInputMethod ? .swift : .rime)
         #endif
     }
 
@@ -802,6 +805,25 @@ final class KeyboardViewController: UIInputViewController {
         marker.accessibilityValue = engine
     }
     private static let quickEngineMarkerTag = 0x524b51
+
+    /// UI-test marker: the Rime measurement line as the value; an almost transparent 2 pt view, numbers only.
+    private func showRimeMeasure(_ text: String) {
+        let marker: UIView
+        if let existing = view.viewWithTag(Self.rimeMeasureMarkerTag) {
+            marker = existing
+        } else {
+            marker = UIView(frame: CGRect(x: 2, y: 0, width: 2, height: 2))
+            marker.tag = Self.rimeMeasureMarkerTag
+            marker.alpha = 0.02
+            marker.backgroundColor = .black
+            marker.isUserInteractionEnabled = false
+            marker.isAccessibilityElement = true
+            marker.accessibilityIdentifier = "rk.debug.rimeMeasure"
+            view.addSubview(marker)
+        }
+        marker.accessibilityValue = text
+    }
+    private static let rimeMeasureMarkerTag = 0x524b52
     #endif
 
     private func resetQuick() {
@@ -898,7 +920,11 @@ final class KeyboardViewController: UIInputViewController {
         if activeChineseMethod == .quick {
             await loadQuickIfNeeded()
             guard run.isCurrent else { return }
+            #if DEBUG
+            output = RimeMeasureProbe.shared.measure { quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input)) }
+            #else
             output = quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input))
+            #endif
             quickOutput = IMEOutput(composing: output.composing, candidates: output.candidates, shift: output.shift)
             refreshStatus()
         } else {
