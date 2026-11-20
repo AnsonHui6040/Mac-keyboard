@@ -86,12 +86,13 @@ private struct KeyboardPreviewRepresentable: UIViewRepresentable {
             detail: String = "Mac → TextEdit", link: String = "connected", trackpad: Bool = true, candidates: [String] = [], message: String? = nil,
             method: ChineseInputMethodID = .handwriting, composing: String = ""
         ) -> KeyboardViewState {
-            KeyboardViewState(
+            let layout = method.layoutID.flatMap { BundledLayouts.load($0, bundle: .main) }
+            return KeyboardViewState(
                 mode: mode, transmit: transmit, page: page,
                 top: TopAreaState(mode: mode, transmit: transmit, ready: ready, draftEmpty: draft.isEmpty, hasNote: false,
-                    showsCandidates: page == .chinese && method == .quick),
+                    showsCandidates: page == .chinese && method.isKeyed),
                 draft: draft, status: status, statusDetail: detail, linkName: link,
-                showsGlobe: true, chineseAvailable: true, candidates: candidates, chineseMethod: method,
+                showsGlobe: true, chineseAvailable: true, candidates: candidates, chineseMethod: method, chineseLayout: layout,
                 composing: composing, handwritingMessage: message, hapticsEnabled: false,
                 soundEnabled: false, trackpadAvailable: trackpad)
         }

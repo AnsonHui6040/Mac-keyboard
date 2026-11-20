@@ -183,7 +183,7 @@ final class MeasurementUITests: XCTestCase {
         }
         // The probe panel sits over the English page's letter rows, so the keyboard has to be on that page.
         let zhEn = element("rk.zhEn")
-        let onChinese = ["rk.hwDelete", "rk.quick.q"].contains { element($0).exists }
+        let onChinese = ["rk.hwDelete", "rk.ime.q"].contains { element($0).exists }
         if onChinese, zhEn.exists { zhEn.tap() }
     }
 

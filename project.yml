@@ -29,6 +29,9 @@ targets:
       # The Settings page shows the licence of the Quick table and previews the bundled key click.
       - path: iOS/RemoteKeyboardExtension/Resources
         includes: [quick-table-LICENSE.txt, key-click.caf]
+      # The preview draws the Quick page from the same layout files as the keyboard.
+      - path: ime/layouts
+        type: folder
     dependencies:
       - target: RemoteKeyboardExtension
         embed: true
@@ -69,6 +72,8 @@ targets:
     sources:
       - iOS/RemoteKeyboardExtension
       - iOS/Shared
+      - path: ime/layouts
+        type: folder
     dependencies:
       - package: RemoteKeyboardCore
       - package: RimeEngine

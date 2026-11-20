@@ -1,7 +1,7 @@
 import RemoteKeyboardCore
 import UIKit
 
-/// A strip of Chinese candidates that scrolls sideways. In the top area (Quick) the first candidate has a light
+/// A strip of Chinese candidates that scrolls sideways. In the top area (keyed methods) the first candidate has a light
 /// background because the space key commits it. On the handwriting page the strip floats over the writing area with
 /// the delete key at its right end; there nothing has a background and empty space passes touches through to the ink.
 /// With no candidates and no delete key nothing is shown.
@@ -31,7 +31,7 @@ final class CandidateBarView: UIView {
     private let backspaceKey = KeyButton(
         style: .function, symbol: "delete.left", label: "刪除", identifier: "rk.hwDelete")
     private(set) var candidates: [String] = []
-    /// The Quick input code (as radicals) shown at the left end, before the candidates; empty for handwriting.
+    /// The input code (as radicals, Bopomofo or letters) shown at the left end, before the candidates; empty for handwriting.
     private(set) var composing = ""
     private var showsBackspace = false
 
@@ -119,7 +119,7 @@ final class CandidateBarView: UIView {
             label.font = .systemFont(ofSize: 20, weight: .medium)
             label.textColor = .systemBlue
             label.textAlignment = .center
-            label.accessibilityIdentifier = "rk.quick.composing"
+            label.accessibilityIdentifier = "rk.ime.composing"
             label.accessibilityLabel = "輸入碼"
             label.accessibilityValue = code
             label.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true

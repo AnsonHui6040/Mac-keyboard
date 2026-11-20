@@ -10,8 +10,7 @@ struct ChineseInputSettingsView: View {
     var body: some View {
         Form {
             Section {
-                methodRow("手寫", id: .handwriting)
-                methodRow("速成", id: .quick)
+                ForEach(Self.listedMethods, id: \.self) { methodRow($0.displayName, id: $0) }
                 Button("開啟完整取用") { OpenSettings.open() }
                     .accessibilityIdentifier("rk.settings.openFullAccess")
             } header: {
@@ -69,10 +68,16 @@ struct ChineseInputSettingsView: View {
         .accessibilityAddTraits(method == id ? .isSelected : [])
     }
 
-    /// The choice the keyboard reads; handwriting until the user picks another.
+    /// The rows, in order.
+    private static let listedMethods: [ChineseInputMethodID] = [.handwriting, .quick, .cangjie, .zhuyin, .jyutping, .pinyin]
+
+    /// The choice the keyboard really uses. A missing, unknown or unlisted saved value falls back the way the keyboard
+    /// does (`ChineseMethodResolver`), so one row is always selected.
     private static func savedMethod() -> ChineseInputMethodID {
-        ChineseInputMethodID.stored(
+        let saved = ChineseInputMethodID.stored(
             rawValue: UserDefaults(suiteName: AppGroup.identifier)?.string(forKey: AppGroup.Key.chineseMethod))
+        return ChineseMethodResolver.effective(
+            saved: saved, hasFullAccess: true, handwritingNeedsFullAccess: false, installed: Set(listedMethods))
             ?? .handwriting
     }
 
