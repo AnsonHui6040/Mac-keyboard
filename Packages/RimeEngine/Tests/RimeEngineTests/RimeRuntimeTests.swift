@@ -56,6 +56,19 @@ final class RimeRuntimeTests: XCTestCase {
         let bins = (try? FileManager.default.contentsOfDirectory(atPath: staging.path))?.filter { $0.hasSuffix(".bin") } ?? []
         XCTAssertEqual(bins, [])
     }
+
+    func testStateReadsAtMostCandidateLimit() throws {
+        let session = try RimeRuntime.start(RimeFixture.compiled("fixture")).makeSession(schema: "fixture")
+        session.candidateLimit = 1
+        _ = session.processKey(Int32(UInt8(ascii: "a"))); _ = session.processKey(Int32(UInt8(ascii: "b")))
+        XCTAssertEqual(session.state.candidates, ["明"])
+    }
+
+    func testPreeditUsesSchemaFormat() throws {
+        let session = try RimeRuntime.start(RimeFixture.compiled("fixture")).makeSession(schema: "zhuyin")
+        for key in "a83" { _ = session.processKey(Int32(key.asciiValue!)) }
+        XCTAssertEqual(session.preedit, "ㄇㄚˇ")
+    }
 }
 
 private final class LockedFlag: @unchecked Sendable {

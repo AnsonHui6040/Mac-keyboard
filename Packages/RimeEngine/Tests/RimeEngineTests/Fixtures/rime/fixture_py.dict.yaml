@@ -1,0 +1,10 @@
+---
+name: fixture_py
+version: "1"
+sort: by_weight
+...
+中國	zhong guo	500
+中	zhong	100
+種	zhong	10
+國	guo	100
+果	guo	50

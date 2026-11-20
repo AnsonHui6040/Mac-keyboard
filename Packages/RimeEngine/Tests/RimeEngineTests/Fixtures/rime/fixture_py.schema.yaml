@@ -1,0 +1,20 @@
+schema:
+  schema_id: fixture_py
+  name: fixture_py
+  version: "1"
+engine:
+  processors:
+    - speller
+    - selector
+    - express_editor
+  segmentors:
+    - abc_segmentor
+  translators:
+    - script_translator
+speller:
+  alphabet: abcdefghijklmnopqrstuvwxyz
+  delimiter: " '"
+translator:
+  dictionary: fixture_py
+  enable_user_dict: false
+  enable_completion: false

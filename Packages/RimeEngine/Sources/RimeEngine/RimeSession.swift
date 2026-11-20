@@ -21,6 +21,9 @@ public final class RimeSession: @unchecked Sendable {
     private let api: UnsafeMutablePointer<RimeApi>
     private let id: RimeSessionId
 
+    /// `state.candidates` reads at most this many candidates, so a long pinyin code cannot stall the keyboard.
+    public var candidateLimit = 200
+
     init(api: UnsafeMutablePointer<RimeApi>, id: RimeSessionId) {
         self.api = api
         self.id = id
@@ -57,7 +60,7 @@ public final class RimeSession: @unchecked Sendable {
         var candidates: [String] = []
         var iterator = RimeCandidateListIterator()
         if api.pointee.candidate_list_begin?(id, &iterator) == RimeBool(1) {
-            while api.pointee.candidate_list_next?(&iterator) == RimeBool(1) {
+            while candidates.count < candidateLimit, api.pointee.candidate_list_next?(&iterator) == RimeBool(1) {
                 if let text = iterator.candidate.text {
                     candidates.append(String(cString: text))
                 }
@@ -65,6 +68,16 @@ public final class RimeSession: @unchecked Sendable {
             api.pointee.candidate_list_end?(&iterator)
         }
         return RimeState(input: input, candidates: candidates)
+    }
+
+    /// The composition text librime shows, with the scheme's `preedit_format` applied; empty when nothing is composed.
+    public var preedit: String {
+        var context = RimeContext()
+        context.data_size = Int32(MemoryLayout<RimeContext>.size - MemoryLayout<Int32>.size)
+        guard api.pointee.get_context?(id, &context) == RimeBool(1) else { return "" }
+        defer { _ = api.pointee.free_context?(&context) }
+        guard let raw = context.composition.preedit else { return "" }
+        return String(cString: raw)
     }
 
     public func takeCommit() -> String? {

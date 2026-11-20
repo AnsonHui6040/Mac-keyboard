@@ -1,6 +1,7 @@
 config_version: "1"
 schema_list:
   - schema: fixture
+  - schema: fixture_py
   - schema: broken
   - schema: quick5
   - schema: cangjie5

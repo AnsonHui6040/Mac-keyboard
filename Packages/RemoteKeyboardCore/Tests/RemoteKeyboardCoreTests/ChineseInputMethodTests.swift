@@ -11,7 +11,8 @@ final class ChineseInputMethodTests: XCTestCase {
     }
 
     func testMethodIdsAreStable() {
-        XCTAssertEqual(ChineseInputMethodID.allCases, [.handwriting, .quick])
+        XCTAssertEqual(
+            ChineseInputMethodID.allCases, [.handwriting, .quick, .cangjie, .zhuyin, .jyutping, .pinyin])
         XCTAssertEqual(ChineseInputMethodID.handwriting.rawValue, "handwriting")
         XCTAssertEqual(ChineseInputMethodID.quick.rawValue, "quick")
     }
