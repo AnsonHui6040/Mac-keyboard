@@ -2,6 +2,8 @@
 
 日期：2026-11-20。只做研究，沒有寫產品程式；實機項目一律標 TBD。
 
+使用者決定（2026-11-20）：採用方向 C（內嵌 librime），理由是將來可能推出 Android 版，組字引擎要能跨平台共用。決定與其影響見第 9 節；第 6 節保留原本的比較與推薦，作為決策紀錄。
+
 ## 範圍與前提（使用者 2026-11-20 選定）
 
 | 項目 | 決定 |
@@ -272,6 +274,57 @@ App Store 與授權條款：
 6. 寬鬆授權的筆劃筆順資料未找到。
 7. 拼音型解碼器的品質門檻要在 spec 階段由使用者決定（第 6 節）。
 
+## 9. 使用者決定：方向 C（2026-11-20）
+
+### 9.1 決定與理由
+
+| 項目 | 內容 |
+|---|---|
+| 決定 | 方向 C：以 librime 作為所有表格型與拼音型輸入法的組字引擎 |
+| 理由（使用者） | 將來可能推出 Android 版；方向 B 的 Swift 引擎不能直接在 Android 使用，會有通用性問題 |
+| 第 6 節原本的評估 | 推薦 B 時沒有把 Android 列為條件；加入這個條件後，C 的跨平台優勢成為主要因素 |
+
+### 9.2 Android 與 iOS 的證據
+
+| 事實 | 來源 |
+|---|---|
+| librime 是跨平台 C++ 的輸入法引擎，授權 BSD-3-Clause | librime README [S19] |
+| librime README 列出的前端包括 iOS 的 Hamster、Songyan，以及 Android 的 Trime、Songyan、YuyanIme | librime README 的 Frontends 一節 [S19] |
+| librime 官方的建置說明只有 Linux、macOS、Windows，官方 CI 也只有這三個平台；iOS 與 Android 的版本由各前端自行交叉編譯 | librime README 與 `.github/workflows` [S19] |
+| Trime（Android）以 JNI 包裝 librime，授權 GPL-3.0，只能參考做法，不能複製程式碼 | osfans/trime [S42] |
+| YuyanIme（Android，以 librime 為基礎）授權 BSD-3-Clause | gurecn/YuyanIme [S43] |
+| 「仓输入法」以 librime 做 iOS 鍵盤並已上架 App Store | [S22] |
+
+### 9.3 方向 C 之下仍然成立的研究結論
+
+| 結論 | 在方向 C 的做法 | 章節 |
+|---|---|---|
+| RIME 官方方案多為 LGPL-3.0，不內建 | 內建方案的 `.schema.yaml` 與 `.dict.yaml` 由我們用寬鬆授權資料自行編寫：倉頡與速成用 libcangjie，注音與拼音用小麥注音資料，粵拼用 words.hk 與 Unihan（rime-cantonese 待許可） | 4.3 |
+| 不執行匯入方案中的 Lua | 不編入 librime-lua；匯入時拒絕或略過含 Lua 的設定 | 5.4 |
+| 大詞庫要記憶體映射 | librime 本身已把編譯後的 `.table.bin`、`.prism.bin` 以記憶體映射讀取 | 3.3 |
+| 方案編譯不放在鍵盤內 | RIME 會把文字詞典編譯成 `.bin` [S20]；由主 App 編譯後寫入 App Group，鍵盤只讀取 | 4.2 |
+| App Group 在沒有完整取用時是否可讀 | 不變，仍是第一個實機確認項目 | 5.3 |
+| 鍵位 | librime 不管鍵位，仍需要自訂 JSON 鍵位檔；同一份 JSON 可供 iOS 與 Android 共用 | 4.1 |
+
+### 9.4 方向 C 新增、要在 spec 階段處理的事項
+
+| 事項 | 說明 |
+|---|---|
+| iOS 建置 | 把 librime 與 Boost、LevelDB、marisa、OpenCC、yaml-cpp 交叉編譯成 xcframework，再接到現有的 XcodeGen、CocoaPods、SwiftPM 建置 |
+| 記憶體 | librime 加上內建方案在鍵盤擴充程式內的 footprint，以及與手寫同時使用時的峰值（實機 TBD） |
+| App 大小 | 加入 librime 後 IPA 增加多少；「仓输入法」整個 App 約 73 MB 可作參考 [S22] |
+| 使用者詞庫 | librime 的使用者詞庫以 LevelDB 寫入；沒有完整取用時，鍵盤只能寫自己的沙盒容器 [S7]，所以學習紀錄放在鍵盤容器，不放 App Group（建議） |
+| OpenCC | 是否需要港台字形轉換；不需要時可不編入，以減少大小 |
+| 與現有介面的接法 | librime 包成一個 `ChineseInputMethod` 實作，手寫維持 ML Kit；確認 `IMEInput`、`IMEOutput` 是否足以表達 librime 的候選字分頁與輸入碼 |
+| Android | 只做到「引擎、方案、鍵位 JSON 可共用」的設計；Android 鍵盤本身不在這次範圍 |
+
+### 9.5 建議的分步（待 spec 確認）
+
+1. C1 技術驗證：iOS 版 librime xcframework，鍵盤內載入一個內建方案（速成），量 footprint、延遲與 App 大小；同時確認 5.3 的 App Group 讀取。
+2. C2 內建方案：倉頡、速成、注音、粵拼，資料只用 4.3 判定可內建的來源。
+3. C3 匯入：主 App 匯入 RIME 方案（`.schema.yaml` 加 `.dict.yaml`，不含 Lua）與 `.cin`（轉成 RIME 詞典），編譯後寫入 App Group。
+4. C4 鍵位：JSON 鍵位檔，注音標準、九宮格、拼音 10 鍵等版面。
+
 ## 來源
 
 一手來源的擷取日期皆為 2026-11-20，除非另註。
@@ -317,6 +370,8 @@ App Store 與授權條款：
 - [S39] 香港政府統計處，主題性住戶統計調查第二十七號報告書（2006 年出版）：https://www.censtatd.gov.hk/en/data/stat_report/product/C0000031/att/B11302272006XXXXB0100.pdf
 - [S40] 香港政府統計處，主題性住戶統計調查第三十二號報告書（2007 年出版）：https://www.censtatd.gov.hk/en/data/stat_report/product/B1130201/att/B11302322007XXXXB0100.pdf
 - [S41] 香港政府統計處，主題性住戶統計調查第 73 號報告書（2021 年出版）：https://www.censtatd.gov.hk/en/data/stat_report/product/C0000031/att/B11302732021XXXXB0100.pdf
+- [S42] osfans/trime（GPL-3.0；`app/src/main/jni` 內含 librime 與 `librime_jni`）：https://github.com/osfans/trime
+- [S43] gurecn/YuyanIme（BSD-3-Clause）：https://github.com/gurecn/YuyanIme
 
 ## 附錄 A：5.2 節記憶體量測
 
