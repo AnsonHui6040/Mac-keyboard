@@ -12,15 +12,26 @@ WORK="$ROOT/build/rime/work"
 OUT="$ROOT/Packages/RimeEngine/Artifacts/RimeC.xcframework"
 JOBS="$(sysctl -n hw.ncpu)"
 
-ver() { awk -v n="$1" '$1==n {print $2}' "$LOCK"; }
+ver() {
+  local v
+  v="$(awk -v n="$1" '$1==n {print $2}' "$LOCK")"
+  [ -n "$v" ] || { echo "versions.lock 缺少 $1" >&2; exit 1; }
+  printf '%s\n' "$v"
+}
 LIBRIME_V="$(ver librime)"; BOOST_V="$(ver boost)"; LEVELDB_V="$(ver leveldb)"
 MARISA_V="$(ver marisa-trie)"; YAML_V="$(ver yaml-cpp)"; OPENCC_V="$(ver opencc)"
 
 command -v cmake >/dev/null || { echo "需要 cmake（brew install cmake）" >&2; exit 1; }
 
+# ---- 先驗證原始碼（缺檔或雜湊不符就中止） ----
+RIME_LOCK="$LOCK" "$ROOT/scripts/rime/fetch.sh"
+
 # ---- 解壓縮與修補（只做一次） ----
 EX="$WORK/src"
-if [ ! -f "$EX/.done" ]; then
+# 戳記 = lock 與 patches 的雜湊；任何一個改變就重新解壓縮
+STAMP="$( { cat "$LOCK"; cat "$ROOT"/scripts/rime/patches/*.patch 2>/dev/null || true; } | shasum -a 256 | cut -d' ' -f1)"
+if [ ! -f "$EX/.done" ] || [ "$(cat "$EX/.done")" != "$STAMP" ]; then
+  echo "extract (lock stamp ${STAMP:0:12})"
   rm -rf "$EX"; mkdir -p "$EX"
   tar xzf "$SRC/librime-$LIBRIME_V.tar.gz"     -C "$EX"
   tar xzf "$SRC/leveldb-$LEVELDB_V.tar.gz"     -C "$EX"
@@ -34,14 +45,17 @@ if [ ! -f "$EX/.done" ]; then
     echo "patch  $(basename "$p")"
     patch -p1 -d "$EX/librime-$LIBRIME_V" < "$p"
   done
-  touch "$EX/.done"
+  printf '%s' "$STAMP" > "$EX/.done"
 fi
 LIBRIME_SRC="$EX/librime-$LIBRIME_V"
 LEVELDB_SRC="$EX/leveldb-$LEVELDB_V"
 MARISA_SRC="$EX/marisa-trie-$MARISA_V"
-YAML_SRC="$(echo "$EX"/yaml-cpp-*)"
-OPENCC_SRC="$(echo "$EX"/OpenCC-*)"
+YAML_SRC="$EX/yaml-cpp-yaml-cpp-$YAML_V"
+OPENCC_SRC="$EX/OpenCC-ver.$OPENCC_V"
 BOOST_INC="$EX/boost_${BOOST_V//./_}"
+for d in "$LIBRIME_SRC" "$LEVELDB_SRC" "$MARISA_SRC" "$YAML_SRC" "$OPENCC_SRC" "$BOOST_INC/boost"; do
+  [ -d "$d" ] || { echo "解壓縮後找不到 $d" >&2; exit 1; }
+done
 
 build_slice() {
   local slice="$1" sysname="$2" sysroot="$3" deploy="$4"
@@ -84,15 +98,18 @@ build_slice() {
   cmake --build "$w/yaml-cpp" -j "$JOBS"
   cmake --install "$w/yaml-cpp"
 
-  # OpenCC：工具不建（只建 libopencc 目標，OPENCC_ENABLE_INSTALL=OFF 避免安裝 CLI 工具）（資料字典需在主機執行 opencc_dict，交叉編譯用不到）
+  # OpenCC：只建 libopencc 目標（字典資料要在主機執行 opencc_dict，交叉編譯用不到），
+  # OPENCC_ENABLE_INSTALL=OFF 避免安裝 CLI 工具的規則讓 iOS configure 失敗
   cmake -S "$OPENCC_SRC" -B "$w/opencc" "${common[@]}" \
     -DOPENCC_ENABLE_INSTALL=OFF -DENABLE_GTEST=OFF -DENABLE_BENCHMARK=OFF \
     -DBUILD_OPENCC_JIEBA_PLUGIN=OFF -DUSE_SYSTEM_MARISA=ON
   cmake --build "$w/opencc" -j "$JOBS" --target libopencc
   mkdir -p "$prefix/include/opencc" "$prefix/lib"
   cp "$w/opencc/src/libopencc.a" "$prefix/lib/"
-  cp "$OPENCC_SRC"/src/*.hpp "$OPENCC_SRC"/src/*.h "$prefix/include/opencc/" 2>/dev/null || true
-  cp "$w/opencc/src/"*.h "$prefix/include/opencc/" 2>/dev/null || true
+  cp "$OPENCC_SRC"/src/*.hpp "$OPENCC_SRC"/src/*.h "$prefix/include/opencc/"
+  cp "$w/opencc/src/Opencc_Export.h" "$prefix/include/opencc/"
+  [ -f "$prefix/include/opencc/Config.hpp" ] && [ -f "$prefix/include/opencc/Opencc_Export.h" ] \
+    || { echo "OpenCC 標頭不完整" >&2; exit 1; }
 
   cmake -S "$LIBRIME_SRC" -B "$w/librime" "${common[@]}" \
     -DBUILD_STATIC=ON -DBUILD_TEST=OFF -DENABLE_LOGGING=OFF \
@@ -121,7 +138,7 @@ clang++ -std=c++17 -O2 -arch arm64 -mmacosx-version-min=15.0 -isysroot "$(xcrun 
   -o "$ROOT/build/rime/bin/rime_deployer"
 
 # ---- libcangjie 表（已在 fetch 驗證）已在 build/rime/src/libcangjie-table.txt ----
-[ -f "$SRC/libcangjie-table.txt" ]
+[ -f "$SRC/libcangjie-table.txt" ] || { echo "缺少 $SRC/libcangjie-table.txt" >&2; exit 1; }
 
 # ---- xcframework ----
 HDR="$WORK/headers"; rm -rf "$HDR"; mkdir -p "$HDR"
