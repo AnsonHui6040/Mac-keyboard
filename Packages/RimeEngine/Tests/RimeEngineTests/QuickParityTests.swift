@@ -34,7 +34,9 @@ struct QuickTable {
 }
 
 final class QuickParityTests: XCTestCase {
-    /// Every code of the current Quick table gives the same candidates, in the same order, from librime.
+    /// Every code of the current Quick table gives the same leading candidates, in the same order, from librime:
+    /// the first N candidates (N = the code's count in quick-table.txt) are the Big5 characters, unchanged; the
+    /// HKSCS characters added from words.hk come only after them.
     func testEveryQuickCodeMatchesCurrentTable() throws {
         let expected = try QuickTable.load(Repo.root.appending(path: "iOS/RemoteKeyboardExtension/Resources/quick-table.txt"))
         let session = try RimeRuntime.start(Repo.quickData()).makeSession(schema: "quick5")
@@ -43,8 +45,8 @@ final class QuickParityTests: XCTestCase {
         for (code, characters) in expected.byCode {
             session.clear()
             for key in code { _ = session.processKey(Int32(key.asciiValue!)) }
-            if session.state.candidates != characters { mismatches.append(code) }
+            if Array(session.state.candidates.prefix(characters.count)) != characters { mismatches.append(code) }
         }
-        XCTAssertEqual(mismatches, [], "codes with different candidates: \(mismatches.prefix(20))")
+        XCTAssertEqual(mismatches, [], "codes whose leading candidates differ: \(mismatches.prefix(20))")
     }
 }

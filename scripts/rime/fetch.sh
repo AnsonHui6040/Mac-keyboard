@@ -16,6 +16,8 @@ fname() {
     yaml-cpp)         echo "yaml-cpp-$2.tar.gz" ;;
     opencc)           echo "opencc-$2.tar.gz" ;;
     libcangjie-table) echo "libcangjie-table.txt" ;;
+    unihan)           echo "Unihan-$2.zip" ;;
+    */*)              echo "$1" ;;
     *)                echo "$1-$2.src" ;;
   esac
 }
@@ -25,6 +27,7 @@ while read -r name version url sha || [ -n "${name:-}" ]; do
   if [ -z "${name:-}" ]; then continue; fi
   case "$name" in \#*) continue ;; esac
   f="$DEST/$(fname "$name" "$version")"
+  mkdir -p "$(dirname "$f")"
   if [ -f "$f" ] && [ "$(shasum -a 256 "$f" | cut -d' ' -f1)" = "$sha" ]; then
     echo "ok     $name $version (cached)"
     continue
