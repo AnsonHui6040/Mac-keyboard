@@ -5,6 +5,24 @@ import Foundation
 public enum ChineseInputMethodID: String, Codable, CaseIterable, Sendable {
     case handwriting
     case quick
+    case cangjie
+    case zhuyin
+    case jyutping
+    case pinyin
+
+    /// True for every method typed with keys (all but handwriting).
+    public var isKeyed: Bool { self != .handwriting }
+
+    public var displayName: String {
+        switch self {
+        case .handwriting: return "手寫"
+        case .quick: return "速成"
+        case .cangjie: return "倉頡"
+        case .zhuyin: return "注音"
+        case .jyutping: return "粵拼"
+        case .pinyin: return "拼音"
+        }
+    }
 
     /// Decodes the persisted raw value; anything missing or unknown is nil (the resolver then picks a default).
     public static func stored(rawValue: String?) -> ChineseInputMethodID? {

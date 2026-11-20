@@ -50,7 +50,8 @@ final class ChineseMethodResolverTests: XCTestCase {
     func testStoredRawValueDecoding() {
         XCTAssertEqual(ChineseInputMethodID.stored(rawValue: "handwriting"), .handwriting)
         XCTAssertEqual(ChineseInputMethodID.stored(rawValue: "quick"), .quick)
-        XCTAssertNil(ChineseInputMethodID.stored(rawValue: "cangjie"))
+        XCTAssertEqual(ChineseInputMethodID.stored(rawValue: "cangjie"), .cangjie)
+        XCTAssertNil(ChineseInputMethodID.stored(rawValue: "unknown"))
         XCTAssertNil(ChineseInputMethodID.stored(rawValue: nil))
     }
 
