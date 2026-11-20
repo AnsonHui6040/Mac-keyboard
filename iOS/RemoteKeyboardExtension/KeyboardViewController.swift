@@ -57,8 +57,11 @@ final class KeyboardViewController: UIInputViewController {
     /// The Chinese method this appearance of the keyboard uses; read from the host App's setting when the keyboard
     /// appears, so a changed setting takes effect the next time the keyboard opens.
     private var activeChineseMethod: ChineseInputMethodID?
-    /// Quick (速成): the pure input method, created when the Chinese page first needs it (the table loads in a few ms).
-    private var quick: QuickInputMethod?
+    /// Quick (速成): librime, or the Swift engine when librime cannot start; created when the Chinese page first needs it.
+    private var quick: (any ChineseInputMethod)?
+    private lazy var quickLoader = QuickEngineLoader(bundle: Bundle(for: KeyboardViewController.self))
+    /// Bumped when the keyboard goes away, so a load that finishes after that is not kept.
+    private var quickGeneration = 0
     private var quickOutput = IMEOutput()
     /// Keys that wait behind an input-method key (a space that waits for a recognition) run in order through this.
     private let imeQueue = OrderedActionQueue()
@@ -222,6 +225,7 @@ final class KeyboardViewController: UIInputViewController {
         #endif
         imeQueue.reset()
         resetQuick()
+        dropQuick()
         chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
@@ -757,28 +761,35 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         if activeChineseMethod == .quick {
-            loadQuickIfNeeded()
+            Task { await loadQuickIfNeeded() }
         } else {
             chinese.activate()
         }
     }
 
-    private func loadQuickIfNeeded() {
+    /// Loads Quick once; keys that arrive meanwhile wait behind `imeQueue`, so none is lost or reordered.
+    private func loadQuickIfNeeded() async {
         guard quick == nil else { return }
-        guard
-            let url = Bundle(for: KeyboardViewController.self).url(forResource: "quick-table", withExtension: "txt"),
-            let text = try? String(contentsOf: url, encoding: .utf8),
-            let dictionary = try? QuickDictionary(tableText: text)
-        else {
+        let generation = quickGeneration
+        let method = await quickLoader.method()
+        guard generation == quickGeneration, quick == nil else { return }
+        guard let method else {
             showNote("速成字碼表無法載入")
             return
         }
-        quick = QuickInputMethod(dictionary: dictionary)
+        quick = method
     }
 
     private func resetQuick() {
         quick?.reset()
         quickOutput = IMEOutput()
+    }
+
+    /// The keyboard went away: release the librime session; the next appearance loads again.
+    private func dropQuick() {
+        quickGeneration += 1
+        quick = nil
+        quickLoader.drop()
     }
 
     private func fieldKind() -> FieldKind {
@@ -860,7 +871,8 @@ final class KeyboardViewController: UIInputViewController {
         reclaimPeripheralIfVacant()
         let output: IMEOutput
         if activeChineseMethod == .quick {
-            loadQuickIfNeeded()
+            await loadQuickIfNeeded()
+            guard run.isCurrent else { return }
             output = quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input))
             quickOutput = IMEOutput(composing: output.composing, candidates: output.candidates, shift: output.shift)
             refreshStatus()

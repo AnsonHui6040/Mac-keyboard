@@ -12,6 +12,7 @@ enum MeasureLaunchConfig {
     static let m7RunsKey = "rk.measure.m7Runs"
     static let m8SecondsKey = "rk.measure.m8Seconds"
     static let latencyKey = "rk.measure.latency"
+    static let quickEngineKey = "rk.measure.quickEngine"
 
     static let defaultM3Samples = 10_000
     static let defaultM6Seconds = 600
@@ -19,7 +20,8 @@ enum MeasureLaunchConfig {
 
     private static let environmentNames = [
         m3SamplesKey: "RKMEAS_M3_SAMPLES", m6ScenarioKey: "RKMEAS_M6_SCENARIO", m6SecondsKey: "RKMEAS_M6_SECONDS",
-        m7RunsKey: "RKMEAS_M7_RUNS", m8SecondsKey: "RKMEAS_M8_SECONDS", latencyKey: "RKMEAS_LATENCY"
+        m7RunsKey: "RKMEAS_M7_RUNS", m8SecondsKey: "RKMEAS_M8_SECONDS", latencyKey: "RKMEAS_LATENCY",
+        quickEngineKey: "RKMEAS_QUICK_ENGINE"
     ]
 
     /// Host App, at launch: a variable that is not set removes its key, so an earlier run's value never lingers.
@@ -38,6 +40,8 @@ enum MeasureLaunchConfig {
         var m8Seconds = MeasureLaunchConfig.defaultM8Seconds
         /// `RKMEAS_LATENCY`: low (default), medium or none.
         var latency = MeasureLatencyPreference.default
+        /// `RKMEAS_QUICK_ENGINE`: `swift` makes Quick use the Swift engine; anything else is ignored.
+        var quickEngine: String?
     }
 
     /// Extension, when a button is pressed.
@@ -51,6 +55,7 @@ enum MeasureLaunchConfig {
         values.m8Seconds = number(m8SecondsKey) ?? values.m8Seconds
         values.latency = MeasureLatencyPreference(environmentValue: defaults.string(forKey: latencyKey))
         values.m6Scenario = defaults.string(forKey: m6ScenarioKey) ?? values.m6Scenario
+        values.quickEngine = defaults.string(forKey: quickEngineKey)
         return values
     }
 }
