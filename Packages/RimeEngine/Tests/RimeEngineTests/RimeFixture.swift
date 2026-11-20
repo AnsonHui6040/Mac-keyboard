@@ -17,7 +17,12 @@ enum RimeFixtureError: Error, CustomStringConvertible {
 enum RimeFixture {
     /// Source directories copied into the compiled data directory. Extend this list for more schemes.
     static let sourceDirectories: [URL] = [
-        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/rime")
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/rime"),
+        // quick5 schema and dictionary; its default.yaml is skipped so the fixture default.yaml wins.
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "ime/rime"),
     ]
 
     private static let lock = NSLock()
@@ -42,6 +47,7 @@ enum RimeFixture {
         try fm.createDirectory(at: user, withIntermediateDirectories: true)
         for dir in sourceDirectories {
             for file in try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) where file.pathExtension == "yaml" {
+                if dir != sourceDirectories[0], file.lastPathComponent == "default.yaml" { continue }
                 let dest = shared.appending(path: file.lastPathComponent)
                 if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
                 try fm.copyItem(at: file, to: dest)

@@ -1,0 +1,24 @@
+schema:
+  schema_id: quick5
+  name: 速成
+  version: "1"
+engine:
+  processors:
+    - ascii_composer
+    - speller
+    - selector
+    - navigator
+    - express_editor
+  segmentors:
+    - abc_segmentor
+    - fallback_segmentor
+  translators:
+    - table_translator
+speller:
+  alphabet: abcdefghijklmnopqrstuvwxyz
+translator:
+  dictionary: quick5
+  enable_completion: false
+  enable_sentence: false
+  enable_user_dict: false
+  enable_encoder: false
