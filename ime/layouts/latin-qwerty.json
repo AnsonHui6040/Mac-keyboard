@@ -1,0 +1,42 @@
+{
+  "id": "latin-qwerty",
+  "name": "QWERTY",
+  "version": 1,
+  "schemas": ["pinyin", "jyutping"],
+  "rows": [
+    [
+      {"code": "q", "label": "q"},
+      {"code": "w", "label": "w"},
+      {"code": "e", "label": "e"},
+      {"code": "r", "label": "r"},
+      {"code": "t", "label": "t"},
+      {"code": "y", "label": "y"},
+      {"code": "u", "label": "u"},
+      {"code": "i", "label": "i"},
+      {"code": "o", "label": "o"},
+      {"code": "p", "label": "p"}
+    ],
+    [
+      {"code": "a", "label": "a"},
+      {"code": "s", "label": "s"},
+      {"code": "d", "label": "d"},
+      {"code": "f", "label": "f"},
+      {"code": "g", "label": "g"},
+      {"code": "h", "label": "h"},
+      {"code": "j", "label": "j"},
+      {"code": "k", "label": "k"},
+      {"code": "l", "label": "l"}
+    ],
+    [
+      {"action": "shift", "width": 1.5},
+      {"code": "z", "label": "z"},
+      {"code": "x", "label": "x"},
+      {"code": "c", "label": "c"},
+      {"code": "v", "label": "v"},
+      {"code": "b", "label": "b"},
+      {"code": "n", "label": "n"},
+      {"code": "m", "label": "m"},
+      {"action": "backspace", "width": 1.5}
+    ]
+  ]
+}

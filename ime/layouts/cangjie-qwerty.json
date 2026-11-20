@@ -1,0 +1,42 @@
+{
+  "id": "cangjie-qwerty",
+  "name": "QWERTY 倉頡字根",
+  "version": 1,
+  "schemas": ["quick5", "cangjie5"],
+  "rows": [
+    [
+      {"code": "q", "label": "手", "hint": "Q"},
+      {"code": "w", "label": "田", "hint": "W"},
+      {"code": "e", "label": "水", "hint": "E"},
+      {"code": "r", "label": "口", "hint": "R"},
+      {"code": "t", "label": "廿", "hint": "T"},
+      {"code": "y", "label": "卜", "hint": "Y"},
+      {"code": "u", "label": "山", "hint": "U"},
+      {"code": "i", "label": "戈", "hint": "I"},
+      {"code": "o", "label": "人", "hint": "O"},
+      {"code": "p", "label": "心", "hint": "P"}
+    ],
+    [
+      {"code": "a", "label": "日", "hint": "A"},
+      {"code": "s", "label": "尸", "hint": "S"},
+      {"code": "d", "label": "木", "hint": "D"},
+      {"code": "f", "label": "火", "hint": "F"},
+      {"code": "g", "label": "土", "hint": "G"},
+      {"code": "h", "label": "竹", "hint": "H"},
+      {"code": "j", "label": "十", "hint": "J"},
+      {"code": "k", "label": "大", "hint": "K"},
+      {"code": "l", "label": "中", "hint": "L"}
+    ],
+    [
+      {"action": "shift", "width": 1.5},
+      {"code": "z", "label": "重", "hint": "Z"},
+      {"code": "x", "label": "難", "hint": "X"},
+      {"code": "c", "label": "金", "hint": "C"},
+      {"code": "v", "label": "女", "hint": "V"},
+      {"code": "b", "label": "月", "hint": "B"},
+      {"code": "n", "label": "弓", "hint": "N"},
+      {"code": "m", "label": "一", "hint": "M"},
+      {"action": "backspace", "width": 1.5}
+    ]
+  ]
+}

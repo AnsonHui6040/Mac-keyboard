@@ -57,8 +57,10 @@ public enum KeyboardMetrics {
         Double(visibleTopRows) * topRowHeight + keyAreaHeight
     }
 
-    /// Total keyboard height; the handwriting page adds `handwritingExtraHeight`.
-    public static func height(visibleTopRows: Int, handwriting: Bool) -> Double {
+    /// Total keyboard height; the handwriting page adds `handwritingExtraHeight`, and every key row beyond the usual
+    /// four (a layout with five rows has `extraKeyRows` 1) adds `keyRowHeight + rowGap`.
+    public static func height(visibleTopRows: Int, handwriting: Bool, extraKeyRows: Int = 0) -> Double {
         height(visibleTopRows: visibleTopRows) + (handwriting ? handwritingExtraHeight : 0)
+            + Double(extraKeyRows) * (keyRowHeight + rowGap)
     }
 }

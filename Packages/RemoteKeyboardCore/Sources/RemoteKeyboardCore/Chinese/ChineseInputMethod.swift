@@ -24,6 +24,16 @@ public enum ChineseInputMethodID: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The key layout file (`ime/layouts/<id>.json`) the method types on; nil for handwriting.
+    public var layoutID: String? {
+        switch self {
+        case .handwriting: return nil
+        case .quick, .cangjie: return "cangjie-qwerty"
+        case .pinyin, .jyutping: return "latin-qwerty"
+        case .zhuyin: return "zhuyin-standard"
+        }
+    }
+
     /// Decodes the persisted raw value; anything missing or unknown is nil (the resolver then picks a default).
     public static func stored(rawValue: String?) -> ChineseInputMethodID? {
         rawValue.flatMap(ChineseInputMethodID.init(rawValue:))

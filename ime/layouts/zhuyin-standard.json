@@ -1,0 +1,58 @@
+{
+  "id": "zhuyin-standard",
+  "name": "注音（大千）",
+  "version": 1,
+  "schemas": ["zhuyin"],
+  "rows": [
+    [
+      {"code": "1", "label": "ㄅ"},
+      {"code": "2", "label": "ㄉ"},
+      {"code": "3", "label": "ˇ"},
+      {"code": "4", "label": "ˋ"},
+      {"code": "5", "label": "ㄓ"},
+      {"code": "6", "label": "ˊ"},
+      {"code": "7", "label": "˙"},
+      {"code": "8", "label": "ㄚ"},
+      {"code": "9", "label": "ㄞ"},
+      {"code": "0", "label": "ㄢ"},
+      {"code": "-", "label": "ㄦ"}
+    ],
+    [
+      {"code": "q", "label": "ㄆ"},
+      {"code": "w", "label": "ㄊ"},
+      {"code": "e", "label": "ㄍ"},
+      {"code": "r", "label": "ㄐ"},
+      {"code": "t", "label": "ㄔ"},
+      {"code": "y", "label": "ㄗ"},
+      {"code": "u", "label": "ㄧ"},
+      {"code": "i", "label": "ㄛ"},
+      {"code": "o", "label": "ㄟ"},
+      {"code": "p", "label": "ㄣ"}
+    ],
+    [
+      {"code": "a", "label": "ㄇ"},
+      {"code": "s", "label": "ㄋ"},
+      {"code": "d", "label": "ㄎ"},
+      {"code": "f", "label": "ㄑ"},
+      {"code": "g", "label": "ㄕ"},
+      {"code": "h", "label": "ㄘ"},
+      {"code": "j", "label": "ㄨ"},
+      {"code": "k", "label": "ㄜ"},
+      {"code": "l", "label": "ㄠ"},
+      {"code": ";", "label": "ㄤ"}
+    ],
+    [
+      {"code": "z", "label": "ㄈ"},
+      {"code": "x", "label": "ㄌ"},
+      {"code": "c", "label": "ㄏ"},
+      {"code": "v", "label": "ㄒ"},
+      {"code": "b", "label": "ㄖ"},
+      {"code": "n", "label": "ㄙ"},
+      {"code": "m", "label": "ㄩ"},
+      {"code": ",", "label": "ㄝ"},
+      {"code": ".", "label": "ㄡ"},
+      {"code": "/", "label": "ㄥ"},
+      {"action": "backspace", "width": 1}
+    ]
+  ]
+}
