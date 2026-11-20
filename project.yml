@@ -60,6 +60,7 @@ targets:
     dependencies:
       - package: RemoteKeyboardCore
       - package: RimeEngine
+    # Relies on ENABLE_USER_SCRIPT_SANDBOXING=NO (the script reads build/ and runs rime_deployer outside the declared inputs).
     # Builds the Rime scheme data and copies it to rime/shared (and rime/shared/build) in the bundle.
     postCompileScripts:
       - name: Copy Rime data

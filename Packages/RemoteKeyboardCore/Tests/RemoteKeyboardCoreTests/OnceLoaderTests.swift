@@ -18,5 +18,20 @@ final class OnceLoaderTests: XCTestCase {
         let loads = await count.value
         XCTAssertEqual(loads, 2)
     }
+    func testResetDuringLoadKeepsOldWaitersAndLoadsAgain() async {
+        let count = Counter()
+        let loader = OnceLoader { () async -> Int in
+            let n = await count.increment()
+            try? await Task.sleep(for: .milliseconds(100))
+            return n
+        }
+        async let old = loader.value()
+        try? await Task.sleep(for: .milliseconds(20))
+        await loader.reset()
+        let fresh = await loader.value()
+        let oldValue = await old
+        XCTAssertEqual(oldValue, 1)
+        XCTAssertEqual(fresh, 2)
+    }
 }
-private actor Counter { var value = 0; func increment() { value += 1 } }
+private actor Counter { var value = 0; @discardableResult func increment() -> Int { value += 1; return value } }

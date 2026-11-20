@@ -17,15 +17,15 @@ final class QuickRimeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    func testQuickTypesThroughRime() throws {
-        try typeAB(engineOverride: nil)
+    func testQuickTypesThroughRime() {
+        typeAB(engineOverride: nil, expectedEngine: "rime")
     }
 
-    func testQuickTypesThroughSwiftWhenOverridden() throws {
-        try typeAB(engineOverride: "swift")
+    func testQuickTypesThroughSwiftWhenOverridden() {
+        typeAB(engineOverride: "swift", expectedEngine: "swift")
     }
 
-    private func typeAB(engineOverride: String?) throws {
+    private func typeAB(engineOverride: String?, expectedEngine: String) {
         app = XCUIApplication()
         if let engineOverride { app.launchEnvironment["RKMEAS_QUICK_ENGINE"] = engineOverride }
         app.launchArguments += ["-rkSkipOnboarding"]
@@ -46,7 +46,7 @@ final class QuickRimeUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the 測試輸入 field was not found")
         field.tap()
 
-        try openOurKeyboardInLocalMode()
+        openOurKeyboardInLocalMode()
         let zhEn = element("rk.zhEn")
         if !element("rk.quick.a").exists {
             XCTAssertTrue(zhEn.waitForExistence(timeout: 5), "中英 key not found")
@@ -65,6 +65,10 @@ final class QuickRimeUITests: XCTestCase {
             text = fieldText(field)
         }
         XCTAssertEqual(text, Self.expected)
+        // The DEBUG marker the keyboard sets when Quick loads: which engine typed it.
+        let marker = element("rk.quick.engine")
+        XCTAssertTrue(marker.waitForExistence(timeout: 5), "rk.quick.engine marker not found")
+        XCTAssertEqual(marker.value as? String, expectedEngine)
     }
 
     // MARK: Steps
@@ -79,7 +83,7 @@ final class QuickRimeUITests: XCTestCase {
     }
 
     /// The globe key until the Remote Keyboard shows, then Local mode.
-    private func openOurKeyboardInLocalMode() throws {
+    private func openOurKeyboardInLocalMode() {
         let mode = element("rk.mode")
         var found = mode.waitForExistence(timeout: 5)
         var tries = 0
@@ -90,13 +94,19 @@ final class QuickRimeUITests: XCTestCase {
             next.tap()
             found = mode.waitForExistence(timeout: 2)
         }
-        guard found else { throw XCTSkip("Remote Keyboard is not reachable from the globe key") }
+        guard found else {
+            XCTFail("Remote Keyboard is not reachable from the globe key")
+            return
+        }
         if (mode.value as? String) != Self.localModeValue {
             mode.tap()
             let deadline = Date().addingTimeInterval(5)
             while (mode.value as? String) != Self.localModeValue, Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
         }
-        guard (mode.value as? String) == Self.localModeValue else { throw XCTSkip("could not switch to Local mode") }
+        guard (mode.value as? String) == Self.localModeValue else {
+            XCTFail("could not switch to Local mode")
+            return
+        }
     }
 
     private func nextKeyboardButton() -> XCUIElement? {

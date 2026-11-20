@@ -778,7 +778,31 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         quick = method
+        #if DEBUG
+        showQuickEngineMarker(method is QuickInputMethod ? "swift" : "rime")
+        #endif
     }
+
+    #if DEBUG
+    /// UI-test marker: which engine Quick loaded (`rime` or `swift`); an almost transparent 1 pt view, no typed text.
+    private func showQuickEngineMarker(_ engine: String) {
+        let marker: UIView
+        if let existing = view.viewWithTag(Self.quickEngineMarkerTag) {
+            marker = existing
+        } else {
+            marker = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+            marker.tag = Self.quickEngineMarkerTag
+            marker.alpha = 0.02
+            marker.backgroundColor = .black
+            marker.isUserInteractionEnabled = false
+            marker.isAccessibilityElement = true
+            marker.accessibilityIdentifier = "rk.quick.engine"
+            view.addSubview(marker)
+        }
+        marker.accessibilityValue = engine
+    }
+    private static let quickEngineMarkerTag = 0x524b51
+    #endif
 
     private func resetQuick() {
         quick?.reset()
@@ -787,6 +811,7 @@ final class KeyboardViewController: UIInputViewController {
 
     /// The keyboard went away: release the librime session; the next appearance loads again.
     private func dropQuick() {
+        guard activeChineseMethod == .quick || quick != nil else { return }
         quickGeneration += 1
         quick = nil
         quickLoader.drop()
