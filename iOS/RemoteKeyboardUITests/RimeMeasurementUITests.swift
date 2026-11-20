@@ -55,6 +55,10 @@ final class RimeMeasurementUITests: XCTestCase {
         XCTAssertTrue(measure.waitForExistence(timeout: 10), "rk.debug.rimeMeasure not found")
         let line = measure.value as? String ?? ""
         XCTAssertTrue(line.hasPrefix("RKMEAS RIME engine=\(engine) "), "unexpected measurement line: \(line)")
+        // The probe lives in the extension process, so keys can add up across runs: at least the target is enough.
+        let keysValue = line.components(separatedBy: " ").first { $0.hasPrefix("keys=") }.flatMap { Int($0.dropFirst(5)) }
+        XCTAssertGreaterThanOrEqual(keysValue ?? -1, target, "keys= is missing or below \(target): \(line)")
+        XCTAssertTrue(line.contains(" appgroup_read="), "appgroup_read= is missing: \(line)")
         print(line)
         let attachment = XCTAttachment(string: line + "\n")
         attachment.name = "rime-measure-\(engine).txt"

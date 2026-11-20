@@ -189,7 +189,7 @@ final class KeyboardViewController: UIInputViewController {
         refreshDictationSetting()
         #if DEBUG
         dictationAppeared()
-        RimeMeasureProbe.shared.start { [weak self] text in self?.showRimeMeasure(text) }
+        RimeMeasureProbe.shared.start(owner: ObjectIdentifier(self)) { [weak self] text in self?.showRimeMeasure(text) }
         #endif
         updateNavigator()
         syncChineseEngine()
@@ -221,7 +221,7 @@ final class KeyboardViewController: UIInputViewController {
         dictationDisappeared()
         #endif
         #if DEBUG
-        RimeMeasureProbe.shared.stop()
+        RimeMeasureProbe.shared.stop(owner: ObjectIdentifier(self))
         burst.cancel()
         closeMeasureTouchView()
         #endif

@@ -22,6 +22,8 @@ final class RimeMeasureProbe {
     private var timer: Timer?
     private var lastPublish = Date.distantPast
     private var publish: ((String) -> Void)?
+    private var owner: ObjectIdentifier?
+    private var appGroupRead = false
 
     /// The staging folder of librime: the keyboard container's `Application Support/rime/user/build`.
     private let stagingURL: URL? = try? FileManager.default.url(
@@ -45,20 +47,27 @@ final class RimeMeasureProbe {
     }
 
     /// Starts the 0.5 s memory sampling while the keyboard is visible; `publish` receives the new line text.
-    func start(publish: @escaping (String) -> Void) {
+    /// Only the controller that started the sampling can stop it, so a late disappear of an older controller does nothing.
+    func start(owner: ObjectIdentifier, publish: @escaping (String) -> Void) {
+        self.owner = owner
         self.publish = publish
         timer?.invalidate()
+        appGroupRead = Self.appGroupReadsOK()
         sampleMemory()
-        timer = Timer.scheduledTimer(withTimeInterval: Self.sampleInterval, repeats: true) { _ in
+        let tick = Timer(timeInterval: Self.sampleInterval, repeats: true) { _ in
             MainActor.assumeIsolated {
                 RimeMeasureProbe.shared.sampleMemory()
                 RimeMeasureProbe.shared.publishNow()
             }
         }
+        RunLoop.main.add(tick, forMode: .common)
+        timer = tick
         publishNow()
     }
 
-    func stop() {
+    func stop(owner: ObjectIdentifier) {
+        guard self.owner == owner else { return }
+        self.owner = nil
         timer?.invalidate()
         timer = nil
         publish = nil
@@ -93,7 +102,7 @@ final class RimeMeasureProbe {
             p95Us: stats.count == 0 ? 0 : Int((stats.p95 * 1_000).rounded()),
             footprintPeakMB: footprintPeakMB,
             availableMinMB: availableMinMB.isFinite ? availableMinMB : 0,
-            stagingBins: stagingBinCount(), appGroupRead: Self.appGroupReadsOK())
+            stagingBins: stagingBinCount(), appGroupRead: appGroupRead)
     }
 
     private func stagingBinCount() -> Int {
