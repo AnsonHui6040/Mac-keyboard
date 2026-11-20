@@ -78,7 +78,7 @@ Remote Keyboard 讓 iPhone 變成 Mac 的藍牙鍵盤。在 iPhone 上切換到 
 
 ## 開發者
 
-建置方式、專案狀態與發佈腳本請見 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。
+建置方式、專案狀態與發佈腳本請見 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)。全新 clone 要先建置 Rime xcframework 才能開啟專案，步驟見 [CLAUDE.md](CLAUDE.md) 的「建置」一節。
 
 ## 法律聲明
 

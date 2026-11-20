@@ -1,0 +1,5 @@
+module RimeC {
+  header "rime_api.h"
+  link "c++"
+  export *
+}

@@ -7,8 +7,9 @@ usage() {
   cat <<USAGE
 用法：scripts/test-all.sh [--only 名稱[,名稱]] [--skip 名稱[,名稱]] [-h]
 
-suite 依序為：core receiver clippy ios mac video e2e
+suite 依序為：core rime receiver clippy ios mac video e2e
   core      swift test（Packages/RemoteKeyboardCore）
+  rime      swift test（Packages/RimeEngine；RimeC.xcframework 不存在時記為失敗）
   receiver  cargo test --workspace（receiver/）
   clippy    cargo clippy --workspace --all-targets -D warnings
   ios       xcodebuild build（RemoteKeyboardApp，iOS Simulator）
@@ -20,7 +21,7 @@ suite 依序為：core receiver clippy ios mac video e2e
 USAGE
 }
 
-ALL=(core receiver clippy ios mac video e2e)
+ALL=(core rime receiver clippy ios mac video e2e)
 ONLY=""; SKIP=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,11 +47,20 @@ CORE_PKG="${TEST_ALL_CORE_PKG:-Packages/RemoteKeyboardCore}"
 WORKSPACE="RemoteKeyboard.xcworkspace"
 
 cmd_core() { swift test --package-path "$CORE_PKG"; }
+cmd_rime() {
+  if [ ! -d Packages/RimeEngine/Artifacts/RimeC.xcframework ]; then
+    echo "Packages/RimeEngine/Artifacts/RimeC.xcframework 不存在，先在 repo 根目錄執行："
+    echo "  scripts/rime/fetch.sh"
+    echo "  scripts/rime/build-xcframework.sh"
+    return 1
+  fi
+  swift test --package-path Packages/RimeEngine
+}
 cmd_receiver() { cargo test --manifest-path receiver/Cargo.toml --workspace; }
 cmd_clippy() { cargo clippy --manifest-path receiver/Cargo.toml --workspace --all-targets -- -D warnings; }
 cmd_ios() {
   xcodebuild -workspace "$WORKSPACE" -scheme RemoteKeyboardApp -destination 'generic/platform=iOS Simulator' \
-    -derivedDataPath "$OUT/dd" build
+    -derivedDataPath "$OUT/dd" ARCHS=arm64 build # RimeC.xcframework 只有 arm64，不建 x86_64 模擬器切片
 }
 cmd_mac() {
   xcodebuild -workspace "$WORKSPACE" -scheme MacReceiver -destination 'platform=macOS' \
@@ -67,7 +77,7 @@ cmd_e2e() { python3 -m unittest discover -s e2e/scripts -p 'test_*.py'; }
 count_of() {
   local log="$2" a b
   case "$1" in
-    core)
+    core|rime)
       a="$(grep -E 'Executed [0-9]+ tests?' "$log" | tail -n 1 | sed -E 's/.*Executed ([0-9]+) tests?.*/\1/')"
       b="$(grep -E 'Test run with [0-9]+ tests?' "$log" | tail -n 1 | sed -E 's/.*Test run with ([0-9]+) tests?.*/\1/')"
       if [ -n "$a" ] && [ -n "$b" ]; then echo "$((a + b))"; elif [ -n "$a" ]; then echo "$a"; else echo "-"; fi ;;
