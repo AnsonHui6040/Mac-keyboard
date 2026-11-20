@@ -9,7 +9,8 @@ usage() {
 
 suite 依序為：core rime receiver clippy ios mac video e2e
   core      swift test（Packages/RemoteKeyboardCore）
-  rime      swift test（Packages/RimeEngine；RimeC.xcframework 不存在時記為失敗）
+  rime      ImeDataTools 測試、重新產生詞典並與 ime/rime 比對、build-data.sh、swift test（Packages/RimeEngine）；
+            RimeC.xcframework 或 build/rime/src/mcbopomofo 不存在時記為失敗
   receiver  cargo test --workspace（receiver/）
   clippy    cargo clippy --workspace --all-targets -D warnings
   ios       xcodebuild build（RemoteKeyboardApp，iOS Simulator）
@@ -54,6 +55,23 @@ cmd_rime() {
     echo "  scripts/rime/build-xcframework.sh"
     return 1
   fi
+  if [ ! -d build/rime/src/mcbopomofo ]; then
+    echo "build/rime/src/mcbopomofo 不存在，先在 repo 根目錄執行："
+    echo "  scripts/rime/fetch.sh"
+    echo "  scripts/rime/build-xcframework.sh"
+    return 1
+  fi
+  swift test --package-path scripts/rime/ImeDataTools || return 1
+  rm -rf build/rime/dicts-again
+  scripts/rime/make-dicts.sh build/rime/dicts-again || return 1
+  local f
+  for f in ime/rime/*.dict.yaml; do
+    if ! diff -q "$f" "build/rime/dicts-again/$(basename "$f")" >/dev/null; then
+      echo "詞典與產生器輸出不同：$f（執行 scripts/rime/make-dicts.sh 後提交）"
+      return 1
+    fi
+  done
+  scripts/rime/build-data.sh || return 1
   swift test --package-path Packages/RimeEngine
 }
 cmd_receiver() { cargo test --manifest-path receiver/Cargo.toml --workspace; }

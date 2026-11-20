@@ -5,6 +5,8 @@ import Foundation
 /// text, code or candidate is ever part of it. `limit_mb` is the footprint peak plus the smallest available memory.
 public struct RimeMeasureLine: Equatable, Sendable {
     public var engine: QuickEngine
+    /// `ChineseInputMethodID` raw value of the scheme that was typed.
+    public var scheme: String
     public var keys: Int
     public var p50Us: Int
     public var p95Us: Int
@@ -14,10 +16,11 @@ public struct RimeMeasureLine: Equatable, Sendable {
     public var appGroupRead: Bool
 
     public init(
-        engine: QuickEngine, keys: Int, p50Us: Int, p95Us: Int, footprintPeakMB: Double, availableMinMB: Double,
+        engine: QuickEngine, scheme: String, keys: Int, p50Us: Int, p95Us: Int, footprintPeakMB: Double, availableMinMB: Double,
         stagingBins: Int, appGroupRead: Bool
     ) {
         self.engine = engine
+        self.scheme = scheme
         self.keys = keys
         self.p50Us = p50Us
         self.p95Us = p95Us
@@ -29,7 +32,7 @@ public struct RimeMeasureLine: Equatable, Sendable {
 
     public var text: String {
         func one(_ value: Double) -> String { String(format: "%.1f", value) }
-        return "RKMEAS RIME engine=\(engine.rawValue) keys=\(keys) p50_us=\(p50Us) p95_us=\(p95Us) "
+        return "RKMEAS RIME engine=\(engine.rawValue) scheme=\(scheme) keys=\(keys) p50_us=\(p50Us) p95_us=\(p95Us) "
             + "footprint_peak_mb=\(one(footprintPeakMB)) available_min_mb=\(one(availableMinMB)) "
             + "limit_mb=\(one(footprintPeakMB + availableMinMB)) staging_bins=\(stagingBins) appgroup_read=\(appGroupRead ? 1 : 0)"
     }

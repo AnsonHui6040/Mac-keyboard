@@ -1,17 +1,24 @@
 import XCTest
 
-/// Device measurement of the Quick engine (latency, memory, staging, App Group read). Types the fixed sequence
-/// `ab hd oi mm lw` through the real keyboard until `RKMEAS_RIME_KEYS` keys (default 200) were tapped, then switches the
+/// Device measurement of a librime scheme (latency, memory, staging, App Group read). `RKMEAS_SCHEME` is `quick`
+/// (default), `cangjie`, `zhuyin`, `pinyin` or `jyutping`. Types that scheme's fixed sequence (`sequences` below; Quick:
+/// `ab hd oi mm lw`) through the real keyboard until `RKMEAS_RIME_KEYS` keys (default 200) were tapped, then switches the
 /// Chinese method to 手寫 in the host App and opens the keyboard on the Chinese page for 10 s (this loads the handwriting
-/// model), reads the DEBUG element `rk.debug.rimeMeasure`, prints and attaches its line as `rime-measure-<engine>.txt`,
-/// and puts the setting back to 速成. `RKMEAS_QUICK_ENGINE` is `rime` (default) or `swift`. Device only: the simulator
+/// model), reads the DEBUG element `rk.debug.rimeMeasure`, prints and attaches its line as `rime-measure-<engine>-<scheme>.txt`,
+/// and puts the setting back to 速成. `RKMEAS_QUICK_ENGINE` is `rime` (default) or `swift`; `swift` only exists for `quick`. Device only: the simulator
 /// skips the test. Numbers only: no typed text is read or printed. The handwriting model has to be downloaded in the App
 /// beforehand.
 @MainActor
 final class RimeMeasurementUITests: XCTestCase {
     private static let nextKeyboardNames = ["Next keyboard", "下一個鍵盤", "地球", "Globe", "下一個輸入法"]
     private static let localModeValue = "本機"
-    private static let sequence = Array("ab hd oi mm lw")
+    private static let sequences: [String: String] = [
+        "quick": "ab hd oi mm lw",
+        "cangjie": "ab hqi onf a",
+        "zhuyin": "ji3 su3 w96j0 2u04sl3",
+        "pinyin": "wo ni taiwan diannao",
+        "jyutping": "ngo nei hai mgoi",
+    ]
     private static let handwritingHold: TimeInterval = 10
 
     private static var isSimulator: Bool {
@@ -33,16 +40,27 @@ final class RimeMeasurementUITests: XCTestCase {
         let environment = ProcessInfo.processInfo.environment
         let engine = environment["RKMEAS_QUICK_ENGINE"] == "swift" ? "swift" : "rime"
         let target = Int(environment["RKMEAS_RIME_KEYS"] ?? "") ?? 200
+        let scheme = environment["RKMEAS_SCHEME"] ?? "quick"
+        guard let sequence = Self.sequences[scheme].map({ Array($0) }) else {
+            XCTFail("RKMEAS_SCHEME \(scheme) is not one of \(Self.sequences.keys.sorted())")
+            return
+        }
+        if engine == "swift", scheme != "quick" {
+            XCTFail("RKMEAS_QUICK_ENGINE=swift only exists for the quick scheme, not \(scheme)")
+            return
+        }
 
         app = XCUIApplication()
         app.launchEnvironment["RKMEAS_QUICK_ENGINE"] = engine
         app.launchArguments += ["-rkSkipOnboarding"]
         app.launch()
+        // A failed assertion stops the test before step 4, so put the iPhone back on 速成 in any case.
+        addTeardownBlock { @MainActor [weak self] in self?.restoreQuickTolerantly() }
 
-        // 1. 速成, typed through the keyboard.
-        selectMethod("rk.settings.quick")
+        // 1. The scheme, typed through the keyboard.
+        selectMethod("rk.settings.\(scheme)")
         openKeyboardOnChinesePage()
-        try typeSequence(keys: target)
+        try typeSequence(sequence, keys: target)
 
         // 2. 手寫: the model must be there; the keyboard stays on the Chinese page for a while.
         leaveTestInput()
@@ -54,14 +72,14 @@ final class RimeMeasurementUITests: XCTestCase {
         let measure = element("rk.debug.rimeMeasure")
         XCTAssertTrue(measure.waitForExistence(timeout: 10), "rk.debug.rimeMeasure not found")
         let line = measure.value as? String ?? ""
-        XCTAssertTrue(line.hasPrefix("RKMEAS RIME engine=\(engine) "), "unexpected measurement line: \(line)")
+        XCTAssertTrue(line.hasPrefix("RKMEAS RIME engine=\(engine) scheme=\(scheme) "), "unexpected measurement line: \(line)")
         // The probe lives in the extension process, so keys can add up across runs: at least the target is enough.
         let keysValue = line.components(separatedBy: " ").first { $0.hasPrefix("keys=") }.flatMap { Int($0.dropFirst(5)) }
         XCTAssertGreaterThanOrEqual(keysValue ?? -1, target, "keys= is missing or below \(target): \(line)")
         XCTAssertTrue(line.contains(" appgroup_read="), "appgroup_read= is missing: \(line)")
         print(line)
         let attachment = XCTAttachment(string: line + "\n")
-        attachment.name = "rime-measure-\(engine).txt"
+        attachment.name = "rime-measure-\(engine)-\(scheme).txt"
         attachment.lifetime = .keepAlways
         add(attachment)
 
@@ -71,6 +89,19 @@ final class RimeMeasurementUITests: XCTestCase {
     }
 
     // MARK: Steps
+
+    /// Relaunches the App and selects 速成 without asserting, so a failing teardown cannot hide the real failure.
+    private func restoreQuickTolerantly() {
+        guard let app else { return }
+        app.terminate()
+        app.launch()
+        let link = element("rk.home.chineseInput")
+        guard link.waitForExistence(timeout: 10) else { return }
+        link.tap()
+        let row = element("rk.settings.quick")
+        guard row.waitForExistence(timeout: 10) else { return }
+        row.tap()
+    }
 
     private func element(_ identifier: String) -> XCUIElement {
         app.descendants(matching: .any).matching(identifier: identifier).firstMatch
@@ -102,7 +133,7 @@ final class RimeMeasurementUITests: XCTestCase {
         field.tap()
         openOurKeyboardInLocalMode()
         let zhEn = element("rk.zhEn")
-        if !element("rk.ime.a").exists, !element("rk.hwClear").exists {
+        if !element("rk.ime.backspace").exists, !element("rk.hwClear").exists {
             XCTAssertTrue(zhEn.waitForExistence(timeout: 5), "中英 key not found")
             zhEn.tap()
         }
@@ -113,13 +144,13 @@ final class RimeMeasurementUITests: XCTestCase {
         app.navigationBars.buttons.firstMatch.tap()
     }
 
-    private func typeSequence(keys target: Int) throws {
+    private func typeSequence(_ sequence: [Character], keys target: Int) throws {
         var letterKeys: [Character: XCUIElement] = [:]
         let space = element("rk.space")
-        XCTAssertTrue(element("rk.ime.a").waitForExistence(timeout: 10), "rk.ime.a not found")
+        XCTAssertTrue(element("rk.ime.\(sequence[0])").waitForExistence(timeout: 10), "rk.ime.\(sequence[0]) not found")
         var tapped = 0
         while tapped < target {
-            let character = Self.sequence[tapped % Self.sequence.count]
+            let character = sequence[tapped % sequence.count]
             if character == " " {
                 space.tap()
             } else {
