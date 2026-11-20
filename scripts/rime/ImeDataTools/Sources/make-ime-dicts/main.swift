@@ -1,5 +1,5 @@
 // make-ime-dicts --src <build/rime/src> --wordshk <ime/sources/wordshk> --out <folder> [--lock <versions.lock>]
-// Writes quick5, cangjie5, zhuyin and pinyin .dict.yaml into <folder>.
+// Writes quick5, cangjie5, zhuyin, pinyin and jyutping .dict.yaml into <folder>.
 import Foundation
 import ImeData
 
@@ -62,6 +62,24 @@ do {
     for m in zhuyin.mismatches { print("  key mismatch line \(m.line): zhuyin=\(m.zhuyin) keys=\(m.given)") }
     print("pinyin entries=\(pinyin.entries.count) dropped=\(pinyin.dropped)")
     let utf8Rows = mcbopomofo.base.filter { $0.category == "utf8" && Han.isAllHan($0.character) }
+    let unihan = UnihanCantonese.parse(try String(contentsOfFile: src + "/unihan/Unihan_Readings.txt", encoding: .utf8))
+    guard let unihanURL = VersionsLock.url(named: "unihan", in: lock) else { fail("unihan not found in \(lockPath)") }
+    func wordshkFile(_ name: String) throws -> String {
+        try String(contentsOfFile: wordshk + "/\(name).csv", encoding: .utf8)
+    }
+    let lists = WordsHKLists.parse(charList: try wordshkFile("charlist"), wordList: try wordshkFile("wordslist"),
+                                   charCount: try wordshkFile("charcount"),
+                                   wordCount: try wordshkFile("existingwordcount"))
+    let jyutping = JyutpingDict.entries(lists, unihan: unihan, allowedCharacters: Set(table.map(\.character)))
+    let jyutpingSources = [
+        "Character and word lists and frequencies: words.hk (public domain; credit words.hk; https://words.hk/faiman/analysis/)",
+        "Readings of characters outside the words.hk list: Unihan 18.0.0 kCantonese (Unicode License v3): \(unihanURL)",
+        "Word weight = max(1, round(words.hk word count x 2.7^(length - 1))); character weight = words.hk character count."
+    ]
+    let jyutpingText = DictWriter.render(name: "jyutping", sort: "by_weight", sources: jyutpingSources,
+                                         entries: jyutping.entries)
+    try jyutpingText.write(toFile: out + "/jyutping.dict.yaml", atomically: true, encoding: .utf8)
+    print("jyutping entries=\(jyutping.entries.count) dropped=\(jyutping.dropped)")
     print("utf8 category single characters: rows=\(utf8Rows.count) distinct=\(Set(utf8Rows.map(\.character)).count)")
 } catch {
     fail("make-ime-dicts failed: \(error)")

@@ -61,7 +61,7 @@ public enum MandarinDicts {
     }
 
     /// One entry per (text, code) with the largest weight; sorted by code, weight descending, text.
-    private static func finish(_ items: [DictEntry]) -> [DictEntry] {
+    static func finish(_ items: [DictEntry]) -> [DictEntry] {
         var best: [String: DictEntry] = [:]
         for item in items {
             let key = item.code + "\t" + item.text
