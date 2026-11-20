@@ -10,6 +10,11 @@ public struct RimeState: Equatable, Sendable {
     }
 }
 
+private struct DestroyHandle: @unchecked Sendable {
+    let api: UnsafeMutablePointer<RimeApi>
+    let id: RimeSessionId
+}
+
 /// A librime session. Calls on one session must not run concurrently
 /// (the caller guarantees this).
 public final class RimeSession: @unchecked Sendable {
@@ -21,8 +26,23 @@ public final class RimeSession: @unchecked Sendable {
         self.id = id
     }
 
+    /// Test hook: called with `Thread.isMainThread` each time a session is destroyed.
+    nonisolated(unsafe) static var onDestroy: (@Sendable (Bool) -> Void)?
+
+    /// Every librime call must happen on the main thread. The last reference may be
+    /// released on any thread (for example inside a Task result), so destruction is
+    /// handed to the main thread; the API pointer is process-lifetime and stays valid.
     deinit {
-        _ = api.pointee.destroy_session?(id)
+        let handle = DestroyHandle(api: api, id: id)
+        let destroy: @Sendable () -> Void = {
+            _ = handle.api.pointee.destroy_session?(handle.id)
+            RimeSession.onDestroy?(Thread.isMainThread)
+        }
+        if Thread.isMainThread {
+            destroy()
+        } else {
+            DispatchQueue.main.async(execute: destroy)
+        }
     }
 
     public func processKey(_ keycode: Int32) -> Bool {

@@ -9,6 +9,18 @@ final class RimeRuntimeTests: XCTestCase {
         XCTAssertTrue(session.processKey(Int32(UInt8(ascii: "b"))))
         XCTAssertEqual(session.state, RimeState(input: "ab", candidates: ["明", "盟"]))
     }
+    func testSessionReleasedOffMainIsDestroyedOnMain() throws {
+        let runtime = try RimeRuntime.start(RimeFixture.compiled("fixture"))
+        let destroyed = expectation(description: "destroyed")
+        let ranOnMain = LockedFlag()
+        RimeSession.onDestroy = { isMain in ranOnMain.set(isMain); destroyed.fulfill() }
+        defer { RimeSession.onDestroy = nil }
+        var session: RimeSession? = try runtime.makeSession(schema: "fixture")
+        let box = SessionBox(session); session = nil
+        DispatchQueue.global().async { box.release() }
+        wait(for: [destroyed], timeout: 5)
+        XCTAssertTrue(ranOnMain.value)
+    }
     func testSecondStartWithSamePathsReusesRuntime() throws {
         let paths = try RimeFixture.compiled("fixture")
         XCTAssertTrue(try RimeRuntime.start(paths) === RimeRuntime.start(paths))
@@ -44,4 +56,15 @@ final class RimeRuntimeTests: XCTestCase {
         let bins = (try? FileManager.default.contentsOfDirectory(atPath: staging.path))?.filter { $0.hasSuffix(".bin") } ?? []
         XCTAssertEqual(bins, [])
     }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock(); private var flag = false
+    func set(_ v: Bool) { lock.lock(); flag = v; lock.unlock() }
+    var value: Bool { lock.lock(); defer { lock.unlock() }; return flag }
+}
+private final class SessionBox: @unchecked Sendable {
+    private var session: RimeSession?
+    init(_ s: RimeSession?) { session = s }
+    func release() { session = nil }
 }

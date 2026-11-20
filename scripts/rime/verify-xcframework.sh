@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 檢查 RimeC.xcframework：slice 清單、標頭、_rime_get_api、無 lua/spdlog 符號、最低系統版本。
+# 檢查 RimeC.xcframework：slice 清單、標頭、_rime_get_api、無 lua/spdlog/glog 符號、最低系統版本。
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 XC="${RIME_XCFRAMEWORK:-$ROOT/Packages/RimeEngine/Artifacts/RimeC.xcframework}"
@@ -30,6 +30,9 @@ check_slice() {
   grep -q '_rime_get_api' "$TMP/$id.defined" || bad "$id 缺少 _rime_get_api"
   if grep -E '_lua_|_luaL_|_lua[_A-Za-z]|spdlog' "$TMP/$id.all" > "$TMP/$id.hits"; then
     bad "$id 含 lua/spdlog 符號: $(head -3 "$TMP/$id.hits" | tr '\n' ' ')"
+  fi
+  if grep -E '_ZN6google10LogMessage' "$TMP/$id.all" > "$TMP/$id.glog"; then
+    bad "$id 含 glog 符號: $(head -3 "$TMP/$id.glog" | tr '\n' ' ')"
   fi
   # 最低系統版本：解出第一個 .o 讓 vtool 讀
   ar -t "$lib" > "$TMP/$id.members"

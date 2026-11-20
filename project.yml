@@ -51,7 +51,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ansonhui.remotekeyboard
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-    # Relies on ENABLE_USER_SCRIPT_SANDBOXING=NO. Copies the librime licence texts shown in 授權.
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+    # Copies the librime licence texts shown in 授權.
     postCompileScripts:
       - name: Copy Rime licences
         script: '"$SRCROOT/scripts/rime/copy-data-to-bundle.sh" licenses'
@@ -71,7 +72,7 @@ targets:
     dependencies:
       - package: RemoteKeyboardCore
       - package: RimeEngine
-    # Relies on ENABLE_USER_SCRIPT_SANDBOXING=NO (the script reads build/ and runs rime_deployer outside the declared inputs).
+    # ENABLE_USER_SCRIPT_SANDBOXING is NO below (the script reads build/ and runs rime_deployer outside the declared inputs).
     # Builds the Rime scheme data and copies it to rime/shared (and rime/shared/build) in the bundle.
     postCompileScripts:
       - name: Copy Rime data
@@ -98,6 +99,7 @@ targets:
         INFOPLIST_FILE: iOS/RemoteKeyboardExtension/Info.plist
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
   RemoteKeyboardUITests:
     type: bundle.ui-testing
     platform: iOS
