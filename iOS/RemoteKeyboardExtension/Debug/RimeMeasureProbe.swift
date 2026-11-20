@@ -17,6 +17,7 @@ final class RimeMeasureProbe {
 
     private var durationsUs: [Int] = []
     private var engine: QuickEngine?
+    private var scheme = ChineseInputMethodID.quick.rawValue
     private var footprintPeakMB = 0.0
     private var availableMinMB = Double.infinity
     private var timer: Timer?
@@ -30,9 +31,10 @@ final class RimeMeasureProbe {
         for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         .appendingPathComponent("rime/user/build", isDirectory: true)
 
-    /// Which engine the Quick page loaded; the line stays hidden until then.
-    func setEngine(_ value: QuickEngine) {
+    /// Which engine and scheme the Chinese page loaded; the line stays hidden until then.
+    func setEngine(_ value: QuickEngine, scheme id: ChineseInputMethodID) {
         engine = value
+        scheme = id.rawValue
         sampleMemory()
         publishNow()
     }
@@ -97,7 +99,7 @@ final class RimeMeasureProbe {
         guard let engine else { return nil }
         let stats = LatencyStats(samplesMs: durationsUs.map { Double($0) / 1_000 })
         return RimeMeasureLine(
-            engine: engine, keys: durationsUs.count,
+            engine: engine, scheme: scheme, keys: durationsUs.count,
             p50Us: stats.count == 0 ? 0 : Int((stats.p50 * 1_000).rounded()),
             p95Us: stats.count == 0 ? 0 : Int((stats.p95 * 1_000).rounded()),
             footprintPeakMB: footprintPeakMB,

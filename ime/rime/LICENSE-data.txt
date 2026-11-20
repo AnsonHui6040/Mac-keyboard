@@ -109,7 +109,15 @@ BSD-style licence. The copyright and licence notice below is the file COPYING of
   https://sources.debian.org/data/main/libt/libtabe/0.2.6-1.2/COPYING
 and reproduced here without change between the two marker lines. The libtabe 0.2.5 notice was the
 four-clause form with an advertising clause, which upstream removed in 0.2.6; the App's About page
-carries the libtabe acknowledgements so either form is met.
+carries the libtabe acknowledgements so either form is met. The acknowledgements, in the words of the
+libtabe 0.2.5 advertising clause (Debian libtabe 0.2.5+cvs20030523-1, debian/copyright):
+
+  This product includes software developed by
+  Pai-Hsiang Hsiao and contributors for TaBE Project
+  This product includes software developed by the
+  Computer Systems and Communication Lab,
+  Insitute of Information Science, Academia Sinica
+  and its contributors.
 
 ----- BEGIN libtabe COPYING -----
 

@@ -27,6 +27,7 @@
 - Xcode project 由 XcodeGen 產生：改 `project.yml`，再執行 `xcodegen generate`，接著 `LANG=en_US.UTF-8 pod install`（手寫用 Google ML Kit，CocoaPods；沒有 `LANG` 時 `pod install` 會當掉）；build 一律用 `-workspace RemoteKeyboard.xcworkspace`。不要提交 `*.xcodeproj`、`*.xcworkspace`、`Pods/`；`Podfile` 與 `Podfile.lock` 要提交。
 - 全新 clone 必須先執行 `scripts/rime/fetch.sh` 再 `scripts/rime/build-xcframework.sh`，才能開啟或 build workspace（包含 Mac Receiver），因為 RimeEngine 是 project 層級的 package，xcframework 不存在時 package 解析就會失敗。
 - 第一次 build 前（以及 `scripts/rime/versions.lock` 改變後）執行 `scripts/rime/fetch.sh`、`scripts/rime/build-xcframework.sh`：產生 `Packages/RimeEngine/Artifacts/RimeC.xcframework`、`build/rime/bin/rime_deployer` 與 `build/rime/RIME-LICENSES.txt`（都不提交）；沒有它們，鍵盤 target 的 Rime 資料 build phase 與 `scripts/test-all.sh` 的 `rime` suite 會失敗。
+- 改了詞典來源或產生器後執行 `scripts/rime/make-dicts.sh`，再提交 `ime/rime/*.dict.yaml`。
 - 純邏輯：`swift test --package-path Packages/RemoteKeyboardCore`
 - Rime 引擎：`swift test --package-path Packages/RimeEngine`（或 `scripts/test-all.sh --only rime`）。
 - 模擬器沒有 CoreBluetooth：BLE 相關驗收（T03、T05、T06）只能在實體 iPhone 完成。

@@ -801,7 +801,7 @@ final class KeyboardViewController: UIInputViewController {
         engineID = id
         #if DEBUG
         showEngineMarker(method is QuickInputMethod ? "swift" : "rime")
-        RimeMeasureProbe.shared.setEngine(method is QuickInputMethod ? .swift : .rime)
+        RimeMeasureProbe.shared.setEngine(method is QuickInputMethod ? .swift : .rime, scheme: id)
         #endif
     }
 

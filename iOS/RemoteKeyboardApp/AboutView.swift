@@ -56,7 +56,7 @@ struct LicensesView: View {
                     .font(.caption2)
                     .accessibilityIdentifier("rk.licenses.rime")
             }
-            Section("速成字碼表來源（輸入引擎用）") {
+            Section("輸入法資料來源") {
                 Text(Self.bundledText("LICENSE-data"))
                     .font(.caption2)
                     .accessibilityIdentifier("rk.licenses.rime.data")
