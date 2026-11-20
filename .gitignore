@@ -22,3 +22,6 @@ receiver/target/
 
 # 量測結果（measure-reconnect.sh）
 e2e/results/
+
+# librime xcframework build output
+Packages/RimeEngine/Artifacts/

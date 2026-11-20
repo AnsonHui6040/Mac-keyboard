@@ -1,0 +1,7 @@
+librime 1.17.0 https://github.com/rime/librime/archive/refs/tags/1.17.0.tar.gz a60274da5d8b8a7187e6c7e9ba5023334ed7bdd182535e93c4e96de8cf188377
+boost 1.92.0 https://archives.boost.io/release/1.92.0/source/boost_1_92_0.tar.bz2 5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c
+leveldb 1.23 https://github.com/google/leveldb/archive/refs/tags/1.23.tar.gz 9a37f8a6174f09bd622bc723b55881dc541cd50747cbd08831c2a82d620f6d76
+marisa-trie 0.3.1 https://github.com/s-yata/marisa-trie/archive/refs/tags/v0.3.1.tar.gz 986ed5e2967435e3a3932a8c95980993ae5a196111e377721f0849cad4e807f3
+yaml-cpp 0.9.0 https://github.com/jbeder/yaml-cpp/archive/refs/tags/yaml-cpp-0.9.0.tar.gz 25cb043240f828a8c51beb830569634bc7ac603978e0f69d6b63558dadefd49a
+opencc 1.4.2 https://github.com/BYVoid/OpenCC/archive/refs/tags/ver.1.4.2.tar.gz 8e5f5cf7fe195bd9b9be851adc9738c1ef7dc5c24441dd5878a56db4087a9a70
+libcangjie-table 346026b8ccf4ffdfbe424400edb6a588c0c5ba8e https://gitlab.freedesktop.org/cangjie/libcangjie/-/raw/346026b8ccf4ffdfbe424400edb6a588c0c5ba8e/data/table.txt 86118f2a50591b837e3317a3dab87f96e7188c54046e8ed20dd4a0933877d3ea
