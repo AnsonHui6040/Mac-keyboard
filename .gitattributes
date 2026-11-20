@@ -1,3 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
 receiver/testdata/*.json text eol=lf
+# words.hk snapshot keeps its CRLF bytes so README checksums match
+ime/sources/wordshk/*.csv -text
