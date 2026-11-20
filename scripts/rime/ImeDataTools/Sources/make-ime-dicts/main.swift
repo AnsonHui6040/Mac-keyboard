@@ -1,5 +1,5 @@
 // make-ime-dicts --src <build/rime/src> --wordshk <ime/sources/wordshk> --out <folder> [--lock <versions.lock>]
-// Writes quick5.dict.yaml and cangjie5.dict.yaml into <folder>.
+// Writes quick5, cangjie5, zhuyin and pinyin .dict.yaml into <folder>.
 import Foundation
 import ImeData
 
@@ -42,6 +42,27 @@ do {
         try text.write(toFile: out + "/\(name).dict.yaml", atomically: true, encoding: .utf8)
         print("\(name): \(entries.count) rows")
     }
+
+    let mcbopomofo = try McBopomofoData.load(directory: URL(fileURLWithPath: src + "/mcbopomofo"))
+    guard let mcURL = VersionsLock.url(named: "mcbopomofo/BPMFBase.txt", in: lock) else {
+        fail("mcbopomofo/BPMFBase.txt not found in \(lockPath)")
+    }
+    let mcSources = [
+        "Data: McBopomofo 3.1.1 Source/Data (MIT): \(mcURL)",
+        "The McBopomofo word list derives from libtabe (BSD); weights follow McBopomofo's frequency rules.",
+        "License texts: McBopomofo MIT, libtabe BSD; see LICENSE-data.txt."
+    ]
+    let zhuyin = MandarinDicts.zhuyin(mcbopomofo)
+    let pinyin = MandarinDicts.pinyin(mcbopomofo)
+    for (name, output) in [("zhuyin", zhuyin), ("pinyin", pinyin)] {
+        let text = DictWriter.render(name: name, sort: "by_weight", sources: mcSources, entries: output.entries)
+        try text.write(toFile: out + "/\(name).dict.yaml", atomically: true, encoding: .utf8)
+    }
+    print("zhuyin entries=\(zhuyin.entries.count) dropped=\(zhuyin.dropped) key_mismatches=\(zhuyin.keyMismatches)")
+    for m in zhuyin.mismatches { print("  key mismatch line \(m.line): zhuyin=\(m.zhuyin) keys=\(m.given)") }
+    print("pinyin entries=\(pinyin.entries.count) dropped=\(pinyin.dropped)")
+    let utf8Rows = mcbopomofo.base.filter { $0.category == "utf8" && Han.isAllHan($0.character) }
+    print("utf8 category single characters: rows=\(utf8Rows.count) distinct=\(Set(utf8Rows.map(\.character)).count)")
 } catch {
     fail("make-ime-dicts failed: \(error)")
 }
