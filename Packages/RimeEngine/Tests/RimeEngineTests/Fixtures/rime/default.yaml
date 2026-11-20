@@ -3,5 +3,9 @@ schema_list:
   - schema: fixture
   - schema: broken
   - schema: quick5
+  - schema: cangjie5
+  - schema: zhuyin
+  - schema: pinyin
+  - schema: jyutping
 menu:
   page_size: 9

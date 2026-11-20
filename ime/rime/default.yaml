@@ -1,5 +1,9 @@
 config_version: "1"
 schema_list:
   - schema: quick5
+  - schema: cangjie5
+  - schema: zhuyin
+  - schema: pinyin
+  - schema: jyutping
 menu:
   page_size: 9

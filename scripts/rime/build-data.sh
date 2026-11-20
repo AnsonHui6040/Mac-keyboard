@@ -10,5 +10,11 @@ rm -rf "$out"
 mkdir -p "$out"
 cp "$root"/ime/rime/*.yaml "$out"/
 "$deployer" --build "$out" "$out" "$out/build"
-[ -f "$out/build/quick5.table.bin" ] || { echo "quick5.table.bin was not produced" >&2; exit 1; }
-echo "built $out/build/quick5.table.bin"
+missing=0
+for scheme in quick5 cangjie5 zhuyin pinyin jyutping; do
+    for ext in table.bin prism.bin; do
+        [ -f "$out/build/$scheme.$ext" ] || { echo "missing $scheme.$ext" >&2; missing=1; }
+    done
+done
+[ "$missing" -eq 0 ] || exit 1
+echo "built $out/build (5 schemes)"
