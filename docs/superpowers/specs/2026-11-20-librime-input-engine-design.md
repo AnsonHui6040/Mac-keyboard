@@ -1,6 +1,6 @@
 # librime 中文輸入引擎（D31）
 
-**日期**：2026-11-20｜**狀態**：DRAFT，待使用者批准｜**前身**：`docs/superpowers/research/2026-11-20-hk-tw-keyboards-and-import.md`（PR #151，第 9 節記錄使用者選擇方向 C）
+**日期**：2026-11-20｜**狀態**：APPROVED（使用者 2026-11-20 批准）｜**前身**：`docs/superpowers/research/2026-11-20-hk-tw-keyboards-and-import.md`（PR #151，第 9 節記錄使用者選擇方向 C）
 
 ## 1. 目的
 
