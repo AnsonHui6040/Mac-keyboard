@@ -1,7 +1,7 @@
 import XCTest
 
 /// Quick (速成) typed through the real keyboard on the simulator: select 速成 in the app's 中文輸入 settings, open the
-/// 測試輸入 field, switch to the Remote Keyboard in Local mode, go to the Chinese page, tap `rk.quick.a`, `rk.quick.b`
+/// 測試輸入 field, switch to the Remote Keyboard in Local mode, go to the Chinese page, tap `rk.ime.a`, `rk.ime.b`
 /// and the space key, and check the field. The first test runs the default engine (librime); the second sets
 /// `RKMEAS_QUICK_ENGINE=swift` so the Swift engine types the same thing. Neither prints the field's text.
 @MainActor
@@ -48,12 +48,12 @@ final class QuickRimeUITests: XCTestCase {
 
         openOurKeyboardInLocalMode()
         let zhEn = element("rk.zhEn")
-        if !element("rk.quick.a").exists {
+        if !element("rk.ime.a").exists {
             XCTAssertTrue(zhEn.waitForExistence(timeout: 5), "中英 key not found")
             zhEn.tap()
         }
-        let keyA = element("rk.quick.a"), keyB = element("rk.quick.b")
-        XCTAssertTrue(keyA.waitForExistence(timeout: 10), "rk.quick.a not found")
+        let keyA = element("rk.ime.a"), keyB = element("rk.ime.b")
+        XCTAssertTrue(keyA.waitForExistence(timeout: 10), "rk.ime.a not found")
         keyA.tap()
         keyB.tap()
         element("rk.space").tap()
@@ -66,8 +66,8 @@ final class QuickRimeUITests: XCTestCase {
         }
         XCTAssertEqual(text, Self.expected)
         // The DEBUG marker the keyboard sets when Quick loads: which engine typed it.
-        let marker = element("rk.quick.engine")
-        XCTAssertTrue(marker.waitForExistence(timeout: 5), "rk.quick.engine marker not found")
+        let marker = element("rk.ime.engine")
+        XCTAssertTrue(marker.waitForExistence(timeout: 5), "rk.ime.engine marker not found")
         XCTAssertEqual(marker.value as? String, expectedEngine)
     }
 

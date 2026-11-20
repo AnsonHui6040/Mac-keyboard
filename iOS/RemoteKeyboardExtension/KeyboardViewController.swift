@@ -32,7 +32,7 @@ final class KeyboardViewController: UIInputViewController {
     static let transmitDefaultsKey = "rk.transmit"
     private static let noteSeconds: Double = 2
     /// The Chinese methods this build contains.
-    private static let installedMethods: Set<ChineseInputMethodID> = [.handwriting, .quick]
+    private static let installedMethods: Set<ChineseInputMethodID> = Set(ChineseInputMethodID.allCases)
     /// ML Kit's model is moved through the App Group, which needs Full Access.
     private static let handwritingNeedsFullAccess = true
 
@@ -57,12 +57,16 @@ final class KeyboardViewController: UIInputViewController {
     /// The Chinese method this appearance of the keyboard uses; read from the host App's setting when the keyboard
     /// appears, so a changed setting takes effect the next time the keyboard opens.
     private var activeChineseMethod: ChineseInputMethodID?
-    /// Quick (速成): librime, or the Swift engine when librime cannot start; created when the Chinese page first needs it.
-    private var quick: (any ChineseInputMethod)?
-    private lazy var quickLoader = QuickEngineLoader(bundle: Bundle(for: KeyboardViewController.self))
+    /// The engine of the keyed method in use (librime; Quick falls back to the Swift engine when librime cannot start),
+    /// created when the Chinese page first needs it. `engineID` is the method it was loaded for.
+    private var engine: (any ChineseInputMethod)?
+    private var engineID: ChineseInputMethodID?
+    private lazy var engineLoader = ChineseEngineLoader(bundle: Bundle(for: KeyboardViewController.self))
     /// Bumped when the keyboard goes away, so a load that finishes after that is not kept.
-    private var quickGeneration = 0
-    private var quickOutput = IMEOutput()
+    private var engineGeneration = 0
+    private var imeOutput = IMEOutput()
+    /// The layout file last read for the Chinese page (nil inside when it could not be read).
+    private var layoutCache: (id: String, layout: KeyboardLayout?)?
     /// Keys that wait behind an input-method key (a space that waits for a recognition) run in order through this.
     private let imeQueue = OrderedActionQueue()
     /// Text typed in Remote mode and not sent yet. Memory only: it dies with this controller and is never written out.
@@ -226,8 +230,8 @@ final class KeyboardViewController: UIInputViewController {
         closeMeasureTouchView()
         #endif
         imeQueue.reset()
-        resetQuick()
-        dropQuick()
+        resetEngine()
+        dropEngine()
         chinese.deactivate()
         peripheral.disappear(owner: lifecycle.token)
         showNote(nil)
@@ -759,52 +763,67 @@ final class KeyboardViewController: UIInputViewController {
     private func syncChineseEngine() {
         guard navigator.page == .chinese else {
             chinese.resetComposition()
-            resetQuick()
+            resetEngine()
             return
         }
-        if activeChineseMethod == .quick {
-            Task { await loadQuickIfNeeded() }
+        if activeChineseMethod?.isKeyed == true {
+            Task { await loadEngineIfNeeded() }
         } else {
             chinese.activate()
         }
     }
 
-    /// Loads Quick once; keys that arrive meanwhile wait behind `imeQueue`, so none is lost or reordered.
-    private func loadQuickIfNeeded() async {
-        guard quick == nil else { return }
-        let generation = quickGeneration
-        let method = await quickLoader.method()
-        guard generation == quickGeneration, quick == nil else { return }
-        guard let method else {
-            showNote("速成字碼表無法載入")
+    private static let keyedUnavailableText = "中文輸入暫時無法使用，請到 App 改用手寫"
+
+    /// Loads the engine of the method in use once; keys that arrive meanwhile wait behind `imeQueue`, so none is lost or
+    /// reordered. An engine loaded for another method (the setting changed while this process lived on) is released first.
+    private func loadEngineIfNeeded() async {
+        guard let id = activeChineseMethod, id.isKeyed else { return }
+        // No layout file: the page shows the English keys (see `KeyboardRootView`) and says so, like a failed engine.
+        guard chineseLayout(for: id) != nil else {
+            showNote(Self.keyedUnavailableText)
             return
         }
-        quick = method
+        if engineID != id {
+            engine = nil
+            engineID = nil
+            imeOutput = IMEOutput()
+        }
+        guard engine == nil else { return }
+        let generation = engineGeneration
+        let method = await engineLoader.method(for: id)
+        guard generation == engineGeneration, activeChineseMethod == id, engine == nil else { return }
+        guard let method else {
+            showNote(id == .quick ? "速成字碼表無法載入" : Self.keyedUnavailableText)
+            return
+        }
+        engine = method
+        engineID = id
         #if DEBUG
-        showQuickEngineMarker(method is QuickInputMethod ? "swift" : "rime")
+        showEngineMarker(method is QuickInputMethod ? "swift" : "rime")
         RimeMeasureProbe.shared.setEngine(method is QuickInputMethod ? .swift : .rime)
         #endif
     }
 
     #if DEBUG
-    /// UI-test marker: which engine Quick loaded (`rime` or `swift`); an almost transparent 1 pt view, no typed text.
-    private func showQuickEngineMarker(_ engine: String) {
+    /// UI-test marker: which engine loaded (`rime` or `swift`); an almost transparent 1 pt view, no typed text.
+    private func showEngineMarker(_ engine: String) {
         let marker: UIView
-        if let existing = view.viewWithTag(Self.quickEngineMarkerTag) {
+        if let existing = view.viewWithTag(Self.engineMarkerTag) {
             marker = existing
         } else {
             marker = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
-            marker.tag = Self.quickEngineMarkerTag
+            marker.tag = Self.engineMarkerTag
             marker.alpha = 0.02
             marker.backgroundColor = .black
             marker.isUserInteractionEnabled = false
             marker.isAccessibilityElement = true
-            marker.accessibilityIdentifier = "rk.quick.engine"
+            marker.accessibilityIdentifier = "rk.ime.engine"
             view.addSubview(marker)
         }
         marker.accessibilityValue = engine
     }
-    private static let quickEngineMarkerTag = 0x524b51
+    private static let engineMarkerTag = 0x524b51
 
     /// UI-test marker: the Rime measurement line as the value; an almost transparent 2 pt view, numbers only.
     private func showRimeMeasure(_ text: String) {
@@ -826,17 +845,27 @@ final class KeyboardViewController: UIInputViewController {
     private static let rimeMeasureMarkerTag = 0x524b52
     #endif
 
-    private func resetQuick() {
-        quick?.reset()
-        quickOutput = IMEOutput()
+    private func resetEngine() {
+        engine?.reset()
+        imeOutput = IMEOutput()
     }
 
     /// The keyboard went away: release the librime session; the next appearance loads again.
-    private func dropQuick() {
-        guard activeChineseMethod == .quick || quick != nil else { return }
-        quickGeneration += 1
-        quick = nil
-        quickLoader.drop()
+    private func dropEngine() {
+        guard activeChineseMethod?.isKeyed == true || engine != nil else { return }
+        engineGeneration += 1
+        engine = nil
+        engineID = nil
+        engineLoader.drop()
+    }
+
+    /// The key layout of the method in use; read once per layout file.
+    private func chineseLayout(for id: ChineseInputMethodID) -> KeyboardLayout? {
+        guard let layoutID = id.layoutID else { return nil }
+        if let layoutCache, layoutCache.id == layoutID { return layoutCache.layout }
+        let loaded = BundledLayouts.load(layoutID, bundle: Bundle(for: KeyboardViewController.self))
+        layoutCache = (layoutID, loaded)
+        return loaded
     }
 
     private func fieldKind() -> FieldKind {
@@ -917,15 +946,15 @@ final class KeyboardViewController: UIInputViewController {
     private func performIME(_ input: IMEInput, run: OrderedActionQueue.Run) async {
         reclaimPeripheralIfVacant()
         let output: IMEOutput
-        if activeChineseMethod == .quick {
-            await loadQuickIfNeeded()
+        if activeChineseMethod?.isKeyed == true {
+            await loadEngineIfNeeded()
             guard run.isCurrent else { return }
             #if DEBUG
-            output = RimeMeasureProbe.shared.measure { quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input)) }
+            output = RimeMeasureProbe.shared.measure { engine?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input)) }
             #else
-            output = quick?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input))
+            output = engine?.handle(input) ?? IMEOutput(passThrough: Self.fallbackKey(for: input))
             #endif
-            quickOutput = IMEOutput(composing: output.composing, candidates: output.candidates, shift: output.shift)
+            imeOutput = IMEOutput(composing: output.composing, candidates: output.candidates, shift: output.shift)
             refreshStatus()
         } else {
             output = await chinese.session.handle(input)
@@ -935,7 +964,7 @@ final class KeyboardViewController: UIInputViewController {
         if let key = output.passThrough { route(key) }
     }
 
-    /// What a key does when the Quick table could not be loaded: it types like a key of the English page.
+    /// What a key does when the engine could not be loaded: it types like a key of the English page.
     private static func fallbackKey(for input: IMEInput) -> KeyAction? {
         switch input {
         case .space: .space
@@ -1018,7 +1047,7 @@ final class KeyboardViewController: UIInputViewController {
         if trackpad.isActive, mode != .remote { trackpad.leave() }
         trackpad.refresh()
         let link = peripheral.linkState
-        let isQuick = activeChineseMethod == .quick
+        let isKeyed = activeChineseMethod?.isKeyed == true
         let line = StatusLine.text(
             mode: mode, link: link, receiver: peripheral.latestStatus, connectedMs: peripheral.reconnectLatencyMs,
             paired: peripheral.isPaired, platform: hostPlatform)
@@ -1031,18 +1060,19 @@ final class KeyboardViewController: UIInputViewController {
             page: navigator.page,
             top: TopAreaState(
                 mode: mode, transmit: transmit, ready: isReady, draftEmpty: draft.isEmpty, hasNote: display != nil,
-                showsCandidates: navigator.page == .chinese && isQuick),
+                showsCandidates: navigator.page == .chinese && isKeyed),
             draft: draft,
             status: display,
             statusDetail: StatusLine.appendingNote(line, note: note),
             linkName: link.name,
             showsGlobe: needsInputModeSwitchKey,
             chineseAvailable: navigator.chineseAvailable,
-            candidates: navigator.page == .chinese ? (isQuick ? quickOutput.candidates : chinese.candidates) : [],
+            candidates: navigator.page == .chinese ? (isKeyed ? imeOutput.candidates : chinese.candidates) : [],
             chineseMethod: activeChineseMethod ?? .handwriting,
-            composing: navigator.page == .chinese && isQuick ? quickOutput.composing : "",
-            quickShift: navigator.page == .chinese && isQuick && quickOutput.shift,
-            handwritingMessage: navigator.page == .chinese && !isQuick ? Self.message(for: chinese.modelStatus) : nil,
+            chineseLayout: navigator.page == .chinese && isKeyed ? activeChineseMethod.flatMap(chineseLayout(for:)) : nil,
+            composing: navigator.page == .chinese && isKeyed ? imeOutput.composing : "",
+            quickShift: navigator.page == .chinese && isKeyed && imeOutput.shift,
+            handwritingMessage: navigator.page == .chinese && !isKeyed ? Self.message(for: chinese.modelStatus) : nil,
             hapticsEnabled: keyFeedback.haptics, soundEnabled: keyFeedback.sound,
             soundVolume: keyFeedback.soundVolume, customSound: keyFeedback.customSound,
             hapticIntensity: keyFeedback.hapticIntensity,

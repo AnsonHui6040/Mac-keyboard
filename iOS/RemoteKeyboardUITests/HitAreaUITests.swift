@@ -159,7 +159,7 @@ final class HitAreaUITests: XCTestCase {
         guard (mode.value as? String) == Self.localModeValue else { throw XCTSkip("could not switch to Local mode") }
         let zhEn = app.descendants(matching: .any).matching(identifier: "rk.zhEn").firstMatch
         // The keyboard may open on the Chinese page (handwriting or Quick); 中英 goes back to the English letters.
-        let onChinese = ["rk.hwDelete", "rk.quick.q"].contains {
+        let onChinese = ["rk.hwDelete", "rk.ime.q"].contains {
             app.descendants(matching: .any).matching(identifier: $0).firstMatch.exists
         }
         if onChinese, zhEn.exists { zhEn.tap() }

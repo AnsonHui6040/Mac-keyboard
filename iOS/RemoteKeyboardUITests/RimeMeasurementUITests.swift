@@ -102,7 +102,7 @@ final class RimeMeasurementUITests: XCTestCase {
         field.tap()
         openOurKeyboardInLocalMode()
         let zhEn = element("rk.zhEn")
-        if !element("rk.quick.a").exists, !element("rk.hwClear").exists {
+        if !element("rk.ime.a").exists, !element("rk.hwClear").exists {
             XCTAssertTrue(zhEn.waitForExistence(timeout: 5), "中英 key not found")
             zhEn.tap()
         }
@@ -116,14 +116,14 @@ final class RimeMeasurementUITests: XCTestCase {
     private func typeSequence(keys target: Int) throws {
         var letterKeys: [Character: XCUIElement] = [:]
         let space = element("rk.space")
-        XCTAssertTrue(element("rk.quick.a").waitForExistence(timeout: 10), "rk.quick.a not found")
+        XCTAssertTrue(element("rk.ime.a").waitForExistence(timeout: 10), "rk.ime.a not found")
         var tapped = 0
         while tapped < target {
             let character = Self.sequence[tapped % Self.sequence.count]
             if character == " " {
                 space.tap()
             } else {
-                if letterKeys[character] == nil { letterKeys[character] = element("rk.quick.\(character)") }
+                if letterKeys[character] == nil { letterKeys[character] = element("rk.ime.\(character)") }
                 letterKeys[character]!.tap()
             }
             tapped += 1

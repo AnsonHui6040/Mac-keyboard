@@ -3,40 +3,50 @@ import os
 import RemoteKeyboardCore
 import RimeEngine
 
-/// Provides the Quick (速成) input method: librime when it starts and passes its health check, otherwise the Swift
-/// engine. The load runs once; callers that arrive while it runs wait for the same result. Every librime call runs on
-/// the main actor. Nothing typed is ever logged: only the start time and whether it worked.
+/// Provides the engine of a keyed Chinese method (Quick, Cangjie, Zhuyin, Jyutping, Pinyin). Quick uses librime when
+/// it starts and passes its health check, otherwise the Swift engine (C1); the other methods have no fallback and give
+/// nil. The engine is kept per method: asking for another method releases the loaded session first, so a scheme changed
+/// in the app takes effect even when the extension's process outlives the keyboard. Every librime call runs on the
+/// main actor. Nothing typed is ever logged: only the start time and whether it worked.
 @MainActor
-final class QuickEngineLoader {
+final class ChineseEngineLoader {
     private static let log = Logger(subsystem: "com.ansonhui.remotekeyboard", category: "rime")
-    private static let schema = "quick5"
 
-    private let loader: OnceLoader<(any ChineseInputMethod)?>
-    private var pendingDrop: Task<Void, Never>?
-
-    init(bundle: Bundle) {
-        loader = OnceLoader { await MainActor.run { Self.load(bundle: bundle) } }
+    private struct Loaded {
+        let id: ChineseInputMethodID
+        let method: (any ChineseInputMethod)?
     }
 
-    /// The Quick engine, or nil when neither engine could load.
-    func method() async -> (any ChineseInputMethod)? {
-        await pendingDrop?.value
-        return await loader.value()
+    private let bundle: Bundle
+    private var loaded: Loaded?
+
+    init(bundle: Bundle) {
+        self.bundle = bundle
+    }
+
+    /// The engine for `id` (loaded once per method, a failure included), or nil when it could not load.
+    func method(for id: ChineseInputMethodID) async -> (any ChineseInputMethod)? {
+        if let loaded, loaded.id == id { return loaded.method }
+        // A different method: the old session goes first.
+        loaded = nil
+        let made = Self.load(id, bundle: bundle)
+        loaded = Loaded(id: id, method: made)
+        return made
     }
 
     /// The keyboard went away: forget the engine so its librime session is released (the runtime stays).
     func drop() {
-        let previous = pendingDrop
-        let loader = self.loader
-        pendingDrop = Task {
-            await previous?.value
-            await loader.reset()
-        }
+        loaded = nil
     }
 
     // MARK: Loading
 
-    private static func load(bundle: Bundle) -> (any ChineseInputMethod)? {
+    private static func load(_ id: ChineseInputMethodID, bundle: Bundle) -> (any ChineseInputMethod)? {
+        guard let config = RimeSchemeConfig.forMethod(id) else { return nil }
+        guard id == .quick else {
+            guard let session = startRime(config: config, bundle: bundle) else { return nil }
+            return RimeInputMethod(session: session, config: config, id: id)
+        }
         #if DEBUG
         let override = MeasureLaunchConfig.read().quickEngine
         #else
@@ -44,18 +54,18 @@ final class QuickEngineLoader {
         #endif
         var session: RimeSession?
         if override != "swift" {
-            session = startRime(bundle: bundle)
+            session = startRime(config: config, bundle: bundle)
         }
         switch QuickEngineChoice.decide(override: override, rimeStarted: session != nil) {
         case .rime:
-            if let session { return RimeInputMethod(session: session) }
+            if let session { return RimeInputMethod(session: session, config: config, id: id) }
             return swiftQuick(bundle: bundle)
         case .swift:
             return swiftQuick(bundle: bundle)
         }
     }
 
-    private static func startRime(bundle: Bundle) -> RimeSession? {
+    private static func startRime(config: RimeSchemeConfig, bundle: Bundle) -> RimeSession? {
         #if DEBUG
         let began = DispatchTime.now().uptimeNanoseconds
         #endif
@@ -70,8 +80,8 @@ final class QuickEngineLoader {
             try FileManager.default.createDirectory(at: user, withIntermediateDirectories: true)
             let runtime = try RimeRuntime.start(
                 RimePaths(sharedData: shared, prebuilt: shared.appendingPathComponent("build", isDirectory: true), userData: user))
-            let made = try runtime.makeSession(schema: schema)
-            if made.isHealthy(probeKey: "a") {
+            let made = try runtime.makeSession(schema: config.schema)
+            if made.isHealthy(probeKey: config.probeKey) {
                 session = made
             } else {
                 log.error("rime health check failed")

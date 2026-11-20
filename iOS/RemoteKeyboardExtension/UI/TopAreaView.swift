@@ -234,9 +234,9 @@ final class TopAreaView: UIView {
         candidateRow.isHidden = !top.showsCandidateRow || onPad
         draftView.set(draft: state.draft)
         setSendEnabled(top.sendEnabled)
-        // Only Quick has its candidates here; the handwriting page draws its own over the writing area.
-        let isQuick = state.page == .chinese && state.chineseMethod == .quick
-        candidateBar.setCandidates(isQuick ? state.candidates : [], composing: isQuick ? state.composing : "")
+        // The keyed methods have their candidates here; the handwriting page draws its own over the writing area.
+        let isKeyed = state.page == .chinese && state.chineseMethod.isKeyed
+        candidateBar.setCandidates(isKeyed ? state.candidates : [], composing: isKeyed ? state.composing : "")
     }
 
     /// Status texts up to this many characters are kept on one line (the cell is one fifth of the width, 68 to 71 pt).

@@ -20,11 +20,13 @@ struct KeyboardViewState: Equatable {
     var chineseAvailable: Bool
     /// Handwriting candidates for the candidate row; empty outside the Chinese page.
     var candidates: [String] = []
-    /// The Chinese method behind the Chinese page (handwriting draws the writing area, Quick the radical keys).
+    /// The Chinese method behind the Chinese page (handwriting draws the writing area, the keyed methods their keys).
     var chineseMethod: ChineseInputMethodID = .handwriting
-    /// Quick: the input code as radicals, drawn before the candidates.
+    /// The key layout of a keyed method's Chinese page; nil until it is loaded (or for handwriting).
+    var chineseLayout: KeyboardLayout?
+    /// Keyed methods: the input code as the method shows it, drawn before the candidates.
     var composing: String = ""
-    /// Quick: a one-shot Shift is waiting; the input method's state, so the key follows it.
+    /// Keyed methods: a one-shot Shift is waiting; the input method's state, so the key follows it.
     var quickShift: Bool = false
     /// Shown over the writing area instead of letting the user write (the model is missing or still importing).
     var handwritingMessage: String?
@@ -68,7 +70,7 @@ final class KeyboardRootView: UIView {
     var onStrokesEnded: (([[InkPoint]], CGSize) -> Void)?
     var onSelectCandidate: ((Int) -> Void)?
     var onClearInk: (() -> Void)?
-    /// Quick: a radical key or Shift was pressed.
+    /// Keyed methods: a code key or Shift was pressed.
     var onIMEInput: ((IMEInput) -> Void)?
     /// The 觸控板 or 鍵盤 key of the status row was tapped.
     var onTrackpadToggle: (() -> Void)? {
@@ -112,9 +114,9 @@ final class KeyboardRootView: UIView {
     private let symbols = SymbolPageView()
     private var symbolsOrigin: SymbolOrigin?
     private let handwriting = HandwritingPageView()
-    private let quick = QuickPageView()
+    private let ime = LayoutPageView()
     /// The input code last drawn; a press that clears it must not turn into a held delete of the text behind it.
-    private var quickComposing = ""
+    private var imeComposing = ""
     private let bottomRow = BottomRowView()
     #if DEBUG
     private let dictationPanel = DictationProbePanel()
@@ -123,11 +125,13 @@ final class KeyboardRootView: UIView {
     private var topRows = 1
     private var showsHandwriting = false
     private var showsTrackpad = false
+    /// Key rows of the shown layout beyond the usual three (a four-row Zhuyin page makes the keyboard taller).
+    private var extraKeyRows = 0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .keyboardTouchSurface
-        for view in [topArea, english, symbols, handwriting, quick, bottomRow, trackpadPage] { addSubview(view) }
+        for view in [topArea, english, symbols, handwriting, ime, bottomRow, trackpadPage] { addSubview(view) }
         trackpadPage.isHidden = true
         #if DEBUG
         dictationPanel.isHidden = true
@@ -147,12 +151,12 @@ final class KeyboardRootView: UIView {
         handwriting.onSelectCandidate = { [weak self] in self?.onSelectCandidate?($0) }
         handwriting.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
         bottomRow.onClear = { [weak self] in self?.onClearInk?() }
-        quick.onLetter = { [weak self] letter in self?.onIMEInput?(.key(letter)) }
-        quick.onShift = { [weak self] in self?.onIMEInput?(.shift) }
-        quick.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
-        quick.backspaceAllowsRepeat = { [weak self] in self?.quickComposing.isEmpty ?? true }
+        ime.onCode = { [weak self] code in self?.onIMEInput?(.key(code)) }
+        ime.onShift = { [weak self] in self?.onIMEInput?(.shift) }
+        ime.onBackspace = { [weak self] in _ = self?.onAction?(.backspace) }
+        ime.backspaceAllowsRepeat = { [weak self] in self?.imeComposing.isEmpty ?? true }
         handwriting.isHidden = true
-        quick.isHidden = true
+        ime.isHidden = true
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -184,16 +188,22 @@ final class KeyboardRootView: UIView {
         // The touchpad page takes the whole key area; the pages and the bottom row are hidden under it.
         let onPad = state.trackpad != nil
         let isHandwriting = isChinese && state.chineseMethod == .handwriting && !onPad
-        let isQuick = isChinese && state.chineseMethod == .quick
-        english.isHidden = isSymbols || isChinese || onPad
+        let isKeyed = isChinese && state.chineseMethod.isKeyed
+        // A keyed method's page needs its layout; without one (not loaded) the page is not shown.
+        let layout = isKeyed ? state.chineseLayout : nil
+        if let layout { ime.apply(layout) }
+        let showsIME = layout != nil && !onPad
+        // A keyed method whose layout is missing shows the English keys instead of an empty page.
+        let englishFallback = isKeyed && layout == nil
+        english.isHidden = isSymbols || (isChinese && !englishFallback) || onPad
         symbols.isHidden = !isSymbols || onPad
         handwriting.isHidden = !isHandwriting
-        quick.isHidden = !isQuick || onPad
+        ime.isHidden = !showsIME
         bottomRow.isHidden = onPad
         trackpadPage.isHidden = !onPad
         if let pad = state.trackpad { trackpadPage.apply(pad) }
-        quickComposing = state.composing
-        quick.setShift(isQuick && state.quickShift)
+        imeComposing = state.composing
+        ime.setShift(isKeyed && state.quickShift)
         bottomRow.setClearVisible(isHandwriting)
         handwriting.setMessage(state.handwritingMessage)
         handwriting.setCandidates(isHandwriting ? state.candidates : [])
@@ -210,11 +220,15 @@ final class KeyboardRootView: UIView {
         #endif
         // On the touchpad page the top area is the top row alone, and the keyboard is as tall as with two top rows.
         let rows = onPad ? 1 : state.top.visibleRowCount
-        if rows != topRows || isHandwriting != showsHandwriting || onPad != showsTrackpad {
+        let extraRows = showsIME ? max(0, (layout?.rows.count ?? 0) - 3) : 0
+        if rows != topRows || isHandwriting != showsHandwriting || onPad != showsTrackpad || extraRows != extraKeyRows {
             topRows = rows
             showsHandwriting = isHandwriting
             showsTrackpad = onPad
-            preferredHeight = CGFloat(KeyboardMetrics.height(visibleTopRows: onPad ? 2 : rows, handwriting: isHandwriting))
+            extraKeyRows = extraRows
+            preferredHeight = CGFloat(
+                KeyboardMetrics.height(
+                    visibleTopRows: onPad ? 2 : rows, handwriting: isHandwriting, extraKeyRows: extraRows))
             invalidateIntrinsicContentSize()
             setNeedsLayout()
         }
@@ -296,7 +310,7 @@ final class KeyboardRootView: UIView {
     }
 
     private func isRedirectable(_ view: UIView) -> Bool {
-        view === self || view === english || view === symbols || view === quick || view === bottomRow
+        view === self || view === english || view === symbols || view === ime || view === bottomRow
             // Writable: any gap on the container outside the canvas may be redirected. With a message over the area,
             // the whole area is not redirected, so tapping the message sends nothing.
             || (view === handwriting && handwriting.acceptsInk)
@@ -316,7 +330,7 @@ final class KeyboardRootView: UIView {
             }
         }
         // The handwriting page holds no letter keys: its candidates and delete key sit over the writing area.
-        for page in [english, symbols, quick, bottomRow] where isShown(page) { collect(page) }
+        for page in [english, symbols, ime, bottomRow] where isShown(page) { collect(page) }
         return result
     }
 
@@ -347,13 +361,15 @@ final class KeyboardRootView: UIView {
         let pageFrame = CGRect(x: side, y: keysTop, width: width - 2 * side, height: letterHeight)
         english.frame = pageFrame
         symbols.frame = pageFrame
-        quick.frame = pageFrame
+        let imeExtra = Double(extraKeyRows) * (KeyboardMetrics.keyRowHeight + KeyboardMetrics.rowGap)
+        ime.frame = CGRect(
+            x: side, y: keysTop, width: width - 2 * side, height: letterHeight + imeExtra)
         #if DEBUG
         // A few points taller than the keys, so their shadows do not show under the panel.
         dictationPanel.frame = pageFrame.insetBy(dx: 0, dy: -3).offsetBy(dx: 0, dy: 3)
         #endif
         trackpadPage.frame = CGRect(x: 0, y: topHeight, width: width, height: max(0, bounds.height - topHeight))
-        let extra = showsHandwriting ? KeyboardMetrics.handwritingExtraHeight : 0
+        let extra = (showsHandwriting ? KeyboardMetrics.handwritingExtraHeight : 0) + imeExtra
         handwriting.frame = CGRect(
             x: side, y: keysTop, width: width - 2 * side, height: letterHeight + KeyboardMetrics.handwritingExtraHeight)
         bottomRow.frame = CGRect(
