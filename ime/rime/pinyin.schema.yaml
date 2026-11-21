@@ -19,6 +19,8 @@ speller:
   delimiter: " '"
   algebra:
     - "derive/^([nl])ue$/$1ve/"
+    - "abbrev/^([a-z]).+$/$1/"
+    - "abbrev/^([zcs]h).+$/$1/"
 translator:
   dictionary: pinyin
   enable_user_dict: false

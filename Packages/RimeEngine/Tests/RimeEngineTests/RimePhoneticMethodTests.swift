@@ -97,17 +97,17 @@ final class RimePhoneticMethodTests: XCTestCase {
 
     func testPinyinSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
         var method = try makeRealMethod(schema: "pinyin", config: .pinyin, id: .pinyin)
-        assertSpaceKeepsSelectedPart("enhpar", method: &method)
+        assertSpaceKeepsSelectedPart("zhongi", method: &method)
     }
 
     func testJyutpingSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
         var method = try makeRealMethod(schema: "jyutping", config: .jyutping, id: .jyutping)
-        assertSpaceKeepsSelectedPart("mzwipd", method: &method)
+        assertSpaceKeepsSelectedPart("hoq", method: &method)
     }
 
     func testSpaceClearsGarbageWithNothingSelected() throws {
         var method = try makeRealMethod(schema: "pinyin", config: .pinyin, id: .pinyin)
-        let typed = type("xzxh", into: &method)
+        let typed = type("iuv", into: &method)
         XCTAssertTrue(typed.candidates.isEmpty)
         let output = method.handle(.space)
         XCTAssertNil(output.commit)
@@ -127,25 +127,26 @@ final class RimePhoneticMethodTests: XCTestCase {
         XCTAssertEqual(space.commit, "中國")
     }
 
-    /// Zhuyin: the first candidate takes the whole syllable, the lone trailing initial has no candidates. The first
-    /// space keeps the selected character, the second commits it.
+    /// Zhuyin: a tone key after a complete syllable leaves a tail with no candidates. The first space keeps the
+    /// selected character, the second commits it.
     func testZhuyinSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
         var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
+        assertSpaceKeepsSelectedPart("a836", method: &method)
+    }
+
+    /// Zhuyin: a trailing initial now extends the candidate: the first candidate covers the syllable plus the
+    /// initial and space commits it whole.
+    func testZhuyinTrailingInitialExtendsTheCandidate() throws {
+        var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
         let typed = type("a83z", into: &method)
-        XCTAssertEqual(typed.candidates.first, "馬")
-        let afterFirst = method.handle(.space)
-        XCTAssertNil(afterFirst.commit)
-        XCTAssertTrue(afterFirst.candidates.isEmpty)
-        XCTAssertTrue(afterFirst.composing.hasPrefix("馬"))
-        let afterSecond = method.handle(.space)
-        XCTAssertEqual(afterSecond.commit, "馬")
-        XCTAssertEqual(afterSecond.composing, "")
+        XCTAssertEqual(typed.candidates.first, "馬糞")
+        XCTAssertEqual(method.handle(.space).commit, "馬糞")
     }
 
     /// Zhuyin: a code that selects nothing is cleared by space and never committed.
     func testZhuyinSpaceClearsGarbageWithNothingSelected() throws {
         var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
-        let typed = type("xxxx", into: &method)
+        let typed = type("6", into: &method)
         XCTAssertTrue(typed.candidates.isEmpty)
         let output = method.handle(.space)
         XCTAssertNil(output.commit)

@@ -19,6 +19,7 @@ speller:
   delimiter: " '"
   algebra:
     - "derive/[6347]$//"
+    - "abbrev/^([1qaz2wsxedcrfv5tgbyhn]).+$/$1/"
 translator:
   dictionary: zhuyin
   enable_user_dict: false
