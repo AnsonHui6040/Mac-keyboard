@@ -38,7 +38,11 @@ public struct RimeInputMethod: ChineseInputMethod {
             let current = session.state
             if !current.candidates.isEmpty { return commit(index: 0) }
             guard !current.input.isEmpty else { return IMEOutput(passThrough: .space, shift: shiftPending) }
-            return clear()
+            // A partly selected composition whose tail has no candidates: keep what was chosen, drop the tail.
+            let selected = session.selectedText
+            guard !selected.isEmpty else { return clear() }
+            reset()
+            return IMEOutput(commit: selected)
         case .returnKey:
             return session.state.input.isEmpty ? IMEOutput(passThrough: .returnKey, shift: shiftPending) : clear()
         case .selectCandidate(let index):

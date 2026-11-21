@@ -80,6 +80,23 @@ public final class RimeSession: @unchecked Sendable {
         return String(cString: raw)
     }
 
+    /// The part of the composition librime has already converted (selected), as text; empty when nothing is selected.
+    /// Reads the preedit bytes before `sel_start` (a UTF-8 byte offset), so it never includes the raw code left over.
+    /// This holds only while the schema's segmentor makes the abc segment cover the code from the start to the end (no
+    /// punct or fallback segment, no initials/finals); everything before `sel_start` is then selected text. Re-verify
+    /// this whenever a schema changes.
+    public var selectedText: String {
+        var context = RimeContext()
+        context.data_size = Int32(MemoryLayout<RimeContext>.size - MemoryLayout<Int32>.size)
+        guard api.pointee.get_context?(id, &context) == RimeBool(1) else { return "" }
+        defer { _ = api.pointee.free_context?(&context) }
+        guard let raw = context.composition.preedit else { return "" }
+        let bytes = UnsafeBufferPointer(start: UnsafeRawPointer(raw).assumingMemoryBound(to: UInt8.self),
+                                        count: strlen(raw))
+        let end = max(0, min(Int(context.composition.sel_start), bytes.count))
+        return String(decoding: bytes[..<end], as: UTF8.self)
+    }
+
     public func takeCommit() -> String? {
         var commit = RimeCommit()
         commit.data_size = Int32(MemoryLayout<RimeCommit>.size - MemoryLayout<Int32>.size)

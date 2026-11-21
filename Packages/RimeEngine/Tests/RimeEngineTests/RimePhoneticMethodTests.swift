@@ -73,4 +73,83 @@ final class RimePhoneticMethodTests: XCTestCase {
         var method = RimeInputMethod(session: session, config: .quick5, id: .quick)
         XCTAssertTrue(method.handle(.key("A")).candidates.contains("日"))
     }
+
+    private func makeRealMethod(schema: String, config: RimeSchemeConfig, id: ChineseInputMethodID) throws -> RimeInputMethod {
+        RimeInputMethod(session: try RimeRuntime.start(RimeFixture.compiled("fixture")).makeSession(schema: schema),
+                        config: config, id: id)
+    }
+
+    /// Space on a code whose first candidate takes only part of it, leaving a tail with no candidates: the first
+    /// space selects the part, the second commits what was selected and clears the tail.
+    private func assertSpaceKeepsSelectedPart(_ keys: String, method: inout RimeInputMethod) {
+        let first = type(keys, into: &method)
+        let expected = first.candidates.first
+        XCTAssertNotNil(expected)
+        let afterFirst = method.handle(.space)
+        XCTAssertNil(afterFirst.commit)
+        XCTAssertTrue(afterFirst.candidates.isEmpty)
+        XCTAssertFalse(afterFirst.composing.isEmpty)
+        let afterSecond = method.handle(.space)
+        XCTAssertEqual(afterSecond.commit, expected)
+        XCTAssertEqual(afterSecond.composing, "")
+        XCTAssertTrue(afterSecond.candidates.isEmpty)
+    }
+
+    func testPinyinSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
+        var method = try makeRealMethod(schema: "pinyin", config: .pinyin, id: .pinyin)
+        assertSpaceKeepsSelectedPart("enhpar", method: &method)
+    }
+
+    func testJyutpingSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
+        var method = try makeRealMethod(schema: "jyutping", config: .jyutping, id: .jyutping)
+        assertSpaceKeepsSelectedPart("mzwipd", method: &method)
+    }
+
+    func testSpaceClearsGarbageWithNothingSelected() throws {
+        var method = try makeRealMethod(schema: "pinyin", config: .pinyin, id: .pinyin)
+        let typed = type("xzxh", into: &method)
+        XCTAssertTrue(typed.candidates.isEmpty)
+        let output = method.handle(.space)
+        XCTAssertNil(output.commit)
+        XCTAssertEqual(output.composing, "")
+        XCTAssertTrue(output.candidates.isEmpty)
+        XCTAssertEqual(method.handle(.space).passThrough, .space)
+    }
+
+    /// The rest still has candidates, so space behaves as before: select, not commit, keep composing.
+    func testSpaceWithCandidatesLeftStillSelectsPartially() throws {
+        var method = try makeRealMethod(schema: "pinyin", config: .pinyin, id: .pinyin)
+        var output = type("zhongguo", into: &method)
+        output = method.handle(.selectCandidate(try XCTUnwrap(output.candidates.firstIndex(of: "中"))))
+        XCTAssertNil(output.commit)
+        XCTAssertFalse(output.candidates.isEmpty)
+        let space = method.handle(.space)
+        XCTAssertEqual(space.commit, "中國")
+    }
+
+    /// Zhuyin: the first candidate takes the whole syllable, the lone trailing initial has no candidates. The first
+    /// space keeps the selected character, the second commits it.
+    func testZhuyinSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
+        var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
+        let typed = type("a83z", into: &method)
+        XCTAssertEqual(typed.candidates.first, "馬")
+        let afterFirst = method.handle(.space)
+        XCTAssertNil(afterFirst.commit)
+        XCTAssertTrue(afterFirst.candidates.isEmpty)
+        XCTAssertTrue(afterFirst.composing.hasPrefix("馬"))
+        let afterSecond = method.handle(.space)
+        XCTAssertEqual(afterSecond.commit, "馬")
+        XCTAssertEqual(afterSecond.composing, "")
+    }
+
+    /// Zhuyin: a code that selects nothing is cleared by space and never committed.
+    func testZhuyinSpaceClearsGarbageWithNothingSelected() throws {
+        var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
+        let typed = type("xxxx", into: &method)
+        XCTAssertTrue(typed.candidates.isEmpty)
+        let output = method.handle(.space)
+        XCTAssertNil(output.commit)
+        XCTAssertEqual(output.composing, "")
+        XCTAssertEqual(method.handle(.space).passThrough, .space)
+    }
 }
