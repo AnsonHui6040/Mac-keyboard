@@ -82,6 +82,9 @@ public final class RimeSession: @unchecked Sendable {
 
     /// The part of the composition librime has already converted (selected), as text; empty when nothing is selected.
     /// Reads the preedit bytes before `sel_start` (a UTF-8 byte offset), so it never includes the raw code left over.
+    /// This holds only while the schema's segmentor makes the abc segment cover the code from the start to the end (no
+    /// punct or fallback segment, no initials/finals); everything before `sel_start` is then selected text. Re-verify
+    /// this whenever a schema changes.
     public var selectedText: String {
         var context = RimeContext()
         context.data_size = Int32(MemoryLayout<RimeContext>.size - MemoryLayout<Int32>.size)

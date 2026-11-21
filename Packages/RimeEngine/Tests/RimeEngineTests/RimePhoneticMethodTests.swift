@@ -126,4 +126,30 @@ final class RimePhoneticMethodTests: XCTestCase {
         let space = method.handle(.space)
         XCTAssertEqual(space.commit, "中國")
     }
+
+    /// Zhuyin: the first candidate takes the whole syllable, the lone trailing initial has no candidates. The first
+    /// space keeps the selected character, the second commits it.
+    func testZhuyinSpaceKeepsSelectedPartWhenTheRestHasNoCandidates() throws {
+        var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
+        let typed = type("a83z", into: &method)
+        XCTAssertEqual(typed.candidates.first, "馬")
+        let afterFirst = method.handle(.space)
+        XCTAssertNil(afterFirst.commit)
+        XCTAssertTrue(afterFirst.candidates.isEmpty)
+        XCTAssertTrue(afterFirst.composing.hasPrefix("馬"))
+        let afterSecond = method.handle(.space)
+        XCTAssertEqual(afterSecond.commit, "馬")
+        XCTAssertEqual(afterSecond.composing, "")
+    }
+
+    /// Zhuyin: a code that selects nothing is cleared by space and never committed.
+    func testZhuyinSpaceClearsGarbageWithNothingSelected() throws {
+        var method = try makeRealMethod(schema: "zhuyin", config: .zhuyin, id: .zhuyin)
+        let typed = type("xxxx", into: &method)
+        XCTAssertTrue(typed.candidates.isEmpty)
+        let output = method.handle(.space)
+        XCTAssertNil(output.commit)
+        XCTAssertEqual(output.composing, "")
+        XCTAssertEqual(method.handle(.space).passThrough, .space)
+    }
 }

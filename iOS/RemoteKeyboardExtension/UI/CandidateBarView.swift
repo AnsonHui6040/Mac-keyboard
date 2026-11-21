@@ -41,6 +41,13 @@ final class CandidateBarView: UIView {
     /// The input code (as radicals, Bopomofo or letters) shown at the left end, before the candidates; empty for handwriting.
     private(set) var composing = ""
     private var showsBackspace = false
+    /// Bumped on every real update of the strip. A press that began under an older generation selects nothing, because
+    /// the reused button now stands for a different candidate.
+    private var generation = 0
+    private var pressGeneration: [ObjectIdentifier: Int] = [:]
+    /// Text widths measured once per update, not on every layout pass.
+    private var candidateWidths: [Double] = []
+    private var composingWidth: Double?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -104,10 +111,8 @@ final class CandidateBarView: UIView {
 
     /// Frames of the code label and the candidate buttons, and the scroll view's content size.
     private func layoutStrip() {
-        let codeWidth = composingLabel.map { Double(($0.text ?? "").size(withAttributes: [.font: composingFont]).width) }
-        let widths = candidates.map { Double(($0 as NSString).size(withAttributes: [.font: candidateFont]).width) }
         let strip = CandidateBarLayout.strip(
-            composingTextWidth: codeWidth, candidateTextWidths: widths, height: Double(scrollView.bounds.height))
+            composingTextWidth: composingWidth, candidateTextWidths: candidateWidths, height: Double(scrollView.bounds.height))
         if let label = composingLabel, let rect = strip.composing { label.frame = Self.cgRect(rect) }
         for (index, rect) in strip.candidates.enumerated() where index < buttons.count {
             buttons[index].frame = Self.cgRect(rect)
@@ -123,11 +128,19 @@ final class CandidateBarView: UIView {
         let button = UIButton(type: .custom)
         button.titleLabel?.font = candidateFont
         button.setTitleColor(.label, for: .normal)
+        button.setTitleColor(.secondaryLabel, for: .highlighted)
         button.layer.cornerRadius = 6
-        button.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
-        // The button's tag is its index, so a reused button never stacks actions.
+        button.addAction(UIAction { [weak self, weak button] _ in
+            KeyFeedback.touchDown()
+            guard let self, let button else { return }
+            self.pressGeneration[ObjectIdentifier(button)] = self.generation
+        }, for: .touchDown)
+        // The button's tag is its index, so a reused button never stacks actions. If the strip was updated after the
+        // press began, the button now shows another candidate, so releasing selects nothing.
         button.addAction(UIAction { [weak self, weak button] _ in
             guard let self, let button else { return }
+            let started = self.pressGeneration.removeValue(forKey: ObjectIdentifier(button))
+            guard started == self.generation else { return }
             self.onSelect?(button.tag)
         }, for: .touchUpInside)
         scrollView.addSubview(button)
@@ -138,6 +151,9 @@ final class CandidateBarView: UIView {
         guard list != candidates || code != composing else { return }
         candidates = list
         composing = code
+        generation &+= 1
+        candidateWidths = list.map { Double(($0 as NSString).size(withAttributes: [.font: candidateFont]).width) }
+        composingWidth = code.isEmpty ? nil : Double(code.size(withAttributes: [.font: composingFont]).width)
         if code.isEmpty {
             composingLabel?.removeFromSuperview()
             composingLabel = nil

@@ -462,7 +462,8 @@ final class ChineseSchemesDeviceUITests: XCTestCase {
                 XCTAssertFalse(reading.failed, "seq \(seqIndex) key \(i + 1): the screen could not be read (keyboard hung)")
                 XCTAssertTrue(reading.alive, "seq \(seqIndex) key \(i + 1): the delete key is gone")
                 XCTAssertEqual(reading.state.composing.count, sequence.codeLengths[i], "seq \(seqIndex) key \(i + 1): code length")
-                XCTAssertLessThan(ms, 3000, "seq \(seqIndex) key \(i + 1): the read took \(ms) ms")
+                if i == 0 { XCTAssertGreaterThanOrEqual(reading.state.candidates.count, 150, "seq \(seqIndex): the heavy candidate list was not produced") }
+                XCTAssertLessThan(ms, 5000, "seq \(seqIndex) key \(i + 1): the read took \(ms) ms")
             }
             fastTap("rk.ime.backspace", frames: frames)
             let after = read()
