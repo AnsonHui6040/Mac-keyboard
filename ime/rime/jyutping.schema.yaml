@@ -17,6 +17,9 @@ engine:
 speller:
   alphabet: abcdefghijklmnopqrstuvwxyz
   delimiter: " '"
+  algebra:
+    - "abbrev/^([a-z]).+$/$1/"
+    - "abbrev/^(gw|kw|ng).+$/$1/"
 translator:
   dictionary: jyutping
   enable_user_dict: false
