@@ -437,25 +437,40 @@ final class ChineseSchemesDeviceUITests: XCTestCase {
 
 
 
-    // MARK: Reproduction of a found hang (only with RKSTRESS_REPRO=1)
+    // MARK: Regression: heavy candidate updates must not hang the keyboard
 
-    /// Zhuyin 't' then 'm' (ㄔ, ㄩ) made the keyboard extension spin in Auto Layout for 28+ minutes on the simulator
-    /// (seen in `testRandomKeys_zhuyin`, key 17, seed 20261121). This types just those two keys and then waits without
-    /// reading the screen (a read would block behind the hung extension). Look at the extension's CPU from outside
-    /// (`ps -axo pcpu,command | grep RemoteKeyboardExtension`). Skipped unless `RKSTRESS_REPRO=1`.
-    func testRepro_zhuyinTM() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["RKSTRESS_REPRO"] == "1", "set RKSTRESS_REPRO=1 (hangs the keyboard)")
-        let keys = (ProcessInfo.processInfo.environment["RKSTRESS_REPRO_KEYS"] ?? "tm").map { String($0) }
-        try begin(.zhuyin, name: "repro")
+    /// Zhuyin 't' then 'm' (185 candidates, then another set) used to leave the extension's main thread spinning in
+    /// Auto Layout (`NSISEngine optimize`) for good, because every candidate button carried width constraints inside
+    /// the keyboard's own layout engine. Every key is followed by a timed screen read: a hung extension makes the
+    /// read fail or exceed the limit. The code is not one character per key: the display puts a separator where a new
+    /// syllable starts, so the lengths below are what the first GREEN run showed (tm: 1, 3; m4n: 1, 2, 4; after the
+    /// delete key: 1 and 2).
+    func testNoHang_heavyCandidateUpdates_zhuyin() throws {
+        try begin(.zhuyin, name: "nohang")
         let frames = try screenFrames()
-        for key in keys {
-            fastTap("rk.ime.\(key)", frames: frames)
-            emit("REPRO tapped=\(key)")
-            Thread.sleep(forTimeInterval: 1)
+        let cases: [(keys: [String], codeLengths: [Int], afterBackspace: Int)] = [
+            (["t", "m"], [1, 3], 1),
+            (["m", "4", "n"], [1, 2, 4], 2)
+        ]
+        for (seqIndex, sequence) in cases.enumerated() {
+            for (i, key) in sequence.keys.enumerated() {
+                fastTap("rk.ime.\(key)", frames: frames)
+                let start = Date()
+                let reading = read()
+                let ms = Int(Date().timeIntervalSince(start) * 1000)
+                emit("H scheme=zhuyin seq=\(seqIndex) i=\(i + 1) key=\(key) code_len=\(reading.state.composing.count) cands=\(reading.state.candidates.count) read_ms=\(ms)")
+                XCTAssertFalse(reading.failed, "seq \(seqIndex) key \(i + 1): the screen could not be read (keyboard hung)")
+                XCTAssertTrue(reading.alive, "seq \(seqIndex) key \(i + 1): the delete key is gone")
+                XCTAssertEqual(reading.state.composing.count, sequence.codeLengths[i], "seq \(seqIndex) key \(i + 1): code length")
+                XCTAssertLessThan(ms, 3000, "seq \(seqIndex) key \(i + 1): the read took \(ms) ms")
+            }
+            fastTap("rk.ime.backspace", frames: frames)
+            let after = read()
+            emit("H scheme=zhuyin seq=\(seqIndex) backspace code_len=\(after.state.composing.count) cands=\(after.state.candidates.count)")
+            XCTAssertFalse(after.failed, "seq \(seqIndex): the screen could not be read after the delete key")
+            XCTAssertEqual(after.state.composing.count, sequence.afterBackspace, "seq \(seqIndex): the delete key did not remove one symbol")
+            try clearCode(after.state)
         }
-        emit("REPRO waiting 40 s without reading the screen")
-        Thread.sleep(forTimeInterval: 40)
-        emit("REPRO done")
     }
 
     // MARK: Reporting

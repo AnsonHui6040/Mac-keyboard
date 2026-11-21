@@ -27,7 +27,14 @@ final class CandidateBarView: UIView {
     }
 
     private let scrollView = UIScrollView()
-    private let stack = UIStackView()
+    /// The input code label; nil while there is no code.
+    private var composingLabel: UILabel?
+    /// Candidate buttons, reused between updates. The first `candidates.count` are shown, the rest are hidden.
+    /// None of the content uses Auto Layout: hundreds of width constraints in the keyboard's own layout engine once
+    /// made the system spin in `NSISEngine optimize`, so the frames are computed by `CandidateBarLayout.strip`.
+    private var buttons: [UIButton] = []
+    private let candidateFont = UIFont.systemFont(ofSize: 22)
+    private let composingFont = UIFont.systemFont(ofSize: 20, weight: .medium)
     private let backspaceKey = KeyButton(
         style: .function, symbol: "delete.left", label: "刪除", identifier: "rk.hwDelete")
     private(set) var candidates: [String] = []
@@ -49,24 +56,10 @@ final class CandidateBarView: UIView {
             scrollView.bottomEdgeEffect.isHidden = true
             scrollView.rightEdgeEffect.isHidden = true
         }
-        stack.axis = .horizontal
-        stack.alignment = .fill
-        stack.spacing = 4
-        stack.isLayoutMarginsRelativeArrangement = true
-        stack.layoutMargins = UIEdgeInsets(top: 3, left: 6, bottom: 3, right: 6)
-        stack.translatesAutoresizingMaskIntoConstraints = false
         backspaceKey.layer.shadowOpacity = 0
         backspaceKey.isHidden = true
         addSubview(scrollView)
         addSubview(backspaceKey)
-        scrollView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor)
-        ])
         isHidden = true
     }
 
@@ -101,6 +94,7 @@ final class CandidateBarView: UIView {
         super.layoutSubviews()
         let frames = CandidateBarLayout.frames(totalWidth: bounds.width, showsBackspace: showsBackspace)
         scrollView.frame = CGRect(x: 0, y: 0, width: frames.scrollWidth, height: bounds.height)
+        layoutStrip()
         if let backspace = frames.backspace {
             backspaceKey.frame = CGRect(
                 x: backspace.x, y: (bounds.height - CandidateBarLayout.backspaceHeight) / 2,
@@ -108,41 +102,77 @@ final class CandidateBarView: UIView {
         }
     }
 
+    /// Frames of the code label and the candidate buttons, and the scroll view's content size.
+    private func layoutStrip() {
+        let codeWidth = composingLabel.map { Double(($0.text ?? "").size(withAttributes: [.font: composingFont]).width) }
+        let widths = candidates.map { Double(($0 as NSString).size(withAttributes: [.font: candidateFont]).width) }
+        let strip = CandidateBarLayout.strip(
+            composingTextWidth: codeWidth, candidateTextWidths: widths, height: Double(scrollView.bounds.height))
+        if let label = composingLabel, let rect = strip.composing { label.frame = Self.cgRect(rect) }
+        for (index, rect) in strip.candidates.enumerated() where index < buttons.count {
+            buttons[index].frame = Self.cgRect(rect)
+        }
+        scrollView.contentSize = CGSize(width: strip.contentWidth, height: scrollView.bounds.height)
+    }
+
+    private static func cgRect(_ rect: CandidateBarLayout.StripRect) -> CGRect {
+        CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+    }
+
+    private func makeButton() -> UIButton {
+        let button = UIButton(type: .custom)
+        button.titleLabel?.font = candidateFont
+        button.setTitleColor(.label, for: .normal)
+        button.layer.cornerRadius = 6
+        button.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
+        // The button's tag is its index, so a reused button never stacks actions.
+        button.addAction(UIAction { [weak self, weak button] _ in
+            guard let self, let button else { return }
+            self.onSelect?(button.tag)
+        }, for: .touchUpInside)
+        scrollView.addSubview(button)
+        return button
+    }
+
     func setCandidates(_ list: [String], composing code: String = "") {
         guard list != candidates || code != composing else { return }
         candidates = list
         composing = code
-        stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        if !code.isEmpty {
-            let label = UILabel()
+        if code.isEmpty {
+            composingLabel?.removeFromSuperview()
+            composingLabel = nil
+        } else {
+            let label: UILabel
+            if let existing = composingLabel {
+                label = existing
+            } else {
+                label = UILabel()
+                label.font = composingFont
+                label.textColor = .systemBlue
+                label.textAlignment = .center
+                label.accessibilityIdentifier = "rk.ime.composing"
+                label.accessibilityLabel = "輸入碼"
+                scrollView.addSubview(label)
+                composingLabel = label
+            }
             label.text = code
-            label.font = .systemFont(ofSize: 20, weight: .medium)
-            label.textColor = .systemBlue
-            label.textAlignment = .center
-            label.accessibilityIdentifier = "rk.ime.composing"
-            label.accessibilityLabel = "輸入碼"
             label.accessibilityValue = code
-            label.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-            stack.addArrangedSubview(label)
         }
-        for (index, text) in list.enumerated() {
-            var configuration = UIButton.Configuration.plain()
-            configuration.title = text
-            configuration.attributedTitle = AttributedString(
-                text, attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 22)]))
-            configuration.baseForegroundColor = .label
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10)
-            configuration.background.cornerRadius = 6
-            configuration.background.backgroundColor = index == 0 && highlightsFirst ? .tertiarySystemFill : .clear
-            let button = UIButton(configuration: configuration)
+        while buttons.count < list.count { buttons.append(makeButton()) }
+        for (index, button) in buttons.enumerated() {
+            guard index < list.count else {
+                button.isHidden = true
+                continue
+            }
+            button.isHidden = false
+            button.tag = index
+            button.setTitle(list[index], for: .normal)
             button.accessibilityIdentifier = "rk.candidate.\(index)"
-            button.accessibilityLabel = text
-            button.addAction(UIAction { _ in KeyFeedback.touchDown() }, for: .touchDown)
-            button.addAction(UIAction { [weak self] _ in self?.onSelect?(index) }, for: .touchUpInside)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
-            stack.addArrangedSubview(button)
+            button.accessibilityLabel = list[index]
+            button.backgroundColor = index == 0 && highlightsFirst ? .tertiarySystemFill : .clear
         }
         updateVisibility()
         scrollView.setContentOffset(.zero, animated: false)
+        setNeedsLayout()
     }
 }
