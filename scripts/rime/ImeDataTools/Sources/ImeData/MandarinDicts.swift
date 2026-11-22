@@ -11,10 +11,11 @@ public struct MandarinOutput: Equatable {
     public var dropped: Int
     public var keyMismatches: Int
     public var mismatches: [KeyMismatch] = []
+    public var boosted: Int = 0
 }
 
 public enum MandarinDicts {
-    public static func zhuyin(_ data: McBopomofoData) -> MandarinOutput {
+    public static func zhuyin(_ data: McBopomofoData, boost: [String] = []) throws -> MandarinOutput {
         var items: [DictEntry] = []
         var dropped = 0
         var mismatches: [KeyMismatch] = []
@@ -32,11 +33,12 @@ public enum MandarinDicts {
             guard syllables.count == word.count, codes.count == syllables.count else { dropped += 1; continue }
             items.append(DictEntry(text: word, code: codes.joined(separator: " "), weight: data.phraseWeight(word)))
         }
-        return MandarinOutput(entries: finish(items), dropped: dropped, keyMismatches: mismatches.count,
-                              mismatches: mismatches)
+        let boosted = try ColloquialBoost.apply(to: finish(items), list: boost, style: .zhuyin)
+        return MandarinOutput(entries: boosted.entries, dropped: dropped, keyMismatches: mismatches.count,
+                              mismatches: mismatches, boosted: boosted.boosted)
     }
 
-    public static func pinyin(_ data: McBopomofoData) -> MandarinOutput {
+    public static func pinyin(_ data: McBopomofoData, boost: [String] = []) throws -> MandarinOutput {
         var bySyllable: [String: String] = [:]
         for row in data.base where bySyllable[row.zhuyin] == nil { bySyllable[row.zhuyin] = stripTone(row.pinyin) }
         var items: [DictEntry] = []
@@ -53,7 +55,8 @@ public enum MandarinDicts {
             guard syllables.count == word.count, codes.count == syllables.count else { dropped += 1; continue }
             items.append(DictEntry(text: word, code: codes.joined(separator: " "), weight: data.phraseWeight(word)))
         }
-        return MandarinOutput(entries: finish(items), dropped: dropped, keyMismatches: 0)
+        let boosted = try ColloquialBoost.apply(to: finish(items), list: boost)
+        return MandarinOutput(entries: boosted.entries, dropped: dropped, keyMismatches: 0, boosted: boosted.boosted)
     }
 
     private static func stripTone(_ pinyin: String) -> String {

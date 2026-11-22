@@ -12,14 +12,15 @@ var options: [String: String] = [:]
 var args = CommandLine.arguments.dropFirst()
 while let key = args.popFirst() {
     guard key.hasPrefix("--"), let value = args.popFirst() else {
-        fail("usage: make-ime-dicts --src <dir> --wordshk <dir> --out <dir> [--lock <file>]", code: 2)
+        fail("usage: make-ime-dicts --src <dir> --wordshk <dir> --out <dir> [--lock <file>] [--boost <file>]", code: 2)
     }
     options[key] = value
 }
 guard let src = options["--src"], let wordshk = options["--wordshk"], let out = options["--out"] else {
-    fail("usage: make-ime-dicts --src <dir> --wordshk <dir> --out <dir> [--lock <file>]", code: 2)
+    fail("usage: make-ime-dicts --src <dir> --wordshk <dir> --out <dir> [--lock <file>] [--boost <file>]", code: 2)
 }
 let lockPath = options["--lock"] ?? "scripts/rime/versions.lock"
+let boostPath = options["--boost"]
 
 do {
     let table = try CangjieTable.parse(String(contentsOfFile: src + "/libcangjie-table.txt", encoding: .utf8))
@@ -47,20 +48,24 @@ do {
     guard let mcURL = VersionsLock.url(named: "mcbopomofo/BPMFBase.txt", in: lock) else {
         fail("mcbopomofo/BPMFBase.txt not found in \(lockPath)")
     }
-    let mcSources = [
+    let boostWords = try boostPath.map { ColloquialBoost.parse(try String(contentsOfFile: $0, encoding: .utf8)) } ?? []
+    var mcSources = [
         "Data: McBopomofo 3.1.1 Source/Data (MIT): \(mcURL)",
         "The McBopomofo word list derives from libtabe (BSD); weights follow McBopomofo's frequency rules.",
         "License texts: McBopomofo MIT, libtabe BSD; see LICENSE-data.txt."
     ]
-    let zhuyin = MandarinDicts.zhuyin(mcbopomofo)
-    let pinyin = MandarinDicts.pinyin(mcbopomofo)
+    if let boostPath {
+        mcSources.insert("Colloquial word weights raised by this project's own list: \(boostPath)", at: 2)
+    }
+    let zhuyin = try MandarinDicts.zhuyin(mcbopomofo, boost: boostWords)
+    let pinyin = try MandarinDicts.pinyin(mcbopomofo, boost: boostWords)
     for (name, output) in [("zhuyin", zhuyin), ("pinyin", pinyin)] {
         let text = DictWriter.render(name: name, sort: "by_weight", sources: mcSources, entries: output.entries)
         try text.write(toFile: out + "/\(name).dict.yaml", atomically: true, encoding: .utf8)
     }
-    print("zhuyin entries=\(zhuyin.entries.count) dropped=\(zhuyin.dropped) key_mismatches=\(zhuyin.keyMismatches)")
+    print("zhuyin entries=\(zhuyin.entries.count) dropped=\(zhuyin.dropped) key_mismatches=\(zhuyin.keyMismatches) boosted=\(zhuyin.boosted)")
     for m in zhuyin.mismatches { print("  key mismatch line \(m.line): zhuyin=\(m.zhuyin) keys=\(m.given)") }
-    print("pinyin entries=\(pinyin.entries.count) dropped=\(pinyin.dropped)")
+    print("pinyin entries=\(pinyin.entries.count) dropped=\(pinyin.dropped) boosted=\(pinyin.boosted)")
     let utf8Rows = mcbopomofo.base.filter { $0.category == "utf8" && Han.isAllHan($0.character) }
     let unihan = UnihanCantonese.parse(try String(contentsOfFile: src + "/unihan/Unihan_Readings.txt", encoding: .utf8))
     guard let unihanURL = VersionsLock.url(named: "unihan", in: lock) else { fail("unihan not found in \(lockPath)") }
