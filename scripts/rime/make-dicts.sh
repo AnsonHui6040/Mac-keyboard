@@ -11,4 +11,5 @@ mkdir -p "$SRC/unihan"
 unzip -o -q "$SRC/Unihan-18.0.0.zip" Unihan_Readings.txt -d "$SRC/unihan"
 
 env -u SDKROOT swift run -c release --package-path scripts/rime/ImeDataTools make-ime-dicts \
-  --src "$SRC" --wordshk ime/sources/wordshk --out "$OUT" --lock scripts/rime/versions.lock
+  --src "$SRC" --wordshk ime/sources/wordshk --out "$OUT" --lock scripts/rime/versions.lock \
+  --boost ime/sources/colloquial-boost.txt
